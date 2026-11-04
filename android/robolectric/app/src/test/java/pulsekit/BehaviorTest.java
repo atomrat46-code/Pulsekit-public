@@ -12114,6 +12114,59 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026_4: the Media browser's File > Add folder's media files to playlist: Images, Videos, Music
+   * to tick and the playlist (Add new first: its name asked); the folder's files of those kinds go in.
+   */
+  @Test
+  public void s212_add_folder_to_playlist() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getCacheDir(), "m12");
+    dir.mkdirs();
+    Files.write(new File(dir, "a.png").toPath(), plainPng(20, 35));
+    Files.write(new File(dir, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    Files.write(new File(dir, "c.mp3").toPath(), new byte[] {'I', 'D', '3', 3});
+    MediaBrowser b = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean inMenu = b.fileItems().contains(Playlist.ADD_FOLDER);
+    b.fileItem(Playlist.ADD_FOLDER);
+    idle();
+    View dv = MediaBrowser.lastAddFolder.getWindow().getDecorView();
+    String boxes = ((android.widget.CheckBox) dv.findViewWithTag("media-pl-pictures")).getText() + ", " + ((android.widget.CheckBox) dv.findViewWithTag("media-pl-videos")).getText() + ", "
+        + ((android.widget.CheckBox) dv.findViewWithTag("media-pl-music")).getText();
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-music")).setChecked(false);
+    String first = String.valueOf(((android.widget.Spinner) dv.findViewWithTag("media-pl-pick")).getItemAtPosition(0));
+    MediaBrowser.lastAddFolder.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-pl-name")).setText("Trip");
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String said = MediaBrowser.lastAddFolderSaid;
+    // Again: music only, into Trip.
+    b.fileItem(Playlist.ADD_FOLDER);
+    idle();
+    dv = MediaBrowser.lastAddFolder.getWindow().getDecorView();
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-pictures")).setChecked(false);
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-videos")).setChecked(false);
+    android.widget.Spinner pick = (android.widget.Spinner) dv.findViewWithTag("media-pl-pick");
+    for (int i = 0; i < pick.getCount(); i++) if ("Trip".equals(pick.getItemAtPosition(i))) pick.setSelection(i);
+    MediaBrowser.lastAddFolder.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String said2 = MediaBrowser.lastAddFolderSaid;
+    StringBuilder items = new StringBuilder();
+    for (Playlist.Item it : Playlist.load(app.getFilesDir(), "Trip").items) items.append(new File(it.file).getName()).append(' ');
+    b.dialog.dismiss();
+    idle();
+    out.append("in File ").append(inMenu).append(" | ").append(boxes).append(" | first ").append(first).append(" | ").append(said).append(" | ").append(said2).append(" | Trip: ").append(items.toString().trim()).append('\n');
+    write("s212_add_folder_to_playlist", out.toString());
+    boolean ok = inMenu && boxes.equals("Images (1), Videos (1), Music (1)") && Playlist.ADD_NEW.equals(first) && said.startsWith("2 files added to Trip") && said2.startsWith("1 file added to Trip")
+        && items.toString().trim().equals("a.png b.mp4 c.mp3");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_3 Media browser: Sort by name, date or type and Order; Search (* and ?, a type); File >
    * Select multiple: ticked files, a held one's menu Remove selected (asked first) and Move selected
    * to…; Rename with a name field (the cursor at its end) and an ending field.
@@ -12743,7 +12796,7 @@ public class BehaviorTest {
     String free = MediaBrowser.freeName(taken, "sogni-pedit.png");
     out.append("free name: ").append(free).append('\n');
     write("s205_settings_move_folders_and_file_menu", out.toString());
-    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
+    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.contains(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
         && "Moved 3 files".equals(said) && moved && windowOk && "sogni-pedit (41).png".equals(free) && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
     if (!ok) throw new AssertionError(out.toString());
   }

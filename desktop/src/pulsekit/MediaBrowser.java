@@ -270,7 +270,7 @@ final class MediaBrowser {
             fileButton.addActionListener(e -> {
                 javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
                 String[][] items = {{this.selecting ? STOP_SELECTING : SELECT_MULTIPLE, "media-select-multiple"}, {IMPORT_FILE_ITEM, "media-import-file"}, {IMPORT_FOLDER_ITEM, "media-import-folder"}, {FolderZip.IMPORT, "media-import-zip"},
-                    {FolderZip.SEND, "media-folder-zip"}, {COPY_FOLDER_ITEM, "media-copy-folder"}, {DownloadMove.DEFAULTS, "media-move-defaults"}};
+                    {FolderZip.SEND, "media-folder-zip"}, {COPY_FOLDER_ITEM, "media-copy-folder"}, {DownloadMove.DEFAULTS, "media-move-defaults"}, {Playlist.ADD_FOLDER, "media-add-folder-playlist"}};
                 for (String[] it : items) {
                     javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it[0]);
                     mi.setName(it[1]);
@@ -946,6 +946,10 @@ final class MediaBrowser {
 
     /** A File menu item: its name ("media-import-file", ...). */
     void fileItem(JDialog dialog, File root, File dir, String what, AtomicBoolean gone) {
+        if ("media-add-folder-playlist".equals(what)) {
+            this.addFolderToPlaylist(dialog, dir);
+            return;
+        }
         if ("media-select-multiple".equals(what)) {
             this.selecting = !this.selecting;
             this.selected.clear();
@@ -1271,6 +1275,71 @@ final class MediaBrowser {
 
     static final String SELECT_MULTIPLE = "Select multiple", STOP_SELECTING = "Stop selecting";
     static final String REMOVE_SELECTED = "Remove selected", MOVE_SELECTED = "Move selected to\u2026";
+
+    /** The tests: Add folder's media files to playlist's answer {pictures, videos, music ("1"/"0"), playlist (Playlist.ADD_NEW: new), new name}. */
+    static String[] addFolderAnswer;
+    static String lastAddFolderSaid;
+
+    /**
+     * Add folder's media files to playlist: Images, Videos and Music to tick, then the playlist (Add new
+     * first: its name asked); the folder's files of the kinds ticked go into it.
+     */
+    void addFolderToPlaylist(java.awt.Component at, File dir) {
+        List<MediaDir.Entry> all = list(dir, false);
+        int[] counts = new int[3];
+        for (MediaDir.Entry e : all) {
+            if (e.folder) continue;
+            int k = MediaDir.kind(e.name);
+            if (k == MediaDir.PICTURE) counts[0]++;
+            else if (k == MediaDir.VIDEO) counts[1]++;
+            else if (k == MediaDir.SOUND) counts[2]++;
+        }
+        List<String> names = new ArrayList<String>();
+        names.add(Playlist.ADD_NEW);
+        names.addAll(Playlist.names(PromptDb.dir()));
+        boolean pics, vids, music;
+        String playlist;
+        if (addFolderAnswer != null) {
+            pics = "1".equals(addFolderAnswer[0]);
+            vids = "1".equals(addFolderAnswer[1]);
+            music = "1".equals(addFolderAnswer[2]);
+            playlist = Playlist.ADD_NEW.equals(addFolderAnswer[3]) ? addFolderAnswer[4] : addFolderAnswer[3];
+        } else {
+            javax.swing.JCheckBox p = new javax.swing.JCheckBox("Images (" + counts[0] + ")", counts[0] > 0);
+            p.setName("media-pl-pictures");
+            javax.swing.JCheckBox v = new javax.swing.JCheckBox("Videos (" + counts[1] + ")", counts[1] > 0);
+            v.setName("media-pl-videos");
+            javax.swing.JCheckBox m = new javax.swing.JCheckBox("Music (" + counts[2] + ")", counts[2] > 0);
+            m.setName("media-pl-music");
+            javax.swing.JComboBox<String> pick = new javax.swing.JComboBox<String>(names.toArray(new String[0]));
+            pick.setName("media-pl-pick");
+            JPanel box = new JPanel(new GridLayout(0, 1, 0, 4));
+            box.add(p);
+            box.add(v);
+            box.add(m);
+            box.add(new JLabel("Into the playlist"));
+            box.add(pick);
+            if (javax.swing.JOptionPane.showConfirmDialog(at, box, Playlist.ADD_FOLDER, javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return;
+            pics = p.isSelected();
+            vids = v.isSelected();
+            music = m.isSelected();
+            playlist = (String) pick.getSelectedItem();
+            if (Playlist.ADD_NEW.equals(playlist)) {
+                Object typed = javax.swing.JOptionPane.showInputDialog(at, "Playlist name", "New playlist", javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, dir.getName());
+                playlist = typed == null ? null : typed.toString();
+            }
+        }
+        if (playlist == null) return;
+        if (!pics && !vids && !music) {
+            lastAddFolderSaid = "Nothing added: no type is ticked";
+        } else if (playlist.trim().length() == 0) {
+            lastAddFolderSaid = "Nothing added: the playlist has no name";
+        } else {
+            List<String[]> files = Playlist.mediaOf(MediaDir.sortedBy(all, MediaDir.sortBy, MediaDir.sortDesc), pics, vids, music, e -> e.id);
+            lastAddFolderSaid = files.isEmpty() ? "No files of the kinds ticked here" : Playlist.addAll(PromptDb.dir(), playlist.trim(), files);
+        }
+        app.setNow(lastAddFolderSaid);
+    }
 
     /** A card while selecting: ☑ or ☐ before its name, outlined when ticked. */
     void paintPicked(JButton card, MediaDir.Entry entry) {

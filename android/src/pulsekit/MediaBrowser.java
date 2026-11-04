@@ -2700,6 +2700,8 @@ final class MediaBrowser {
             items.add(COPY_FOLDER_ITEM);
         }
         items.add(DownloadMove.DEFAULTS);
+        // The folder's pictures, videos and music (those ticked) into a playlist.
+        items.add(Playlist.ADD_FOLDER);
         return items;
     }
 
@@ -2716,11 +2718,90 @@ final class MediaBrowser {
         else if (FolderZip.IMPORT.equals(item)) this.pickImport(IMPORT_ZIP);
         else if (FolderZip.SEND.equals(item)) this.folderToZip();
         else if (DownloadMove.DEFAULTS.equals(item)) this.moveDefined();
+        else if (Playlist.ADD_FOLDER.equals(item)) this.addFolderToPlaylist();
         else if (SELECT_MULTIPLE.equals(item) || STOP_SELECTING.equals(item)) {
             this.selecting = SELECT_MULTIPLE.equals(item);
             this.selected.clear();
             this.paint();
         }
+    }
+
+    /** Add folder's media files to playlist's dialog shown last, and what it said (for the tests). */
+    static AlertDialog lastAddFolder;
+    static String lastAddFolderSaid;
+
+    /**
+     * Add folder's media files to playlist: Images, Videos and Music to tick, then the playlist (Add new
+     * first: its name asked); the folder's files of the kinds ticked go into it.
+     */
+    void addFolderToPlaylist() {
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        int[] counts = new int[3];
+        for (MediaDir.Entry e : this.allEntries) {
+            if (e.folder || e.dbId != 0) continue;
+            int k = MediaDir.kind(e.name);
+            if (k == MediaDir.PICTURE) counts[0]++;
+            else if (k == MediaDir.VIDEO) counts[1]++;
+            else if (k == MediaDir.SOUND) counts[2]++;
+        }
+        String[][] kinds = {{"media-pl-pictures", "Images"}, {"media-pl-videos", "Videos"}, {"media-pl-music", "Music"}};
+        final android.widget.CheckBox[] boxes = new android.widget.CheckBox[3];
+        for (int i = 0; i < 3; i++) {
+            boxes[i] = new android.widget.CheckBox(this.app);
+            boxes[i].setText(kinds[i][1] + " (" + counts[i] + ")");
+            boxes[i].setTag(kinds[i][0]);
+            boxes[i].setChecked(counts[i] > 0);
+            box.addView(boxes[i]);
+        }
+        TextView into = this.app.text("Into the playlist", 13, true);
+        into.setPadding(0, this.app.dp(8), 0, 0);
+        box.addView(into);
+        final List<String> names = new ArrayList<String>();
+        names.add(Playlist.ADD_NEW);
+        names.addAll(Playlist.names(this.app.getFilesDir()));
+        final android.widget.Spinner pick = new android.widget.Spinner(this.app);
+        pick.setTag("media-pl-pick");
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(this.app, android.R.layout.simple_spinner_item, names);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        pick.setAdapter(adapter);
+        box.addView(pick);
+        lastAddFolder = new AlertDialog.Builder(this.app).setTitle(Playlist.ADD_FOLDER).setView(box)
+            .setPositiveButton("OK", (d, w) -> {
+                final boolean pics = boxes[0].isChecked(), vids = boxes[1].isChecked(), music = boxes[2].isChecked();
+                if (!pics && !vids && !music) {
+                    this.app.setNow("Nothing added: no type is ticked");
+                    return;
+                }
+                int at = pick.getSelectedItemPosition();
+                if (at <= 0) {
+                    final android.widget.EditText field = new android.widget.EditText(this.app);
+                    field.setSingleLine(true);
+                    field.setTag("media-pl-name");
+                    field.setText(this.label());
+                    field.setSelection(field.getText().length());
+                    LinearLayout nb = this.app.col();
+                    nb.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+                    nb.addView(field);
+                    lastAsk = new AlertDialog.Builder(this.app).setTitle("New playlist").setView(nb)
+                        .setPositiveButton("OK", (d2, w2) -> this.addFolderInto(field.getText().toString(), pics, vids, music))
+                        .setNegativeButton("Cancel", null).show();
+                } else this.addFolderInto(names.get(at), pics, vids, music);
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    void addFolderInto(String playlist, boolean pics, boolean vids, boolean music) {
+        String n = playlist == null ? "" : playlist.trim();
+        if (n.length() == 0) {
+            this.app.setNow("Nothing added: the playlist has no name");
+            return;
+        }
+        List<String[]> files = Playlist.mediaOf(MediaDir.sortedBy(this.allEntries, MediaDir.sortBy, MediaDir.sortDesc), pics, vids, music, this::playlistAddress);
+        String said = files.isEmpty() ? "No files of the kinds ticked here" : Playlist.addAll(this.app.getFilesDir(), n, files);
+        lastAddFolderSaid = said;
+        this.app.setNow(said);
+        android.widget.Toast.makeText(this.app, said, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     /** Move defined media types: with no type ticked with a folder, the folders asked for first. */

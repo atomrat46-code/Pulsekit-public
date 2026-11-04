@@ -7673,6 +7673,41 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_4: File > Add folder's media files to playlist (as on the phone): the kinds ticked of the
+   * folder into a new playlist, then music into the same one.
+   */
+  void s198_add_folder_to_playlist() throws Exception {
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File dir = new File(System.getProperty("user.home"), "m12");
+    dir.mkdirs();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 35, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(dir, "a.png"));
+    Files.write(new File(dir, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    Files.write(new File(dir, "c.mp3").toPath(), new byte[] {'I', 'D', '3', 3});
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final boolean[] item = new boolean[1];
+    MediaBrowser.addFolderAnswer = new String[] {"1", "1", "0", Playlist.ADD_NEW, "Trip"};
+    edt(() -> {
+      javax.swing.JMenuItem it = fileMenuItem(mb, "media-add-folder-playlist");
+      item[0] = it != null && Playlist.ADD_FOLDER.equals(it.getText());
+      if (it != null) it.doClick();
+    });
+    String said = MediaBrowser.lastAddFolderSaid;
+    MediaBrowser.addFolderAnswer = new String[] {"0", "0", "1", "Trip", ""};
+    edt(() -> fileMenuItem(mb, "media-add-folder-playlist").doClick());
+    String said2 = MediaBrowser.lastAddFolderSaid;
+    MediaBrowser.addFolderAnswer = null;
+    StringBuilder items = new StringBuilder();
+    for (Playlist.Item it : Playlist.load(PromptDb.dir(), "Trip").items) items.append(new File(it.file).getName()).append(' ');
+    edt(() -> mb.last.dispose());
+    this.out.append("item ").append(item[0]).append(" | ").append(said).append(" | ").append(said2).append(" | Trip: ").append(items.toString().trim()).append('\n');
+    boolean ok = item[0] && said != null && said.startsWith("2 files added to Trip") && said2 != null && said2.startsWith("1 file added to Trip") && items.toString().trim().equals("a.png b.mp4 c.mp3");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 04112026_3 Media browser, as on the phone: Sort by name, date or type and Order; Search (* and ?,
    * a type); File > Select multiple, a ticked file's menu Remove selected and Move selected to…;
    * Rename's two fields (the name, the ending).
