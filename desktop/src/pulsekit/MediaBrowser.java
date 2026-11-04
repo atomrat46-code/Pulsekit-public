@@ -168,6 +168,8 @@ final class MediaBrowser {
                 e.id = f.getAbsolutePath();
                 e.folder = f.isDirectory();
                 e.size = e.folder ? 0 : f.length();
+                // When it was last changed (seconds): Sort by date.
+                e.date = f.lastModified() / 1000;
                 all.add(e);
             }
         }
@@ -199,7 +201,11 @@ final class MediaBrowser {
         FileFavourites.load(PromptDb.dir());
         FileFilter.use(FileFilter.MEDIA);
         MediaDir.filter = FileFilter.normal(MediaDir.filter);
-        final List<MediaDir.Entry> entries = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter));
+        List<MediaDir.Entry> kept = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(allEntries, MediaDir.filter), MediaTags.filter));
+        // Search (⌕), then Sort by and Order.
+        if (this.search.length() > 0 || !"A".equals(this.searchType)) kept = MediaDir.searched(kept, this.search, this.searchType);
+        final List<MediaDir.Entry> entries = MediaDir.sortedBy(kept, MediaDir.sortBy, MediaDir.sortDesc);
+        this.shownEntries = entries;
         this.listed.clear();
         for (MediaPlaylist.Item it : MediaPlaylist.items(PromptDb.dir(), dir.getAbsolutePath())) this.listed.add(it.id);
         dialog.setTitle("Media browser · " + MediaDir.label(dir.getPath()));
@@ -263,7 +269,7 @@ final class MediaBrowser {
             fileButton.setName("media-file-menu");
             fileButton.addActionListener(e -> {
                 javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
-                String[][] items = {{IMPORT_FILE_ITEM, "media-import-file"}, {IMPORT_FOLDER_ITEM, "media-import-folder"}, {FolderZip.IMPORT, "media-import-zip"},
+                String[][] items = {{this.selecting ? STOP_SELECTING : SELECT_MULTIPLE, "media-select-multiple"}, {IMPORT_FILE_ITEM, "media-import-file"}, {IMPORT_FOLDER_ITEM, "media-import-folder"}, {FolderZip.IMPORT, "media-import-zip"},
                     {FolderZip.SEND, "media-folder-zip"}, {COPY_FOLDER_ITEM, "media-copy-folder"}, {DownloadMove.DEFAULTS, "media-move-defaults"}};
                 for (String[] it : items) {
                     javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it[0]);
@@ -342,6 +348,83 @@ final class MediaBrowser {
         });
         filters.add(new JLabel("   Tagged:"));
         filters.add(tagged);
+        // Sort by (name, date, type), Order, and ⌕ Search (a name with * and ?, and a type).
+        final javax.swing.JComboBox<String> sortBy = new javax.swing.JComboBox<String>(MediaDir.SORTS);
+        sortBy.setName("media-sort");
+        sortBy.setSelectedItem(MediaDir.sortBy);
+        sortBy.addActionListener(e -> {
+            String picked = (String) sortBy.getSelectedItem();
+            if (picked == null || picked.equals(MediaDir.sortBy)) return;
+            MediaDir.sortBy = picked;
+            // By date the newest first at first.
+            MediaDir.sortDesc = MediaDir.SORT_DATE.equals(picked);
+            saveLoop();
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        });
+        filters.add(new JLabel("   Sort:"));
+        filters.add(sortBy);
+        JButton order = new JButton(MediaDir.orderLabel(MediaDir.sortBy, MediaDir.sortDesc));
+        order.setName("media-order");
+        order.addActionListener(e -> {
+            MediaDir.sortDesc = !MediaDir.sortDesc;
+            saveLoop();
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        });
+        filters.add(order);
+        final boolean searching = this.search.length() > 0 || !"A".equals(this.searchType);
+        JButton find = new JButton(searching ? "\uD83D\uDD0D " + this.search + ("A".equals(this.searchType) ? "" : " (" + this.searchType + ")") : "\uD83D\uDD0D Search");
+        find.setName("media-search");
+        find.addActionListener(e -> {
+            if (!this.searchDialog(dialog)) return;
+            gone.set(true);
+            this.fill(dialog, root, dir);
+        });
+        filters.add(find);
+        if (searching) {
+            JButton clear = new JButton("\u2715");
+            clear.setName("media-search-clear");
+            clear.addActionListener(e -> {
+                this.search = "";
+                this.searchType = "A";
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            filters.add(clear);
+        }
+        // Select multiple: how many are ticked, All, None, Done.
+        if (this.selecting) {
+            JLabel count = new JLabel("   " + this.selected.size() + " selected (right click a ticked one: Remove, Move)");
+            count.setName("media-selection-count");
+            this.selectionCount = count;
+            filters.add(count);
+            JButton all = new JButton("All");
+            all.setName("media-select-all");
+            all.addActionListener(e -> {
+                for (MediaDir.Entry en : entries) if (!en.folder && en.dbId == 0) this.selected.add(en.id);
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            filters.add(all);
+            JButton none = new JButton("None");
+            none.setName("media-select-none");
+            none.addActionListener(e -> {
+                this.selected.clear();
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            filters.add(none);
+            JButton done = new JButton("Done");
+            done.setName("media-select-done");
+            done.addActionListener(e -> {
+                this.selecting = false;
+                this.selected.clear();
+                gone.set(true);
+                this.fill(dialog, root, dir);
+            });
+            filters.add(done);
+        }
         JPanel north = new JPanel(new BorderLayout(0, 6));
         if (this.chooser != null) north.add(this.tabs(dialog, gone), BorderLayout.NORTH);
         north.add(top, BorderLayout.CENTER);
@@ -406,9 +489,15 @@ final class MediaBrowser {
                 card.setToolTipText(entry.dbId != 0 ? "Shows its text (kept in the DB)" : entry.kind == MediaDir.PICTURE ? "Opens it full size" : "Plays it");
                 // A right click, or holding the button down, opens its menu (a long press, as on the phone).
                 final boolean[] held = new boolean[1];
+                final boolean pickable = this.selecting && entry.dbId == 0;
+                if (pickable) this.paintPicked(card, entry);
                 card.addActionListener(e -> {
                     if (held[0]) held[0] = false;
-                    else if (entry.dbId != 0) {
+                    else if (pickable) {
+                        // Selecting: a click ticks it (or not).
+                        if (!this.selected.remove(entry.id)) this.selected.add(entry.id);
+                        this.paintPicked(card, entry);
+                    } else if (entry.dbId != 0) {
                         // A library prompt file: Choose file gets a copy; else its text shows.
                         File copy = this.promptFile(entry);
                         if (copy == null) return;
@@ -857,6 +946,13 @@ final class MediaBrowser {
 
     /** A File menu item: its name ("media-import-file", ...). */
     void fileItem(JDialog dialog, File root, File dir, String what, AtomicBoolean gone) {
+        if ("media-select-multiple".equals(what)) {
+            this.selecting = !this.selecting;
+            this.selected.clear();
+            gone.set(true);
+            this.fill(dialog, root, dir);
+            return;
+        }
         if ("media-move-defaults".equals(what)) {
             this.moveDefined(dialog, root, dir, gone);
             return;
@@ -1162,7 +1258,148 @@ final class MediaBrowser {
     }
 
     /** A file's menu (MediaDir.MENU): Add to DB as a reference or result file, Add to default playlist. */
+    /** Search (⌕): a name (* any letters, ? one), and a type. */
+    String search = "";
+    String searchType = "A";
+    /** Select multiple: on, and the files ticked (their paths). */
+    boolean selecting;
+    final java.util.Set<String> selected = new java.util.LinkedHashSet<String>();
+    JLabel selectionCount;
+    List<MediaDir.Entry> shownEntries = new ArrayList<MediaDir.Entry>();
+    /** The tests: Search's answer {pattern, type} (null: ask). */
+    static String[] searchAnswer;
+
+    static final String SELECT_MULTIPLE = "Select multiple", STOP_SELECTING = "Stop selecting";
+    static final String REMOVE_SELECTED = "Remove selected", MOVE_SELECTED = "Move selected to\u2026";
+
+    /** A card while selecting: ☑ or ☐ before its name, outlined when ticked. */
+    void paintPicked(JButton card, MediaDir.Entry entry) {
+        boolean on = this.selected.contains(entry.id);
+        String text = card.getText() == null ? "" : card.getText();
+        text = text.replace("\u2611 ", "").replace("\u2610 ", "");
+        card.setText(text.startsWith("<html>") ? "<html>" + (on ? "\u2611 " : "\u2610 ") + text.substring(6) : (on ? "\u2611 " : "\u2610 ") + text);
+        card.setBorder(on ? BorderFactory.createLineBorder(new java.awt.Color(0x4A90E2), 3) : UIManagerBorder());
+        if (this.selectionCount != null) this.selectionCount.setText("   " + this.selected.size() + " selected (right click a ticked one: Remove, Move)");
+    }
+
+    static javax.swing.border.Border UIManagerBorder() {
+        javax.swing.border.Border b = javax.swing.UIManager.getBorder("Button.border");
+        return b != null ? b : BorderFactory.createEmptyBorder(2, 2, 2, 2);
+    }
+
+    /** Search: a name (* and ?) and a type; false when cancelled. */
+    boolean searchDialog(java.awt.Component at) {
+        String[] got = searchAnswer;
+        if (got == null) {
+            javax.swing.JTextField field = new javax.swing.JTextField(this.search, 22);
+            field.setName("media-search-field");
+            String[] types = {"A all", "I pictures", "V videos", "S sounds", "T text", "O other"};
+            javax.swing.JComboBox<String> type = new javax.swing.JComboBox<String>(types);
+            type.setName("media-search-type");
+            for (String t : types) if (t.startsWith(this.searchType + " ")) type.setSelectedItem(t);
+            JPanel box = new JPanel(new GridLayout(0, 1, 0, 4));
+            box.add(new JLabel("Name (* any letters, ? one letter; without them, names holding it):"));
+            box.add(field);
+            box.add(new JLabel("Type:"));
+            box.add(type);
+            if (javax.swing.JOptionPane.showConfirmDialog(at, box, "Search", javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return false;
+            got = new String[] {field.getText(), ((String) type.getSelectedItem()).substring(0, 1)};
+        }
+        this.search = got[0] == null ? "" : got[0].trim();
+        this.searchType = got.length > 1 && got[1] != null && got[1].length() > 0 ? got[1] : "A";
+        return true;
+    }
+
+    /** A ticked file's right click: Remove selected (asked first), Move selected to…, Clear selection. */
+    void selectionMenu(java.awt.Component card, int x, int y) {
+        final List<File> picked = new ArrayList<File>();
+        for (String id : this.selected) if (new File(id).isFile()) picked.add(new File(id));
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("media-selection-menu");
+        javax.swing.JMenuItem remove = new javax.swing.JMenuItem(REMOVE_SELECTED + " (" + picked.size() + ")");
+        remove.setName("media-remove-selected");
+        remove.addActionListener(e -> this.removeSelected(picked));
+        m.add(remove);
+        javax.swing.JMenuItem move = new javax.swing.JMenuItem(MOVE_SELECTED);
+        move.setName("media-move-selected");
+        move.addActionListener(e -> this.moveSelected(picked));
+        m.add(move);
+        javax.swing.JMenuItem clear = new javax.swing.JMenuItem("Clear selection");
+        clear.addActionListener(e -> {
+            this.selected.clear();
+            this.refreshShown();
+        });
+        m.add(clear);
+        MenuCancel.add(m);
+        this.lastMenu = m;
+        if (card.isShowing()) m.show(card, x, y);
+    }
+
+    /** What Remove selected / Move selected said last (for the tests). */
+    static String lastSelectionSaid;
+
+    void removeSelected(List<File> picked) {
+        String yes = answer != null ? answer.apply(REMOVE_SELECTED)
+            : javax.swing.JOptionPane.showOptionDialog(this.last, "Delete these " + picked.size() + (picked.size() == 1 ? " file" : " files") + "? They cannot be brought back.",
+                REMOVE_SELECTED, javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.WARNING_MESSAGE, null, new Object[] {"Delete", "Cancel"}, "Cancel") == 0 ? "yes" : null;
+        if (!"yes".equals(yes)) return;
+        int ok = 0;
+        for (File f : picked) {
+            String tagKey = MediaTags.key(f.getName(), f.length());
+            if (f.delete()) {
+                ok++;
+                MediaTags.deleted(tagKey);
+            }
+        }
+        this.selectionDone("Deleted", ok, picked.size());
+    }
+
+    void moveSelected(List<File> picked) {
+        File to;
+        if (answer != null) {
+            String a = answer.apply(MOVE_SELECTED);
+            if (a == null) return;
+            to = new File(a);
+        } else {
+            javax.swing.JFileChooser pick = new javax.swing.JFileChooser(this.shown);
+            pick.setDialogTitle("Move " + picked.size() + (picked.size() == 1 ? " file" : " files") + " to");
+            pick.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+            if (pick.showDialog(this.last, "Move here") != javax.swing.JFileChooser.APPROVE_OPTION) return;
+            to = pick.getSelectedFile();
+        }
+        int ok = 0;
+        if (to.isDirectory() || to.mkdirs()) {
+            for (File f : picked) {
+                try {
+                    MediaDir.moveInto(f, to);
+                    ok++;
+                } catch (Exception ignored) {
+                    // counted as not moved
+                }
+            }
+        }
+        this.selectionDone("Moved", ok, picked.size());
+    }
+
+    void selectionDone(String verb, int ok, int all) {
+        lastSelectionSaid = verb + " " + ok + (ok == 1 ? " file" : " files") + (ok < all ? "; " + (all - ok) + " could not be" : "");
+        app.setNow(lastSelectionSaid);
+        this.selected.clear();
+        this.refreshShown();
+    }
+
+    /** The folder shown again. */
+    void refreshShown() {
+        if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
+        // Selecting: a ticked file's menu is the selection's.
+        if (this.selecting) {
+            if (this.selected.isEmpty()) this.selected.add(entry.id);
+            this.selectionMenu(card, x, y);
+            return;
+        }
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         menu.setName("media-menu");
         // A file already in the playlist: its third item takes it out.
@@ -1545,7 +1782,7 @@ final class MediaBrowser {
                 if (said == null) return;
                 ZipFlow.lastSaid = said;
             } else if (MediaDir.RENAME.equals(action)) {
-                String typed = this.ask("New name for " + f.getName(), f.getName());
+                String typed = answer != null ? this.ask("New name for " + f.getName(), f.getName()) : this.renameDialog(f);
                 if (typed == null) return;
                 String name = f.isDirectory() ? MediaDir.cleanName(typed) : MediaDir.keepEnding(f.getName(), typed);
                 File to = name == null ? null : new File(f.getParentFile(), name);
@@ -1586,6 +1823,45 @@ final class MediaBrowser {
         app.setNow(said);
         // The folder shown again.
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
+    }
+
+    /** What Rename's two fields showed last {name, ending} (for the tests); the tests' answer {name, ending}. */
+    static String[] lastRenameParts;
+    static String[] renameAnswer;
+
+    /** Rename: the name (focused, the cursor at its end) and the ending in their own fields; the new name, or null. */
+    String renameDialog(File f) {
+        final String[] parts = MediaDir.splitName(f.getName(), f.isDirectory());
+        lastRenameParts = parts;
+        if (renameAnswer != null) return parts[1].length() == 0 ? renameAnswer[0] : MediaDir.joinName(renameAnswer[0], renameAnswer[1]);
+        final javax.swing.JTextField name = new javax.swing.JTextField(parts[0], 26);
+        name.setName("media-rename-field");
+        final javax.swing.JTextField ext = new javax.swing.JTextField(parts[1], 6);
+        ext.setName("media-rename-ext");
+        JPanel box = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        box.add(name);
+        if (parts[1].length() > 0) {
+            box.add(new JLabel("."));
+            box.add(ext);
+        }
+        // The name focused, its cursor at the end, once the dialog shows.
+        name.addAncestorListener(new javax.swing.event.AncestorListener() {
+            @Override
+            public void ancestorAdded(javax.swing.event.AncestorEvent ev) {
+                SwingUtilities.invokeLater(() -> {
+                    name.requestFocusInWindow();
+                    name.setCaretPosition(name.getText().length());
+                });
+            }
+
+            @Override
+            public void ancestorRemoved(javax.swing.event.AncestorEvent ev) {}
+
+            @Override
+            public void ancestorMoved(javax.swing.event.AncestorEvent ev) {}
+        });
+        if (javax.swing.JOptionPane.showConfirmDialog(this.last, box, "Rename " + f.getName(), javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) return null;
+        return parts[1].length() == 0 ? name.getText() : MediaDir.joinName(name.getText(), ext.getText());
     }
 
     /** Tags…: the file's tags, picked from those made so far, and new ones typed (a comma between) (TagDialogs). */

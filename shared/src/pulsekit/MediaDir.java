@@ -113,6 +113,92 @@ public final class MediaDir {
     return out;
   }
 
+  /** Sort by: the folder's files by name, date or type (folders first, by name); A to Z or Z to A (Order). */
+  public static final String SORT_NAME = "Name", SORT_DATE = "Date", SORT_TYPE = "Type";
+  public static final String[] SORTS = {SORT_NAME, SORT_DATE, SORT_TYPE};
+  public static volatile String sortBy = SORT_NAME;
+  public static volatile boolean sortDesc;
+
+  public static String validSort(String s) {
+    for (String k : SORTS) if (k.equalsIgnoreCase(s == null ? "" : s.trim())) return k;
+    return SORT_NAME;
+  }
+
+  /** Order's button: what the order is now ("A to Z", "Newest first"...). */
+  public static String orderLabel(String by, boolean desc) {
+    if (SORT_DATE.equals(by)) return desc ? "Newest first" : "Oldest first";
+    return desc ? "Z to A" : "A to Z";
+  }
+
+  /** The entries in Sort by's order (a new list): folders first by name, then the files. */
+  public static List<Entry> sortedBy(List<Entry> in, final String by, final boolean desc) {
+    List<Entry> out = new ArrayList<Entry>(in == null ? new ArrayList<Entry>() : in);
+    Collections.sort(out, new Comparator<Entry>() {
+      @Override
+      public int compare(Entry a, Entry b) {
+        if (a.folder != b.folder) return a.folder ? -1 : 1;
+        if (a.folder) return a.name.compareToIgnoreCase(b.name);
+        int k;
+        if (SORT_DATE.equals(by)) k = Long.compare(a.date, b.date);
+        else if (SORT_TYPE.equals(by)) {
+          k = Integer.compare(typeRank(a), typeRank(b));
+          if (k == 0) k = splitName(a.name, false)[1].compareToIgnoreCase(splitName(b.name, false)[1]);
+        } else k = 0;
+        if (k == 0) k = a.name.compareToIgnoreCase(b.name);
+        return desc ? -k : k;
+      }
+    });
+    return out;
+  }
+
+  static int typeRank(Entry e) {
+    int k = e.kind != 0 ? e.kind : kind(e.name);
+    return k == PICTURE ? 0 : k == VIDEO ? 1 : k == SOUND ? 2 : 3;
+  }
+
+  /**
+   * Search: the entries whose name fits `pattern` (* any letters, ? one; without them, a name that
+   * holds it), of `type` (A all, I pictures, V videos, S sounds, T text, O other), case aside.
+   * Folders stay, so the way on is still there.
+   */
+  public static List<Entry> searched(List<Entry> in, String pattern, String type) {
+    List<Entry> out = new ArrayList<Entry>();
+    String p = pattern == null ? "" : pattern.trim().toLowerCase(java.util.Locale.ROOT);
+    String t = type == null || type.length() == 0 ? "A" : type;
+    java.util.regex.Pattern re = null;
+    if (p.indexOf('*') >= 0 || p.indexOf('?') >= 0) {
+      StringBuilder sb = new StringBuilder();
+      for (char c : p.toCharArray()) sb.append(c == '*' ? ".*" : c == '?' ? "." : java.util.regex.Pattern.quote(String.valueOf(c)));
+      re = java.util.regex.Pattern.compile(sb.toString());
+    }
+    for (Entry e : in == null ? new ArrayList<Entry>() : in) {
+      if (e.folder) {
+        out.add(e);
+        continue;
+      }
+      String n = e.name.toLowerCase(java.util.Locale.ROOT);
+      boolean name = p.length() == 0 || (re != null ? re.matcher(n).matches() : n.contains(p));
+      if (name && (t.equals("A") || filtered(java.util.Collections.singletonList(e), t).size() == 1)) out.add(e);
+    }
+    return out;
+  }
+
+  /** Rename's two fields: {name, extension} ("photo", "png"); a folder or a name without one: {name, ""}. */
+  public static String[] splitName(String name, boolean folder) {
+    String n = name == null ? "" : name;
+    int dot = folder ? -1 : n.lastIndexOf('.');
+    if (dot <= 0 || dot == n.length() - 1 || n.length() - dot > 6) return new String[] {n, ""};
+    return new String[] {n.substring(0, dot), n.substring(dot + 1)};
+  }
+
+  /** The two fields as a name again ("photo" and "png": photo.png; no extension: the name alone). */
+  public static String joinName(String base, String ext) {
+    String b = base == null ? "" : base.trim();
+    String x = ext == null ? "" : ext.trim();
+    while (x.startsWith(".")) x = x.substring(1);
+    return x.length() == 0 ? b : b + "." + x;
+  }
+
   /**
    * The browser's type selectors: A all, I pictures, V videos, S sounds (MIDI too), T text, O other
    * files. Folders are always shown.
@@ -421,7 +507,7 @@ public final class MediaDir {
       for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
     }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
-        + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + (tab.length() > 0 ? "\ntab=" + tab : "") + places + "\n";
+        + "\nsort=" + sortBy + (sortDesc ? "\tdesc" : "") + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + (tab.length() > 0 ? "\ntab=" + tab : "") + places + "\n";
   }
 
   /** Reads encode()'s text; a missing or unreadable line keeps its default (Loop off, 100%, fit, 1x). */
@@ -430,6 +516,8 @@ public final class MediaDir {
     volume = 100;
     zoom = 1;
     speed = 1;
+    sortBy = SORT_NAME;
+    sortDesc = false;
     lastRoot = "";
     lastPath = new ArrayList<String>();
     List<String> favs = new ArrayList<String>();
@@ -449,6 +537,10 @@ public final class MediaDir {
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
+        else if (k.equals("sort")) {
+          sortDesc = v.endsWith("\tdesc") || v.endsWith(" desc");
+          sortBy = validSort(v.replace("\tdesc", "").replace(" desc", "").trim());
+        }
         else if (k.equals("at")) {
           int colon = v.lastIndexOf(':');
           if (colon > 0) {
