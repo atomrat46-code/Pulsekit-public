@@ -287,6 +287,8 @@ public class MainActivity extends UiKit {
         super.onCreate(bundle);
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
+        // A busy screen (main thread) is caught where it is, so a "not responding" has its cause.
+        CrashLog.watch(this);
         // A program's input file the phone emptied from the temp folder: read again from where it was picked.
         InputOrigins.uriReader = uri -> {
             java.io.InputStream in = this.getContentResolver().openInputStream(android.net.Uri.parse(uri));

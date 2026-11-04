@@ -163,8 +163,143 @@ public final class CrashLog {
       if (r == android.app.ApplicationExitInfo.REASON_EXIT_SELF || r == android.app.ApplicationExitInfo.REASON_USER_REQUESTED
           || r == android.app.ApplicationExitInfo.REASON_USER_STOPPED || r == android.app.ApplicationExitInfo.REASON_PACKAGE_UPDATED) return null;
       String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date(e.getTimestamp()));
-      return exitText(r, e.getDescription(), e.getPss() / 1024, e.getRss() / 1024, e.getImportance(), when, e.getStatus());
+      String text = exitText(r, e.getDescription(), e.getPss() / 1024, e.getRss() / 1024, e.getImportance(), when, e.getStatus());
+      // Not responding: where the main thread was (Android's thread dump), and the hang the watchdog saw.
+      if (r == android.app.ApplicationExitInfo.REASON_ANR) {
+        String main = null;
+        try {
+          java.io.InputStream in = e.getTraceInputStream();
+          if (in != null) {
+            try {
+              main = mainThread(new String(readAll(in), StandardCharsets.UTF_8));
+            } finally {
+              in.close();
+            }
+          }
+        } catch (Throwable ignored) {
+          // no dump kept
+        }
+        if (main != null) text += "\n\nThe main thread then (Android's dump):\n" + main;
+        String hang = lastHang(ctx.getFilesDir());
+        if (hang != null) text += "\n\n" + hang;
+      }
+      return text;
     } catch (Throwable ex) {
+      return null;
+    }
+  }
+
+  static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    byte[] buf = new byte[16384];
+    int n;
+    while ((n = in.read(buf)) > 0 && out.size() < 4 << 20) out.write(buf, 0, n);
+    return out.toByteArray();
+  }
+
+  /** The "main" thread's part of an ANR thread dump (its first 60 lines), or null. */
+  static String mainThread(String dump) {
+    int at = dump.indexOf("\n\"main\"");
+    if (at < 0) at = dump.startsWith("\"main\"") ? -1 : -2;
+    if (at == -2) return null;
+    String rest = dump.substring(at + 1);
+    StringBuilder out = new StringBuilder();
+    int lines = 0;
+    for (String line : rest.split("\n")) {
+      if (lines > 0 && line.trim().length() == 0) break;
+      out.append(line).append('\n');
+      if (++lines >= 60) break;
+    }
+    return out.toString().trim();
+  }
+
+  // ------------------------------------------------------------ The watchdog
+
+  /** The screen's (main thread's) hangs seen: the newest first, a few kept. */
+  static final String HANGS = "hang-log.txt";
+  static final long HUNG_MS = 2500;
+  private static volatile long beat;
+  private static Thread watchdog;
+
+  /**
+   * A watchdog: the main thread is asked every half second to say it is there; busy for 2.5 s (Android
+   * says "not responding" at 5 s), where it is then is written to hang-log.txt and File > Logs (Errors),
+   * again at 4.5 s if still busy, so a not responding has its cause.
+   */
+  static synchronized void watch(final MainActivity app) {
+    if (watchdog != null || "robolectric".equals(android.os.Build.FINGERPRINT)) return;
+    final File dir = app.getFilesDir();
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    final Runnable alive = () -> beat = android.os.SystemClock.uptimeMillis();
+    beat = android.os.SystemClock.uptimeMillis();
+    watchdog = new Thread(() -> {
+      int said = 0;
+      while (true) {
+        try {
+          main.post(alive);
+          Thread.sleep(500);
+          long late = android.os.SystemClock.uptimeMillis() - beat;
+          if (late < HUNG_MS) {
+            said = 0;
+            continue;
+          }
+          if (said == 0 || (said == 1 && late >= 4500)) {
+            said++;
+            hung(dir, late, android.os.Looper.getMainLooper().getThread().getStackTrace());
+          }
+        } catch (InterruptedException stop) {
+          return;
+        } catch (Throwable ignored) {
+          // goes on
+        }
+      }
+    }, "pulsekit-watchdog");
+    watchdog.setDaemon(true);
+    watchdog.start();
+  }
+
+  /** A hang: when, how long so far, what ran, and the main thread's stack. */
+  static void hung(File dir, long ms, StackTraceElement[] stack) {
+    String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date());
+    String run = "";
+    try {
+      File running = new File(dir, RunKeeper.MARK);
+      if (running.isFile()) run = new String(java.nio.file.Files.readAllBytes(running.toPath()), StandardCharsets.UTF_8).split("\n")[0];
+    } catch (Exception ignored) {
+      // none
+    }
+    StringBuilder sb = new StringBuilder("The screen was busy " + (ms / 100) / 10.0 + " s (" + when + (run.isEmpty() ? "" : ", while " + run + " ran") + "); the main thread was at:\n");
+    int n = 0;
+    for (StackTraceElement e : stack) {
+      sb.append("    at ").append(e).append('\n');
+      if (++n >= 40) break;
+    }
+    String entry = sb.toString();
+    try {
+      File f = new File(dir, HANGS);
+      String old = f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : "";
+      String all = entry + "\n" + old;
+      java.nio.file.Files.write(f.toPath(), (all.length() > KEEP ? all.substring(0, KEEP) : all).getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // Logs only
+    }
+    try {
+      Logs.write(Logs.ERRORS, "Pulsekit's screen was busy", entry);
+    } catch (Throwable ignored) {
+      // none
+    }
+  }
+
+  /** The newest hang written (for a not responding's note), or null. */
+  static String lastHang(File dir) {
+    try {
+      File f = new File(dir, HANGS);
+      if (!f.isFile()) return null;
+      String all = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+      int end = all.indexOf("\n\n");
+      String top = (end > 0 ? all.substring(0, end) : all).trim();
+      return top.isEmpty() ? null : top;
+    } catch (Exception ex) {
       return null;
     }
   }

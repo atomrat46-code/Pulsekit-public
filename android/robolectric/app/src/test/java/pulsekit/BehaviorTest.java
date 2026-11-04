@@ -12114,6 +12114,29 @@ public class BehaviorTest {
   }
 
   /**
+   * A "not responding" gets its cause: the main thread's part of Android's thread dump, and the
+   * watchdog's record of a busy screen (hang-log.txt, its stack) put under Android's reason.
+   */
+  @Test
+  public void s218_not_responding_cause() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String dump = "----- pid 123 -----\n\n\"main\" prio=5 tid=1 Native\n  | group=\"main\"\n  at android.graphics.BitmapFactory.nativeDecodeByteArray(Native method)\n  at pulsekit.PyJav.pkPicture(PyJav.java:10)\n\n\"Signal Catcher\" daemon\n  at x\n";
+    String main = CrashLog.mainThread(dump);
+    out.append("main thread: ").append(main == null ? "none" : main.replace('\n', '|')).append('\n');
+    File dir = app.getFilesDir();
+    new File(dir, CrashLog.HANGS).delete();
+    CrashLog.hung(dir, 2600, new StackTraceElement[] {new StackTraceElement("pulsekit.PyJav", "pkPicture", "PyJav.java", 10), new StackTraceElement("android.os.Looper", "loop", "Looper.java", 1)});
+    CrashLog.hung(dir, 4600, new StackTraceElement[] {new StackTraceElement("pulsekit.PyJav", "pkPicture", "PyJav.java", 11)});
+    String hang = CrashLog.lastHang(dir);
+    out.append("last hang: ").append(hang == null ? "none" : hang.replace('\n', '|')).append('\n');
+    write("s218_not_responding_cause", out.toString());
+    new File(dir, CrashLog.HANGS).delete();
+    boolean ok = main != null && main.startsWith("\"main\" prio=5") && main.contains("pkPicture") && !main.contains("Signal Catcher")
+        && hang != null && hang.startsWith("The screen was busy 4.6 s") && hang.contains("PyJav.java:11") && !hang.contains("2.6 s");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The phone turned sideways: the full screen players (the Media browser's, Video ready's Full screen
    * preview, the playlist viewer) let the screen turn, and back upright when closed; sideways, the
    * Media browser's bars hide while a video plays (paused, they show).
