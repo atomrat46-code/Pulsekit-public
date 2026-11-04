@@ -142,6 +142,11 @@ final class PlaylistWindow {
             again.run();
         });
         top.add(delete);
+        // Add to Collection: the playlist itself, a link in a collection.
+        JButton collect = new JButton(MediaCollections.ADD + "\u2026");
+        collect.setName("playlist-collection");
+        collect.addActionListener(e -> CollectionsWindow.addTo(app, d, MediaCollections.KIND_PLAYLIST, p.name, p.name, p.items.size()));
+        top.add(collect);
         // A second row: Save, Save as…, Import .pls, Merge .pls.
         JPanel files = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         JButton imp = new JButton("Import .pls…");

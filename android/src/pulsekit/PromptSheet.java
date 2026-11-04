@@ -2114,6 +2114,9 @@ public final class PromptSheet {
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(file), file.name, () -> rebuild(activity)));
     items.add(Playlist.ADD);
     runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(file), file.name));
+    // Add to Collection: a link to the prompt file in the DB.
+    items.add(MediaCollections.ADD);
+    runs.add(() -> CollectionsScreen.addTo((MainActivity) activity, MediaCollections.KIND_DB, Playlist.dbAddress(file), file.name, file.size));
     items.add(Playlist.ADD_DEFAULT);
     runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(file), file.name));
     items.add(MediaTags.TAGS);
@@ -2225,6 +2228,9 @@ public final class PromptSheet {
     runs.add(() -> GroupDialogs.addTo(activity, FileGroups.keys(stored), name, () -> rebuild(activity)));
     items.add(Playlist.ADD);
     runs.add(() -> PlaylistScreen.addTo((MainActivity) activity, Playlist.dbAddress(stored), name));
+    // Add to Collection: a link to the DB file.
+    items.add(MediaCollections.ADD);
+    runs.add(() -> CollectionsScreen.addTo((MainActivity) activity, MediaCollections.KIND_DB, Playlist.dbAddress(stored), name, stored.size));
     items.add(Playlist.ADD_DEFAULT);
     runs.add(() -> PlaylistScreen.addToDefault((MainActivity) activity, Playlist.dbAddress(stored), name));
     items.add(MediaTags.TAGS);

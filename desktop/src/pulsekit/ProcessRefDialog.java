@@ -63,6 +63,8 @@ final class ProcessRefDialog {
         this.app = app;
         this.picture = picture;
         this.recent = PyJavRecent.load(app.pyJav.pyRecentDir());
+        // File > Downloads' runs: their prompts are listed too.
+        SogniDownloads.init(PromptDb.dir());
         this.programs = ProcessAsRef.programs(this.recent, (name, items) -> this.source(name));
         this.choice = ProcessAsRef.load(PromptDb.dir());
         this.dialog = new JDialog(app, "Process as a reference", true);
@@ -81,7 +83,14 @@ final class ProcessRefDialog {
         rows.add(new JLabel("Program"));
         rows.add(this.program);
         rows.add(new JLabel("Prompt (its recent runs)"));
-        rows.add(this.prompt);
+        // The prompt picked, each by its first sentences; Whole prompt… shows all of it.
+        JButton whole = new JButton("Whole prompt\u2026");
+        whole.setName("process-ref-prompt-whole");
+        whole.addActionListener(e -> this.showWhole());
+        JPanel promptRow = new JPanel(new BorderLayout(6, 0));
+        promptRow.add(this.prompt, BorderLayout.CENTER);
+        promptRow.add(whole, BorderLayout.EAST);
+        rows.add(promptRow);
         rows.add(new JLabel("The picture is"));
         JPanel slots = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         slots.add(this.ref1);
@@ -112,17 +121,35 @@ final class ProcessRefDialog {
 
     void setProgram(String name, boolean kept) {
         if (name == null) return;
-        this.runs = PyJavRecent.runsOf(this.recent, name);
+        // Its prompts, the newest first (the one used last is the first: picked at once).
+        this.runs = ProcessAsRef.promptRuns(this.recent, name);
         this.prompt.removeAllItems();
-        for (PyJavRecent.Item item : this.runs) this.prompt.addItem(ProcessAsRef.promptLabel(item, 90));
+        for (PyJavRecent.Item item : this.runs) this.prompt.addItem(ProcessAsRef.promptShort(item, 110));
         boolean same = kept && name.equals(this.choice.program);
-        if (!this.runs.isEmpty()) this.prompt.setSelectedIndex(same ? ProcessAsRef.runIndex(this.runs, this.choice) : 0);
+        if (!this.runs.isEmpty()) this.prompt.setSelectedIndex(0);
         List<String> s = ProcessAsRef.slots(this.source(name));
         this.ref1.setText("Reference file 1 (" + s.get(0) + ")");
         this.ref2.setVisible(s.size() > 1);
         if (s.size() > 1) this.ref2.setText("Reference file 2 (" + s.get(1) + ")");
         if (same && this.choice.slot == 2 && s.size() > 1) this.ref2.setSelected(true);
         else this.ref1.setSelected(true);
+    }
+
+    /** The tests: Whole prompt…'s text shown last. */
+    static String lastWhole;
+
+    /** Whole prompt…: the prompt picked, all of it. */
+    void showWhole() {
+        int i = this.prompt.getSelectedIndex();
+        if (this.runs == null || i < 0 || i >= this.runs.size()) return;
+        String whole = ProcessAsRef.prompt(this.runs.get(i));
+        lastWhole = whole == null ? ProcessAsRef.promptLabel(this.runs.get(i), 2000) : whole;
+        javax.swing.JTextArea text = new javax.swing.JTextArea(lastWhole, 10, 50);
+        text.setName("process-ref-prompt-text");
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        text.setEditable(false);
+        JOptionPane.showMessageDialog(this.dialog, new javax.swing.JScrollPane(text), "Prompt " + (i + 1) + " of " + this.runs.size(), JOptionPane.PLAIN_MESSAGE);
     }
 
     /** Open: PyJav with the program, the run's settings and the picture in its slot. */
@@ -140,14 +167,20 @@ final class ProcessRefDialog {
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = slot;
         ProcessAsRef.save(PromptDb.dir(), this.choice);
+        // Among the recent reference pictures (Params' Recent).
+        RecentRefs.add(PromptDb.dir(), this.picture);
         // The program's saved Params win over the run's arguments: the picture goes in there too.
         String saved = ProcessAsRef.savedWithPicture(this.app.pyJav.loadParams(name), s.get(slot - 1), this.picture.getAbsolutePath());
         if (saved != null) this.app.pyJav.saveParams(name, saved);
+        // The slot's row left out of the run (its Use box unticked): ticked again, so this picture is used there.
+        String off = ProcessAsRef.offWithout(this.app.pyJav.loadParams(name + ProgramParams.OFF_KEY), s.get(slot - 1));
+        if (off != null) this.app.pyJav.saveParams(name + ProgramParams.OFF_KEY, off);
         this.dialog.dispose();
         // The Media browser closes, so the program and its Params are on top.
         if (this.app.mediaBrowser != null && this.app.mediaBrowser.last != null && this.app.mediaBrowser.last.isShowing()) this.app.mediaBrowser.last.dispose();
         this.app.showView("py");
-        this.app.pyJav.loadRecent(item != null ? item : PyJavRecent.tapped(this.recent, name));
+        // A prompt from File > Downloads (not in PyJav's recent list): the program loaded, its arguments set below.
+        this.app.pyJav.loadRecent(item != null && this.recent.contains(item) ? item : PyJavRecent.tapped(this.recent, name));
         if (this.app.pyJav.pyExtra != null) this.app.pyJav.pyExtra.setText(extra);
         if (this.back != null) this.app.pyJav.setReturn(this.back);
         this.app.setNow(name + " · " + this.picture.getName() + " as Reference file " + slot + ": Run starts it");

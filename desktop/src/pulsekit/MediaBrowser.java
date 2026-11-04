@@ -1298,6 +1298,12 @@ final class MediaBrowser {
             if (at <= menu.getComponentCount()) menu.insert(add, at);
             else menu.add(add);
         }
+        // Add to Collection: a link to the file, in its alphabetical place among the items.
+        javax.swing.JMenuItem collect = CollectionsWindow.addItem(app, card, MediaCollections.KIND_FILE, f.getAbsolutePath(), entry.name, f.length());
+        int place = 0;
+        while (place < menu.getComponentCount() && menu.getComponent(place) instanceof javax.swing.JMenuItem && !MenuCancel.is(menu.getComponent(place))
+            && MediaDir.sortKey(((javax.swing.JMenuItem) menu.getComponent(place)).getText()).compareTo(MediaDir.sortKey(collect.getText())) < 0) place++;
+        menu.insert(collect, place);
         this.lastMenu = menu;
         MenuCancel.add(menu);
         if (card.isShowing()) menu.show(card, x, y);

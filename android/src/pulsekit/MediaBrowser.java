@@ -2229,6 +2229,11 @@ final class MediaBrowser {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.PROCESS_REF;
         }
+        // Add to Collection: a link to the file (a file on disk, or the folder's document).
+        if (e.dbId == 0) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaCollections.ADD;
+        }
         // A made file carrying its Sogni job id: Sogni job id (and the workflow that made it).
         final String job = e.dbId == 0 ? SogniJobDialog.of(this.app, e.id, e.name) : null;
         if (job != null) {
@@ -2261,6 +2266,7 @@ final class MediaBrowser {
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
                 else if (MediaDir.PROCESS_REF.equals(items[which])) this.useAsRef(e, refHead);
                 else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
+                else if (MediaCollections.ADD.equals(items[which])) CollectionsScreen.addTo(this.app, MediaCollections.KIND_FILE, this.playlistAddress(e), e.name, e.size);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
             .setNegativeButton("Cancel", null)

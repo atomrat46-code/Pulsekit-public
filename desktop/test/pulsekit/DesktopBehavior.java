@@ -7673,6 +7673,236 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_2: Params' Recent lists the reference pictures used last (newest first, each once) as
+   * small thumbnails, a click puts one in the row; Use as a reference into Reference file 2 ticks that
+   * row's Use again when it was unticked.
+   */
+  void s196_recent_refs_and_ref2_on() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    File home = new File(System.getProperty("user.home"));
+    final File a = new File(home, "r10-a.png"), b = new File(home, "r10-b.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", a);
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(70, 40, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", b);
+    final String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(pedit);
+    final String[] values = new String[ps.size()];
+    java.util.Arrays.fill(values, "");
+    final javax.swing.JLabel[] labels = new javax.swing.JLabel[ps.size()];
+    int image = -1;
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--image")) image = i;
+    final int at = image;
+    pj.assignFile(ps, values, at, labels, a.getAbsolutePath(), null);
+    pj.assignFile(ps, values, at, labels, b.getAbsolutePath(), null);
+    pj.assignFile(ps, values, at, labels, a.getAbsolutePath(), null);
+    StringBuilder order = new StringBuilder();
+    for (File f : RecentRefs.list(PromptDb.dir())) order.append(f.getName()).append(' ');
+    final String[] picked = new String[2];
+    edt(() -> {
+      pj.recentRefs(new javax.swing.JButton(), ps, values, at, labels);
+      javax.swing.JMenuItem bItem = null;
+      int icons = 0;
+      for (Component c : PyJav.lastRecentRefs.getComponents()) {
+        if (!(c instanceof javax.swing.JMenuItem)) continue;
+        if (((javax.swing.JMenuItem) c).getIcon() != null) icons++;
+        if ("params-recent-ref:r10-b.png".equals(c.getName())) bItem = (javax.swing.JMenuItem) c;
+      }
+      picked[1] = String.valueOf(icons);
+      if (bItem != null) bItem.doClick();
+      picked[0] = values[at];
+    });
+    boolean recentOk = order.toString().trim().equals("r10-a.png r10-b.png") && picked[0] != null && picked[0].endsWith("r10-b.png") && "2".equals(picked[1]);
+    // Reference file 2 unticked (kept aside): Use as a reference into it ticks it again.
+    pj.saveParams("SogniPedit.java" + ProgramParams.OFF_KEY, "--image2 /old/kept.png");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a coat\"", pedit, null);
+    answers.add("(keep)");
+    ProcessRefDialog.last = null;
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, b));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    answers.add("(keep)");
+    edt(() -> {
+      d.ref2.setSelected(true);
+      ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick();
+    });
+    idle();
+    for (java.awt.Window w : java.awt.Window.getWindows()) if (w instanceof JDialog && w.isShowing() && w != frame) edt(w::dispose);
+    String off = pj.loadParams("SogniPedit.java" + ProgramParams.OFF_KEY);
+    String args = pj.pyExtra.getText();
+    this.out.append("recent: ").append(order.toString().trim()).append(", thumbnails ").append(picked[1]).append(", picked ").append(picked[0] == null ? "-" : new File(picked[0]).getName())
+        .append(" | ref 2 kept aside now [").append(off).append("] | args has --image2 ").append(args.contains("--image2")).append('\n');
+    boolean ref2Ok = off != null && !off.contains("--image2") && args.contains("--image2");
+    if (!(recentOk && ref2Ok)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 04112026_2 Collections, as on the phone: Add to Collection on a Media browser thumbnail (a new
+   * collection), a DB file into a container, kept in the DB; File > Collections lists it; a file
+   * moved shows missing until Relocate folder… finds it; a DB file gone shows deleted; the Playlist
+   * window's Add to Collection…; Collections.java is among the programs.
+   */
+  void s195_collections() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"), "coll");
+    final File media = new File(home, "media"), moved = new File(home, "moved");
+    media.mkdirs();
+    moved.mkdirs();
+    final File shot = new File(media, "shot.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", shot);
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "shot.png";
+    e.id = shot.getAbsolutePath();
+    e.kind = MediaDir.PICTURE;
+    e.size = shot.length();
+    edt(() -> mb.menu(e, shot, new javax.swing.JButton(), 0, 0));
+    javax.swing.JMenuItem add = null;
+    for (Component c : mb.lastMenu.getComponents()) if ("add-to-collection".equals(c.getName())) add = (javax.swing.JMenuItem) c;
+    edt(() -> mb.lastMenu.setVisible(false));
+    CollectionsWindow.pickCollection = 0;
+    CollectionsWindow.typed.add("Holiday");
+    final javax.swing.JMenuItem addItem = add;
+    if (addItem != null) edt(addItem::doClick);
+    String said = CollectionsWindow.lastSaid;
+    // A container, and a DB file into it.
+    PromptVault vault = PromptDb.vault();
+    vault.addReferenceImage("sky.png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2}, "Sky", 1);
+    PromptVault.StoredFile sky = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("sky.png".equals(f.name)) sky = f;
+    MediaCollections.load(vault);
+    MediaCollections.addContainer(MediaCollections.named("Holiday").top, "Beach");
+    MediaCollections.save(vault);
+    CollectionsWindow.pickCollection = 0;
+    CollectionsWindow.pickContainer = 1;
+    CollectionsWindow.addTo(app, frame, MediaCollections.KIND_DB, Playlist.dbAddress(sky), "sky.png", sky.size);
+    String saidDb = CollectionsWindow.lastSaid;
+    CollectionsWindow.pickCollection = null;
+    CollectionsWindow.pickContainer = null;
+    MediaCollections.load(PromptDb.vault());
+    final MediaCollections.Collection c = MediaCollections.named("Holiday");
+    boolean kept = c != null && c.top.entries.size() == 1 && c.top.kids.size() == 1 && c.top.kids.get(0).entries.size() == 1;
+    // File > Collections: the list, then the collection.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> CollectionsWindow.show(app));
+    for (int i = 0; i < 100 && (CollectionsWindow.last == null || !CollectionsWindow.last.isShowing()); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    final String[] rows = new String[2];
+    edt(() -> {
+      javax.swing.JList<?> list = (javax.swing.JList<?>) component(CollectionsWindow.last, "collections-list");
+      rows[0] = list == null ? "(none)" : String.valueOf(list.getModel().getElementAt(0));
+      CollectionsWindow.last.dispose();
+    });
+    // Moved away: missing until Relocate folder… finds it.
+    Files.move(shot.toPath(), new File(moved, "shot.png").toPath());
+    String missing = MediaCollections.status(c.top.entries.get(0), CollectionsWindow.checker());
+    int found = CollectionsWindow.relocateFolder(app, c, moved);
+    String after = MediaCollections.status(c.top.entries.get(0), CollectionsWindow.checker());
+    MediaCollections.Entry gone = new MediaCollections.Entry();
+    gone.kind = MediaCollections.KIND_DB;
+    gone.ref = Playlist.DB_PREFIX + "1:987654/old.png";
+    String deleted = MediaCollections.status(gone, CollectionsWindow.checker());
+    // The collection open: its container and links.
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> CollectionsWindow.open(app, c, c.top));
+    for (int i = 0; i < 100 && (CollectionsWindow.last == null || !CollectionsWindow.last.isShowing() || !CollectionsWindow.last.getTitle().equals("Holiday")); i++) Thread.sleep(50);
+    Thread.sleep(300);
+    edt(() -> {
+      javax.swing.JList<?> list = (javax.swing.JList<?>) component(CollectionsWindow.last, "collections-items");
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; list != null && i < list.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(list.getModel().getElementAt(i));
+      rows[1] = sb.toString();
+      CollectionsWindow.last.dispose();
+    });
+    idle();
+    boolean program = ProgramFiles.bundledSource("Collections.java") != null;
+    String named = MediaCollections.opened("Collections: Holiday");
+    this.out.append("menu item ").append(add != null).append(" | ").append(said).append(" | ").append(saidDb).append(" | kept ").append(kept).append('\n')
+        .append("list: ").append(rows[0]).append(" | open: ").append(rows[1]).append('\n')
+        .append("moved: ").append(missing).append(", relocated ").append(found).append(", now [").append(after).append("] | DB gone: ").append(deleted)
+        .append(" | Collections.java listed ").append(program).append(", names ").append(named).append('\n');
+    boolean ok = add != null && "shot.png added to Holiday".equals(said) && "sky.png added to Holiday \u203a Beach".equals(saidDb) && kept
+        && rows[0].startsWith("Holiday") && rows[0].contains("2 links") && rows[1].startsWith("\u25a4 Beach  (1) | shot.png") && "missing".equals(missing) && found == 1 && after.isEmpty()
+        && "deleted".equals(deleted) && program && "Holiday".equals(named);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 04112026_2: Process as a reference's prompts (recent runs and File > Downloads, newest first, each
+   * once; Whole prompt… shows all of it); Browse sections' Edit section and Remove section; Select file
+   * opens in the last file's folder; Full screen preview fills the screen and back.
+   */
+  void s194_process_prompts_sections_select_full() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"Recent one. Short.\"", pedit, null);
+    SogniDownloads.init(PromptDb.dir());
+    for (String[] r : new String[][] {{"From downloads A. Second sentence. Third sentence.", "3000"}, {"Recent one. Short.", "4000"}, {"From downloads B.", "5000"}}) {
+      long id = SogniDownloads.started("SogniPedit.java", Long.parseLong(r[1]));
+      SogniDownloads.args(id, "--prompt \"" + r[0] + "\"");
+      SogniDownloads.done(id);
+    }
+    final File pic = new File(System.getProperty("user.home"), "p8.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    answers.add("(keep)");
+    ProcessRefDialog.last = null;
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder items = new StringBuilder();
+    edt(() -> {
+      for (int i = 0; i < d.prompt.getItemCount(); i++) items.append(i == 0 ? "" : " | ").append(d.prompt.getItemAt(i));
+      d.prompt.setSelectedIndex(2);
+    });
+    ProcessRefDialog.lastWhole = null;
+    SwingUtilities.invokeLater(d::showWhole);
+    for (int i = 0; i < 100 && ProcessRefDialog.lastWhole == null; i++) Thread.sleep(50);
+    idle();
+    String whole = ProcessRefDialog.lastWhole;
+    edt(() -> d.dialog.dispose());
+    idle();
+    boolean promptsOk = items.toString().equals("Recent one. Short. | From downloads B. | From downloads A. Second sentence. \u2026")
+        && "From downloads A. Second sentence. Third sentence.".equals(whole);
+    // Browse sections: Edit section, then Remove section.
+    PromptDb.vault().addSogniSection("SogniPedit", "Prompt: a cat\n");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    PyJav.pickSection = 0;
+    PyJav.sectionAction = 1;
+    PyJav.sectionEditText = "Prompt: a dog\nLoras: fur 1.0";
+    pj.browseSections(frame, "SogniPedit", none, new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+    String edited = PromptDb.vault().sogniSections("SogniPedit").get(0).text;
+    PyJav.sectionAction = 2;
+    PyJav.sectionRemove = true;
+    pj.browseSections(frame, "SogniPedit", none, new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+    int left = PromptDb.vault().sogniSections("SogniPedit").size();
+    PyJav.pickSection = null;
+    PyJav.sectionAction = null;
+    PyJav.sectionEditText = null;
+    PyJav.sectionRemove = null;
+    boolean sectionsOk = "Prompt: a dog\nLoras: fur 1.0\n".equals(edited) && left == 0;
+    // Select file: the next one opens where the last file was.
+    File sub = new File(System.getProperty("user.home"), "Downloads/Parannetut(1)(1)");
+    sub.mkdirs();
+    PyJav.selected(new File(sub, "a.txt"));
+    File startsIn = PyJav.selectChooser().getCurrentDirectory();
+    boolean selectOk = sub.getAbsoluteFile().equals(startsIn.getAbsoluteFile());
+    // Full screen preview: the window over the screen, then back to its size.
+    final java.awt.Rectangle[] sizes = new java.awt.Rectangle[3];
+    edt(() -> {
+      JDialog w = new JDialog((java.awt.Frame) frame, "player", false);
+      w.setBounds(10, 10, 300, 200);
+      sizes[0] = w.getBounds();
+      PromptDb.fullScreen(w);
+      sizes[1] = w.getBounds();
+      PromptDb.fullScreen(w);
+      sizes[2] = w.getBounds();
+      w.dispose();
+    });
+    boolean fullOk = sizes[1].width > sizes[0].width && sizes[1].height > sizes[0].height && sizes[2].equals(sizes[0]);
+    this.out.append("prompts: ").append(items).append(" | whole ").append(whole).append("\nsections: edited ").append(edited.replace("\n", "\\n")).append(", left ").append(left)
+        .append(" | select starts in ").append(startsIn.getName()).append(" | full screen ").append(sizes[1].width).append("x").append(sizes[1].height).append(", back ").append(sizes[2].equals(sizes[0])).append('\n');
+    if (!(promptsOk && sectionsOk && selectOk && fullOk)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 04112026: the galleries' order button (Newest first / Oldest first, kept); Edit from Prompt files
    * shows the prompt's settings in a field of their own and Back opens Prompt files again; Clear
    * automatically; Move automatically waits for a run's zip.

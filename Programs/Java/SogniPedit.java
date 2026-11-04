@@ -23,8 +23,8 @@ import java.util.Map;
  * hair, pose, background, light or style.
  *
  * --image is the picture edited (PNG, JPEG or WebP). --image2 is an optional second reference that
- * guides the edit (an outfit, a pose, a style, another detail); Krea takes at most two. One picture
- * comes out. Write --prompt as a short instruction of what changes (one to four sentences), not a
+ * guides the edit (an outfit, a pose, a style, another detail); Krea takes at most two. Only
+ * --image2 given (--image's row left out in Params): it is the picture edited. One picture comes out. Write --prompt as a short instruction of what changes (one to four sentences), not a
  * description of the whole picture.
  *
  * --skin_detail is Krea 2's Skin Detail LoRA (krea2-skin-detail): 1.1 by default, 0 leaves it out;
@@ -53,7 +53,7 @@ public final class SogniPedit {
   }
 
   /** Printed first, so a run's log shows which SogniPedit ran. */
-  static final String VERSION = "SogniPedit 2026-10-07";
+  static final String VERSION = "SogniPedit 2026-11-04";
 
   /** The largest picture uploaded (Sogni's own limit: 100 MB). */
   static final int UPLOAD_MAX = 100 * 1024 * 1024;
@@ -167,6 +167,12 @@ public final class SogniPedit {
     if (Double.isNaN(maxCost)) return 2;
     if (image != null && image.length() == 0) image = null;
     if (image2 != null && image2.length() == 0) image2 = null;
+    // Only the second reference (the first left out in Params, its Use unticked): it is the picture edited this time.
+    if (image == null && image2 != null) {
+      say("Note: no --image, so --image2 (" + new File(image2).getName() + ") is the picture edited this run");
+      image = image2;
+      image2 = null;
+    }
     if (workflowId != null && workflowId.length() == 0) workflowId = null;
     if (workflowId == null) {
       if (prompt == null || prompt.trim().length() == 0) {
@@ -178,10 +184,6 @@ public final class SogniPedit {
         say("Failed: give --image, the picture to edit (Krea 2 Identity Edit needs one; --image2 adds a second reference)");
         return 2;
       }
-    }
-    if (image2 != null && image == null) {
-      say("Failed: --image2 is the second reference; give the picture to edit with --image");
-      return 2;
     }
     // The LoRAs: Skin Detail first, then --loras in order.
     List<String> loras = new ArrayList<String>();

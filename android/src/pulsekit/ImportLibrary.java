@@ -294,6 +294,11 @@ final class ImportLibrary {
                 arrayList.add("Export .fset");
                 arrayList2.add(runnable2);
             }
+            // Add to Collection: the file set, a link in a collection.
+            if (string.startsWith("f:")) {
+                arrayList.add(MediaCollections.ADD);
+                arrayList2.add(() -> CollectionsScreen.addTo(app, MediaCollections.KIND_FILESET, string, string2, 0));
+            }
             arrayList.add("Delete file set");
             arrayList2.add(runnable);
             new AlertDialog.Builder((Context)app).setTitle((CharSequence)string2).setItems(arrayList.toArray(new CharSequence[0]), (dialogInterface, which) -> {

@@ -1811,6 +1811,8 @@ final class PyJav {
         });
         // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
         this.pkOffer("the playlist", ok && "PlayList.java".equals(app.pyName), () -> PlaylistScreen.afterRun(app, made));
+        // Collections: the Collections viewer (on the collection it names).
+        this.pkOffer("the collections", ok && "Collections.java".equals(app.pyName), () -> CollectionsScreen.show(app, MediaCollections.opened(madeLog)));
         // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
         if (batch != null && batch.takes(program)) {
             batch.done(status, this.pkBatchCopies(made));

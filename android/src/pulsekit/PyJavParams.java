@@ -295,7 +295,16 @@ public final class PyJavParams {
             public void afterTextChanged(android.text.Editable e) { paintPreview.run(); }
           });
           preview.setOnClickListener(v -> previewPicture(activity, values[index]));
-          box.addView(preview, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+          // Recent: the reference pictures used last as small thumbnails, beside Preview.
+          android.widget.Button recent = new android.widget.Button(activity);
+          recent.setText(RecentRefs.RECENT);
+          recent.setTag("params-recent:" + p.token);
+          recent.setOnClickListener(v -> recentRefs(activity, values, index, chosen));
+          LinearLayout previewRow = new LinearLayout(activity);
+          previewRow.setOrientation(LinearLayout.HORIZONTAL);
+          previewRow.addView(preview);
+          previewRow.addView(recent);
+          box.addView(spaced(activity, previewRow), new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
         if ("mid".equals(p.ext) && activity instanceof MainActivity) {
           // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
@@ -608,6 +617,70 @@ public final class PyJavParams {
         .setItems(rows, (d, w) -> pickSection(activity, program, ps, fields, all.get(w)))
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
+    // Held: Load, Edit section, Remove section.
+    final AlertDialog list = lastSections;
+    list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+      list.dismiss();
+      sectionMenu(activity, program, ps, fields, all.get(position));
+      return true;
+    });
+  }
+
+  /** A section's long-press menu shown last, and Edit section's / Remove section's dialog (for the tests). */
+  static AlertDialog lastSectionMenu, lastSectionEdit;
+
+  static void sectionMenu(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE};
+    lastSectionMenu = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setItems(items, (d, w) -> {
+      if (w == 0) pickSection(activity, program, ps, fields, sec);
+      else if (w == 1) editSection(activity, program, ps, fields, sec);
+      else removeSection(activity, program, ps, fields, sec);
+    }).setNegativeButton("Cancel", null).show();
+  }
+
+  /** Edit section: its entries, a line each ("Prompt: ...", "Loras: ..."); Save keeps them. */
+  static void editSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    final EditText text = new EditText(activity);
+    text.setTag("section-edit-text");
+    text.setText(sec.text.trim());
+    text.setMinLines(4);
+    text.setGravity(android.view.Gravity.TOP);
+    LinearLayout box = new LinearLayout(activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+    box.addView(text);
+    lastSectionEdit = new AlertDialog.Builder(activity).setTitle(SogniSections.EDIT).setView(box)
+        .setPositiveButton("Save", (d, w) -> {
+          String now = text.getText().toString().trim() + "\n";
+          String problem = SogniSections.editProblem(now);
+          if (problem != null) {
+            sectionSay(activity, "Not saved: " + problem);
+            return;
+          }
+          try {
+            PromptVault.open(activity.getFilesDir()).updateSogniSection(sec.id, now);
+            sec.text = now;
+            sectionSay(activity, "Saved: " + SogniSections.label(sec));
+          } catch (Exception ex) {
+            sectionSay(activity, "Could not save the section: " + ex.getMessage());
+          }
+          browseSections(activity, program, ps, fields);
+        })
+        .setNegativeButton("Cancel", (d, w) -> browseSections(activity, program, ps, fields)).show();
+  }
+
+  /** Remove section: asked first. */
+  static void removeSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    lastSectionEdit = new AlertDialog.Builder(activity).setTitle(SogniSections.REMOVE).setMessage(SogniSections.removeAsk(sec))
+        .setPositiveButton("Remove", (d, w) -> {
+          try {
+            PromptVault.open(activity.getFilesDir()).deleteSogniSection(sec.id);
+            sectionSay(activity, "Removed: " + SogniSections.label(sec));
+          } catch (Exception ex) {
+            sectionSay(activity, "Could not remove it: " + ex.getMessage());
+          }
+        })
+        .setNegativeButton("Cancel", null).show();
   }
 
   static void pickSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
@@ -808,6 +881,7 @@ public final class PyJavParams {
       Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
       intent.addCategory(Intent.CATEGORY_OPENABLE);
       intent.setType("*/*");
+      startIn(activity, intent);
       activity.startActivityForResult(intent, PICK_FILE);
     };
     if (!(activity instanceof MainActivity)) {
@@ -815,6 +889,59 @@ public final class PyJavParams {
       return;
     }
     MediaBrowser.choose((MainActivity) activity, (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null), system);
+  }
+
+  /** Recent's list shown last (for the tests). */
+  static AlertDialog lastRecentRefs;
+
+  /** Recent: the reference pictures used last, each a small thumbnail with its name; a tap puts it in the row. */
+  static void recentRefs(final Activity activity, final String[] values, final int index, final TextView label) {
+    final List<java.io.File> pics = RecentRefs.list(activity.getFilesDir());
+    if (pics.isEmpty()) {
+      android.widget.Toast.makeText(activity, "No recent reference pictures yet: the pictures picked here are listed", android.widget.Toast.LENGTH_LONG).show();
+      return;
+    }
+    LinearLayout col = new LinearLayout(activity);
+    col.setOrientation(LinearLayout.VERTICAL);
+    col.setPadding(dp(activity, 12), dp(activity, 6), dp(activity, 12), dp(activity, 6));
+    final int px = dp(activity, 56);
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    final AlertDialog[] shown = new AlertDialog[1];
+    for (final java.io.File f : pics) {
+      LinearLayout row = new LinearLayout(activity);
+      row.setOrientation(LinearLayout.HORIZONTAL);
+      row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+      row.setPadding(0, dp(activity, 4), 0, dp(activity, 4));
+      row.setTag("params-recent-ref:" + f.getName());
+      final android.widget.ImageView thumb = new android.widget.ImageView(activity);
+      thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+      row.addView(thumb, new LinearLayout.LayoutParams(px, px));
+      TextView name = new TextView(activity);
+      name.setText(f.getName());
+      name.setPadding(dp(activity, 10), 0, 0, 0);
+      row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+      row.setOnClickListener(v -> {
+        assign(activity, values, index, label, f.getAbsolutePath(), " \u00b7 recent");
+        if (shown[0] != null) shown[0].dismiss();
+      });
+      col.addView(row);
+      new Thread(() -> {
+        // Small: decoded at about the thumbnail's size.
+        android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= px && o.outHeight / (sample * 2) >= px) sample *= 2;
+        o = new android.graphics.BitmapFactory.Options();
+        o.inSampleSize = sample;
+        final android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        if (b != null) main.post(() -> thumb.setImageBitmap(b));
+      }, "pulsekit-recent-thumb").start();
+    }
+    android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+    scroll.addView(col);
+    shown[0] = new AlertDialog.Builder(activity).setTitle("Recent reference pictures").setView(scroll).setNegativeButton("Cancel", null).show();
+    lastRecentRefs = shown[0];
   }
 
   /** Select file for a prompt field (Params, the Prompts page): the picker's text file fills it. */
@@ -826,7 +953,21 @@ public final class PyJavParams {
     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     intent.addCategory(Intent.CATEGORY_OPENABLE);
     intent.setType("text/*");
+    startIn(activity, intent);
     activity.startActivityForResult(intent, PICK_FILE);
+  }
+
+  static final String PICK_PREFS = "pulsekit-select-file";
+
+  /** The file Select file picked last: the next one opens in its folder (a subfolder of Download too). */
+  static void pickedLast(Activity activity, android.net.Uri uri) {
+    activity.getSharedPreferences(PICK_PREFS, 0).edit().putString("last", uri.toString()).apply();
+  }
+
+  /** The picker opened where the last file picked is (Android 8 on). */
+  static void startIn(Activity activity, Intent intent) {
+    String last = activity.getSharedPreferences(PICK_PREFS, 0).getString("last", "");
+    if (last.length() > 0 && android.os.Build.VERSION.SDK_INT >= 26) intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(last));
   }
 
   /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
@@ -1061,6 +1202,11 @@ public final class PyJavParams {
     if (frames.length == 0) {
       values[index] = path;
       label.setText(from == null ? fileLabel(path) : new java.io.File(path).getName() + from);
+      // A picture: among the recent references (Recent beside a picture row).
+      if (path != null && MediaDir.kind(path) == MediaDir.PICTURE) {
+        final java.io.File base = activity.getFilesDir();
+        new Thread(() -> RecentRefs.add(base, new java.io.File(path)), "pulsekit-recent-ref").start();
+      }
       return;
     }
     final String video = new java.io.File(path).getName();
