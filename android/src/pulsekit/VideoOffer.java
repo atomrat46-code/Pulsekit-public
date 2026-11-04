@@ -172,12 +172,16 @@ final class VideoOffer {
             }, "pulsekit-video-frame").start();
         }
 
-        /** Full screen preview shown last (for the tests). */
+        /** Full screen preview shown last, and its controls (shown while paused), for the tests. */
         android.app.Dialog full;
+        android.view.View fullControls;
+        /** The Video ready dialog's volume slider (the full screen one moves it too). */
+        SeekBar volumeBar;
 
         /**
-         * Full screen preview: the clip on the whole screen from where it is (a tap plays or pauses it,
-         * Back closes it); Video ready goes on from where it was left.
+         * Full screen preview: the clip on the whole screen from where it is. A tap plays or pauses it;
+         * paused, Loop video, Mute and the volume show at the bottom (hidden while it plays); a long
+         * press (or Back) goes back to Video ready, which goes on from where it was left.
          */
         void fullScreen(final MainActivity app, String path, int ms) {
             final android.app.Dialog d = new android.app.Dialog(app, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
@@ -187,20 +191,112 @@ final class VideoOffer {
             frame.setBackgroundColor(android.graphics.Color.BLACK);
             android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER);
             frame.addView(big, lp);
+            final MediaPlayer[] fm = new MediaPlayer[1];
+            final boolean[] loop = {app.getSharedPreferences(PREFS, 0).getBoolean(FULL_LOOP, false)};
+            // Paused: Loop video, Mute and the volume at the bottom.
+            final LinearLayout controls = app.row();
+            controls.setTag("video-offer:full-controls");
+            controls.setBackgroundColor(0xaa000000);
+            controls.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
+            controls.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            final android.widget.CheckBox loopBox = new android.widget.CheckBox(app);
+            loopBox.setText("Loop video");
+            loopBox.setTag("video-offer:full-loop");
+            loopBox.setChecked(loop[0]);
+            loopBox.setOnCheckedChangeListener((b, now) -> {
+                loop[0] = now;
+                try {
+                    if (fm[0] != null) fm[0].setLooping(now);
+                } catch (IllegalStateException ignored) {
+                    // closing
+                }
+                app.getSharedPreferences(PREFS, 0).edit().putBoolean(FULL_LOOP, now).apply();
+            });
+            controls.addView(loopBox);
+            final TextView level = app.text(muted ? "muted" : volume + "%", 13, false);
+            level.setTag("video-offer:full-level");
+            level.setMinWidth(app.dp(52));
+            final Runnable sound = () -> {
+                try {
+                    if (fm[0] != null) fm[0].setVolume(gain(), gain());
+                } catch (IllegalStateException ignored) {
+                    // closing
+                }
+                level.setText(muted ? "muted" : volume + "%");
+            };
+            final TextView fullMute = app.pill(muted ? "Unmute" : "Mute", muted, null);
+            fullMute.setTag("video-offer:full-mute");
+            fullMute.setOnClickListener(v -> {
+                toggleMute(app);
+                fullMute.setText(muted ? "Unmute" : "Mute");
+                app.paintChip(fullMute, muted);
+                sound.run();
+            });
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-2, -2);
+            mlp.leftMargin = app.dp(8);
+            controls.addView(fullMute, mlp);
+            SeekBar bar = new SeekBar(app);
+            bar.setMax(100);
+            bar.setProgress(volume);
+            bar.setTag("video-offer:full-volume");
+            bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                    volume = value;
+                    if (volumeBar != null) volumeBar.setProgress(value);
+                    applyVolume();
+                    sound.run();
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar s) {}
+
+                @Override
+                public void onStopTrackingTouch(SeekBar s) {}
+            });
+            controls.addView(bar, new LinearLayout.LayoutParams(0, -2, 1f));
+            controls.addView(level);
+            controls.setVisibility(android.view.View.GONE);
+            frame.addView(controls, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
+            fullControls = controls;
+            final Runnable paint = () -> controls.setVisibility(big.isPlaying() ? android.view.View.GONE : android.view.View.VISIBLE);
             d.setContentView(frame);
             big.setOnPreparedListener(mp -> {
+                fm[0] = mp;
                 try {
                     mp.setVolume(gain(), gain());
+                    mp.setLooping(loop[0]);
                 } catch (IllegalStateException ignored) {
                     // closing
                 }
                 big.seekTo(ms);
                 big.start();
+                paint.run();
             });
-            big.setOnClickListener(v -> {
-                if (big.isPlaying()) big.pause();
-                else big.start();
+            big.setOnCompletionListener(mp -> paint.run());
+            // A tap plays or pauses it; a long press goes back to Video ready.
+            final android.view.GestureDetector gestures = new android.view.GestureDetector(app, new android.view.GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onDown(android.view.MotionEvent e) {
+                    return true;
+                }
+
+                @Override
+                public boolean onSingleTapUp(android.view.MotionEvent e) {
+                    if (big.isPlaying()) big.pause();
+                    else big.start();
+                    paint.run();
+                    return true;
+                }
+
+                @Override
+                public void onLongPress(android.view.MotionEvent e) {
+                    d.dismiss();
+                }
             });
+            android.view.View.OnTouchListener touch = (v, ev) -> gestures.onTouchEvent(ev);
+            big.setOnTouchListener(touch);
+            frame.setOnTouchListener(touch);
             d.setOnDismissListener(x -> {
                 int at = 0;
                 try {
@@ -208,6 +304,7 @@ final class VideoOffer {
                 } catch (Exception ignored) {
                     // not started
                 }
+                fm[0] = null;
                 big.stopPlayback();
                 if (view != null && at > 0) view.seekTo(at);
                 MediaBrowser.screenOn(d.getWindow(), false);
@@ -233,6 +330,8 @@ final class VideoOffer {
     static final String FULL_SCREEN = "Full screen preview";
     static final String PREFS = "video-ready";
     static final String MUTED = "muted";
+    /** The full screen preview's Loop video, as it was left. */
+    static final String FULL_LOOP = "full-loop";
 
     private VideoOffer() {}
 
@@ -337,6 +436,7 @@ final class VideoOffer {
         volume.setMax(100);
         volume.setProgress(p.volume);
         volume.setTag("video-offer:volume");
+        p.volumeBar = volume;
         volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int value, boolean fromUser) {

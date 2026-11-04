@@ -473,6 +473,14 @@ final class MediaBrowser {
             savedAddress.set(uri.toString());
             return rel + "/" + name;
         }
+        // A subfolder path (a move's %ddmmyyyy/pics): each part found (any case) or made in turn.
+        if (sub != null && sub.indexOf('/') >= 0) {
+            String[] at = origin;
+            String[] parts = sub.split("/");
+            for (int i = 0; i < parts.length - 1; i++) at = folderIn(app, at, parts[i]);
+            return saveInto(app, at, parts[parts.length - 1], name, mime, data);
+        }
+        if (sub != null && sub.length() == 0) sub = null;
         if (tree == null || tree.length() == 0) {
             File folder = sub == null ? new File(dir) : new File(dir, sub);
             // Any case: an "sc" folder already there is the SC folder.
@@ -534,6 +542,78 @@ final class MediaBrowser {
         } catch (SecurityException ex) {
             throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
         }
+    }
+
+    /** The folder `name` in `origin` (found in any case, else made), as an origin for saveInto. */
+    static String[] folderIn(MainActivity app, String[] origin, String name) throws Exception {
+        String tree = origin[0];
+        String dir = origin[1];
+        if (DOWNLOADS.equals(dir)) {
+            File base = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (android.os.Build.VERSION.SDK_INT < 29) return folderIn(app, new String[] {"", base.getAbsolutePath()}, name);
+            throw new java.io.IOException("Download takes one subfolder only");
+        }
+        if (tree == null || tree.length() == 0) {
+            File folder = new File(dir, name);
+            File[] kids = new File(dir).listFiles();
+            if (!folder.isDirectory() && kids != null) for (File k : kids) if (k.isDirectory() && k.getName().equalsIgnoreCase(name)) folder = k;
+            if (!folder.isDirectory() && !folder.mkdirs()) throw new java.io.IOException("could not make " + folder.getPath());
+            return new String[] {"", folder.getPath()};
+        }
+        Uri treeUri = Uri.parse(tree);
+        String found = childDir(app, treeUri, dir, name);
+        if (found == null) {
+            Uri made = DocumentsContract.createDocument(app.getContentResolver(), DocumentsContract.buildDocumentUriUsingTree(treeUri, dir), DocumentsContract.Document.MIME_TYPE_DIR, name);
+            if (made == null) throw new java.io.IOException("could not make the " + name + " folder");
+            found = DocumentsContract.getDocumentId(made);
+        }
+        return new String[] {tree, found};
+    }
+
+    /** A folder's subfolder by name (any case) in a granted folder: its document id, or null. */
+    static String childDir(MainActivity app, Uri treeUri, String docId, String name) {
+        Cursor c = null;
+        try {
+            c = app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId),
+                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                if (name.equalsIgnoreCase(c.getString(1)) && DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) return c.getString(0);
+            }
+        } catch (Exception ignored) {
+            // not readable
+        } finally {
+            if (c != null) c.close();
+        }
+        return null;
+    }
+
+    /** Whether the subfolder path is in `origin` already (a move's %n picks the first that is not). */
+    static boolean hasPath(MainActivity app, String[] origin, String path) {
+        String tree = origin[0];
+        String dir = origin[1];
+        if (DOWNLOADS.equals(dir)) {
+            return new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), path).exists();
+        }
+        if (tree == null || tree.length() == 0) return new File(dir, path).exists();
+        Uri treeUri = Uri.parse(tree);
+        String at = dir;
+        for (String part : path.split("/")) {
+            if (part.length() == 0) continue;
+            at = childDir(app, treeUri, at, part);
+            if (at == null) return false;
+        }
+        return true;
+    }
+
+    /** A kind's folder as saveInto's origin (a granted folder's address, or a path). */
+    static String[] originOf(String to) {
+        return to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+    }
+
+    /** The kind's subfolder for a move now (its % codes filled in; "" or null: the folder itself). */
+    static String subNow(final MainActivity app, String kind, final String[] origin) {
+        String got = DownloadMove.subNow(kind, p -> hasPath(app, origin, p));
+        return got.length() == 0 ? null : got;
     }
 
     /** The names in a granted folder (empty when it cannot be read). */
@@ -2859,6 +2939,8 @@ final class MediaBrowser {
         }
         final MainActivity app = this.app;
         final boolean inDownload = DOWNLOADS.equals(this.path.get(0));
+        // Each kind's subfolder (its % codes filled in) once for the whole move, off the main thread.
+        final java.util.Map<String, String> subs = new java.util.HashMap<String, String>();
         final boolean keeper = !RunKeeper.foreground;
         if (keeper) RunKeeper.start(app, "Move downloads");
         // What is moving: the file, how many of how many, the MB done, and a bar (Hide: it goes on).
@@ -2888,7 +2970,9 @@ final class MediaBrowser {
                         status.setText(head);
                         bar.setProgress(index * 1000 / count);
                     });
-                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload, done -> this.main.post(() -> {
+                    String kind = DownloadMove.kindOf(e.name);
+                    if (!subs.containsKey(kind)) subs.put(kind, subNow(app, kind, originOf(DownloadMove.defaultFor(e.name))));
+                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload, subs.get(kind), done -> this.main.post(() -> {
                         // At each MB: how far into this file.
                         status.setText(head + " \u00b7 " + DownloadMove.mb(done) + (size > 0 ? " of " + DownloadMove.mb(size) : ""));
                         bar.setProgress((int) ((index + (size > 0 ? Math.min(1.0, done / (double) size) : 0.5)) * 1000 / count));
@@ -2926,6 +3010,11 @@ final class MediaBrowser {
     static AlertDialog lastMoveProgress;
 
     static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload, final Progress progress) {
+        return moveToDefault(app, e, src, address, inDownload, null, progress);
+    }
+
+    /** As above, into `sub` (a subfolder path, made when missing) of the kind's folder. */
+    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload, String sub, final Progress progress) {
         try {
             String to = DownloadMove.defaultFor(e.name);
             String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
@@ -2939,7 +3028,7 @@ final class MediaBrowser {
             if (in == null) return e.name + " could not be read";
             String at;
             try {
-                at = saveInto(app, origin, null, e.name, ArtJava.mimeOf(e.name), out -> {
+                at = saveInto(app, origin, sub, e.name, ArtJava.mimeOf(e.name), out -> {
                     byte[] buf = new byte[65536];
                     long done = 0, said = 0;
                     int n;
@@ -3970,8 +4059,14 @@ final class MediaBrowser {
                 MediaDir.muted = p.muted;
                 MediaDir.zoom = p.zoom;
                 MediaDir.speed = p.speed;
-                d.dismiss();
+                // The next opens over this one, then this closes under it: the folder is not shown between.
+                try {
+                    if (p.playing()) p.view.pause();
+                } catch (RuntimeException ignored) {
+                    // not ready
+                }
                 this.video(videos.get(to), among);
+                this.main.postDelayed(d::dismiss, 400);
             });
             frame.addView(arrow, new FrameLayout.LayoutParams(this.app.dp(40), this.app.dp(64), Gravity.CENTER_VERTICAL | (back ? Gravity.START : Gravity.END)));
         }

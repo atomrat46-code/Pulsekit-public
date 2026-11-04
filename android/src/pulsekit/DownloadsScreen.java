@@ -761,11 +761,38 @@ final class DownloadsScreen {
             browse.setTag("downloads-move-browse:" + kind);
             row.addView(browse);
             panel.addView(row);
+            // Its subfolder under the folder, with % codes (%ddmmyyyy/pics), made when missing.
+            final android.widget.EditText subField = new android.widget.EditText(app);
+            subField.setTag("downloads-move-sub:" + kind);
+            subField.setSingleLine(true);
+            subField.setTextSize(13);
+            subField.setHint(DownloadMove.SUB_HINT);
+            subField.setText(DownloadMove.subOf(kind));
+            subField.addTextChangedListener(new android.text.TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+                @Override
+                public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+                @Override
+                public void afterTextChanged(android.text.Editable t) {
+                    DownloadMove.setSub(kind, t.toString());
+                }
+            });
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+            slp.leftMargin = app.dp(32);
+            panel.addView(subField, slp);
             if (controls != null) {
                 controls.add(box);
                 controls.add(browse);
+                controls.add(subField);
             }
         }
+        TextView note = app.text(DownloadMove.SUB_NOTE, 11, false);
+        note.setTag("downloads-move-sub-note");
+        note.setPadding(app.dp(4), app.dp(2), app.dp(4), app.dp(4));
+        panel.addView(note);
     }
 
     /** A kind's folder picked (Browse): kept, and shown wherever its name is. */
@@ -821,11 +848,14 @@ final class DownloadsScreen {
             java.util.List<Object[]> due = DownloadMove.due();
             int moved = 0, failed = 0;
             String problem = null;
+            // Each kind's subfolder (its % codes filled in) once for the whole move.
+            java.util.Map<String, String> subs = new java.util.HashMap<String, String>();
             for (int i = 0; i < due.size(); i++) {
                 SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
                 String to = DownloadMove.folderOf(item.kind());
                 String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
-                String why = moveOne(app, item, origin, i, due.size());
+                if (!subs.containsKey(item.kind())) subs.put(item.kind(), MediaBrowser.subNow(app, item.kind(), origin));
+                String why = moveOne(app, item, origin, subs.get(item.kind()), i, due.size());
                 if (why == null) moved++;
                 else if (why.equals(DownloadMove.GONE)) continue;
                 else {
@@ -871,6 +901,11 @@ final class DownloadsScreen {
 
     /** One file into the folder (streamed) and out of Download; null when moved, else why not. */
     static String moveOne(final MainActivity app, final SogniDownloads.Item item, String[] origin, final int index, final int count) {
+        return moveOne(app, item, origin, null, index, count);
+    }
+
+    /** As above, into `sub` (a subfolder path, made when missing) of the folder. */
+    static String moveOne(final MainActivity app, final SogniDownloads.Item item, String[] origin, String sub, final int index, final int count) {
         try {
             Uri uri = uriFor(app, item.where);
             File file = uri == null ? fileFor(item.where) : null;
@@ -890,7 +925,7 @@ final class DownloadsScreen {
             showMove(app);
             String at;
             try {
-                at = MediaBrowser.saveInto(app, origin, null, item.name, ArtJava.mimeOf(item.name), out -> {
+                at = MediaBrowser.saveInto(app, origin, sub, item.name, ArtJava.mimeOf(item.name), out -> {
                     byte[] buf = new byte[65536];
                     long done = 0, said = 0;
                     int n;

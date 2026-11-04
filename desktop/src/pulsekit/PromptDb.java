@@ -1923,9 +1923,13 @@ final class PromptDb {
         }
     }
 
-    /** The Media browser's video player: ‹ (a previous video) and › (a next one) shown; the one clicked (-1, 1), else 0. */
+    /**
+     * The Media browser's video player: ‹ (a previous video) and › (a next one) shown, and what opens
+     * the one beside it (-1, 1); the player it opens over closes once it shows (the folder is not seen between).
+     */
     boolean videoBack, videoOn;
-    int videoStepped;
+    java.util.function.IntConsumer videoStep;
+    JDialog videoReplaces;
 
     /** The Media browser player's Sound dialog shown last, for the tests. */
     JDialog lastSoundDialog;
@@ -2218,9 +2222,15 @@ final class PromptDb {
             player.screen.held = () -> this.frameMenu(name, video, player, true, player.screen.getWidth() / 2, player.screen.getHeight() / 2);
         }
         if (!prompts && !remember) {
-            // Video ready's player: a click on the picture plays or pauses it.
+            // Video ready's player: a click on the picture plays or pauses it; held in Full screen
+            // preview, back to its own size (else held: plays or pauses, as before).
             player.screen.clicked = () -> {
                 if (player.playing()) player.pause();
+                else player.play();
+            };
+            player.screen.held = () -> {
+                if (FULL.containsKey(dialog)) fullScreen(dialog);
+                else if (player.playing()) player.pause();
                 else player.play();
             };
         }
@@ -2297,7 +2307,8 @@ final class PromptDb {
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         // The Media browser's: small ‹ and › beside the picture open the folder's previous and next video.
         final boolean back = remember && this.videoBack, on = remember && this.videoOn;
-        if (back || on) {
+        final java.util.function.IntConsumer stepTo = this.videoStep;
+        if ((back || on) && stepTo != null) {
             JPanel screen = new JPanel(new BorderLayout(4, 0));
             screen.setOpaque(false);
             screen.add(player.screen, BorderLayout.CENTER);
@@ -2311,8 +2322,16 @@ final class PromptDb {
                 arrow.setMargin(new java.awt.Insets(2, 4, 2, 4));
                 arrow.setFocusable(false);
                 arrow.addActionListener(e -> {
-                    this.videoStepped = step;
-                    dialog.dispose();
+                    // Kept for the next (this one's close keeps them too, later).
+                    MediaDir.volume = volume.getValue();
+                    MediaDir.muted = muted[0];
+                    MediaDir.zoom = player.screen.zoom;
+                    MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
+                    if (player.playing()) player.pause();
+                    this.videoReplaces = dialog;
+                    stepTo.accept(step);
+                    // It did not open: this one stays.
+                    if (this.videoReplaces == dialog) this.videoReplaces = null;
                 });
                 JPanel holder = new JPanel(new java.awt.GridBagLayout());
                 holder.setOpaque(false);
@@ -2325,10 +2344,26 @@ final class PromptDb {
         }
         body.add(south, BorderLayout.SOUTH);
         if (remember) body.add(sound, BorderLayout.NORTH);
+        if (!prompts && !remember) {
+            // Video ready in Full screen preview: Loop video, Mute and the volume (the controls) only while paused.
+            follow.addActionListener(e -> {
+                boolean show = !FULL.containsKey(dialog) || !player.playing();
+                if (south.isVisible() != show) {
+                    south.setVisible(show);
+                    body.revalidate();
+                }
+            });
+        }
         dialog.setContentPane(body);
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowOpened(java.awt.event.WindowEvent e) {
+                // Opened by ‹ or ›: the player it opened over closes now, under it.
+                JDialog was = PromptDb.this.videoReplaces;
+                if (remember && was != null && was != dialog) {
+                    PromptDb.this.videoReplaces = null;
+                    was.dispose();
+                }
                 follow.start();
                 // It opens on its first frame, paused, as on the phone.
                 player.play();

@@ -7673,6 +7673,91 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_4 (as on the phone): a move folder's Subfolder with % codes (%ddmmyyyy/pics; %n the next
+   * free number), made when missing; the field beside each type.
+   */
+  void s202_move_subfolder_codes() throws Exception {
+    java.util.Calendar day = java.util.Calendar.getInstance();
+    day.set(2026, java.util.Calendar.NOVEMBER, 4);
+    final java.util.Set<String> there = new java.util.HashSet<String>(java.util.Arrays.asList("run1", "run2"));
+    String a = DownloadMove.expand("folder1/folder 2/%ddmmyyyy/pics", day, there::contains), b = DownloadMove.expand("run%n", day, there::contains);
+    SogniDownloads.init(PromptDb.dir());
+    DownloadMove.load();
+    File home = new File(System.getProperty("user.home"));
+    File src = new File(home, "m202"), pics = new File(home, "m202-pics");
+    src.mkdirs();
+    new File(pics, "set1").mkdirs();
+    Files.write(new File(src, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m202-pics");
+    final javax.swing.JPanel panel = new javax.swing.JPanel();
+    edt(() -> DownloadsScreen.folderRows(frame, panel));
+    final javax.swing.JTextField field = (javax.swing.JTextField) component(panel, "downloads-move-sub:picture");
+    edt(() -> field.setText("set%n/%yyyy"));
+    String kept = DownloadMove.subOf("picture");
+    String said = DownloadsScreen.moveToDefaults(src);
+    String year = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+    boolean moved = new File(pics, "set2/" + year + "/a.png").isFile() && !new File(src, "a.png").exists();
+    out.append(a).append(" | ").append(b).append(" | field kept ").append(kept).append(" | ").append(said).append(", in set2/").append(year).append(' ').append(moved).append('\n');
+    DownloadMove.setSub("picture", "");
+    DownloadMove.ticked.put("picture", false);
+    DownloadMove.setFolder("picture", "", "");
+    boolean ok = a.equals("folder1/folder 2/04112026/pics") && b.equals("run3") && "set%n/%yyyy".equals(kept) && said.startsWith("Moved 1") && moved;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_4: Video ready in Full screen preview (as on the phone): while it plays only the picture
+   * shows, paused Loop video, Mute and the volume too; held, back to its own size.
+   */
+  void s201_video_ready_full_screen() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File clip = new File(new File(System.getProperty("user.home")), "clip201.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final PromptDb db = (PromptDb) get("promptDb");
+    set("lastVideo", null);
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> db.vlcPreview("clip201.webm", clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1200);
+    idle();
+    final JDialog d = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    final java.util.function.Supplier<String> controls = () -> component(d, "video-loop").isShowing() && component(d, "video-volume").isShowing() ? "shown" : "hidden";
+    String before = controls.get();
+    final java.awt.Rectangle[] sizes = new java.awt.Rectangle[3];
+    edt(() -> {
+      sizes[0] = d.getBounds();
+      PromptDb.fullScreen(d);
+      sizes[1] = d.getBounds();
+      player.play();
+    });
+    Thread.sleep(1000);
+    boolean playing = player.playing();
+    String whilePlaying = controls.get();
+    edt(() -> player.screen.clicked.run());
+    Thread.sleep(800);
+    boolean paused = !player.playing();
+    String whenPaused = controls.get();
+    edt(() -> {
+      player.screen.held.run();
+      sizes[2] = d.getBounds();
+    });
+    Thread.sleep(400);
+    boolean back = sizes[2].equals(sizes[0]);
+    out.append("window: controls ").append(before).append(" | full screen ").append(sizes[1].width > sizes[0].width).append(", playing ").append(playing).append(": controls ").append(whilePlaying)
+        .append(" | clicked: paused ").append(paused).append(", controls ").append(whenPaused).append(" | held: back to its size ").append(back).append(", controls ").append(controls.get()).append('\n');
+    edt(() -> ((javax.swing.JButton) find(d.getContentPane(), "Close")).doClick());
+    idle();
+    boolean ok = "shown".equals(before) && sizes[1].width > sizes[0].width && playing && "hidden".equals(whilePlaying) && paused && "shown".equals(whenPaused) && back;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's video (as on the phone): a click on the picture pauses or plays on; small ‹
    * and › beside it open the folder's previous and next video (none before the first or after the last).
    */

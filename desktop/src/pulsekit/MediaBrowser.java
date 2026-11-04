@@ -2077,6 +2077,26 @@ final class MediaBrowser {
         }
     }
 
+    /** A video of the folder's `videos` (at `at`; -1: not among them) played; its ‹ › open the one beside it over it. */
+    void playVideo(final List<MediaDir.Entry> videos, final int at, MediaDir.Entry now, File nowFile) {
+        // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
+        app.promptDb.videoBack = at > 0;
+        app.promptDb.videoOn = at >= 0 && at < videos.size() - 1;
+        app.promptDb.videoStep = step -> {
+            int to = at + step;
+            if (at < 0 || to < 0 || to >= videos.size()) return;
+            MediaDir.Entry next = videos.get(to);
+            this.playVideo(videos, to, next, new File(next.id));
+        };
+        try {
+            app.promptDb.videoFile(now.name, nowFile, MediaDir.loopVideos, true);
+        } finally {
+            app.promptDb.videoBack = false;
+            app.promptDb.videoOn = false;
+            app.promptDb.videoStep = null;
+        }
+    }
+
     /** A card's click: a picture full size, a video or a sound played. */
     void openEntry(MediaDir.Entry entry, File f) {
         try {
@@ -2089,26 +2109,8 @@ final class MediaBrowser {
                     if (x == entry || (x.id != null && x.id.equals(entry.id))) at = videos.size();
                     videos.add(x);
                 }
-                MediaDir.Entry now = entry;
-                File nowFile = f;
-                while (true) {
-                    // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
-                    app.promptDb.videoBack = at > 0;
-                    app.promptDb.videoOn = at >= 0 && at < videos.size() - 1;
-                    app.promptDb.videoStepped = 0;
-                    try {
-                        app.promptDb.videoFile(now.name, nowFile, MediaDir.loopVideos, true);
-                    } finally {
-                        app.promptDb.videoBack = false;
-                        app.promptDb.videoOn = false;
-                    }
-                    int step = app.promptDb.videoStepped;
-                    app.promptDb.videoStepped = 0;
-                    if (step == 0 || at < 0 || at + step < 0 || at + step >= videos.size()) return;
-                    at += step;
-                    now = videos.get(at);
-                    nowFile = new File(now.id);
-                }
+                this.playVideo(videos, at, entry, f);
+                return;
             }
             // A picture's folder: its Crop saves there.
             app.promptDb.previewFolder = f.getAbsoluteFile().getParentFile();

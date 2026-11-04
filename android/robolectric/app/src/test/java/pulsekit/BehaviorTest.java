@@ -12114,6 +12114,125 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026_4: Video ready's Full screen preview: a tap pauses or plays it; paused, Loop video, Mute
+   * and the volume show (hidden while it plays); a long press goes back to Video ready.
+   */
+  @Test
+  public void s216_video_ready_full_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    app.getSharedPreferences(VideoOffer.PREFS, 0).edit().clear().apply();
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    vp.fullScreen(app, new File(app.getCacheDir(), "video-offer/walk.mp4").getAbsolutePath(), 0);
+    idle();
+    View fv = vp.full.getWindow().getDecorView();
+    VideoView big = (VideoView) fv.findViewWithTag("video-offer:full");
+    big.start();
+    idle();
+    java.util.function.Supplier<String> controls = () -> vp.fullControls.getVisibility() == View.VISIBLE ? "shown" : "hidden";
+    java.util.function.Consumer<Long> press = heldMs -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      big.dispatchTouchEvent(d);
+      d.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      big.dispatchTouchEvent(u);
+      u.recycle();
+      idle();
+    };
+    press.accept(60L);
+    boolean paused = !big.isPlaying();
+    String whenPaused = controls.get();
+    android.widget.CheckBox loop = (android.widget.CheckBox) fv.findViewWithTag("video-offer:full-loop");
+    loop.setChecked(true);
+    boolean loopKept = app.getSharedPreferences(VideoOffer.PREFS, 0).getBoolean(VideoOffer.FULL_LOOP, false);
+    ((TextView) fv.findViewWithTag("video-offer:full-mute")).performClick();
+    String level = ((TextView) fv.findViewWithTag("video-offer:full-level")).getText().toString();
+    boolean mutedBoth = vp.muted && "Unmute".contentEquals(vp.mute.getText());
+    ((TextView) fv.findViewWithTag("video-offer:full-mute")).performClick();
+    ((android.widget.SeekBar) fv.findViewWithTag("video-offer:full-volume")).setProgress(30);
+    int readyBar = vp.volumeBar.getProgress();
+    String level30 = ((TextView) fv.findViewWithTag("video-offer:full-level")).getText().toString();
+    press.accept(60L);
+    boolean playing = big.isPlaying();
+    String whenPlaying = controls.get();
+    out.append("tap: paused ").append(paused).append(", controls ").append(whenPaused).append(" | Loop video kept ").append(loopKept).append(" | Mute: ").append(level).append(", Video ready too ").append(mutedBoth)
+        .append(" | volume 30: ").append(level30).append(", Video ready's slider ").append(readyBar).append(" | tap: playing ").append(playing).append(", controls ").append(whenPlaying).append('\n');
+    press.accept(900L);
+    boolean back = !vp.full.isShowing() && vp.dialog.isShowing();
+    out.append("long press: back to Video ready ").append(back).append('\n');
+    vp.dialog.dismiss();
+    idle();
+    write("s216_video_ready_full_screen", out.toString());
+    boolean ok = paused && "shown".equals(whenPaused) && loopKept && "muted".equals(level) && mutedBoth && "30%".equals(level30) && readyBar == 30 && playing && "hidden".equals(whenPlaying) && back;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_4: a move folder's Subfolder with % codes (%ddmmyyyy/pics: 04112026/pics; %n the next
+   * free number), made when missing, once for a whole move.
+   */
+  @Test
+  public void s215_move_subfolder_codes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.Calendar day = java.util.Calendar.getInstance();
+    day.set(2026, java.util.Calendar.NOVEMBER, 4);
+    final java.util.Set<String> there = new java.util.HashSet<String>(java.util.Arrays.asList("run1", "run2"));
+    String[][] cases = {{"folder1/folder 2/%ddmmyyyy/pics", "folder1/folder 2/04112026/pics"}, {"%d-%m-%yy", "4-11-26"}, {"%yyyy/%mm/%dd", "2026/11/04"}, {"run%n", "run3"},
+      {"a/../b//c", "a/b/c"}, {"100%% %q", "100% %q"}, {"plain", "plain"}, {"", ""}};
+    boolean codesOk = true;
+    for (String[] c : cases) {
+      String got = DownloadMove.expand(c[0], day, there::contains);
+      out.append(c[0]).append(" -> ").append(got).append(" | ");
+      codesOk &= got.equals(c[1]);
+    }
+    out.append('\n');
+    // Move defined media types into the videos' folder, under its subfolder.
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    File vids = new File(app.getCacheDir(), "m15-vids");
+    vids.mkdirs();
+    new File(vids, "set1").mkdirs();
+    File src = new File(app.getCacheDir(), "m15");
+    src.mkdirs();
+    File clip = new File(src, "clip.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "m15-vids");
+    DownloadMove.setSub("video", "set%n/%yyyy");
+    DownloadMove.load();
+    String sub = MediaBrowser.subNow(app, "video", MediaBrowser.originOf(vids.getAbsolutePath()));
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "clip.mp4";
+    e.id = clip.getAbsolutePath();
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false, sub, null);
+    String year = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+    boolean moved = why == null && new File(vids, "set2/" + year + "/clip.mp4").isFile() && !clip.exists();
+    String kept = new String(Files.readAllBytes(new File(SogniDownloads.dir(), "download-move.txt").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    out.append("sub ").append(sub).append(" | moved ").append(why).append(", there ").append(moved).append(" | kept ").append(kept.contains("\tset%n/%yyyy\n")).append('\n');
+    // The Subfolder field beside each type.
+    android.widget.LinearLayout panel = new android.widget.LinearLayout(app);
+    DownloadsScreen.folderRows(app, panel, null);
+    android.widget.EditText field = (android.widget.EditText) panel.findViewWithTag("downloads-move-sub:picture");
+    field.setText("%ddmmyyyy/pics");
+    String fieldKept = DownloadMove.subOf("picture");
+    boolean shownVideo = "set%n/%yyyy".equals(((android.widget.EditText) panel.findViewWithTag("downloads-move-sub:video")).getText().toString());
+    out.append("field: kept ").append(fieldKept).append(", video's shown ").append(shownVideo).append(", hint ").append(field.getHint()).append('\n');
+    DownloadMove.setSub("picture", "");
+    DownloadMove.setSub("video", "");
+    DownloadMove.ticked.put("video", false);
+    DownloadMove.setFolder("video", "", "");
+    write("s215_move_subfolder_codes", out.toString());
+    boolean ok = codesOk && sub.equals("set2/" + year) && moved && kept.contains("\tset%n/%yyyy\n") && "%ddmmyyyy/pics".equals(fieldKept) && shownVideo;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's video: a short tap pauses or plays on; small arrows at the left and right
    * edges open the folder's previous and next video (none before the first, none after the last).
    */
@@ -12165,19 +12284,22 @@ public class BehaviorTest {
     android.app.Dialog was = v.dialog;
     v.dialog.getWindow().getDecorView().findViewWithTag("media-video-right").performClick();
     idle();
+    // The next opens over it; it closes under the next a moment later (the folder is not shown between).
+    boolean stillOver = was.isShowing() && MediaBrowser.lastVideo.dialog.isShowing() && MediaBrowser.lastVideo != v;
+    ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
     boolean closed = !was.isShowing();
     walk.append(" > ").append(state.get());
     for (int i = 0; i < 2; i++) {
       MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video-left").performClick();
-      idle();
+      ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
       walk.append(" < ").append(state.get());
     }
-    out.append(walk).append(", the one before closed ").append(closed).append('\n');
+    out.append(walk).append(", the next over it first ").append(stillOver).append(", then it closed ").append(closed).append('\n');
     MediaBrowser.lastVideo.dialog.dismiss();
     b.dialog.dismiss();
     idle();
     write("s214_media_video_prev_next", out.toString());
-    boolean ok = before && !afterTap && afterTap2 && closed && walk.toString().equals("b.mp4 (\u2039\u203a) > c.mp4 (\u2039-) < b.mp4 (\u2039\u203a) < a.mp4 (-\u203a)");
+    boolean ok = before && !afterTap && afterTap2 && stillOver && closed && walk.toString().equals("b.mp4 (\u2039\u203a) > c.mp4 (\u2039-) < b.mp4 (\u2039\u203a) < a.mp4 (-\u203a)");
     if (!ok) throw new AssertionError(out.toString());
   }
 

@@ -678,7 +678,48 @@ final class DownloadsScreen {
             row.add(where);
             row.add(browse);
             panel.add(row);
+            // Its subfolder under the folder, with % codes (%ddmmyyyy/pics), made when missing.
+            JPanel subRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            subRow.setAlignmentX(0.0f);
+            subRow.add(new JLabel("      Subfolder"));
+            final javax.swing.JTextField subField = new javax.swing.JTextField(DownloadMove.subOf(kind), 22);
+            subField.setName("downloads-move-sub:" + kind);
+            subField.setToolTipText(DownloadMove.SUB_HINT + ". " + DownloadMove.SUB_NOTE);
+            subField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                void kept() {
+                    DownloadMove.setSub(kind, subField.getText());
+                }
+
+                @Override
+                public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                    kept();
+                }
+
+                @Override
+                public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                    kept();
+                }
+
+                @Override
+                public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                    kept();
+                }
+            });
+            subRow.add(subField);
+            panel.add(subRow);
         }
+        JLabel note = new JLabel("<html>" + DownloadMove.SUB_NOTE + "</html>");
+        note.setName("downloads-move-sub-note");
+        note.setFont(note.getFont().deriveFont(11f));
+        note.setAlignmentX(0.0f);
+        panel.add(note);
+    }
+
+    /** The kind's folder for a move now: with its subfolder (the % codes filled in) when one is set; made by the move. */
+    static File moveFolder(String kind) {
+        final File base = new File(DownloadMove.folderOf(kind));
+        String sub = DownloadMove.subNow(kind, p -> new File(base, p).exists());
+        return sub.length() == 0 ? base : new File(base, sub);
     }
 
     /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
@@ -708,6 +749,8 @@ final class DownloadsScreen {
             java.util.List<Object[]> due = DownloadMove.due();
             int moved = 0, failed = 0;
             String problem = null;
+            // Each kind's folder (its subfolder's % codes filled in) once for the whole move.
+            java.util.Map<String, File> into = new java.util.HashMap<String, File>();
             for (int i = 0; i < due.size(); i++) {
                 SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
                 moveStatus = "Moving " + (i + 1) + " of " + due.size() + ": " + item.name;
@@ -715,7 +758,10 @@ final class DownloadsScreen {
                 showMove();
                 // Gone (deleted once zipped, --zip_delete): left out.
                 if (!new File(item.where).isFile()) continue;
-                String said = put((SogniDownloads.Run) due.get(i)[0], item, new File(DownloadMove.folderOf(item.kind())), true);
+                if (!into.containsKey(item.kind())) into.put(item.kind(), moveFolder(item.kind()));
+                File dir = into.get(item.kind());
+                if (!dir.isDirectory()) dir.mkdirs();
+                String said = put((SogniDownloads.Run) due.get(i)[0], item, dir, true);
                 if (said.startsWith("Moved to ")) moved++;
                 else {
                     failed++;
@@ -775,12 +821,15 @@ final class DownloadsScreen {
             java.util.Collections.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
             int moved = 0, failed = 0;
             String problem = null;
+            java.util.Map<String, File> into = new java.util.HashMap<String, File>();
             for (int i = 0; i < files.size(); i++) {
                 File f = files.get(i);
                 moveStatus = "Moving " + (i + 1) + " of " + files.size() + ": " + f.getName();
                 moveProgress = i * 1000 / files.size();
                 showMove();
-                File folder = new File(DownloadMove.defaultFor(f.getName()));
+                String kind = DownloadMove.kindOf(f.getName());
+                if (!into.containsKey(kind)) into.put(kind, moveFolder(kind));
+                File folder = into.get(kind);
                 String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
                 String ext = f.getName().substring(stem.length());
                 File to = new File(folder, f.getName());
