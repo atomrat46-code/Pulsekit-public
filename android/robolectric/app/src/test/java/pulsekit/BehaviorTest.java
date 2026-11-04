@@ -12107,6 +12107,113 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026_2: Process as a reference lists the program's prompts from its recent runs and from
+   * File > Downloads (the newest first, each once), each by its first sentences, a tap showing all of
+   * it; Browse sections' long press: Load, Edit section, Remove section (asked first); Select file
+   * opens where the last file was picked; Video ready: a tap plays or pauses, Full screen preview.
+   */
+  @Test
+  public void s208_process_prompts_sections_select_video() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // Prompts: two recent runs and three of File > Downloads (one the same as a recent one).
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"Old picture. Soft light. Grain and more.\"", pedit, null);
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"Newest one. Short.\"", pedit, null);
+    // The list the dialog reads (the app's own).
+    SogniDownloads.init(app.getFilesDir());
+    for (String[] r : new String[][] {{"From downloads A. Second sentence. Third sentence.", "3000"}, {"Newest one. Short.", "4000"}, {"From downloads B.", "5000"}}) {
+      long id = SogniDownloads.started("SogniPedit.java", Long.parseLong(r[1]));
+      SogniDownloads.args(id, "--prompt \"" + r[0] + "\"");
+      SogniDownloads.done(id);
+    }
+    File pic = new File(app.getCacheDir(), "p8.png");
+    Files.write(pic.toPath(), plainPng(40, 70));
+    ProcessRefDialog.last = null;
+    ProcessRefDialog.open(app, pic);
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    String first = String.valueOf(d.promptBtn.getText());
+    d.pickPrompt();
+    idle();
+    String rows = listItems(ProcessRefDialog.lastPrompts);
+    org.robolectric.Shadows.shadowOf(ProcessRefDialog.lastPrompts).clickOnItem(3);
+    idle();
+    String whole = String.valueOf(((TextView) ProcessRefDialog.lastPromptText.getWindow().getDecorView().findViewWithTag("process-ref-prompt-text")).getText());
+    ProcessRefDialog.lastPromptText.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String picked = String.valueOf(d.promptBtn.getText());
+    d.dialog.dismiss();
+    SogniDownloads.init(app.getFilesDir());
+    out.append("prompts: first ").append(first).append(" | list ").append(rows).append(" | whole ").append(whole).append(" | picked ").append(picked).append('\n');
+    boolean promptsOk = first.equals("Newest one. Short.") && rows.split(" \\| ").length == 4 && rows.contains("From downloads A. Second sentence. \u2026")
+        && whole.equals("From downloads A. Second sentence. Third sentence.") && picked.startsWith("From downloads A.");
+    // Browse sections: held, Edit section and Remove section.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPedit", "Prompt: a cat\n");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.browseSections(app, "SogniPedit", none, noFields);
+    idle();
+    android.widget.ListView lv = PyJavParams.lastSections.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    String menu = listItems(PyJavParams.lastSectionMenu);
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(1);
+    idle();
+    ((android.widget.EditText) PyJavParams.lastSectionEdit.getWindow().getDecorView().findViewWithTag("section-edit-text")).setText("Prompt: a dog\nLoras: fur 1.0");
+    PyJavParams.lastSectionEdit.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String edited = vault.sogniSections("SogniPedit").get(0).text;
+    PyJavParams.lastSections.dismiss();
+    PyJavParams.browseSections(app, "SogniPedit", none, noFields);
+    idle();
+    lv = PyJavParams.lastSections.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(2);
+    idle();
+    String removeAsk = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionEdit).getMessage());
+    PyJavParams.lastSectionEdit.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    int left = vault.sogniSections("SogniPedit").size();
+    out.append("sections: menu ").append(menu).append(" | edited ").append(edited.replace("\n", "\\n")).append(" | remove asked ").append(removeAsk.startsWith("Remove this section?")).append(", left ").append(left).append('\n');
+    boolean sectionsOk = menu.equals("Load | Edit section | Remove section") && edited.equals("Prompt: a dog\nLoras: fur 1.0\n") && removeAsk.startsWith("Remove this section?") && left == 0;
+    // Select file: opens where the last file was.
+    android.net.Uri lastFile = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FParannetut(1)(1)%2Fa.txt");
+    PyJavParams.pickedLast(app, lastFile);
+    PyJavParams.pickPromptFile(app, new android.widget.EditText(app));
+    android.content.Intent asked = org.robolectric.Shadows.shadowOf(app).getNextStartedActivity();
+    Object initial = asked == null ? null : asked.getParcelableExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI);
+    out.append("select file starts at: ").append(initial).append('\n');
+    boolean selectOk = lastFile.equals(initial);
+    // Video ready: a tap plays, again pauses; the long press has Full screen preview.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    vp.view.performClick();
+    boolean playedOnTap = vp.playing;
+    vp.view.performClick();
+    boolean pausedOnTap = !vp.playing;
+    vp.view.performLongClick();
+    idle();
+    String frameItems = listItems(vp.menu);
+    vp.menu.dismiss();
+    vp.fullScreen(app, new File(app.getCacheDir(), "video-offer/walk.mp4").getAbsolutePath(), 0);
+    idle();
+    boolean full = vp.full != null && vp.full.isShowing() && vp.full.getWindow().getDecorView().findViewWithTag("video-offer:full") != null;
+    vp.full.dismiss();
+    vp.dialog.dismiss();
+    idle();
+    out.append("video: tap plays ").append(playedOnTap).append(", again pauses ").append(pausedOnTap).append(" | menu has full screen ").append(frameItems.contains(VideoOffer.FULL_SCREEN)).append(", shown ").append(full).append('\n');
+    boolean videoOk = playedOnTap && pausedOnTap && frameItems.contains(VideoOffer.FULL_SCREEN) && full;
+    write("s208_process_prompts_sections_select_video", out.toString());
+    if (!(promptsOk && sectionsOk && selectOk && videoOk)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026: Choose file on a favourite tab: that folder is the Recent MB folder now (the folder in
    * use); the Media browser's letters row is one line, scrolled sideways (no tall gaps).
    */

@@ -18,6 +18,17 @@ public final class SogniSections {
   public static final String ASK = "The entries now are not saved as a section. Save them before the section is loaded?";
   public static final String SAVE_FIRST = "Save, then load";
   public static final String DONT_SAVE = "Load without saving";
+  public static final String LOAD = "Load", EDIT = "Edit section", REMOVE = "Remove section";
+
+  /** Remove section's question. */
+  public static String removeAsk(PromptVault.SogniSection s) {
+    return "Remove this section? It cannot be brought back.\n\n" + label(s);
+  }
+
+  /** Edit section's text checked: null when it is fine, else what is wrong. */
+  public static String editProblem(String text) {
+    return read(text).isEmpty() ? "No entries: each line is a row and its value (\"Prompt: ...\", \"Loras: ...\")" : null;
+  }
 
   /** Whether a program's Params have Save and Browse sections (the Sogni programs). */
   public static boolean shown(String program) {

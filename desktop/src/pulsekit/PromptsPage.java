@@ -737,9 +737,10 @@ final class PromptsPage {
         JButton select = app.action("Select file", ELEV, FG);
         select.setName("prompt-body-file");
         select.addActionListener(e -> {
-            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            javax.swing.JFileChooser chooser = PyJav.selectChooser();
             chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md", "prompt"));
             if (chooser.showOpenDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            PyJav.selected(chooser.getSelectedFile());
             this.promptFrom(chooser.getSelectedFile());
         });
         fromFile.add(select);

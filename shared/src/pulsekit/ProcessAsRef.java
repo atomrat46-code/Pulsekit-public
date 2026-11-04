@@ -54,6 +54,61 @@ public final class ProcessAsRef {
     return "";
   }
 
+  /** How many prompts Process as a reference lists. */
+  public static final int PROMPTS = 30;
+
+  /**
+   * Process as a reference's prompts for `program`: its recent runs (PyJav's list), then the runs of it
+   * File > Downloads keeps (the arguments each ran with), the newest first, each prompt once.
+   */
+  public static List<PyJavRecent.Item> promptRuns(List<PyJavRecent.Item> recent, String program) {
+    List<PyJavRecent.Item> out = new ArrayList<PyJavRecent.Item>();
+    java.util.Set<String> seen = new java.util.HashSet<String>();
+    for (PyJavRecent.Item item : PyJavRecent.runsOf(recent, program)) addOnce(out, seen, item);
+    List<SogniDownloads.Run> runs = new ArrayList<SogniDownloads.Run>();
+    for (String tab : new String[] {SogniDownloads.FINISHED, SogniDownloads.PROGRESS, SogniDownloads.PENDING}) runs.addAll(SogniDownloads.tab(tab));
+    java.util.Collections.sort(runs, (a, b) -> Long.compare(b.started, a.started));
+    for (SogniDownloads.Run r : runs) {
+      if (!program.equals(r.program) || r.args == null || r.args.trim().length() == 0) continue;
+      addOnce(out, seen, new PyJavRecent.Item(program, r.args, "", null));
+    }
+    // The runs with a prompt first (a run without one is a program opened, not a prompt).
+    List<PyJavRecent.Item> with = new ArrayList<PyJavRecent.Item>(), without = new ArrayList<PyJavRecent.Item>();
+    for (PyJavRecent.Item item : out) (prompt(item) != null ? with : without).add(item);
+    with.addAll(without);
+    return with.size() > PROMPTS ? new ArrayList<PyJavRecent.Item>(with.subList(0, PROMPTS)) : with;
+  }
+
+  private static void addOnce(List<PyJavRecent.Item> out, java.util.Set<String> seen, PyJavRecent.Item item) {
+    String key = prompt(item);
+    if (key == null) key = "\u0000" + item.extra.trim();
+    if (seen.add(key.replaceAll("\\s+", " ").trim())) out.add(item);
+  }
+
+  /** A run's whole prompt (its --prompt), or null when it has none. */
+  public static String prompt(PyJavRecent.Item item) {
+    List<String> args = JavaRun.split(item == null ? "" : item.extra);
+    for (int i = 0; i + 1 < args.size(); i++) if (args.get(i).equals("--prompt") && args.get(i + 1).trim().length() > 0) return args.get(i + 1).trim();
+    return null;
+  }
+
+  /** A prompt's start for a list: its first two sentences, at most `max` characters. */
+  public static String promptShort(PyJavRecent.Item item, int max) {
+    String p = prompt(item);
+    if (p == null) return promptLabel(item, max);
+    p = p.replaceAll("\\s+", " ");
+    int end = -1, found = 0;
+    for (int i = 0; i < p.length() && found < 2; i++) {
+      char c = p.charAt(i);
+      if ((c == '.' || c == '!' || c == '?') && (i + 1 == p.length() || p.charAt(i + 1) == ' ')) {
+        end = i + 1;
+        found++;
+      }
+    }
+    String cut = end > 0 && end < p.length() ? p.substring(0, end) + " \u2026" : p;
+    return cut.length() > max ? cut.substring(0, max - 1) + "\u2026" : cut;
+  }
+
   /** A run's prompt for the list ("(no prompt)" when it has none), cut to `max` characters. */
   public static String promptLabel(PyJavRecent.Item item, int max) {
     List<String> args = JavaRun.split(item == null ? "" : item.extra);

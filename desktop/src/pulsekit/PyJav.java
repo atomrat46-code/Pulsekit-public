@@ -1181,10 +1181,29 @@ final class PyJav {
         }
     }
 
+    static final String SELECT_DIR = "select-file-dir";
+
+    /** Select file's chooser, open in the folder the last file was picked from (a subfolder too). */
+    static JFileChooser selectChooser() {
+        String last = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(SELECT_DIR, "");
+        File dir = last.length() > 0 ? new File(last) : null;
+        return dir != null && dir.isDirectory() ? new JFileChooser(dir) : new JFileChooser();
+    }
+
+    /** A file Select file picked: its folder kept for the next one. */
+    static void selected(File f) {
+        File dir = f == null ? null : f.getAbsoluteFile().getParentFile();
+        if (dir != null) java.util.prefs.Preferences.userNodeForPackage(PyJav.class).put(SELECT_DIR, dir.getAbsolutePath());
+    }
+
     /** What Save or Browse sections said last; the tests' answers (a section's index to load; 0 save first, 1 load, 2 cancel). */
     static volatile String sectionSaid = "";
     static Integer pickSection;
     static Integer askSave;
+    /** The tests: what is done with the section picked (0 load, 1 Edit section, 2 Remove section), Edit's text, Remove's answer (true: Remove). */
+    static Integer sectionAction;
+    static String sectionEditText;
+    static Boolean sectionRemove;
 
     private void sectionSay(String text) {
         sectionSaid = text;
@@ -1237,30 +1256,65 @@ final class PyJav {
             return;
         }
         int chosen;
-        boolean delete = false;
-        if (pickSection != null) chosen = pickSection;
-        else {
+        boolean delete = false, edit = false;
+        if (pickSection != null) {
+            chosen = pickSection;
+            if (sectionAction != null && sectionAction == 1) edit = true;
+            if (sectionAction != null && sectionAction == 2) delete = true;
+        } else {
             javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
             for (PromptVault.SogniSection sec : all) model.addElement(SogniSections.label(sec));
             javax.swing.JList<String> list = new javax.swing.JList<String>(model);
             list.setName("sections-list");
             list.setSelectedIndex(0);
             list.setVisibleRowCount(Math.min(12, all.size()));
-            Object[] options = {"Load", "Delete", "Cancel"};
+            Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Cancel"};
             int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
                 JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             chosen = list.getSelectedIndex();
-            if (ans == 1) delete = true;
+            if (ans == 1) edit = true;
+            else if (ans == 2) delete = true;
             else if (ans != 0) return;
         }
         if (chosen < 0 || chosen >= all.size()) return;
         PromptVault.SogniSection sec = all.get(chosen);
         if (delete) {
+            // Remove section: asked first.
+            boolean sure = sectionRemove != null ? sectionRemove.booleanValue()
+                : JOptionPane.showConfirmDialog(at, SogniSections.removeAsk(sec), SogniSections.REMOVE, JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION;
+            if (!sure) return;
             try {
                 PromptDb.vault().deleteSogniSection(sec.id);
-                this.sectionSay("Deleted: " + SogniSections.label(sec));
+                this.sectionSay("Removed: " + SogniSections.label(sec));
             } catch (Exception ex) {
-                this.sectionSay("Could not delete it: " + ex.getMessage());
+                this.sectionSay("Could not remove it: " + ex.getMessage());
+            }
+            return;
+        }
+        if (edit) {
+            // Edit section: its entries, a line each ("Prompt: ...", "Loras: ...").
+            String now;
+            if (sectionEditText != null) now = sectionEditText;
+            else {
+                javax.swing.JTextArea text = new javax.swing.JTextArea(sec.text.trim(), 8, 50);
+                text.setName("section-edit-text");
+                text.setLineWrap(true);
+                text.setWrapStyleWord(true);
+                if (JOptionPane.showConfirmDialog(at, new javax.swing.JScrollPane(text), SogniSections.EDIT, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
+                now = text.getText();
+            }
+            now = now.trim() + "\n";
+            String problem = SogniSections.editProblem(now);
+            if (problem != null) {
+                this.sectionSay("Not saved: " + problem);
+                return;
+            }
+            try {
+                PromptDb.vault().updateSogniSection(sec.id, now);
+                sec.text = now;
+                this.sectionSay("Saved: " + SogniSections.label(sec));
+            } catch (Exception ex) {
+                this.sectionSay("Could not save the section: " + ex.getMessage());
             }
             return;
         }
@@ -2986,9 +3040,10 @@ final class PyJav {
                     JButton select = new JButton("Select file");
                     select.setName("params-prompt-file:" + p.token);
                     select.addActionListener(e -> {
-                        JFileChooser chooser = new JFileChooser();
+                        JFileChooser chooser = selectChooser();
                         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md", "prompt"));
                         if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                        selected(chooser.getSelectedFile());
                         this.promptFrom(area, chooser.getSelectedFile());
                     });
                     JButton db = new JButton("Browse DB");
@@ -3058,9 +3113,10 @@ final class PyJav {
                 JButton select = new JButton("Select file");
                 select.setName("params-styles-file:" + p.token);
                 select.addActionListener(e -> {
-                    JFileChooser chooser = new JFileChooser();
+                    JFileChooser chooser = selectChooser();
                     chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text", "md"));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                    selected(chooser.getSelectedFile());
                     this.stylesFrom(field, chooser.getSelectedFile());
                 });
                 JButton db = new JButton("Browse DB");

@@ -104,12 +104,13 @@ final class VideoOffer {
             if (playing) playPause();
             final int ms = Math.max(0, view.getCurrentPosition());
             final String[] frameItems = TagDialogs.withUseLast(app, new String[] {"Extract frame", "Capture frame and process as a reference", PictureOffer.isFavourite(app, clipName, clipSize) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, ReadyRecent.VIDEO);
+                MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, FULL_SCREEN}, ReadyRecent.VIDEO);
             menu = new AlertDialog.Builder(app)
                 .setTitle("Frame at " + FileSets.mixTime(ms))
                 .setItems(frameItems, (d, w) -> {
                     String it = frameItems[w];
-                    if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, clipName, null, new java.io.File(path));
+                    if (it.equals(FULL_SCREEN)) fullScreen(app, path, ms);
+                    else if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, clipName, null, new java.io.File(path));
                     else if (w < 2) extractFrame(app, path, clipName, ms, w == 1);
                     else if (w == 2) PictureOffer.toggleFavourite(app, clipName, clipSize);
                     else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, PictureOffer.groupKeys(app, clipName, clipSize), clipName, null, ReadyRecent.VIDEO);
@@ -171,6 +172,52 @@ final class VideoOffer {
             }, "pulsekit-video-frame").start();
         }
 
+        /** Full screen preview shown last (for the tests). */
+        android.app.Dialog full;
+
+        /**
+         * Full screen preview: the clip on the whole screen from where it is (a tap plays or pauses it,
+         * Back closes it); Video ready goes on from where it was left.
+         */
+        void fullScreen(final MainActivity app, String path, int ms) {
+            final android.app.Dialog d = new android.app.Dialog(app, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            final VideoView big = new VideoView(app);
+            big.setTag("video-offer:full");
+            android.widget.FrameLayout frame = new android.widget.FrameLayout(app);
+            frame.setBackgroundColor(android.graphics.Color.BLACK);
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(-1, -1, android.view.Gravity.CENTER);
+            frame.addView(big, lp);
+            d.setContentView(frame);
+            big.setOnPreparedListener(mp -> {
+                try {
+                    mp.setVolume(gain(), gain());
+                } catch (IllegalStateException ignored) {
+                    // closing
+                }
+                big.seekTo(ms);
+                big.start();
+            });
+            big.setOnClickListener(v -> {
+                if (big.isPlaying()) big.pause();
+                else big.start();
+            });
+            d.setOnDismissListener(x -> {
+                int at = 0;
+                try {
+                    at = big.getCurrentPosition();
+                } catch (Exception ignored) {
+                    // not started
+                }
+                big.stopPlayback();
+                if (view != null && at > 0) view.seekTo(at);
+                MediaBrowser.screenOn(d.getWindow(), false);
+            });
+            big.setVideoPath(path);
+            full = d;
+            d.show();
+            MediaBrowser.screenOn(d.getWindow(), true);
+        }
+
         void toggleMute(MainActivity app) {
             muted = !muted;
             mute.setText(muted ? "Unmute" : "Mute");
@@ -182,6 +229,8 @@ final class VideoOffer {
     }
 
     static Player last;
+    /** The long press's item: the clip on the whole screen. */
+    static final String FULL_SCREEN = "Full screen preview";
     static final String PREFS = "video-ready";
     static final String MUTED = "muted";
 
@@ -258,6 +307,8 @@ final class VideoOffer {
             p.frameMenu(app, path, clipName);
             return true;
         });
+        // A tap on the clip plays or pauses it (as Play / Pause).
+        p.view.setOnClickListener(v -> p.playPause());
         LinearLayout buttons = app.row();
         buttons.setPadding(0, app.dp(10), 0, app.dp(4));
         p.play = app.pill("Play", true, v -> p.playPause());

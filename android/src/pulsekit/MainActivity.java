@@ -883,6 +883,8 @@ public class MainActivity extends UiKit {
         }
         if (n == PyJavParams.PICK_FILE) {
             super.onActivityResult(n, n2, intent);
+            // Kept: the next Select file opens in this file's folder.
+            if (n2 == -1 && intent != null && intent.getData() != null) PyJavParams.pickedLast(this, intent.getData());
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.pkTakeParamFile(intent.getData());
             return;
         }

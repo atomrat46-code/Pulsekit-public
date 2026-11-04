@@ -1415,6 +1415,17 @@ public final class PromptVault {
     return sec;
   }
 
+  /** Edit section: the section's entries changed (its date kept); false when it is gone. */
+  public synchronized boolean updateSogniSection(long id, String text) throws Exception {
+    for (SogniSection sec : sogniSections) {
+      if (sec.id != id) continue;
+      sec.text = text == null ? "" : text;
+      save();
+      return true;
+    }
+    return false;
+  }
+
   public synchronized boolean deleteSogniSection(long id) throws Exception {
     for (int i = 0; i < sogniSections.size(); i++) {
       if (sogniSections.get(i).id != id) continue;

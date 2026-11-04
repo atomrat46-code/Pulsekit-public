@@ -7673,6 +7673,83 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_2: Process as a reference's prompts (recent runs and File > Downloads, newest first, each
+   * once; Whole prompt… shows all of it); Browse sections' Edit section and Remove section; Select file
+   * opens in the last file's folder; Full screen preview fills the screen and back.
+   */
+  void s194_process_prompts_sections_select_full() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"Recent one. Short.\"", pedit, null);
+    SogniDownloads.init(PromptDb.dir());
+    for (String[] r : new String[][] {{"From downloads A. Second sentence. Third sentence.", "3000"}, {"Recent one. Short.", "4000"}, {"From downloads B.", "5000"}}) {
+      long id = SogniDownloads.started("SogniPedit.java", Long.parseLong(r[1]));
+      SogniDownloads.args(id, "--prompt \"" + r[0] + "\"");
+      SogniDownloads.done(id);
+    }
+    final File pic = new File(System.getProperty("user.home"), "p8.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    answers.add("(keep)");
+    ProcessRefDialog.last = null;
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder items = new StringBuilder();
+    edt(() -> {
+      for (int i = 0; i < d.prompt.getItemCount(); i++) items.append(i == 0 ? "" : " | ").append(d.prompt.getItemAt(i));
+      d.prompt.setSelectedIndex(2);
+    });
+    ProcessRefDialog.lastWhole = null;
+    SwingUtilities.invokeLater(d::showWhole);
+    for (int i = 0; i < 100 && ProcessRefDialog.lastWhole == null; i++) Thread.sleep(50);
+    idle();
+    String whole = ProcessRefDialog.lastWhole;
+    edt(() -> d.dialog.dispose());
+    idle();
+    boolean promptsOk = items.toString().equals("Recent one. Short. | From downloads B. | From downloads A. Second sentence. \u2026")
+        && "From downloads A. Second sentence. Third sentence.".equals(whole);
+    // Browse sections: Edit section, then Remove section.
+    PromptDb.vault().addSogniSection("SogniPedit", "Prompt: a cat\n");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    PyJav.pickSection = 0;
+    PyJav.sectionAction = 1;
+    PyJav.sectionEditText = "Prompt: a dog\nLoras: fur 1.0";
+    pj.browseSections(frame, "SogniPedit", none, new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+    String edited = PromptDb.vault().sogniSections("SogniPedit").get(0).text;
+    PyJav.sectionAction = 2;
+    PyJav.sectionRemove = true;
+    pj.browseSections(frame, "SogniPedit", none, new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+    int left = PromptDb.vault().sogniSections("SogniPedit").size();
+    PyJav.pickSection = null;
+    PyJav.sectionAction = null;
+    PyJav.sectionEditText = null;
+    PyJav.sectionRemove = null;
+    boolean sectionsOk = "Prompt: a dog\nLoras: fur 1.0\n".equals(edited) && left == 0;
+    // Select file: the next one opens where the last file was.
+    File sub = new File(System.getProperty("user.home"), "Downloads/Parannetut(1)(1)");
+    sub.mkdirs();
+    PyJav.selected(new File(sub, "a.txt"));
+    File startsIn = PyJav.selectChooser().getCurrentDirectory();
+    boolean selectOk = sub.getAbsoluteFile().equals(startsIn.getAbsoluteFile());
+    // Full screen preview: the window over the screen, then back to its size.
+    final java.awt.Rectangle[] sizes = new java.awt.Rectangle[3];
+    edt(() -> {
+      JDialog w = new JDialog((java.awt.Frame) frame, "player", false);
+      w.setBounds(10, 10, 300, 200);
+      sizes[0] = w.getBounds();
+      PromptDb.fullScreen(w);
+      sizes[1] = w.getBounds();
+      PromptDb.fullScreen(w);
+      sizes[2] = w.getBounds();
+      w.dispose();
+    });
+    boolean fullOk = sizes[1].width > sizes[0].width && sizes[1].height > sizes[0].height && sizes[2].equals(sizes[0]);
+    this.out.append("prompts: ").append(items).append(" | whole ").append(whole).append("\nsections: edited ").append(edited.replace("\n", "\\n")).append(", left ").append(left)
+        .append(" | select starts in ").append(startsIn.getName()).append(" | full screen ").append(sizes[1].width).append("x").append(sizes[1].height).append(", back ").append(sizes[2].equals(sizes[0])).append('\n');
+    if (!(promptsOk && sectionsOk && selectOk && fullOk)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 04112026: the galleries' order button (Newest first / Oldest first, kept); Edit from Prompt files
    * shows the prompt's settings in a field of their own and Back opens Prompt files again; Clear
    * automatically; Move automatically waits for a run's zip.

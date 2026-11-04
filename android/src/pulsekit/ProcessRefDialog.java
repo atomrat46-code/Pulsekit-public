@@ -39,6 +39,8 @@ final class ProcessRefDialog {
         this.app = app;
         this.picture = picture;
         this.recent = PyJavRecent.load(app.getFilesDir());
+        // File > Downloads' runs: their prompts are listed too.
+        SogniDownloads.init(app.getFilesDir());
         this.programs = ProcessAsRef.programs(this.recent, (name, items) -> this.source(name));
         this.choice = ProcessAsRef.load(app.getFilesDir());
     }
@@ -123,8 +125,9 @@ final class ProcessRefDialog {
 
     void setProgram(String name, boolean kept) {
         this.program = name;
-        this.runs = PyJavRecent.runsOf(this.recent, name);
-        this.run = kept && name.equals(this.choice.program) ? ProcessAsRef.runIndex(this.runs, this.choice) : 0;
+        // Its prompts, the newest first (the one used last is the first: picked at once).
+        this.runs = ProcessAsRef.promptRuns(this.recent, name);
+        this.run = 0;
         this.programBtn.setText(name);
         this.showPrompt();
         List<String> s = ProcessAsRef.slots(this.source(name));
@@ -135,7 +138,7 @@ final class ProcessRefDialog {
     }
 
     void showPrompt() {
-        this.promptBtn.setText(this.runs.isEmpty() ? "(no runs)" : ProcessAsRef.promptLabel(this.runs.get(this.run), 80));
+        this.promptBtn.setText(this.runs.isEmpty() ? "(no runs)" : ProcessAsRef.promptShort(this.runs.get(this.run), 120));
     }
 
     void setSlot(int n) {
@@ -150,15 +153,33 @@ final class ProcessRefDialog {
             .setItems(this.programs.toArray(new CharSequence[0]), (d, w) -> this.setProgram(this.programs.get(w), false)).setNegativeButton("Cancel", null).show();
     }
 
+    /** The prompts list and a prompt's whole text, shown last (for the tests). */
+    static AlertDialog lastPrompts, lastPromptText;
+
+    /** The prompts, each by its first sentences; a tap shows the whole prompt, Use picks it. */
     void pickPrompt() {
         if (this.runs.isEmpty()) return;
         CharSequence[] labels = new CharSequence[this.runs.size()];
-        for (int i = 0; i < labels.length; i++) labels[i] = ProcessAsRef.promptLabel(this.runs.get(i), 120);
-        new AlertDialog.Builder(this.app).setTitle("Prompt")
-            .setItems(labels, (d, w) -> {
+        for (int i = 0; i < labels.length; i++) labels[i] = ProcessAsRef.promptShort(this.runs.get(i), 160);
+        lastPrompts = new AlertDialog.Builder(this.app).setTitle("Prompt (" + this.runs.size() + ")")
+            .setItems(labels, (d, w) -> this.showWhole(w)).setNegativeButton("Cancel", null).show();
+    }
+
+    /** A prompt's whole text: Use picks it, Back goes to the list. */
+    void showWhole(final int w) {
+        String whole = ProcessAsRef.prompt(this.runs.get(w));
+        TextView text = this.app.text(whole == null ? ProcessAsRef.promptLabel(this.runs.get(w), 2000) : whole, 14, false);
+        text.setTextIsSelectable(true);
+        text.setTag("process-ref-prompt-text");
+        text.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this.app);
+        scroll.addView(text);
+        lastPromptText = new AlertDialog.Builder(this.app).setTitle("Prompt " + (w + 1) + " of " + this.runs.size()).setView(scroll)
+            .setPositiveButton("Use", (d, x) -> {
                 this.run = w;
                 this.showPrompt();
-            }).setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Back", (d, x) -> this.pickPrompt()).show();
     }
 
     /** Open: PyJav with the program, the run's settings and the picture in its slot. */
@@ -178,7 +199,9 @@ final class ProcessRefDialog {
         if (saved != null) PyJavParams.store(this.app, this.program, saved);
         PyJav pj = this.app.pyJav;
         pj.pkPyRecentItems = this.recent;
-        int index = item == null ? this.recent.indexOf(PyJavRecent.tapped(this.recent, this.program)) : this.recent.indexOf(item);
+        int index = item == null ? -1 : this.recent.indexOf(item);
+        // A prompt from File > Downloads (not in PyJav's recent list): the program loaded, its arguments set below.
+        if (index < 0) index = this.recent.indexOf(PyJavRecent.tapped(this.recent, this.program));
         // From the Media browser: it (and its video) closes, so the program and its Params are on top.
         Runnable back = this.from == null ? null : this.from.returner();
         if (this.player != null && this.player.isShowing()) this.player.dismiss();

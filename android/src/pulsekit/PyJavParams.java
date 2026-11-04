@@ -608,6 +608,70 @@ public final class PyJavParams {
         .setItems(rows, (d, w) -> pickSection(activity, program, ps, fields, all.get(w)))
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
+    // Held: Load, Edit section, Remove section.
+    final AlertDialog list = lastSections;
+    list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+      list.dismiss();
+      sectionMenu(activity, program, ps, fields, all.get(position));
+      return true;
+    });
+  }
+
+  /** A section's long-press menu shown last, and Edit section's / Remove section's dialog (for the tests). */
+  static AlertDialog lastSectionMenu, lastSectionEdit;
+
+  static void sectionMenu(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE};
+    lastSectionMenu = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setItems(items, (d, w) -> {
+      if (w == 0) pickSection(activity, program, ps, fields, sec);
+      else if (w == 1) editSection(activity, program, ps, fields, sec);
+      else removeSection(activity, program, ps, fields, sec);
+    }).setNegativeButton("Cancel", null).show();
+  }
+
+  /** Edit section: its entries, a line each ("Prompt: ...", "Loras: ..."); Save keeps them. */
+  static void editSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    final EditText text = new EditText(activity);
+    text.setTag("section-edit-text");
+    text.setText(sec.text.trim());
+    text.setMinLines(4);
+    text.setGravity(android.view.Gravity.TOP);
+    LinearLayout box = new LinearLayout(activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+    box.addView(text);
+    lastSectionEdit = new AlertDialog.Builder(activity).setTitle(SogniSections.EDIT).setView(box)
+        .setPositiveButton("Save", (d, w) -> {
+          String now = text.getText().toString().trim() + "\n";
+          String problem = SogniSections.editProblem(now);
+          if (problem != null) {
+            sectionSay(activity, "Not saved: " + problem);
+            return;
+          }
+          try {
+            PromptVault.open(activity.getFilesDir()).updateSogniSection(sec.id, now);
+            sec.text = now;
+            sectionSay(activity, "Saved: " + SogniSections.label(sec));
+          } catch (Exception ex) {
+            sectionSay(activity, "Could not save the section: " + ex.getMessage());
+          }
+          browseSections(activity, program, ps, fields);
+        })
+        .setNegativeButton("Cancel", (d, w) -> browseSections(activity, program, ps, fields)).show();
+  }
+
+  /** Remove section: asked first. */
+  static void removeSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    lastSectionEdit = new AlertDialog.Builder(activity).setTitle(SogniSections.REMOVE).setMessage(SogniSections.removeAsk(sec))
+        .setPositiveButton("Remove", (d, w) -> {
+          try {
+            PromptVault.open(activity.getFilesDir()).deleteSogniSection(sec.id);
+            sectionSay(activity, "Removed: " + SogniSections.label(sec));
+          } catch (Exception ex) {
+            sectionSay(activity, "Could not remove it: " + ex.getMessage());
+          }
+        })
+        .setNegativeButton("Cancel", null).show();
   }
 
   static void pickSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
@@ -808,6 +872,7 @@ public final class PyJavParams {
       Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
       intent.addCategory(Intent.CATEGORY_OPENABLE);
       intent.setType("*/*");
+      startIn(activity, intent);
       activity.startActivityForResult(intent, PICK_FILE);
     };
     if (!(activity instanceof MainActivity)) {
@@ -826,7 +891,21 @@ public final class PyJavParams {
     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     intent.addCategory(Intent.CATEGORY_OPENABLE);
     intent.setType("text/*");
+    startIn(activity, intent);
     activity.startActivityForResult(intent, PICK_FILE);
+  }
+
+  static final String PICK_PREFS = "pulsekit-select-file";
+
+  /** The file Select file picked last: the next one opens in its folder (a subfolder of Download too). */
+  static void pickedLast(Activity activity, android.net.Uri uri) {
+    activity.getSharedPreferences(PICK_PREFS, 0).edit().putString("last", uri.toString()).apply();
+  }
+
+  /** The picker opened where the last file picked is (Android 8 on). */
+  static void startIn(Activity activity, Intent intent) {
+    String last = activity.getSharedPreferences(PICK_PREFS, 0).getString("last", "");
+    if (last.length() > 0 && android.os.Build.VERSION.SDK_INT >= 26) intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(last));
   }
 
   /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */

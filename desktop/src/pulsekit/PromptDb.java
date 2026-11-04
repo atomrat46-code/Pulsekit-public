@@ -1797,6 +1797,24 @@ final class PromptDb {
     }
 
     /** The video paused, and its menu: Save frame (the Prompts page's: into the library), Extract frame, Capture frame and process, the video's own items. */
+    static final String FULL_SCREEN = "Full screen preview";
+
+    /** The windows made full screen, and the size each had. */
+    static final java.util.Map<java.awt.Window, java.awt.Rectangle> FULL = new java.util.WeakHashMap<java.awt.Window, java.awt.Rectangle>();
+
+    /** A player's window over the whole screen it is on; again, back to the size it had. */
+    static void fullScreen(java.awt.Window w) {
+        if (w == null) return;
+        java.awt.Rectangle was = FULL.remove(w);
+        if (was != null) {
+            w.setBounds(was);
+            return;
+        }
+        FULL.put(w, w.getBounds());
+        java.awt.GraphicsConfiguration gc = w.getGraphicsConfiguration();
+        w.setBounds(gc != null ? gc.getBounds() : new java.awt.Rectangle(java.awt.Toolkit.getDefaultToolkit().getScreenSize()));
+    }
+
     void frameMenu(String name, File video, VlcPlayer player, boolean prompts, int x, int y) {
         if (player.playing()) player.pause();
         javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
@@ -1826,6 +1844,11 @@ final class PromptDb {
         m.add(process);
         // The video among the favourites, or in a group.
         for (java.awt.Component c : GroupMenus.fileMenu(app, video).getComponents()) if (c instanceof JMenuItem && !MenuCancel.is(c)) m.add((JMenuItem) c);
+        // Full screen preview: the player's window over the whole screen (again: back to its size).
+        javax.swing.JMenuItem full = new javax.swing.JMenuItem(FULL_SCREEN);
+        full.setName("video-full-screen");
+        full.addActionListener(ev -> fullScreen(SwingUtilities.getWindowAncestor(player.screen)));
+        m.add(full);
         PromptDb.this.lastFrameMenu = m;
         MenuCancel.add(m);
         if (player.screen.isShowing()) m.show(player.screen, x, y);
@@ -2121,6 +2144,13 @@ final class PromptDb {
                 else player.play();
             };
             player.screen.held = () -> this.frameMenu(name, video, player, true, player.screen.getWidth() / 2, player.screen.getHeight() / 2);
+        }
+        if (!prompts && !remember) {
+            // Video ready's player: a click on the picture plays or pauses it.
+            player.screen.clicked = () -> {
+                if (player.playing()) player.pause();
+                else player.play();
+            };
         }
         if (remember) {
             sound.setVisible(false);
