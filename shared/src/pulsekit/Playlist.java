@@ -339,6 +339,46 @@ public final class Playlist {
     return shown + (again ? " added again to playlist " : " added to playlist ") + n + " (" + p.items.size() + (p.items.size() == 1 ? " file)" : " files)");
   }
 
+  /** The Media browser's File item: the folder's pictures, videos and music (the kinds ticked) into a playlist. */
+  public static final String ADD_FOLDER = "Add folder's media files to playlist";
+  public static final String ADD_NEW = "Add new";
+
+  /**
+   * Add folder's media files to playlist: each {file, title} into the playlist (made when it is not
+   * there) in one save, those in it already left as they are. What it says ("12 added to Holiday (14 files)").
+   */
+  public static String addAll(File dir, String name, List<String[]> files) {
+    String n = clean(name).length() == 0 ? DEFAULT : clean(name);
+    Playlist p = load(dir, n);
+    int added = 0;
+    for (String[] f : files) if (p.add(f[0], f[1])) added++;
+    if (added > 0) {
+      try {
+        save(dir, p);
+      } catch (Exception ex) {
+        return "Could not add to " + n + (ex.getMessage() == null ? "" : ": " + ex.getMessage());
+      }
+      Settings st = settings(dir);
+      st.last = n;
+      st.addedTo = n;
+      st.added = p.items.size() - 1;
+      saveSettings(dir, st);
+    }
+    int had = files.size() - added;
+    return added + (added == 1 ? " file" : " files") + " added to " + n + (had > 0 ? " (" + had + " in it already)" : "") + ": " + p.items.size() + (p.items.size() == 1 ? " file" : " files") + " in it";
+  }
+
+  /** The kinds ticked (I pictures, V videos, S music) of the entries' files: {address, title} each, in their order. */
+  public static List<String[]> mediaOf(List<MediaDir.Entry> entries, boolean pictures, boolean videos, boolean music, java.util.function.Function<MediaDir.Entry, String> address) {
+    List<String[]> out = new ArrayList<String[]>();
+    for (MediaDir.Entry e : entries) {
+      if (e.folder || e.dbId != 0) continue;
+      int k = MediaDir.kind(e.name);
+      if (k == MediaDir.PICTURE && pictures || k == MediaDir.VIDEO && videos || k == MediaDir.SOUND && music) out.add(new String[] {address.apply(e), e.name});
+    }
+    return out;
+  }
+
   /**
    * A file moved (Downloads' Move now, Move to, the Media browser's Move to default locations): every
    * playlist's entry for it (any of `olds`: its path or addresses before) now points at `now`. How many.

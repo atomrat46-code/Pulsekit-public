@@ -892,13 +892,15 @@ final class MediaBrowser {
                 e.id = f.getAbsolutePath();
                 e.folder = f.isDirectory();
                 e.size = e.folder ? 0 : f.length();
+                // When it was last changed (seconds, as Download's dates): Sort by date.
+                e.date = f.lastModified() / 1000;
                 all.add(e);
             }
             return MediaDir.shown(all, this.chooser != null);
         }
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(this.tree, at);
         String[] cols = new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE};
+            DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED};
         Cursor c = null;
         try {
             c = this.app.getContentResolver().query(children, cols, null, null, null);
@@ -909,6 +911,7 @@ final class MediaBrowser {
                 e.name = c.getString(1);
                 e.folder = DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2));
                 e.size = c.isNull(3) ? 0 : c.getLong(3);
+                e.date = c.isNull(4) ? 0 : c.getLong(4) / 1000;
                 all.add(e);
             }
         } catch (Exception ex) {
@@ -1672,6 +1675,225 @@ final class MediaBrowser {
             lp.rightMargin = this.app.dp(6);
             return lp;
         }, this::refilter));
+        // Sort by (name, date, type), Order, and ⌕ Search (a name with * and ?, and a type).
+        LinearLayout sorts = this.app.row();
+        TextView sortBy = this.app.pill("Sort: " + MediaDir.sortBy + " \u25be", false, v -> {
+            lastAsk = new AlertDialog.Builder(this.app).setTitle("Sort by").setItems(MediaDir.SORTS, (d, w) -> {
+                MediaDir.sortBy = MediaDir.SORTS[w];
+                // By date the newest first at first.
+                MediaDir.sortDesc = MediaDir.SORT_DATE.equals(MediaDir.sortBy);
+                save(this.app);
+                this.refilter();
+            }).setNegativeButton("Cancel", null).show();
+        });
+        sortBy.setTag("media-sort");
+        sorts.addView(sortBy);
+        TextView order = this.app.pill(MediaDir.orderLabel(MediaDir.sortBy, MediaDir.sortDesc), false, v -> {
+            MediaDir.sortDesc = !MediaDir.sortDesc;
+            save(this.app);
+            this.refilter();
+        });
+        order.setTag("media-order");
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-2, -2);
+        olp.leftMargin = this.app.dp(6);
+        sorts.addView(order, olp);
+        boolean searching = this.search.length() > 0 || !"A".equals(this.searchType);
+        TextView find = this.app.pill(searching ? "\uD83D\uDD0D " + (this.search.length() > 0 ? this.search : "") + ("A".equals(this.searchType) ? "" : " (" + this.searchType + ")") : "\uD83D\uDD0D", searching, v -> this.searchDialog());
+        find.setTag("media-search");
+        sorts.addView(find, olp);
+        if (searching) {
+            TextView clear = this.app.pill("\u2715", false, v -> {
+                this.search = "";
+                this.searchType = "A";
+                this.refilter();
+            });
+            clear.setTag("media-search-clear");
+            sorts.addView(clear, olp);
+        }
+        android.widget.HorizontalScrollView sortScroll = new android.widget.HorizontalScrollView(this.app);
+        sortScroll.setHorizontalScrollBarEnabled(false);
+        sortScroll.addView(sorts);
+        sortScroll.setPadding(0, this.app.dp(4), 0, this.app.dp(2));
+        this.body.addView(sortScroll);
+        // Select multiple: how many are ticked, Select all, None, Done.
+        if (this.selecting) {
+            LinearLayout sel = this.app.row();
+            TextView count = this.app.text(this.selected.size() + " selected \u00b7 hold a ticked one for its menu", 12, false);
+            count.setTag("media-selection-count");
+            sel.addView(count, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView all = this.app.pill("All", false, v -> {
+                for (MediaDir.Entry e : this.entries) if (!e.folder && e.dbId == 0) this.selected.add(e.id);
+                this.paint();
+            });
+            all.setTag("media-select-all");
+            sel.addView(all);
+            TextView none = this.app.pill("None", false, v -> {
+                this.selected.clear();
+                this.paint();
+            });
+            none.setTag("media-select-none");
+            sel.addView(none, olp);
+            TextView done = this.app.pill("Done", true, v -> {
+                this.selecting = false;
+                this.selected.clear();
+                this.paint();
+            });
+            done.setTag("media-select-done");
+            sel.addView(done, olp);
+            this.body.addView(sel);
+        }
+    }
+
+    /** Search (⌕): a name (* any letters, ? one), and a type. */
+    String search = "";
+    String searchType = "A";
+
+    /** Select multiple: on, and the files ticked (their ids). */
+    boolean selecting;
+    final java.util.Set<String> selected = new java.util.LinkedHashSet<String>();
+
+    void searchDialog() {
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        final android.widget.EditText field = new android.widget.EditText(this.app);
+        field.setSingleLine(true);
+        field.setHint("Name: sunset, img_2026*, ?.png");
+        field.setText(this.search);
+        field.setTag("media-search-field");
+        box.addView(field);
+        TextView note = this.app.text("* is any letters, ? one letter; without them, names holding the text. Case aside.", 12, false);
+        note.setTextColor(UiKit.MUTED);
+        box.addView(note);
+        LinearLayout types = this.app.row();
+        final String[] picked = {this.searchType};
+        final String[][] kinds = {{"A", "All"}, {"I", "Pictures"}, {"V", "Videos"}, {"S", "Sounds"}, {"T", "Text"}, {"O", "Other"}};
+        final List<TextView> pills = new ArrayList<TextView>();
+        for (final String[] k : kinds) {
+            TextView pill = this.app.pill(k[1], k[0].equals(picked[0]), null);
+            pill.setTag("media-search-type:" + k[0]);
+            pill.setOnClickListener(v -> {
+                picked[0] = k[0];
+                for (int i = 0; i < pills.size(); i++) this.app.paintChip(pills.get(i), kinds[i][0].equals(picked[0]));
+            });
+            pills.add(pill);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = this.app.dp(4);
+            types.addView(pill, lp);
+        }
+        android.widget.HorizontalScrollView ts = new android.widget.HorizontalScrollView(this.app);
+        ts.addView(types);
+        ts.setPadding(0, this.app.dp(6), 0, 0);
+        box.addView(ts);
+        lastAsk = new AlertDialog.Builder(this.app).setTitle("Search").setView(box)
+            .setPositiveButton("Search", (d, w) -> {
+                this.search = field.getText().toString().trim();
+                this.searchType = picked[0];
+                this.refilter();
+                this.app.setNow(this.entries.size() + (this.entries.size() == 1 ? " found" : " found") + (this.search.length() > 0 ? " for " + this.search : ""));
+            })
+            .setNeutralButton("Clear", (d, w) -> {
+                this.search = "";
+                this.searchType = "A";
+                this.refilter();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** The files ticked, as entries (those still listed). */
+    List<MediaDir.Entry> selectedEntries() {
+        List<MediaDir.Entry> out = new ArrayList<MediaDir.Entry>();
+        for (MediaDir.Entry e : this.allEntries) if (this.selected.contains(e.id)) out.add(e);
+        return out;
+    }
+
+    static final String REMOVE_SELECTED = "Remove selected", MOVE_SELECTED = "Move selected to\u2026";
+
+    /** A ticked file held: Remove selected (asked first), Move selected to…, Clear selection. */
+    void selectionMenu() {
+        final List<MediaDir.Entry> picked = this.selectedEntries();
+        final String[] items = {REMOVE_SELECTED + " (" + picked.size() + ")", MOVE_SELECTED, "Clear selection"};
+        lastMenu = new AlertDialog.Builder(this.app).setTitle(picked.size() + (picked.size() == 1 ? " file selected" : " files selected")).setItems(items, (d, w) -> {
+            if (w == 0) this.removeSelected(picked);
+            else if (w == 1) this.moveSelected(picked);
+            else {
+                this.selected.clear();
+                this.paint();
+            }
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    void removeSelected(final List<MediaDir.Entry> picked) {
+        lastAsk = new AlertDialog.Builder(this.app).setTitle(REMOVE_SELECTED)
+            .setMessage("Delete these " + picked.size() + (picked.size() == 1 ? " file" : " files") + "? They cannot be brought back.")
+            .setPositiveButton("Delete", (d, w) -> this.eachSelected(picked, e -> {
+                String said = this.delete(e);
+                if (said.startsWith("Deleted")) MediaTags.deleted(MediaTags.key(e));
+                return said.startsWith("Deleted");
+            }, "Deleted"))
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    void moveSelected(final List<MediaDir.Entry> picked) {
+        final List<String> ids = new ArrayList<String>();
+        final List<String> names = new ArrayList<String>();
+        if (this.path.size() > 1) {
+            ids.add(this.path.get(this.path.size() - 2));
+            names.add("\u2191 Up one folder");
+        }
+        for (MediaDir.Entry f : this.allEntries) {
+            if (f.folder) {
+                ids.add(f.id);
+                names.add(f.name);
+            }
+        }
+        names.add("New folder\u2026");
+        lastAsk = new AlertDialog.Builder(this.app).setTitle("Move " + picked.size() + (picked.size() == 1 ? " file" : " files") + " to")
+            .setItems(names.toArray(new String[0]), (d, which) -> {
+                if (which < ids.size()) {
+                    final String to = ids.get(which);
+                    this.eachSelected(picked, e -> this.copyTo(e, to, true).startsWith("Moved"), "Moved");
+                    return;
+                }
+                final android.widget.EditText field = new android.widget.EditText(this.app);
+                field.setSingleLine(true);
+                field.setTag("media-newfolder-field");
+                lastAsk = new AlertDialog.Builder(this.app).setTitle("New folder").setView(field)
+                    .setPositiveButton("Move", (d2, w2) -> {
+                        final String made = this.makeFolder(field.getText().toString());
+                        if (made == null) this.done("Could not make the folder");
+                        else this.eachSelected(picked, e -> this.copyTo(e, made, true).startsWith("Moved"), "Moved");
+                    })
+                    .setNegativeButton("Cancel", null).show();
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    interface EachFile {
+        boolean run(MediaDir.Entry e);
+    }
+
+    /** What Remove selected / Move selected said last (for the tests). */
+    static volatile String lastSelectionSaid;
+
+    /** Each ticked file done in turn (off the main thread); the selection cleared, the folder read again. */
+    void eachSelected(final List<MediaDir.Entry> picked, final EachFile doing, final String verb) {
+        this.app.setNow(verb.equals("Deleted") ? "Deleting\u2026" : "Moving\u2026");
+        new Thread(() -> {
+            int ok = 0;
+            for (MediaDir.Entry e : picked) {
+                try {
+                    if (doing.run(e)) ok++;
+                } catch (Throwable ignored) {
+                    // counted as not done
+                }
+            }
+            final String said = verb + " " + ok + (ok == 1 ? " file" : " files") + (ok < picked.size() ? "; " + (picked.size() - ok) + " could not be" : "");
+            lastSelectionSaid = said;
+            this.main.post(() -> {
+                this.selected.clear();
+                this.done(said);
+            });
+        }, "pulsekit-selected").start();
     }
 
     /** The type selector (or G's group) picked: the folder shown again with what it keeps. */
@@ -1687,7 +1909,10 @@ final class MediaBrowser {
         FileGroups.load(this.app.getFilesDir());
         FileFavourites.load(this.app.getFilesDir());
         FileFilter.use(FileFilter.MEDIA);
-        return FileFilter.entries(MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter));
+        List<MediaDir.Entry> kept = FileFilter.entries(MediaTags.filtered(MediaDir.filtered(this.allEntries, MediaDir.filter), MediaTags.filter));
+        // Search (⌕), then Sort by and Order.
+        if (this.search.length() > 0 || !"A".equals(this.searchType)) kept = MediaDir.searched(kept, this.search, this.searchType);
+        return MediaDir.sortedBy(kept, MediaDir.sortBy, MediaDir.sortDesc);
     }
 
     /** The tag filter's choices for this folder: All files, each tag and category its files have. */
@@ -2021,6 +2246,20 @@ final class MediaBrowser {
                 play.setPadding(this.app.dp(4), 0, this.app.dp(6), this.app.dp(2));
             }
             if (!e.folder && listed.contains(e.id)) this.badge(box, e);
+            // Select multiple: a box on each file to tick.
+            final boolean pickable = this.selecting && !e.folder && e.dbId == 0;
+            if (pickable) {
+                final android.widget.CheckBox tick = new android.widget.CheckBox(this.app);
+                tick.setTag("media-select:" + e.name);
+                tick.setChecked(this.selected.contains(e.id));
+                tick.setOnCheckedChangeListener((b, on) -> {
+                    if (on) this.selected.add(e.id);
+                    else this.selected.remove(e.id);
+                    View count = this.body.findViewWithTag("media-selection-count");
+                    if (count instanceof TextView) ((TextView) count).setText(this.selected.size() + " selected \u00b7 hold a ticked one for its menu");
+                });
+                box.addView(tick, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START));
+            }
             card.addView(box, new LinearLayout.LayoutParams(-1, Math.max(this.app.dp(60), cell)));
             // A favourite file: ★ before its name.
             boolean favFile = !e.folder && e.dbId == 0 && FileFavourites.isKey(MediaDir.groupKey(e));
@@ -2040,6 +2279,12 @@ final class MediaBrowser {
                 card.addView(tags);
             }
             card.setOnClickListener(v -> {
+                // Selecting: a tap ticks it (or not).
+                if (pickable) {
+                    View tick = v.findViewWithTag("media-select:" + e.name);
+                    if (tick instanceof android.widget.CheckBox) ((android.widget.CheckBox) tick).toggle();
+                    return;
+                }
                 if (e.folder) this.openFolder(e);
                 else if (this.chooser != null) this.chosen(e);
                 else this.openEntry(e);
@@ -2047,7 +2292,14 @@ final class MediaBrowser {
             // A long press on a file: Add to DB (reference or result file), Add to default playlist,
             // Rename, Copy / Move to folder, Delete; on a folder: Rename, Delete.
             // Held and moved onto a folder card (or Up), a file is moved there; let go on itself, its menu shows.
-            if (!e.folder && e.dbId == 0) {
+            if (pickable) {
+                // A ticked file held: Remove selected, Move selected to…
+                card.setOnLongClickListener(v -> {
+                    if (this.selected.isEmpty()) this.selected.add(e.id);
+                    this.selectionMenu();
+                    return true;
+                });
+            } else if (!e.folder && e.dbId == 0) {
                 card.setOnLongClickListener(v -> {
                     if (!this.changeable() || !this.startDrag(v, e)) this.menu(e);
                     return true;
@@ -2433,9 +2685,13 @@ final class MediaBrowser {
     /** The File menu shown last, and the folders question (for the tests). */
     static AlertDialog lastFileMenu, lastFoldersAsk;
 
+    static final String SELECT_MULTIPLE = "Select multiple", STOP_SELECTING = "Stop selecting";
+
     /** The File menu's items here. */
     List<String> fileItems() {
         List<String> items = new ArrayList<String>();
+        // Select multiple: boxes on the files, then Remove selected or Move selected to… (a folder that can be changed).
+        if (this.changeable()) items.add(this.selecting ? STOP_SELECTING : SELECT_MULTIPLE);
         if (this.changeable()) {
             items.add(IMPORT_FILE_ITEM);
             items.add(IMPORT_FOLDER_ITEM);
@@ -2444,6 +2700,8 @@ final class MediaBrowser {
             items.add(COPY_FOLDER_ITEM);
         }
         items.add(DownloadMove.DEFAULTS);
+        // The folder's pictures, videos and music (those ticked) into a playlist.
+        items.add(Playlist.ADD_FOLDER);
         return items;
     }
 
@@ -2460,6 +2718,90 @@ final class MediaBrowser {
         else if (FolderZip.IMPORT.equals(item)) this.pickImport(IMPORT_ZIP);
         else if (FolderZip.SEND.equals(item)) this.folderToZip();
         else if (DownloadMove.DEFAULTS.equals(item)) this.moveDefined();
+        else if (Playlist.ADD_FOLDER.equals(item)) this.addFolderToPlaylist();
+        else if (SELECT_MULTIPLE.equals(item) || STOP_SELECTING.equals(item)) {
+            this.selecting = SELECT_MULTIPLE.equals(item);
+            this.selected.clear();
+            this.paint();
+        }
+    }
+
+    /** Add folder's media files to playlist's dialog shown last, and what it said (for the tests). */
+    static AlertDialog lastAddFolder;
+    static String lastAddFolderSaid;
+
+    /**
+     * Add folder's media files to playlist: Images, Videos and Music to tick, then the playlist (Add new
+     * first: its name asked); the folder's files of the kinds ticked go into it.
+     */
+    void addFolderToPlaylist() {
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+        int[] counts = new int[3];
+        for (MediaDir.Entry e : this.allEntries) {
+            if (e.folder || e.dbId != 0) continue;
+            int k = MediaDir.kind(e.name);
+            if (k == MediaDir.PICTURE) counts[0]++;
+            else if (k == MediaDir.VIDEO) counts[1]++;
+            else if (k == MediaDir.SOUND) counts[2]++;
+        }
+        String[][] kinds = {{"media-pl-pictures", "Images"}, {"media-pl-videos", "Videos"}, {"media-pl-music", "Music"}};
+        final android.widget.CheckBox[] boxes = new android.widget.CheckBox[3];
+        for (int i = 0; i < 3; i++) {
+            boxes[i] = new android.widget.CheckBox(this.app);
+            boxes[i].setText(kinds[i][1] + " (" + counts[i] + ")");
+            boxes[i].setTag(kinds[i][0]);
+            boxes[i].setChecked(counts[i] > 0);
+            box.addView(boxes[i]);
+        }
+        TextView into = this.app.text("Into the playlist", 13, true);
+        into.setPadding(0, this.app.dp(8), 0, 0);
+        box.addView(into);
+        final List<String> names = new ArrayList<String>();
+        names.add(Playlist.ADD_NEW);
+        names.addAll(Playlist.names(this.app.getFilesDir()));
+        final android.widget.Spinner pick = new android.widget.Spinner(this.app);
+        pick.setTag("media-pl-pick");
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(this.app, android.R.layout.simple_spinner_item, names);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        pick.setAdapter(adapter);
+        box.addView(pick);
+        lastAddFolder = new AlertDialog.Builder(this.app).setTitle(Playlist.ADD_FOLDER).setView(box)
+            .setPositiveButton("OK", (d, w) -> {
+                final boolean pics = boxes[0].isChecked(), vids = boxes[1].isChecked(), music = boxes[2].isChecked();
+                if (!pics && !vids && !music) {
+                    this.app.setNow("Nothing added: no type is ticked");
+                    return;
+                }
+                int at = pick.getSelectedItemPosition();
+                if (at <= 0) {
+                    final android.widget.EditText field = new android.widget.EditText(this.app);
+                    field.setSingleLine(true);
+                    field.setTag("media-pl-name");
+                    field.setText(this.label());
+                    field.setSelection(field.getText().length());
+                    LinearLayout nb = this.app.col();
+                    nb.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
+                    nb.addView(field);
+                    lastAsk = new AlertDialog.Builder(this.app).setTitle("New playlist").setView(nb)
+                        .setPositiveButton("OK", (d2, w2) -> this.addFolderInto(field.getText().toString(), pics, vids, music))
+                        .setNegativeButton("Cancel", null).show();
+                } else this.addFolderInto(names.get(at), pics, vids, music);
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    void addFolderInto(String playlist, boolean pics, boolean vids, boolean music) {
+        String n = playlist == null ? "" : playlist.trim();
+        if (n.length() == 0) {
+            this.app.setNow("Nothing added: the playlist has no name");
+            return;
+        }
+        List<String[]> files = Playlist.mediaOf(MediaDir.sortedBy(this.allEntries, MediaDir.sortBy, MediaDir.sortDesc), pics, vids, music, this::playlistAddress);
+        String said = files.isEmpty() ? "No files of the kinds ticked here" : Playlist.addAll(this.app.getFilesDir(), n, files);
+        lastAddFolderSaid = said;
+        this.app.setNow(said);
+        android.widget.Toast.makeText(this.app, said, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     /** Move defined media types: with no type ticked with a folder, the folders asked for first. */
@@ -2657,21 +2999,39 @@ final class MediaBrowser {
             return;
         }
         if (MediaDir.RENAME.equals(action)) {
+            // Two fields: the name (the cursor at its end) and the ending.
+            final String[] parts = MediaDir.splitName(e.name, e.folder);
+            LinearLayout box = this.app.col();
+            box.setPadding(this.app.dp(20), this.app.dp(8), this.app.dp(20), 0);
             final android.widget.EditText field = new android.widget.EditText(this.app);
             field.setSingleLine(true);
-            field.setText(e.name);
+            field.setText(parts[0]);
             field.setTag("media-rename-field");
-            int dot = e.folder ? -1 : e.name.lastIndexOf('.');
-            field.setSelection(0, dot > 0 ? dot : e.name.length());
-            lastAsk = new AlertDialog.Builder(this.app).setTitle("Rename " + e.name).setView(field)
+            field.setSelection(parts[0].length());
+            box.addView(field);
+            final android.widget.EditText extField = new android.widget.EditText(this.app);
+            extField.setSingleLine(true);
+            extField.setText(parts[1]);
+            extField.setTag("media-rename-ext");
+            extField.setHint("Ending (png, mp4...)");
+            if (!e.folder && parts[1].length() > 0) {
+                LinearLayout extRow = this.app.row();
+                extRow.addView(this.app.text(".", 16, true));
+                extRow.addView(extField, new LinearLayout.LayoutParams(0, -2, 1f));
+                box.addView(extRow);
+            }
+            field.requestFocus();
+            lastAsk = new AlertDialog.Builder(this.app).setTitle("Rename " + e.name).setView(box)
                 .setPositiveButton("Rename", (d, w) -> {
-                    String typed = field.getText().toString();
+                    String typed = e.folder || parts[1].length() == 0 ? field.getText().toString() : MediaDir.joinName(field.getText().toString(), extField.getText().toString());
                     String said = this.rename(e, typed);
                     // Its tags and category go with the new name.
                     if (said.startsWith("Renamed") && !e.folder && e.dbId == 0) MediaTags.renamed(MediaTags.key(e), MediaTags.key(MediaDir.keepEnding(e.name, typed), e.size));
                     this.done(said);
                 })
                 .setNegativeButton("Cancel", null).show();
+            // The keyboard up, on the name.
+            if (lastAsk.getWindow() != null) lastAsk.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         } else if (MediaDir.DELETE.equals(action)) {
             lastAsk = new AlertDialog.Builder(this.app).setTitle(e.folder ? "Delete folder" : "Delete file")
                 .setMessage(e.folder ? "Delete " + e.name + " and everything in it?" : "Delete " + e.name + "?")

@@ -7673,6 +7673,150 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_4: File > Add folder's media files to playlist (as on the phone): the kinds ticked of the
+   * folder into a new playlist, then music into the same one.
+   */
+  void s198_add_folder_to_playlist() throws Exception {
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File dir = new File(System.getProperty("user.home"), "m12");
+    dir.mkdirs();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 35, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(dir, "a.png"));
+    Files.write(new File(dir, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    Files.write(new File(dir, "c.mp3").toPath(), new byte[] {'I', 'D', '3', 3});
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    final boolean[] item = new boolean[1];
+    MediaBrowser.addFolderAnswer = new String[] {"1", "1", "0", Playlist.ADD_NEW, "Trip"};
+    edt(() -> {
+      javax.swing.JMenuItem it = fileMenuItem(mb, "media-add-folder-playlist");
+      item[0] = it != null && Playlist.ADD_FOLDER.equals(it.getText());
+      if (it != null) it.doClick();
+    });
+    String said = MediaBrowser.lastAddFolderSaid;
+    MediaBrowser.addFolderAnswer = new String[] {"0", "0", "1", "Trip", ""};
+    edt(() -> fileMenuItem(mb, "media-add-folder-playlist").doClick());
+    String said2 = MediaBrowser.lastAddFolderSaid;
+    MediaBrowser.addFolderAnswer = null;
+    StringBuilder items = new StringBuilder();
+    for (Playlist.Item it : Playlist.load(PromptDb.dir(), "Trip").items) items.append(new File(it.file).getName()).append(' ');
+    edt(() -> mb.last.dispose());
+    this.out.append("item ").append(item[0]).append(" | ").append(said).append(" | ").append(said2).append(" | Trip: ").append(items.toString().trim()).append('\n');
+    boolean ok = item[0] && said != null && said.startsWith("2 files added to Trip") && said2 != null && said2.startsWith("1 file added to Trip") && items.toString().trim().equals("a.png b.mp4 c.mp3");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * 04112026_3 Media browser, as on the phone: Sort by name, date or type and Order; Search (* and ?,
+   * a type); File > Select multiple, a ticked file's menu Remove selected and Move selected to…;
+   * Rename's two fields (the name, the ending).
+   */
+  void s197_media_sort_search_select_rename() throws Exception {
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File dir = new File(System.getProperty("user.home"), "m11");
+    new File(dir, "sub").mkdirs();
+    String[] names = {"beta.png", "alpha.jpg", "gamma.png", "clip.mp4"};
+    long t = 1700000000000L;
+    for (int i = 0; i < names.length; i++) {
+      File f = new File(dir, names[i]);
+      javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 35, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", f);
+      f.setLastModified(t + i * 60000L);
+    }
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && (mb.last == null || !mb.last.isShowing()); i++) Thread.sleep(100);
+    idle();
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (MediaDir.Entry e : mb.shownEntries) sb.append(e.name).append(' ');
+      return sb.toString().trim();
+    };
+    String byName = order.get();
+    MediaDir.sortBy = MediaDir.SORT_DATE;
+    MediaDir.sortDesc = true;
+    edt(mb::refreshShown);
+    String newest = order.get();
+    String orderLabel = ((javax.swing.AbstractButton) component(mb.last, "media-order")).getText();
+    MediaDir.sortBy = MediaDir.SORT_TYPE;
+    MediaDir.sortDesc = false;
+    edt(mb::refreshShown);
+    String byType = order.get();
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    edt(mb::refreshShown);
+    boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
+        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+    // Search: *.png; then CLI among the videos; cleared.
+    MediaBrowser.searchAnswer = new String[] {"*.png", "A"};
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-search")).doClick());
+    String pngs = order.get();
+    MediaBrowser.searchAnswer = new String[] {"CLI", "V"};
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-search")).doClick());
+    String videos = order.get();
+    MediaBrowser.searchAnswer = null;
+    edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-search-clear")).doClick());
+    boolean searchOk = pngs.equals("sub beta.png gamma.png") && videos.equals("sub clip.mp4") && order.get().equals(byName);
+    // Select multiple: beta and gamma ticked, Remove selected; alpha moved into sub.
+    edt(() -> fileMenuItem(mb, "media-select-multiple").doClick());
+    edt(() -> {
+      ((javax.swing.AbstractButton) component(mb.last, "media-card:beta.png")).doClick();
+      ((javax.swing.AbstractButton) component(mb.last, "media-card:gamma.png")).doClick();
+    });
+    final String[] seen = new String[2];
+    edt(() -> seen[0] = ((JLabel) component(mb.last, "media-selection-count")).getText().trim());
+    MediaBrowser.answer = q -> q.startsWith(MediaBrowser.REMOVE_SELECTED) ? "yes" : q.startsWith("Move selected") ? new File(dir, "sub").getAbsolutePath() : null;
+    edt(() -> {
+      MediaDir.Entry e = null;
+      for (MediaDir.Entry en : mb.shownEntries) if (en.name.equals("beta.png")) e = en;
+      java.awt.Component card = component(mb.last, "media-card:beta.png");
+      mb.menu(e, new File(e.id), card, 0, 0);
+      javax.swing.JPopupMenu m = mb.lastMenu;
+      m.setVisible(false);
+      for (Component c : m.getComponents()) if ("media-remove-selected".equals(c.getName())) {
+        seen[1] = ((javax.swing.JMenuItem) c).getText();
+        ((javax.swing.JMenuItem) c).doClick();
+      }
+    });
+    String removed = MediaBrowser.lastSelectionSaid;
+    boolean gone = !new File(dir, "beta.png").exists() && !new File(dir, "gamma.png").exists();
+    edt(() -> {
+      ((javax.swing.AbstractButton) component(mb.last, "media-card:alpha.jpg")).doClick();
+      MediaDir.Entry e = null;
+      for (MediaDir.Entry en : mb.shownEntries) if (en.name.equals("alpha.jpg")) e = en;
+      mb.menu(e, new File(e.id), component(mb.last, "media-card:alpha.jpg"), 0, 0);
+      javax.swing.JPopupMenu m = mb.lastMenu;
+      m.setVisible(false);
+      for (Component c : m.getComponents()) if ("media-move-selected".equals(c.getName())) ((javax.swing.JMenuItem) c).doClick();
+    });
+    String moved = MediaBrowser.lastSelectionSaid;
+    boolean there = new File(dir, "sub/alpha.jpg").isFile() && !new File(dir, "alpha.jpg").exists();
+    MediaBrowser.answer = null;
+    edt(() -> fileMenuItem(mb, "media-select-multiple").doClick());
+    boolean selectOk = seen[0].startsWith("2 selected") && "Remove selected (2)".equals(seen[1]) && "Deleted 2 files".equals(removed) && gone && "Moved 1 file".equals(moved) && there;
+    // Rename: the name and the ending apart.
+    MediaBrowser.renameAnswer = new String[] {"walk", "m4v"};
+    edt(() -> {
+      MediaDir.Entry e = null;
+      for (MediaDir.Entry en : mb.shownEntries) if (en.name.equals("clip.mp4")) e = en;
+      mb.fileAction(e, new File(e.id), MediaDir.RENAME);
+    });
+    MediaBrowser.renameAnswer = null;
+    String[] parts = MediaBrowser.lastRenameParts;
+    boolean renamed = new File(dir, "walk.m4v").isFile() && !new File(dir, "clip.mp4").exists();
+    edt(() -> mb.last.dispose());
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    this.out.append("name: ").append(byName).append(" | newest: ").append(newest).append(" (").append(orderLabel).append(") | type: ").append(byType).append('\n')
+        .append("search *.png: ").append(pngs).append(" | CLI videos: ").append(videos).append('\n')
+        .append("select: ").append(seen[0]).append(" | ").append(seen[1]).append(" | ").append(removed).append(", gone ").append(gone).append(" | ").append(moved).append(", in sub ").append(there).append('\n')
+        .append("rename: [").append(parts == null ? "-" : parts[0]).append("] . [").append(parts == null ? "-" : parts[1]).append("] -> walk.m4v ").append(renamed).append('\n');
+    boolean renameOk = parts != null && "clip".equals(parts[0]) && "mp4".equals(parts[1]) && renamed;
+    if (!(sortOk && searchOk && selectOk && renameOk)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 04112026_2: Params' Recent lists the reference pictures used last (newest first, each once) as
    * small thumbnails, a click puts one in the row; Use as a reference into Reference file 2 ticks that
    * row's Use again when it was unticked.

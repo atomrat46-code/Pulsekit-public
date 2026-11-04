@@ -12114,6 +12114,195 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026_4: the Media browser's File > Add folder's media files to playlist: Images, Videos, Music
+   * to tick and the playlist (Add new first: its name asked); the folder's files of those kinds go in.
+   */
+  @Test
+  public void s212_add_folder_to_playlist() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getCacheDir(), "m12");
+    dir.mkdirs();
+    Files.write(new File(dir, "a.png").toPath(), plainPng(20, 35));
+    Files.write(new File(dir, "b.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    Files.write(new File(dir, "c.mp3").toPath(), new byte[] {'I', 'D', '3', 3});
+    MediaBrowser b = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean inMenu = b.fileItems().contains(Playlist.ADD_FOLDER);
+    b.fileItem(Playlist.ADD_FOLDER);
+    idle();
+    View dv = MediaBrowser.lastAddFolder.getWindow().getDecorView();
+    String boxes = ((android.widget.CheckBox) dv.findViewWithTag("media-pl-pictures")).getText() + ", " + ((android.widget.CheckBox) dv.findViewWithTag("media-pl-videos")).getText() + ", "
+        + ((android.widget.CheckBox) dv.findViewWithTag("media-pl-music")).getText();
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-music")).setChecked(false);
+    String first = String.valueOf(((android.widget.Spinner) dv.findViewWithTag("media-pl-pick")).getItemAtPosition(0));
+    MediaBrowser.lastAddFolder.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-pl-name")).setText("Trip");
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String said = MediaBrowser.lastAddFolderSaid;
+    // Again: music only, into Trip.
+    b.fileItem(Playlist.ADD_FOLDER);
+    idle();
+    dv = MediaBrowser.lastAddFolder.getWindow().getDecorView();
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-pictures")).setChecked(false);
+    ((android.widget.CheckBox) dv.findViewWithTag("media-pl-videos")).setChecked(false);
+    android.widget.Spinner pick = (android.widget.Spinner) dv.findViewWithTag("media-pl-pick");
+    for (int i = 0; i < pick.getCount(); i++) if ("Trip".equals(pick.getItemAtPosition(i))) pick.setSelection(i);
+    MediaBrowser.lastAddFolder.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String said2 = MediaBrowser.lastAddFolderSaid;
+    StringBuilder items = new StringBuilder();
+    for (Playlist.Item it : Playlist.load(app.getFilesDir(), "Trip").items) items.append(new File(it.file).getName()).append(' ');
+    b.dialog.dismiss();
+    idle();
+    out.append("in File ").append(inMenu).append(" | ").append(boxes).append(" | first ").append(first).append(" | ").append(said).append(" | ").append(said2).append(" | Trip: ").append(items.toString().trim()).append('\n');
+    write("s212_add_folder_to_playlist", out.toString());
+    boolean ok = inMenu && boxes.equals("Images (1), Videos (1), Music (1)") && Playlist.ADD_NEW.equals(first) && said.startsWith("2 files added to Trip") && said2.startsWith("1 file added to Trip")
+        && items.toString().trim().equals("a.png b.mp4 c.mp3");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_3 Media browser: Sort by name, date or type and Order; Search (* and ?, a type); File >
+   * Select multiple: ticked files, a held one's menu Remove selected (asked first) and Move selected
+   * to…; Rename with a name field (the cursor at its end) and an ending field.
+   */
+  @Test
+  public void s211_media_sort_search_select_rename() throws Exception {
+    StringBuilder out = new StringBuilder();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m11");
+    new File(dir, "sub").mkdirs();
+    String[] names = {"beta.png", "alpha.jpg", "gamma.png", "clip.mp4"};
+    long t = 1700000000000L;
+    for (int i = 0; i < names.length; i++) {
+      File f = new File(dir, names[i]);
+      Files.write(f.toPath(), plainPng(20, 35));
+      f.setLastModified(t + i * 60000L);
+    }
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    MediaBrowser b = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.function.Supplier<String> order = () -> {
+      StringBuilder sb = new StringBuilder();
+      for (MediaDir.Entry e : b.entries) sb.append(e.name).append(' ');
+      return sb.toString().trim();
+    };
+    String byName = order.get();
+    MediaDir.sortBy = MediaDir.SORT_DATE;
+    MediaDir.sortDesc = true;
+    b.refilter();
+    String newest = order.get();
+    String orderLabel = String.valueOf(((TextView) b.dialog.getWindow().getDecorView().findViewWithTag("media-order")).getText());
+    MediaDir.sortBy = MediaDir.SORT_TYPE;
+    MediaDir.sortDesc = false;
+    b.refilter();
+    String byType = order.get();
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    b.refilter();
+    out.append("name: ").append(byName).append(" | newest: ").append(newest).append(" (").append(orderLabel).append(") | type: ").append(byType).append('\n');
+    boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
+        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+    // Search: *.png, then pictures holding "a".
+    b.searchDialog();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-search-field")).setText("*.png");
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String pngs = order.get();
+    b.searchDialog();
+    idle();
+    ((android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-search-field")).setText("CLI");
+    MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-search-type:V").performClick();
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String videos = order.get();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-search-clear").performClick();
+    idle();
+    out.append("search *.png: ").append(pngs).append(" | CLI videos: ").append(videos).append(" | cleared: ").append(order.get()).append('\n');
+    boolean searchOk = pngs.equals("sub beta.png gamma.png") && videos.equals("sub clip.mp4") && order.get().equals(byName);
+    // Select multiple: beta and gamma ticked, Remove selected (asked); alpha moved into sub.
+    boolean inMenu = b.fileItems().contains(MediaBrowser.SELECT_MULTIPLE);
+    b.fileItem(MediaBrowser.SELECT_MULTIPLE);
+    idle();
+    View bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:beta.png").performClick();
+    bv.findViewWithTag("media-card:gamma.png").performClick();
+    String count = String.valueOf(((TextView) bv.findViewWithTag("media-selection-count")).getText());
+    bv.findViewWithTag("media-card:beta.png").performLongClick();
+    idle();
+    String selMenu = listItems(MediaBrowser.lastMenu);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(0);
+    idle();
+    String ask = String.valueOf(org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).getMessage());
+    MediaBrowser.lastSelectionSaid = null;
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && MediaBrowser.lastSelectionSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String removed = MediaBrowser.lastSelectionSaid;
+    boolean gone = !new File(dir, "beta.png").exists() && !new File(dir, "gamma.png").exists();
+    for (int i = 0; i < 200 && b.loading; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    bv = b.dialog.getWindow().getDecorView();
+    bv.findViewWithTag("media-card:alpha.jpg").performClick();
+    bv.findViewWithTag("media-card:alpha.jpg").performLongClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(1);
+    idle();
+    MediaBrowser.lastSelectionSaid = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastAsk).clickOnItem(0);
+    for (int i = 0; i < 200 && MediaBrowser.lastSelectionSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String moved = MediaBrowser.lastSelectionSaid;
+    boolean there = new File(dir, "sub/alpha.jpg").isFile() && !new File(dir, "alpha.jpg").exists();
+    for (int i = 0; i < 200 && b.loading; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.fileItem(MediaBrowser.STOP_SELECTING);
+    out.append("select: in File ").append(inMenu).append(", ").append(count).append(" | menu ").append(selMenu).append(" | asked ").append(ask).append(" | ").append(removed).append(", gone ").append(gone)
+        .append(" | ").append(moved).append(", in sub ").append(there).append('\n');
+    boolean selectOk = inMenu && count.startsWith("2 selected") && selMenu.startsWith("Remove selected (2) | Move selected to") && ask.startsWith("Delete these 2 files?")
+        && "Deleted 2 files".equals(removed) && gone && "Moved 1 file".equals(moved) && there;
+    // Rename: the name and the ending apart.
+    MediaDir.Entry clip = null;
+    for (MediaDir.Entry e : b.allEntries) if (e.name.equals("clip.mp4")) clip = e;
+    b.fileAction(clip, MediaDir.RENAME);
+    idle();
+    android.widget.EditText nameField = (android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-rename-field");
+    android.widget.EditText extField = (android.widget.EditText) MediaBrowser.lastAsk.getWindow().getDecorView().findViewWithTag("media-rename-ext");
+    String shownName = String.valueOf(nameField.getText()), shownExt = String.valueOf(extField.getText());
+    boolean cursorAtEnd = nameField.getSelectionStart() == shownName.length() && nameField.getSelectionEnd() == shownName.length();
+    nameField.setText("walk");
+    extField.setText("m4v");
+    MediaBrowser.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean renamed = new File(dir, "walk.m4v").isFile() && !new File(dir, "clip.mp4").exists();
+    b.dialog.dismiss();
+    idle();
+    out.append("rename: [").append(shownName).append("] . [").append(shownExt).append("] cursor at end ").append(cursorAtEnd).append(" -> walk.m4v ").append(renamed).append('\n');
+    boolean renameOk = shownName.equals("clip") && shownExt.equals("mp4") && cursorAtEnd && renamed;
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    write("s211_media_sort_search_select_rename", out.toString());
+    if (!(sortOk && searchOk && selectOk && renameOk)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_2: Sogni Params' Recent beside a picture row lists the reference pictures used last
    * (newest first, each once) as small thumbnails, a tap puts one in the row; Use as a reference into
    * Reference file 2 ticks that row's Use again when it was unticked (it went into Reference 1's place).
@@ -12607,7 +12796,7 @@ public class BehaviorTest {
     String free = MediaBrowser.freeName(taken, "sogni-pedit.png");
     out.append("free name: ").append(free).append('\n');
     write("s205_settings_move_folders_and_file_menu", out.toString());
-    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
+    boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.contains(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
         && "Moved 3 files".equals(said) && moved && windowOk && "sogni-pedit (41).png".equals(free) && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
     if (!ok) throw new AssertionError(out.toString());
   }
