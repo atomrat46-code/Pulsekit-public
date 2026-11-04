@@ -7673,6 +7673,81 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The Media browser's video (as on the phone): a click on the picture pauses or plays on; small ‹
+   * and › beside it open the folder's previous and next video (none before the first or after the last).
+   */
+  void s200_media_video_prev_next() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips200");
+    clips.mkdirs();
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    for (String n : new String[] {"clip-a.mp4", "clip-b.mp4", "clip.webm"}) Files.copy(new File(dir, n).toPath(), new File(clips, n).toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final List<MediaDir.Entry> listed = MediaBrowser.list(clips);
+    set("shownEntries", MediaDir.sortedBy(listed, MediaDir.SORT_NAME, false));
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : listed) if (x.name.equals("clip-b.mp4")) e = x;
+    final MediaDir.Entry entry = e;
+    final java.util.function.Supplier<JDialog> wait = () -> {
+      try {
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(1500);
+        idle();
+        return (JDialog) get("lastVideo");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    java.util.function.Function<JDialog, String> state = d -> d.getTitle().replace("Preview \u00b7 ", "") + " (" + (component(d, "video-left") != null ? "\u2039" : "-")
+        + (component(d, "video-right") != null ? "\u203a" : "-") + ")";
+    set("lastVideo", null);
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, new File(entry.id)));
+    JDialog d = wait.get();
+    StringBuilder walk = new StringBuilder(state.apply(d));
+    // A click on the picture: it plays, again: paused.
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    final Runnable click = () -> {
+      java.awt.event.MouseEvent pr = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      java.awt.event.MouseEvent re = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(pr);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseReleased(re);
+    };
+    edt(click::run);
+    Thread.sleep(800);
+    boolean played = player.playing();
+    edt(click::run);
+    Thread.sleep(600);
+    boolean paused = !player.playing();
+    out.append("click: playing ").append(played).append(", again: paused ").append(paused).append('\n');
+    String[] steps = {"video-right", "video-left", "video-left"};
+    for (String step : steps) {
+      final JDialog was = d;
+      set("lastVideo", null);
+      answers.add("Fit");
+      SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(was, step)).doClick());
+      d = wait.get();
+      walk.append(step.endsWith("right") ? " > " : " < ").append(d == null ? "none" : state.apply(d)).append(was.isDisplayable() ? " (the one before still open)" : "");
+      if (d == null) break;
+    }
+    out.append(walk).append('\n');
+    if (d != null) {
+      final JDialog last = d;
+      edt(() -> ((javax.swing.JButton) find(last.getContentPane(), "Close")).doClick());
+    }
+    idle();
+    boolean ok = played && paused && walk.toString().equals("clip-b.mp4 (\u2039\u203a) > clip.webm (\u2039-) < clip-b.mp4 (\u2039\u203a) < clip-a.mp4 (-\u203a)");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's video held (as on the phone): it pauses and a small Sound dialog shows Mute
    * and the volume; OK closes it, and the next video opens at that volume, muted as it was left.
    */

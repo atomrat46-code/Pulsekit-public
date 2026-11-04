@@ -1923,6 +1923,10 @@ final class PromptDb {
         }
     }
 
+    /** The Media browser's video player: ‹ (a previous video) and › (a next one) shown; the one clicked (-1, 1), else 0. */
+    boolean videoBack, videoOn;
+    int videoStepped;
+
     /** The Media browser player's Sound dialog shown last, for the tests. */
     JDialog lastSoundDialog;
 
@@ -2291,7 +2295,34 @@ final class PromptDb {
         south.add(bottom, BorderLayout.SOUTH);
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        body.add(player.screen, BorderLayout.CENTER);
+        // The Media browser's: small ‹ and › beside the picture open the folder's previous and next video.
+        final boolean back = remember && this.videoBack, on = remember && this.videoOn;
+        if (back || on) {
+            JPanel screen = new JPanel(new BorderLayout(4, 0));
+            screen.setOpaque(false);
+            screen.add(player.screen, BorderLayout.CENTER);
+            for (int edge = 0; edge < 2; edge++) {
+                final int step = edge == 0 ? -1 : 1;
+                if (step < 0 ? !back : !on) continue;
+                JButton arrow = new JButton(step < 0 ? "\u2039" : "\u203a");
+                arrow.setName(step < 0 ? "video-left" : "video-right");
+                arrow.setToolTipText(step < 0 ? "The previous video of the folder" : "The next video of the folder");
+                arrow.setFont(arrow.getFont().deriveFont(java.awt.Font.BOLD, 22f));
+                arrow.setMargin(new java.awt.Insets(2, 4, 2, 4));
+                arrow.setFocusable(false);
+                arrow.addActionListener(e -> {
+                    this.videoStepped = step;
+                    dialog.dispose();
+                });
+                JPanel holder = new JPanel(new java.awt.GridBagLayout());
+                holder.setOpaque(false);
+                holder.add(arrow);
+                screen.add(holder, step < 0 ? BorderLayout.WEST : BorderLayout.EAST);
+            }
+            body.add(screen, BorderLayout.CENTER);
+        } else {
+            body.add(player.screen, BorderLayout.CENTER);
+        }
         body.add(south, BorderLayout.SOUTH);
         if (remember) body.add(sound, BorderLayout.NORTH);
         dialog.setContentPane(body);

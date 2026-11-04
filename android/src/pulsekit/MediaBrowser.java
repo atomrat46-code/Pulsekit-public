@@ -3453,7 +3453,7 @@ final class MediaBrowser {
     void openEntry(MediaDir.Entry e, List<MediaDir.Entry> among) {
         if (e.dbId != 0) this.promptFile(e);
         else if (e.kind == MediaDir.PICTURE) this.picture(e, among);
-        else if (e.kind == MediaDir.VIDEO) this.video(e);
+        else if (e.kind == MediaDir.VIDEO) this.video(e, among);
         else if (e.kind == MediaDir.SOUND) this.sound(e);
     }
 
@@ -3902,7 +3902,21 @@ final class MediaBrowser {
      * With Loop videos ticked it starts again at its end.
      */
     void video(MediaDir.Entry e) {
+        this.video(e, this.entries);
+    }
+
+    /** As above; the small arrows at the video's left and right edges open the previous and the next video of `among`. */
+    void video(final MediaDir.Entry e, final List<MediaDir.Entry> among) {
         lastOpened = "video:" + e.name;
+        // The folder's videos, in its order: the arrows go through them.
+        final List<MediaDir.Entry> videos = new ArrayList<MediaDir.Entry>();
+        int found = -1;
+        if (among != null) for (MediaDir.Entry x : among) {
+            if (x.kind != MediaDir.VIDEO) continue;
+            if (x == e || (x.id != null && x.id.equals(e.id))) found = videos.size();
+            videos.add(x);
+        }
+        final int at = found;
         if (this.app.playing) this.app.playback.stop();
         final Dialog d = this.fullScreen();
         final Video p = new Video();
@@ -3941,6 +3955,26 @@ final class MediaBrowser {
         p.view = new VideoView(this.app);
         p.view.setTag("media-video");
         frame.addView(p.view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        // Small arrows at the left and right edges: the folder's previous and next video (none at its first or last).
+        for (int edge = 0; edge < 2; edge++) {
+            final boolean back = edge == 0;
+            final int to = at < 0 ? -1 : back ? at - 1 : at + 1;
+            if (to < 0 || to >= videos.size()) continue;
+            TextView arrow = this.app.text(back ? "\u2039" : "\u203a", 30, true);
+            arrow.setTag(back ? "media-video-left" : "media-video-right");
+            arrow.setGravity(Gravity.CENTER);
+            arrow.setBackgroundColor(0x66000000);
+            arrow.setOnClickListener(v -> {
+                // Kept before the next opens (the dismiss saves it too, later).
+                MediaDir.volume = p.volume;
+                MediaDir.muted = p.muted;
+                MediaDir.zoom = p.zoom;
+                MediaDir.speed = p.speed;
+                d.dismiss();
+                this.video(videos.get(to), among);
+            });
+            frame.addView(arrow, new FrameLayout.LayoutParams(this.app.dp(40), this.app.dp(64), Gravity.CENTER_VERTICAL | (back ? Gravity.START : Gravity.END)));
+        }
         col.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1f));
         // Mute and volume.
         LinearLayout sound = this.app.row();

@@ -2081,9 +2081,34 @@ final class MediaBrowser {
     void openEntry(MediaDir.Entry entry, File f) {
         try {
             if (entry.kind == MediaDir.VIDEO) {
-                // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
-                app.promptDb.videoFile(entry.name, f, MediaDir.loopVideos, true);
-                return;
+                // The folder's videos, in its order: the player's ‹ › open the previous and the next one.
+                List<MediaDir.Entry> videos = new ArrayList<MediaDir.Entry>();
+                int at = -1;
+                for (MediaDir.Entry x : this.shownEntries) {
+                    if (x.kind != MediaDir.VIDEO || x.dbId != 0) continue;
+                    if (x == entry || (x.id != null && x.id.equals(entry.id))) at = videos.size();
+                    videos.add(x);
+                }
+                MediaDir.Entry now = entry;
+                File nowFile = f;
+                while (true) {
+                    // Played from its own file: VLC in the window, else the browser's player; Loop videos goes with it.
+                    app.promptDb.videoBack = at > 0;
+                    app.promptDb.videoOn = at >= 0 && at < videos.size() - 1;
+                    app.promptDb.videoStepped = 0;
+                    try {
+                        app.promptDb.videoFile(now.name, nowFile, MediaDir.loopVideos, true);
+                    } finally {
+                        app.promptDb.videoBack = false;
+                        app.promptDb.videoOn = false;
+                    }
+                    int step = app.promptDb.videoStepped;
+                    app.promptDb.videoStepped = 0;
+                    if (step == 0 || at < 0 || at + step < 0 || at + step >= videos.size()) return;
+                    at += step;
+                    now = videos.get(at);
+                    nowFile = new File(now.id);
+                }
             }
             // A picture's folder: its Crop saves there.
             app.promptDb.previewFolder = f.getAbsoluteFile().getParentFile();

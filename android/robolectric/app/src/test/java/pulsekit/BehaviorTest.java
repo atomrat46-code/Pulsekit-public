@@ -12114,6 +12114,74 @@ public class BehaviorTest {
   }
 
   /**
+   * The Media browser's video: a short tap pauses or plays on; small arrows at the left and right
+   * edges open the folder's previous and next video (none before the first, none after the last).
+   */
+  @Test
+  public void s214_media_video_prev_next() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    File media = new File(app.getCacheDir(), "m14");
+    media.mkdirs();
+    for (String n : new String[] {"a.mp4", "b.mp4", "c.mp4"}) Files.write(new File(media, n).toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    Files.write(new File(media, "b2.png").toPath(), plainPng(20, 35));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:b.mp4").performClick();
+    idle();
+    java.util.function.Supplier<String> state = () -> {
+      View tv = MediaBrowser.lastVideo.dialog.getWindow().getDecorView();
+      return ((TextView) tv.findViewWithTag("media-video-title")).getText().toString().replace("  \u00b7 looping", "") + " (" + (tv.findViewWithTag("media-video-left") != null ? "\u2039" : "-")
+          + (tv.findViewWithTag("media-video-right") != null ? "\u203a" : "-") + ")";
+    };
+    String first = state.get();
+    // A short tap: paused, then played on.
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    View screen = v.dialog.getWindow().getDecorView().findViewWithTag("media-video");
+    java.util.function.Consumer<Long> press = heldMs -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      screen.dispatchTouchEvent(d);
+      d.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      screen.dispatchTouchEvent(u);
+      u.recycle();
+      idle();
+    };
+    boolean before = v.playing();
+    press.accept(80L);
+    boolean afterTap = v.playing();
+    press.accept(80L);
+    boolean afterTap2 = v.playing();
+    out.append("tap: playing ").append(before).append(" -> ").append(afterTap).append(" -> ").append(afterTap2).append('\n');
+    StringBuilder walk = new StringBuilder(first);
+    android.app.Dialog was = v.dialog;
+    v.dialog.getWindow().getDecorView().findViewWithTag("media-video-right").performClick();
+    idle();
+    boolean closed = !was.isShowing();
+    walk.append(" > ").append(state.get());
+    for (int i = 0; i < 2; i++) {
+      MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video-left").performClick();
+      idle();
+      walk.append(" < ").append(state.get());
+    }
+    out.append(walk).append(", the one before closed ").append(closed).append('\n');
+    MediaBrowser.lastVideo.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    write("s214_media_video_prev_next", out.toString());
+    boolean ok = before && !afterTap && afterTap2 && closed && walk.toString().equals("b.mp4 (\u2039\u203a) > c.mp4 (\u2039-) < b.mp4 (\u2039\u203a) < a.mp4 (-\u203a)");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * The Media browser's video held: it pauses and a small Sound dialog shows Mute and the volume;
    * OK closes it, and the next video opens at that volume, muted as it was left.
    */
@@ -12318,7 +12386,12 @@ public class BehaviorTest {
     }
     String removed = MediaBrowser.lastSelectionSaid;
     boolean gone = !new File(dir, "beta.png").exists() && !new File(dir, "gamma.png").exists();
-    for (int i = 0; i < 200 && b.loading; i++) {
+    // Listed again without them (the reload may not have started yet when the delete is said).
+    java.util.function.BooleanSupplier stillListed = () -> {
+      for (MediaDir.Entry x : b.allEntries) if (x.name.equals("beta.png") || x.name.equals("gamma.png")) return true;
+      return false;
+    };
+    for (int i = 0; i < 200 && (b.loading || stillListed.getAsBoolean() || !b.selected.isEmpty()); i++) {
       Thread.sleep(20);
       idle();
     }
