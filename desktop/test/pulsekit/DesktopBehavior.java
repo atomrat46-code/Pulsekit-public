@@ -7673,6 +7673,256 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026_4 (as on the phone): a move folder's Subfolder with % codes (%ddmmyyyy/pics; %n the next
+   * free number), made when missing; the field beside each type.
+   */
+  void s202_move_subfolder_codes() throws Exception {
+    java.util.Calendar day = java.util.Calendar.getInstance();
+    day.set(2026, java.util.Calendar.NOVEMBER, 4);
+    final java.util.Set<String> there = new java.util.HashSet<String>(java.util.Arrays.asList("run1", "run2"));
+    String a = DownloadMove.expand("folder1/folder 2/%ddmmyyyy/pics", day, there::contains), b = DownloadMove.expand("run%n", day, there::contains);
+    SogniDownloads.init(PromptDb.dir());
+    DownloadMove.load();
+    File home = new File(System.getProperty("user.home"));
+    File src = new File(home, "m202"), pics = new File(home, "m202-pics");
+    src.mkdirs();
+    new File(pics, "set1").mkdirs();
+    Files.write(new File(src, "a.png").toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m202-pics");
+    final javax.swing.JPanel panel = new javax.swing.JPanel();
+    edt(() -> DownloadsScreen.folderRows(frame, panel));
+    final javax.swing.JTextField field = (javax.swing.JTextField) component(panel, "downloads-move-sub:picture");
+    edt(() -> field.setText("set%n/%yyyy"));
+    String kept = DownloadMove.subOf("picture");
+    String said = DownloadsScreen.moveToDefaults(src);
+    String year = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+    boolean moved = new File(pics, "set2/" + year + "/a.png").isFile() && !new File(src, "a.png").exists();
+    out.append(a).append(" | ").append(b).append(" | field kept ").append(kept).append(" | ").append(said).append(", in set2/").append(year).append(' ').append(moved).append('\n');
+    DownloadMove.setSub("picture", "");
+    DownloadMove.ticked.put("picture", false);
+    DownloadMove.setFolder("picture", "", "");
+    boolean ok = a.equals("folder1/folder 2/04112026/pics") && b.equals("run3") && "set%n/%yyyy".equals(kept) && said.startsWith("Moved 1") && moved;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_4: Video ready in Full screen preview (as on the phone): while it plays only the picture
+   * shows, paused Loop video, Mute and the volume too; held, back to its own size.
+   */
+  void s201_video_ready_full_screen() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File clip = new File(new File(System.getProperty("user.home")), "clip201.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final PromptDb db = (PromptDb) get("promptDb");
+    set("lastVideo", null);
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> db.vlcPreview("clip201.webm", clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1200);
+    idle();
+    final JDialog d = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    final java.util.function.Supplier<String> controls = () -> component(d, "video-loop").isShowing() && component(d, "video-volume").isShowing() ? "shown" : "hidden";
+    String before = controls.get();
+    final java.awt.Rectangle[] sizes = new java.awt.Rectangle[3];
+    edt(() -> {
+      sizes[0] = d.getBounds();
+      PromptDb.fullScreen(d);
+      sizes[1] = d.getBounds();
+      player.play();
+    });
+    Thread.sleep(1000);
+    boolean playing = player.playing();
+    String whilePlaying = controls.get();
+    edt(() -> player.screen.clicked.run());
+    Thread.sleep(800);
+    boolean paused = !player.playing();
+    String whenPaused = controls.get();
+    edt(() -> {
+      player.screen.held.run();
+      sizes[2] = d.getBounds();
+    });
+    Thread.sleep(400);
+    boolean back = sizes[2].equals(sizes[0]);
+    out.append("window: controls ").append(before).append(" | full screen ").append(sizes[1].width > sizes[0].width).append(", playing ").append(playing).append(": controls ").append(whilePlaying)
+        .append(" | clicked: paused ").append(paused).append(", controls ").append(whenPaused).append(" | held: back to its size ").append(back).append(", controls ").append(controls.get()).append('\n');
+    edt(() -> ((javax.swing.JButton) find(d.getContentPane(), "Close")).doClick());
+    idle();
+    boolean ok = "shown".equals(before) && sizes[1].width > sizes[0].width && playing && "hidden".equals(whilePlaying) && paused && "shown".equals(whenPaused) && back;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Media browser's video (as on the phone): a click on the picture pauses or plays on; small ‹
+   * and › beside it open the folder's previous and next video (none before the first or after the last).
+   */
+  void s200_media_video_prev_next() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips200");
+    clips.mkdirs();
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    for (String n : new String[] {"clip-a.mp4", "clip-b.mp4", "clip.webm"}) Files.copy(new File(dir, n).toPath(), new File(clips, n).toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final List<MediaDir.Entry> listed = MediaBrowser.list(clips);
+    set("shownEntries", MediaDir.sortedBy(listed, MediaDir.SORT_NAME, false));
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : listed) if (x.name.equals("clip-b.mp4")) e = x;
+    final MediaDir.Entry entry = e;
+    final java.util.function.Supplier<JDialog> wait = () -> {
+      try {
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(1500);
+        idle();
+        return (JDialog) get("lastVideo");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    java.util.function.Function<JDialog, String> state = d -> d.getTitle().replace("Preview \u00b7 ", "") + " (" + (component(d, "video-left") != null ? "\u2039" : "-")
+        + (component(d, "video-right") != null ? "\u203a" : "-") + ")";
+    set("lastVideo", null);
+    answers.add("Fit");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, new File(entry.id)));
+    JDialog d = wait.get();
+    StringBuilder walk = new StringBuilder(state.apply(d));
+    // A click on the picture: it plays, again: paused.
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    final Runnable click = () -> {
+      java.awt.event.MouseEvent pr = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      java.awt.event.MouseEvent re = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(pr);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseReleased(re);
+    };
+    edt(click::run);
+    Thread.sleep(800);
+    boolean played = player.playing();
+    edt(click::run);
+    Thread.sleep(600);
+    boolean paused = !player.playing();
+    out.append("click: playing ").append(played).append(", again: paused ").append(paused).append('\n');
+    String[] steps = {"video-right", "video-left", "video-left"};
+    for (String step : steps) {
+      final JDialog was = d;
+      set("lastVideo", null);
+      answers.add("Fit");
+      SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(was, step)).doClick());
+      d = wait.get();
+      walk.append(step.endsWith("right") ? " > " : " < ").append(d == null ? "none" : state.apply(d)).append(was.isDisplayable() ? " (the one before still open)" : "");
+      if (d == null) break;
+    }
+    out.append(walk).append('\n');
+    if (d != null) {
+      final JDialog last = d;
+      edt(() -> ((javax.swing.JButton) find(last.getContentPane(), "Close")).doClick());
+    }
+    idle();
+    boolean ok = played && paused && walk.toString().equals("clip-b.mp4 (\u2039\u203a) > clip.webm (\u2039-) < clip-b.mp4 (\u2039\u203a) < clip-a.mp4 (-\u203a)");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Media browser's video held (as on the phone): it pauses and a small Sound dialog shows Mute
+   * and the volume; OK closes it, and the next video opens at that volume, muted as it was left.
+   */
+  void s199_media_video_sound_dialog() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips199");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    final java.util.function.Supplier<JDialog> open = () -> {
+      try {
+        set("lastVideo", null);
+        answers.add("Fit");
+        SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(1500);
+        idle();
+        return (JDialog) get("lastVideo");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog dialog = open.get();
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    set("lastSoundDialog", null);
+    // The Sound dialog stays open for the scenario.
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(800);
+    boolean wasPlaying = player.playing();
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    Thread.sleep(1000);
+    edt(() -> {
+      java.awt.event.MouseEvent rel = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseReleased(rel);
+    });
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    final JDialog sd = (JDialog) get("lastSoundDialog");
+    boolean opened = sd != null && sd.isShowing();
+    boolean paused = !player.playing();
+    out.append("held: was playing ").append(wasPlaying).append(", Sound dialog ").append(opened).append(sd == null ? "" : " titled " + sd.getTitle()).append(", playing ").append(player.playing())
+        .append(", sound row ").append(component(dialog, "video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    if (sd == null) throw new AssertionError(out.toString());
+    edt(() -> ((javax.swing.JSlider) component(sd, "sound-dialog-volume")).setValue(35));
+    String level = ((JLabel) component(sd, "sound-dialog-level")).getText();
+    int rowVolume = ((javax.swing.JSlider) component(dialog, "video-volume")).getValue();
+    edt(() -> ((javax.swing.AbstractButton) component(sd, "sound-dialog-mute")).doClick());
+    String muteText = ((javax.swing.AbstractButton) component(sd, "sound-dialog-mute")).getText();
+    String level2 = ((JLabel) component(sd, "sound-dialog-level")).getText();
+    out.append("volume 35: ").append(level).append(", row ").append(rowVolume).append(" | Mute: ").append(muteText).append(", ").append(level2).append(", row ")
+        .append(((javax.swing.AbstractButton) component(dialog, "video-mute")).getText()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(sd, "sound-dialog-ok")).doClick());
+    idle();
+    out.append("OK: closed ").append(!sd.isShowing()).append(", kept volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.loadLoop();
+    out.append("read back: volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    JDialog next = open.get();
+    String nextSaid = "next video: volume " + ((javax.swing.JSlider) component(next, "video-volume")).getValue() + ", " + ((javax.swing.AbstractButton) component(next, "video-mute")).getText();
+    out.append(nextSaid).append('\n');
+    edt(() -> ((javax.swing.JButton) find(next.getContentPane(), "Close")).doClick());
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.saveLoop();
+    boolean ok = opened && paused && "35%".equals(level) && rowVolume == 35 && "Unmute".equals(muteText) && "muted".equals(level2) && !sd.isShowing()
+        && out.toString().contains("read back: volume 35 muted true") && nextSaid.equals("next video: volume 35, Unmute");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_4: File > Add folder's media files to playlist (as on the phone): the kinds ticked of the
    * folder into a new playlist, then music into the same one.
    */

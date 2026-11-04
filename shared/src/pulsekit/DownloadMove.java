@@ -45,7 +45,112 @@ public final class DownloadMove {
   public static final Map<String, Boolean> ticked = new LinkedHashMap<String, Boolean>();
   public static final Map<String, String> folder = new LinkedHashMap<String, String>();
   public static final Map<String, String> label = new LinkedHashMap<String, String>();
+  /** Each kind's subfolder under its folder (made when missing), with % codes: %dd%mm%yyyy/pics. */
+  public static final Map<String, String> sub = new LinkedHashMap<String, String>();
   private static File loadedFrom;
+
+  /** The subfolder field's hint. */
+  public static final String SUB_HINT = "Subfolder (optional), e.g. %ddmmyyyy/pics";
+  public static final String SUB_NOTE = "Subfolder codes after %: dd day, mm month, yyyy or yy year, n the next free number (d, m: no leading 0). Made when missing.";
+
+  /**
+   * A subfolder path with its % codes filled in for `now`: after a %, dd (day, 04), d (4), mm
+   * (month, 11), m, yyyy (2026), yy (26) and n (the next number: the first, from 1, whose folder
+   * `taken` says is not there yet) follow each other until another character; %% is a %.
+   * "%ddmmyyyy/pics" is "04112026/pics". Slashes are kept; empty parts, "." and ".." are left out.
+   */
+  public static String expand(String pattern, java.util.Calendar now, java.util.function.Predicate<String> taken) {
+    if (pattern == null) return "";
+    String once = fill(pattern.trim().replace('\\', '/'), now, -1);
+    if (!pattern.contains("%")) return once;
+    // No %n in it: as it is (filled with 1 and 2 alike).
+    String withN = fill(pattern.trim().replace('\\', '/'), now, 1);
+    if (withN.equals(fill(pattern.trim().replace('\\', '/'), now, 2))) return once;
+    // The number's folder: the parts up to the first one %n changes (set%n/%yyyy: set1 taken, then set2).
+    String[] a = withN.split("/"), b = fill(pattern.trim().replace('\\', '/'), now, 2).split("/");
+    int upTo = 0;
+    while (upTo < Math.min(a.length, b.length) - 1 && a[upTo].equals(b[upTo])) upTo++;
+    for (int n = 1; n < 100000; n++) {
+      String p = fill(pattern.trim().replace('\\', '/'), now, n);
+      String[] parts = p.split("/");
+      StringBuilder head = new StringBuilder();
+      for (int i = 0; i <= upTo && i < parts.length; i++) head.append(i == 0 ? "" : "/").append(parts[i]);
+      if (taken == null || !taken.test(head.toString())) return p;
+    }
+    return withN;
+  }
+
+  /** The % codes filled in; n as `n` (-1: none asked yet, "1"). */
+  static String fill(String pattern, java.util.Calendar now, int n) {
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < pattern.length(); i++) {
+      char c = pattern.charAt(i);
+      if (c != '%') {
+        out.append(c);
+        continue;
+      }
+      if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+        out.append('%');
+        i++;
+        continue;
+      }
+      int j = i + 1;
+      while (j < pattern.length()) {
+        String rest = pattern.substring(j);
+        if (rest.startsWith("yyyy")) {
+          out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+          j += 4;
+        } else if (rest.startsWith("yy")) {
+          out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+          j += 2;
+        } else if (rest.startsWith("dd")) {
+          out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+          j += 2;
+        } else if (rest.startsWith("d")) {
+          out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+          j += 1;
+        } else if (rest.startsWith("mm")) {
+          out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+          j += 2;
+        } else if (rest.startsWith("m")) {
+          out.append(now.get(java.util.Calendar.MONTH) + 1);
+          j += 1;
+        } else if (rest.startsWith("n")) {
+          out.append(n < 0 ? 1 : n);
+          j += 1;
+        } else {
+          break;
+        }
+      }
+      // A lone % (no code after it): kept as it is.
+      if (j == i + 1) out.append('%');
+      i = j - 1;
+    }
+    StringBuilder clean = new StringBuilder();
+    for (String part : out.toString().split("/")) {
+      String t = part.trim();
+      if (t.length() == 0 || t.equals(".") || t.equals("..")) continue;
+      if (clean.length() > 0) clean.append('/');
+      clean.append(t.replaceAll("[:*?\"<>|]", "_"));
+    }
+    return clean.toString();
+  }
+
+  /** The kind's subfolder pattern, or "". */
+  public static synchronized String subOf(String kind) {
+    String v = sub.get(kind);
+    return v == null ? "" : v;
+  }
+
+  public static synchronized void setSub(String kind, String pattern) {
+    sub.put(kind, pattern == null ? "" : pattern.trim());
+    save();
+  }
+
+  /** The subfolder a move into the kind's folder goes to now ("" for the folder itself). */
+  public static String subNow(String kind, java.util.function.Predicate<String> taken) {
+    return expand(subOf(kind), java.util.Calendar.getInstance(), taken);
+  }
 
   /** The settings kept beside the Downloads list (read again only for another folder). */
   public static synchronized void load() {
@@ -58,6 +163,7 @@ public final class DownloadMove {
     ticked.clear();
     folder.clear();
     label.clear();
+    sub.clear();
     if (dir == null) return;
     File f = new File(dir, FILE);
     if (!f.isFile()) return;
@@ -71,6 +177,7 @@ public final class DownloadMove {
           ticked.put(p[0], "1".equals(p[1]));
           folder.put(p[0], p[2]);
           label.put(p[0], p[3]);
+          if (p.length >= 5) sub.put(p[0], p[4]);
         }
       }
     } catch (Exception ignored) {
@@ -85,7 +192,7 @@ public final class DownloadMove {
     sb.append("on\t").append(on ? "1" : "0").append('\n').append("auto\t").append(auto ? "1" : "0").append('\n');
     sb.append("clear\t").append(clearAuto ? "1" : "0").append('\n');
     for (String k : KINDS) {
-      sb.append(k).append('\t').append(isTicked(k) ? "1" : "0").append('\t').append(clean(folder.get(k))).append('\t').append(clean(label.get(k))).append('\n');
+      sb.append(k).append('\t').append(isTicked(k) ? "1" : "0").append('\t').append(clean(folder.get(k))).append('\t').append(clean(label.get(k))).append('\t').append(clean(sub.get(k))).append('\n');
     }
     try {
       SafeWrite.write(new File(dir, FILE), sb.toString().getBytes(StandardCharsets.UTF_8));

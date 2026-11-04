@@ -309,6 +309,8 @@ public final class MediaDir {
   public static volatile boolean loopVideos;
   /** The Media browser's video player as last left: volume (0..100), zoom (1..4) and playback speed. */
   public static volatile int volume = 100;
+  /** The Media browser's video player muted (as it was left; the next video opens so). */
+  public static volatile boolean muted;
   public static volatile double zoom = 1;
   public static volatile double speed = 1;
   /** The folder last picked (Params: Browse), and the folders opened under it then, in order; "" and empty when none. */
@@ -506,7 +508,7 @@ public final class MediaDir {
     synchronized (MediaDir.class) {
       for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
     }
-    return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nzoom=" + zoom + "\nspeed=" + speed
+    return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nmute=" + (muted ? 1 : 0) + "\nzoom=" + zoom + "\nspeed=" + speed
         + "\nsort=" + sortBy + (sortDesc ? "\tdesc" : "") + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + (tab.length() > 0 ? "\ntab=" + tab : "") + places + "\n";
   }
 
@@ -514,6 +516,7 @@ public final class MediaDir {
   public static void decode(String text) {
     loopVideos = false;
     volume = 100;
+    muted = false;
     zoom = 1;
     speed = 1;
     sortBy = SORT_NAME;
@@ -535,6 +538,7 @@ public final class MediaDir {
       try {
         if (k.equals("loop")) loopVideos = v.equals("1");
         else if (k.equals("volume")) volume = Math.max(0, Math.min(100, Integer.parseInt(v)));
+        else if (k.equals("mute")) muted = v.equals("1");
         else if (k.equals("zoom")) zoom = clampZoom(Double.parseDouble(v));
         else if (k.equals("speed")) speed = speed(Double.parseDouble(v));
         else if (k.equals("sort")) {

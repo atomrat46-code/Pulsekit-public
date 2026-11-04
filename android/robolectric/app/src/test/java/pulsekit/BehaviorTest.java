@@ -12114,6 +12114,402 @@ public class BehaviorTest {
   }
 
   /**
+   * crash-log_3: a Run press waited seconds on File > Downloads' list, each run sealed again at every
+   * write (one keystore call a run). The same text now keeps its sealed line: only what changed is
+   * sealed; a line read is written back as it was; another key seals anew.
+   */
+  @Test
+  public void s219_sealed_lines_kept() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    Sealed.forgetTexts();
+    String a = Sealed.sealText("run one"), a2 = Sealed.sealText("run one"), b = Sealed.sealText("run two");
+    // A line read back (as at start): written again as the same hex.
+    Sealed.forgetTexts();
+    String read = Sealed.openText(a);
+    String again = Sealed.sealText("run one");
+    // 300 runs in File > Downloads (it keeps the last 200): writing it again after one change seals once, quickly.
+    File dir = new File(app.getCacheDir(), "s219");
+    dir.mkdirs();
+    new File(dir, "sogni-downloads.txt").delete();
+    SogniDownloads.init(dir);
+    for (int i = 0; i < 300; i++) SogniDownloads.args(SogniDownloads.started("SogniPedit.java", 1000L + i), "--prompt p" + i);
+    byte[] before = Files.readAllBytes(new File(dir, "sogni-downloads.txt").toPath());
+    long t0 = System.nanoTime();
+    long last = 0;
+    for (int i = 0; i < 20; i++) SogniDownloads.args(last = SogniDownloads.started("SogniPedit.java", 5000L + i), "--prompt q" + i);
+    long ms = (System.nanoTime() - t0) / 1000000;
+    String[] lines = new String(Files.readAllBytes(new File(dir, "sogni-downloads.txt").toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n");
+    String first = new String(before, java.nio.charset.StandardCharsets.UTF_8).split("\n")[100];
+    boolean firstKept = java.util.Arrays.asList(lines).contains(first);
+    out.append("same text: same hex ").append(a.equals(a2)).append(", other text other ").append(!a.equals(b)).append(" | read back ").append(read).append(", written as before ").append(a.equals(again))
+        .append(" | 20 more runs: their writes in ").append(ms).append(" ms, an unchanged run's line kept ").append(firstKept).append(", lines ").append(lines.length).append('\n');
+    int expect = SogniDownloads.count();
+    SogniDownloads.init(app.getFilesDir());
+    write("s219_sealed_lines_kept", out.toString());
+    boolean ok = a.equals(a2) && !a.equals(b) && "run one".equals(read) && a.equals(again) && lines.length == expect && expect == SogniDownloads.MAX && firstKept;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A "not responding" gets its cause: the main thread's part of Android's thread dump, and the
+   * watchdog's record of a busy screen (hang-log.txt, its stack) put under Android's reason.
+   */
+  @Test
+  public void s218_not_responding_cause() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String dump = "----- pid 123 -----\n\n\"main\" prio=5 tid=1 Native\n  | group=\"main\"\n  at android.graphics.BitmapFactory.nativeDecodeByteArray(Native method)\n  at pulsekit.PyJav.pkPicture(PyJav.java:10)\n\n\"Signal Catcher\" daemon\n  at x\n";
+    String main = CrashLog.mainThread(dump);
+    out.append("main thread: ").append(main == null ? "none" : main.replace('\n', '|')).append('\n');
+    File dir = app.getFilesDir();
+    new File(dir, CrashLog.HANGS).delete();
+    CrashLog.hung(dir, 2600, new StackTraceElement[] {new StackTraceElement("pulsekit.PyJav", "pkPicture", "PyJav.java", 10), new StackTraceElement("android.os.Looper", "loop", "Looper.java", 1)});
+    CrashLog.hung(dir, 4600, new StackTraceElement[] {new StackTraceElement("pulsekit.PyJav", "pkPicture", "PyJav.java", 11)});
+    String hang = CrashLog.lastHang(dir);
+    out.append("last hang: ").append(hang == null ? "none" : hang.replace('\n', '|')).append('\n');
+    write("s218_not_responding_cause", out.toString());
+    new File(dir, CrashLog.HANGS).delete();
+    boolean ok = main != null && main.startsWith("\"main\" prio=5") && main.contains("pkPicture") && !main.contains("Signal Catcher")
+        && hang != null && hang.startsWith("The screen was busy 4.6 s") && hang.contains("PyJav.java:11") && !hang.contains("2.6 s");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The phone turned sideways: the full screen players (the Media browser's, Video ready's Full screen
+   * preview, the playlist viewer) let the screen turn, and back upright when closed; sideways, the
+   * Media browser's bars hide while a video plays (paused, they show).
+   */
+  @Test
+  public void s217_videos_turn_sideways() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    int full = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER, upright = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+    MediaBrowser.turning = 0;
+    java.util.function.IntFunction<String> o = x -> x == full ? "turns" : x == upright ? "upright" : String.valueOf(x);
+    File media = new File(app.getCacheDir(), "m17");
+    media.mkdirs();
+    Files.write(new File(media, "wide.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    String before = o.apply(app.getRequestedOrientation());
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:wide.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    String open = o.apply(app.getRequestedOrientation());
+    View top = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-close");
+    View transport = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-play");
+    java.util.function.Supplier<String> bars = () -> (((View) top.getParent()).getVisibility() == View.VISIBLE ? "top" : "-") + "/" + (((View) transport.getParent()).getVisibility() == View.VISIBLE ? "transport" : "-");
+    v.view.start();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String uprightPlaying = bars.get();
+    org.robolectric.RuntimeEnvironment.setQualifiers("+land");
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String sidewaysPlaying = bars.get();
+    v.pauseOrResume();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String sidewaysPaused = bars.get();
+    v.dialog.dismiss();
+    idle();
+    String closed = o.apply(app.getRequestedOrientation());
+    org.robolectric.RuntimeEnvironment.setQualifiers("+port");
+    b.dialog.dismiss();
+    idle();
+    // Video ready's Full screen preview.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    String readyOnly = o.apply(app.getRequestedOrientation());
+    vp.fullScreen(app, new File(app.getCacheDir(), "video-offer/walk.mp4").getAbsolutePath(), 0);
+    idle();
+    String readyFull = o.apply(app.getRequestedOrientation());
+    vp.full.dismiss();
+    idle();
+    String readyBack = o.apply(app.getRequestedOrientation());
+    vp.dialog.dismiss();
+    idle();
+    // The playlist viewer.
+    Playlist pl = new Playlist("Turn");
+    pl.items.add(new Playlist.Item(new File(media, "wide.mp4").getAbsolutePath(), "wide.mp4"));
+    PlaylistScreen.viewer(app, pl, 0);
+    idle();
+    String viewer = o.apply(app.getRequestedOrientation());
+    PlaylistScreen.lastViewer.dismiss();
+    idle();
+    String viewerBack = o.apply(app.getRequestedOrientation());
+    out.append("app ").append(before).append(" | Media browser video: ").append(open).append(", upright playing ").append(uprightPlaying).append(", sideways playing ").append(sidewaysPlaying)
+        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack)
+        .append(" | playlist viewer ").append(viewer).append(", closed ").append(viewerBack).append('\n');
+    write("s217_videos_turn_sideways", out.toString());
+    boolean ok = open.equals("turns") && uprightPlaying.equals("top/transport") && sidewaysPlaying.equals("-/-") && sidewaysPaused.equals("top/transport") && closed.equals("upright")
+        && !readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_4: Video ready's Full screen preview: a tap pauses or plays it; paused, Loop video, Mute
+   * and the volume show (hidden while it plays); a long press goes back to Video ready.
+   */
+  @Test
+  public void s216_video_ready_full_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    app.getSharedPreferences(VideoOffer.PREFS, 0).edit().clear().apply();
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    vp.fullScreen(app, new File(app.getCacheDir(), "video-offer/walk.mp4").getAbsolutePath(), 0);
+    idle();
+    View fv = vp.full.getWindow().getDecorView();
+    VideoView big = (VideoView) fv.findViewWithTag("video-offer:full");
+    big.start();
+    idle();
+    java.util.function.Supplier<String> controls = () -> vp.fullControls.getVisibility() == View.VISIBLE ? "shown" : "hidden";
+    java.util.function.Consumer<Long> press = heldMs -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      big.dispatchTouchEvent(d);
+      d.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      big.dispatchTouchEvent(u);
+      u.recycle();
+      idle();
+    };
+    press.accept(60L);
+    boolean paused = !big.isPlaying();
+    String whenPaused = controls.get();
+    android.widget.CheckBox loop = (android.widget.CheckBox) fv.findViewWithTag("video-offer:full-loop");
+    loop.setChecked(true);
+    boolean loopKept = app.getSharedPreferences(VideoOffer.PREFS, 0).getBoolean(VideoOffer.FULL_LOOP, false);
+    ((TextView) fv.findViewWithTag("video-offer:full-mute")).performClick();
+    String level = ((TextView) fv.findViewWithTag("video-offer:full-level")).getText().toString();
+    boolean mutedBoth = vp.muted && "Unmute".contentEquals(vp.mute.getText());
+    ((TextView) fv.findViewWithTag("video-offer:full-mute")).performClick();
+    ((android.widget.SeekBar) fv.findViewWithTag("video-offer:full-volume")).setProgress(30);
+    int readyBar = vp.volumeBar.getProgress();
+    String level30 = ((TextView) fv.findViewWithTag("video-offer:full-level")).getText().toString();
+    press.accept(60L);
+    boolean playing = big.isPlaying();
+    String whenPlaying = controls.get();
+    out.append("tap: paused ").append(paused).append(", controls ").append(whenPaused).append(" | Loop video kept ").append(loopKept).append(" | Mute: ").append(level).append(", Video ready too ").append(mutedBoth)
+        .append(" | volume 30: ").append(level30).append(", Video ready's slider ").append(readyBar).append(" | tap: playing ").append(playing).append(", controls ").append(whenPlaying).append('\n');
+    press.accept(900L);
+    boolean back = !vp.full.isShowing() && vp.dialog.isShowing();
+    out.append("long press: back to Video ready ").append(back).append('\n');
+    vp.dialog.dismiss();
+    idle();
+    write("s216_video_ready_full_screen", out.toString());
+    boolean ok = paused && "shown".equals(whenPaused) && loopKept && "muted".equals(level) && mutedBoth && "30%".equals(level30) && readyBar == 30 && playing && "hidden".equals(whenPlaying) && back;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_4: a move folder's Subfolder with % codes (%ddmmyyyy/pics: 04112026/pics; %n the next
+   * free number), made when missing, once for a whole move.
+   */
+  @Test
+  public void s215_move_subfolder_codes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.Calendar day = java.util.Calendar.getInstance();
+    day.set(2026, java.util.Calendar.NOVEMBER, 4);
+    final java.util.Set<String> there = new java.util.HashSet<String>(java.util.Arrays.asList("run1", "run2"));
+    String[][] cases = {{"folder1/folder 2/%ddmmyyyy/pics", "folder1/folder 2/04112026/pics"}, {"%d-%m-%yy", "4-11-26"}, {"%yyyy/%mm/%dd", "2026/11/04"}, {"run%n", "run3"},
+      {"a/../b//c", "a/b/c"}, {"100%% %q", "100% %q"}, {"plain", "plain"}, {"", ""}};
+    boolean codesOk = true;
+    for (String[] c : cases) {
+      String got = DownloadMove.expand(c[0], day, there::contains);
+      out.append(c[0]).append(" -> ").append(got).append(" | ");
+      codesOk &= got.equals(c[1]);
+    }
+    out.append('\n');
+    // Move defined media types into the videos' folder, under its subfolder.
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    File vids = new File(app.getCacheDir(), "m15-vids");
+    vids.mkdirs();
+    new File(vids, "set1").mkdirs();
+    File src = new File(app.getCacheDir(), "m15");
+    src.mkdirs();
+    File clip = new File(src, "clip.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p'});
+    DownloadMove.ticked.put("video", true);
+    DownloadMove.setFolder("video", vids.getAbsolutePath(), "m15-vids");
+    DownloadMove.setSub("video", "set%n/%yyyy");
+    DownloadMove.load();
+    String sub = MediaBrowser.subNow(app, "video", MediaBrowser.originOf(vids.getAbsolutePath()));
+    MediaDir.Entry e = new MediaDir.Entry();
+    e.name = "clip.mp4";
+    e.id = clip.getAbsolutePath();
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false, sub, null);
+    String year = String.valueOf(java.util.Calendar.getInstance().get(java.util.Calendar.YEAR));
+    boolean moved = why == null && new File(vids, "set2/" + year + "/clip.mp4").isFile() && !clip.exists();
+    String kept = new String(Files.readAllBytes(new File(SogniDownloads.dir(), "download-move.txt").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    out.append("sub ").append(sub).append(" | moved ").append(why).append(", there ").append(moved).append(" | kept ").append(kept.contains("\tset%n/%yyyy\n")).append('\n');
+    // The Subfolder field beside each type.
+    android.widget.LinearLayout panel = new android.widget.LinearLayout(app);
+    DownloadsScreen.folderRows(app, panel, null);
+    android.widget.EditText field = (android.widget.EditText) panel.findViewWithTag("downloads-move-sub:picture");
+    field.setText("%ddmmyyyy/pics");
+    String fieldKept = DownloadMove.subOf("picture");
+    boolean shownVideo = "set%n/%yyyy".equals(((android.widget.EditText) panel.findViewWithTag("downloads-move-sub:video")).getText().toString());
+    out.append("field: kept ").append(fieldKept).append(", video's shown ").append(shownVideo).append(", hint ").append(field.getHint()).append('\n');
+    DownloadMove.setSub("picture", "");
+    DownloadMove.setSub("video", "");
+    DownloadMove.ticked.put("video", false);
+    DownloadMove.setFolder("video", "", "");
+    write("s215_move_subfolder_codes", out.toString());
+    boolean ok = codesOk && sub.equals("set2/" + year) && moved && kept.contains("\tset%n/%yyyy\n") && "%ddmmyyyy/pics".equals(fieldKept) && shownVideo;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Media browser's video: a short tap pauses or plays on; small arrows at the left and right
+   * edges open the folder's previous and next video (none before the first, none after the last).
+   */
+  @Test
+  public void s214_media_video_prev_next() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    File media = new File(app.getCacheDir(), "m14");
+    media.mkdirs();
+    for (String n : new String[] {"a.mp4", "b.mp4", "c.mp4"}) Files.write(new File(media, n).toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    Files.write(new File(media, "b2.png").toPath(), plainPng(20, 35));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:b.mp4").performClick();
+    idle();
+    java.util.function.Supplier<String> state = () -> {
+      View tv = MediaBrowser.lastVideo.dialog.getWindow().getDecorView();
+      return ((TextView) tv.findViewWithTag("media-video-title")).getText().toString().replace("  \u00b7 looping", "") + " (" + (tv.findViewWithTag("media-video-left") != null ? "\u2039" : "-")
+          + (tv.findViewWithTag("media-video-right") != null ? "\u203a" : "-") + ")";
+    };
+    String first = state.get();
+    // A short tap: paused, then played on.
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    View screen = v.dialog.getWindow().getDecorView().findViewWithTag("media-video");
+    java.util.function.Consumer<Long> press = heldMs -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+      screen.dispatchTouchEvent(d);
+      d.recycle();
+      ShadowLooper.idleMainLooper(heldMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+      screen.dispatchTouchEvent(u);
+      u.recycle();
+      idle();
+    };
+    boolean before = v.playing();
+    press.accept(80L);
+    boolean afterTap = v.playing();
+    press.accept(80L);
+    boolean afterTap2 = v.playing();
+    out.append("tap: playing ").append(before).append(" -> ").append(afterTap).append(" -> ").append(afterTap2).append('\n');
+    StringBuilder walk = new StringBuilder(first);
+    android.app.Dialog was = v.dialog;
+    v.dialog.getWindow().getDecorView().findViewWithTag("media-video-right").performClick();
+    idle();
+    // The next opens over it; it closes under the next a moment later (the folder is not shown between).
+    boolean stillOver = was.isShowing() && MediaBrowser.lastVideo.dialog.isShowing() && MediaBrowser.lastVideo != v;
+    ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+    boolean closed = !was.isShowing();
+    walk.append(" > ").append(state.get());
+    for (int i = 0; i < 2; i++) {
+      MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video-left").performClick();
+      ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+      walk.append(" < ").append(state.get());
+    }
+    out.append(walk).append(", the next over it first ").append(stillOver).append(", then it closed ").append(closed).append('\n');
+    MediaBrowser.lastVideo.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    write("s214_media_video_prev_next", out.toString());
+    boolean ok = before && !afterTap && afterTap2 && stillOver && closed && walk.toString().equals("b.mp4 (\u2039\u203a) > c.mp4 (\u2039-) < b.mp4 (\u2039\u203a) < a.mp4 (-\u203a)");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Media browser's video held: it pauses and a small Sound dialog shows Mute and the volume;
+   * OK closes it, and the next video opens at that volume, muted as it was left.
+   */
+  @Test
+  public void s213_media_video_sound_dialog() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    File media = new File(app.getCacheDir(), "m13");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    android.app.Dialog player = ShadowDialog.getLatestDialog();
+    View screen = player.getWindow().getDecorView().findViewWithTag("media-video");
+    MediaBrowser.lastSoundDialog = null;
+    long t0 = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent down = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+    screen.dispatchTouchEvent(down);
+    down.recycle();
+    ShadowLooper.idleMainLooper(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+    android.view.MotionEvent up = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+    screen.dispatchTouchEvent(up);
+    up.recycle();
+    idle();
+    AlertDialog sd = MediaBrowser.lastSoundDialog;
+    boolean opened = sd != null && sd.isShowing();
+    out.append("held: Sound dialog ").append(opened).append(", playing ").append(v.playing()).append('\n');
+    View dv = sd.getWindow().getDecorView();
+    ((android.widget.SeekBar) dv.findViewWithTag("media-sound-volume")).setProgress(35);
+    TextView level = (TextView) dv.findViewWithTag("media-sound-level");
+    out.append("volume 35: ").append(level.getText()).append(", player ").append(v.volume).append(", row ").append(((android.widget.SeekBar) player.getWindow().getDecorView().findViewWithTag("media-video-volume")).getProgress()).append('\n');
+    TextView mute = (TextView) dv.findViewWithTag("media-sound-mute");
+    mute.performClick();
+    out.append("Mute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(v.gain()).append(", row ").append(((TextView) player.getWindow().getDecorView().findViewWithTag("media-video-mute")).getText()).append('\n');
+    sd.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("OK: closed ").append(!sd.isShowing()).append(", kept volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    player.dismiss();
+    idle();
+    // Kept in the preferences: read back, and the next video opens so.
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.load(app);
+    out.append("read back: volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v2 = MediaBrowser.lastVideo;
+    String next = "next video: volume " + v2.volume + " muted " + v2.muted + ", " + ((TextView) ShadowDialog.getLatestDialog().getWindow().getDecorView().findViewWithTag("media-video-mute")).getText();
+    out.append(next).append('\n');
+    ShadowDialog.getLatestDialog().dismiss();
+    b.dialog.dismiss();
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    write("s213_media_video_sound_dialog", out.toString());
+    boolean ok = opened && !v.playing() && v.volume == 35 && "muted".contentEquals(level.getText()) && "Unmute".contentEquals(mute.getText()) && v.gain() == 0f
+        && !sd.isShowing() && MediaDir.volume == 80 && next.equals("next video: volume 35 muted true, Unmute") && out.toString().contains("read back: volume 35 muted true");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_4: the Media browser's File > Add folder's media files to playlist: Images, Videos, Music
    * to tick and the playlist (Add new first: its name asked); the folder's files of those kinds go in.
    */
@@ -12251,7 +12647,12 @@ public class BehaviorTest {
     }
     String removed = MediaBrowser.lastSelectionSaid;
     boolean gone = !new File(dir, "beta.png").exists() && !new File(dir, "gamma.png").exists();
-    for (int i = 0; i < 200 && b.loading; i++) {
+    // Listed again without them (the reload may not have started yet when the delete is said).
+    java.util.function.BooleanSupplier stillListed = () -> {
+      for (MediaDir.Entry x : b.allEntries) if (x.name.equals("beta.png") || x.name.equals("gamma.png")) return true;
+      return false;
+    };
+    for (int i = 0; i < 200 && (b.loading || stillListed.getAsBoolean() || !b.selected.isEmpty()); i++) {
       Thread.sleep(20);
       idle();
     }

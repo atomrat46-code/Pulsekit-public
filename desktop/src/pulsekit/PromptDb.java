@@ -1923,6 +1923,73 @@ final class PromptDb {
         }
     }
 
+    /**
+     * The Media browser's video player: ‹ (a previous video) and › (a next one) shown, and what opens
+     * the one beside it (-1, 1); the player it opens over closes once it shows (the folder is not seen between).
+     */
+    boolean videoBack, videoOn;
+    java.util.function.IntConsumer videoStep;
+    JDialog videoReplaces;
+
+    /** The Media browser player's Sound dialog shown last, for the tests. */
+    JDialog lastSoundDialog;
+
+    /**
+     * The Media browser's video held: a small Sound dialog with Mute and the volume (they work on the
+     * player's own, hidden, Mute and volume); OK closes it, and both are kept for the next video.
+     */
+    void soundDialog(JDialog owner, final JButton mute, final javax.swing.JSlider volume, final boolean[] muted) {
+        if (this.lastSoundDialog != null && this.lastSoundDialog.isShowing()) {
+            this.lastSoundDialog.toFront();
+            return;
+        }
+        final JDialog d = new JDialog(owner, "Sound", java.awt.Dialog.ModalityType.MODELESS);
+        final JButton m = new JButton(muted[0] ? "Unmute" : "Mute");
+        m.setName("sound-dialog-mute");
+        final javax.swing.JSlider v = new javax.swing.JSlider(0, 100, volume.getValue());
+        v.setName("sound-dialog-volume");
+        v.setPreferredSize(new Dimension(180, v.getPreferredSize().height));
+        final JLabel lv = new JLabel(muted[0] ? "muted" : volume.getValue() + "%");
+        lv.setName("sound-dialog-level");
+        m.addActionListener(e -> {
+            mute.doClick();
+            m.setText(muted[0] ? "Unmute" : "Mute");
+            lv.setText(muted[0] ? "muted" : v.getValue() + "%");
+        });
+        v.addChangeListener(e -> {
+            volume.setValue(v.getValue());
+            if (!muted[0]) lv.setText(v.getValue() + "%");
+        });
+        JButton ok = new JButton("OK");
+        ok.setName("sound-dialog-ok");
+        ok.addActionListener(e -> d.dispose());
+        d.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                MediaDir.volume = volume.getValue();
+                MediaDir.muted = muted[0];
+                MediaBrowser.saveLoop();
+            }
+        });
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row.add(m);
+        row.add(new JLabel("Volume"));
+        row.add(v);
+        row.add(lv);
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        bottom.add(ok);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        body.add(row, BorderLayout.CENTER);
+        body.add(bottom, BorderLayout.SOUTH);
+        d.setContentPane(body);
+        d.getRootPane().setDefaultButton(ok);
+        d.pack();
+        d.setLocationRelativeTo(owner);
+        this.lastSoundDialog = d;
+        d.setVisible(true);
+    }
+
     /** Media browser: the speed picked (or the remembered one), for the tests. */
     javax.swing.JComboBox<String> lastSpeed;
 
@@ -1948,10 +2015,17 @@ final class PromptDb {
         JLabel time = new JLabel("0:00 / 0:00");
         time.setName("video-time");
         final boolean[] muted = new boolean[1];
+        // The Media browser's player opens muted when the last one was left so.
+        if (remember && MediaDir.muted) {
+            muted[0] = true;
+            mute.setText("Unmute");
+            level.setText("muted");
+        }
         // The speed VLC plays at now (1 until it plays).
         final double[] rate = new double[] {1};
         final boolean[] dragging = new boolean[1];
         player.volume(startVolume);
+        if (muted[0]) player.mute(true);
         // Play, Pause and Stop each always shown (as on the phone); C saves the paused frame.
         // Play while it plays pauses it; Pause while paused plays on.
         play.addActionListener(e -> {
@@ -2148,15 +2222,21 @@ final class PromptDb {
             player.screen.held = () -> this.frameMenu(name, video, player, true, player.screen.getWidth() / 2, player.screen.getHeight() / 2);
         }
         if (!prompts && !remember) {
-            // Video ready's player: a click on the picture plays or pauses it.
+            // Video ready's player: a click on the picture plays or pauses it; held in Full screen
+            // preview, back to its own size (else held: plays or pauses, as before).
             player.screen.clicked = () -> {
                 if (player.playing()) player.pause();
+                else player.play();
+            };
+            player.screen.held = () -> {
+                if (FULL.containsKey(dialog)) fullScreen(dialog);
+                else if (player.playing()) player.pause();
                 else player.play();
             };
         }
         if (remember) {
             sound.setVisible(false);
-            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
+            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and opens Sound (Mute, the volume, OK).
             player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
                 javax.swing.Timer hold;
                 boolean held;
@@ -2172,8 +2252,7 @@ final class PromptDb {
                     this.hold = new javax.swing.Timer(600, ev -> {
                         this.held = true;
                         if (player.playing()) player.pause();
-                        sound.setVisible(!sound.isVisible());
-                        sound.getParent().revalidate();
+                        PromptDb.this.soundDialog(dialog, mute, volume, muted);
                     });
                     this.hold.setRepeats(false);
                     this.hold.start();
@@ -2226,13 +2305,65 @@ final class PromptDb {
         south.add(bottom, BorderLayout.SOUTH);
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        body.add(player.screen, BorderLayout.CENTER);
+        // The Media browser's: small ‹ and › beside the picture open the folder's previous and next video.
+        final boolean back = remember && this.videoBack, on = remember && this.videoOn;
+        final java.util.function.IntConsumer stepTo = this.videoStep;
+        if ((back || on) && stepTo != null) {
+            JPanel screen = new JPanel(new BorderLayout(4, 0));
+            screen.setOpaque(false);
+            screen.add(player.screen, BorderLayout.CENTER);
+            for (int edge = 0; edge < 2; edge++) {
+                final int step = edge == 0 ? -1 : 1;
+                if (step < 0 ? !back : !on) continue;
+                JButton arrow = new JButton(step < 0 ? "\u2039" : "\u203a");
+                arrow.setName(step < 0 ? "video-left" : "video-right");
+                arrow.setToolTipText(step < 0 ? "The previous video of the folder" : "The next video of the folder");
+                arrow.setFont(arrow.getFont().deriveFont(java.awt.Font.BOLD, 22f));
+                arrow.setMargin(new java.awt.Insets(2, 4, 2, 4));
+                arrow.setFocusable(false);
+                arrow.addActionListener(e -> {
+                    // Kept for the next (this one's close keeps them too, later).
+                    MediaDir.volume = volume.getValue();
+                    MediaDir.muted = muted[0];
+                    MediaDir.zoom = player.screen.zoom;
+                    MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
+                    if (player.playing()) player.pause();
+                    this.videoReplaces = dialog;
+                    stepTo.accept(step);
+                    // It did not open: this one stays.
+                    if (this.videoReplaces == dialog) this.videoReplaces = null;
+                });
+                JPanel holder = new JPanel(new java.awt.GridBagLayout());
+                holder.setOpaque(false);
+                holder.add(arrow);
+                screen.add(holder, step < 0 ? BorderLayout.WEST : BorderLayout.EAST);
+            }
+            body.add(screen, BorderLayout.CENTER);
+        } else {
+            body.add(player.screen, BorderLayout.CENTER);
+        }
         body.add(south, BorderLayout.SOUTH);
         if (remember) body.add(sound, BorderLayout.NORTH);
+        if (!prompts && !remember) {
+            // Video ready in Full screen preview: Loop video, Mute and the volume (the controls) only while paused.
+            follow.addActionListener(e -> {
+                boolean show = !FULL.containsKey(dialog) || !player.playing();
+                if (south.isVisible() != show) {
+                    south.setVisible(show);
+                    body.revalidate();
+                }
+            });
+        }
         dialog.setContentPane(body);
         dialog.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowOpened(java.awt.event.WindowEvent e) {
+                // Opened by ‹ or ›: the player it opened over closes now, under it.
+                JDialog was = PromptDb.this.videoReplaces;
+                if (remember && was != null && was != dialog) {
+                    PromptDb.this.videoReplaces = null;
+                    was.dispose();
+                }
                 follow.start();
                 // It opens on its first frame, paused, as on the phone.
                 player.play();
@@ -2252,6 +2383,7 @@ final class PromptDb {
                 if (remember) {
                     // The Media browser's next video opens as this one was left.
                     MediaDir.volume = volume.getValue();
+                    MediaDir.muted = muted[0];
                     MediaDir.zoom = player.screen.zoom;
                     MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
                     MediaBrowser.saveLoop();
