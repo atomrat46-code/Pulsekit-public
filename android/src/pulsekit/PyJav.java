@@ -804,6 +804,7 @@ final class PyJav {
         final pulsekit.RunZip z = pulsekit.RunZip.finish();
         if (z == null) return;
         this.pkAddLogLine("Zipping " + z.size() + " files into " + z.name + "…");
+        pulsekit.DownloadMove.zipping.incrementAndGet();
         new Thread(() -> {
             StringBuilder text = new StringBuilder();
             java.io.File tmp = new java.io.File(app.getCacheDir(), "run-zip.zip");
@@ -845,6 +846,9 @@ final class PyJav {
             app.runOnUiThread(() -> {
                 for (String line : shown.split("\n")) this.pkAddLogLine(line);
             });
+            // Move automatically, held up until the zip was saved.
+            pulsekit.DownloadMove.zipping.decrementAndGet();
+            DownloadsScreen.zipSaved(app);
         }, "pulsekit-run-zip").start();
     }
 

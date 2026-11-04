@@ -705,10 +705,17 @@ public final class MediaDir {
 
   /**
    * A picture's item when Sogni's picture tools are shown (General settings: Show Sogni tools, and not
-   * only the music tools and chat) and it needs no upscaling (UpscaleCheck): the picture into a recent
-   * Sogni program as its Reference file 1 or 2 (ProcessRefDialog), ready to Run.
+   * only the music tools and chat): the picture into a recent Sogni program as its Reference file 1
+   * or 2 (ProcessRefDialog), ready to Run. One that would want upscaling (UpscaleCheck) is asked
+   * about first: Upscale first, or Use as it is.
    */
-  public static final String PROCESS_REF = "Process as a Sogni reference";
+  public static final String PROCESS_REF = "Use as a reference";
+
+  /** Whether a picture offers PROCESS_REF (upscaled or not): `head` its first bytes (its size is read from them). */
+  public static boolean useRef(String name, byte[] head) {
+    if (kind(name) != PICTURE || !AppSettings.showSogni() || AppSettings.musicOnly()) return false;
+    return UpscaleCheck.size(head) != null;
+  }
 
   /** Whether a picture offers PROCESS_REF: `head` its first bytes (its size is read from them). */
   public static boolean processRef(File settings, String name, byte[] head) {

@@ -10875,7 +10875,11 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
-  /** Media browser: a 4:7 picture's long-press menu has Process as a Sogni reference (a 4:3 one, to upscale first, has not), in alphabetical order; the item opens the reference dialog. */
+  /**
+   * Media browser: a picture's long-press menu has Use as a reference (a 4:7 one and a 4:3 one), in
+   * alphabetical order; on the 4:7 one it opens the reference dialog, on the 4:3 one it asks first
+   * (Upscale first, Use as it is).
+   */
   @Test
   public void s179_process_ref_menu() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -10911,11 +10915,45 @@ public class BehaviorTest {
     String said = shown instanceof AlertDialog && org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage() != null ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage()) : "";
     boolean opened = ProcessRefDialog.last != null || said.startsWith("No program that takes pictures");
     if (shown != null) shown.dismiss();
+    if (ProcessRefDialog.last != null && ProcessRefDialog.last.dialog != null) ProcessRefDialog.last.dialog.dismiss();
+    // The 4:3 one: asked whether to upscale it first; Use as it is opens the reference dialog.
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    MediaBrowser.lastRefAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(wide.indexOf(MediaDir.PROCESS_REF));
+    idle();
+    String asked = MediaBrowser.lastRefAsk == null ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(MediaBrowser.lastRefAsk).getMessage());
+    boolean buttons = MediaBrowser.lastRefAsk != null && UpscaleCheck.UPSCALE_FIRST.contentEquals(MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText())
+        && UpscaleCheck.AS_IT_IS.contentEquals(MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_NEUTRAL).getText());
+    ProcessRefDialog.last = null;
+    if (MediaBrowser.lastRefAsk != null) MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 100; i++) {
+      idle();
+      android.app.Dialog d = ShadowDialog.getLatestDialog();
+      if (ProcessRefDialog.last != null || (d instanceof AlertDialog && d != MediaBrowser.lastMenu && d != b.dialog && d != MediaBrowser.lastRefAsk)) break;
+      Thread.sleep(20);
+    }
+    android.app.Dialog after = ShadowDialog.getLatestDialog();
+    String afterSaid = after instanceof AlertDialog && org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage() != null ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage()) : "";
+    boolean asIs = ProcessRefDialog.last != null || afterSaid.startsWith("No program that takes pictures");
+    if (after != null) after.dismiss();
+    if (ProcessRefDialog.last != null && ProcessRefDialog.last.dialog != null) ProcessRefDialog.last.dialog.dismiss();
+    // C's frame (4:3, to upscale): the same question, with No (Picture ready).
+    MediaBrowser.lastProcessAsk = null;
+    b.askProcessRef("clip-0m01s000.png", plainPng(640, 480), null);
+    idle();
+    boolean cAsk = MediaBrowser.lastProcessAsk != null && String.valueOf(org.robolectric.Shadows.shadowOf(MediaBrowser.lastProcessAsk).getMessage()).contains("use it as a reference")
+        && UpscaleCheck.UPSCALE_FIRST.contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText())
+        && UpscaleCheck.AS_IT_IS.contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_NEUTRAL).getText())
+        && "No".contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_NEGATIVE).getText());
+    if (MediaBrowser.lastProcessAsk != null) MediaBrowser.lastProcessAsk.dismiss();
     b.dialog.dismiss();
+    out.append("C on a 4:3 frame: asked ").append(cAsk).append('\n');
     out.append("4:7 menu: ").append(String.join(" | ", tall)).append("\n4:3 has it: ").append(wide.contains(MediaDir.PROCESS_REF)).append(" | sorted: ").append(tall.equals(sorted))
-        .append(" | item opened the reference dialog: ").append(opened).append('\n');
+        .append(" | item opened the reference dialog: ").append(opened).append("\n4:3 asked: ").append(asked.replace('\n', ' ')).append(" | buttons ").append(buttons).append(" | as it is: ").append(asIs).append('\n');
     write("s179_process_ref_menu", out.toString());
-    if (!tall.contains(MediaDir.PROCESS_REF) || wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened) throw new AssertionError(out.toString());
+    if (!tall.contains(MediaDir.PROCESS_REF) || !wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened || !asked.contains("not 4:7") || !asked.contains("use it as a reference") || !buttons || !asIs || !cAsk)
+      throw new AssertionError(out.toString());
   }
 
   @Test
@@ -11855,7 +11893,8 @@ public class BehaviorTest {
     idle();
     MediaBrowser.Video v = MediaBrowser.lastVideo;
     java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
-    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    // A 4:7 frame: needs no upscaling (Yes / No).
+    android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
     b.askProcessRef("walk-0m01s000.png", png.toByteArray(), v.dialog);
     idle();
     MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
@@ -12068,6 +12107,136 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026: Choose file on a favourite tab: that folder is the Recent MB folder now (the folder in
+   * use); the Media browser's letters row is one line, scrolled sideways (no tall gaps).
+   */
+  @Test
+  public void s207_favourite_tab_is_recent_and_letters_one_line() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File fav = new File(app.getCacheDir(), "parannetut");
+    fav.mkdirs();
+    Files.write(new File(fav, "a.png").toPath(), plainPng(40, 70));
+    MediaBrowser.load(app);
+    MediaDir.favourites.clear();
+    MediaDir.addFavourite(fav.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastRoot = "";
+    MediaBrowser b = MediaBrowser.chooseTab(app, "fav:0", (name, file) -> {}, null);
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String recent = MediaDir.lastRoot;
+    View legend = b.dialog.getWindow().getDecorView().findViewWithTag("media-filter-name");
+    boolean oneLine = legend != null && legend.getParent() != null && legend.getParent().getParent() instanceof android.widget.HorizontalScrollView
+        && ((TextView) legend).getMaxLines() == 1;
+    b.dialog.dismiss();
+    idle();
+    MediaDir.favourites.clear();
+    out.append("Recent MB folder after the favourite tab: ").append(new File(recent).getName()).append(" | letters row one line ").append(oneLine).append('\n');
+    write("s207_favourite_tab_is_recent_and_letters_one_line", out.toString());
+    if (!fav.getAbsolutePath().equals(recent) || !oneLine) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026: Prompt files' cards say when (date and time) and the order button turns Sort by date
+   * round (Newest first / Oldest first); Edit shows a prompt's settings (Duration, Resolution...) in
+   * a field of their own, saved under the prompt as before; Back goes to Prompt files again. Clear
+   * automatically takes the moved downloads off the list; Move automatically waits for a run's zip.
+   */
+  @Test
+  public void s206_prompt_settings_order_clear_auto_zip_wait() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Split and joined again: the same text.
+    String body = "A sunset over the sea\n\nDuration: 10 s. Resolution: 768p. Shape: 4:7.";
+    String[] parts = PromptText.split(body);
+    boolean splitOk = parts[0].equals("A sunset over the sea") && parts[1].equals("Duration: 10 s. Resolution: 768p. Shape: 4:7.") && PromptText.join(parts[0], parts[1]).equals(body)
+        && PromptText.split("Plain prompt\n\nSecond paragraph.")[1].isEmpty();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long p = vault.addPrompt(vault.addCategory("Clips"), "Sea");
+    long v = vault.addVersion(p, "Sea", "", body, "", "", null, "", null, "", null, "", "");
+    vault.addPromptFile("sea.prompt", ("PKPROMPT1\nsea\n\n\n\n\n---\n" + body).getBytes(StandardCharsets.UTF_8), "Sea v1");
+    FileSort.reversed = false;
+    app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).edit().clear().apply();
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    String info = String.valueOf(((TextView) pane.findViewWithTag("refs-info:sea.prompt")).getText());
+    String order = String.valueOf(((TextView) pane.findViewWithTag("refs-order")).getText());
+    pane.findViewWithTag("refs-order").performClick();
+    idle();
+    String turned = String.valueOf(((TextView) pane.findViewWithTag("refs-order")).getText());
+    String kept = app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).getString("sort", "");
+    pane.findViewWithTag("refs-order").performClick();
+    idle();
+    out.append("card: ").append(info).append(" | order ").append(order).append(" -> ").append(turned).append(" (kept ").append(kept.replace('\t', ' ')).append(")\n");
+    boolean orderOk = info.matches(".*\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}.*") && "Newest first".equals(order) && "Oldest first".equals(turned) && kept.endsWith("\treversed") && !FileSort.reversed;
+    // Edit from the prompt file's view: the prompt and its settings apart.
+    ((View) findText(pane, "sea.prompt").getParent()).performClick();
+    idle();
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog view = (AlertDialog) pv.get(null);
+    view.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    android.widget.EditText promptField = (android.widget.EditText) pane.findViewWithTag("prompt-body");
+    android.widget.EditText settingsField = (android.widget.EditText) pane.findViewWithTag("prompt-settings");
+    String shownPrompt = String.valueOf(promptField.getText()), shownSettings = String.valueOf(settingsField.getText());
+    settingsField.setText("Duration: 5 s. Resolution: 768p.");
+    pane.findViewWithTag("prompt-save-here").performClick();
+    idle();
+    String saved = vault.version(v).body;
+    pane.findViewWithTag("prompt-editor-back").performClick();
+    idle();
+    boolean backToFiles = findText(pane, "PROMPT FILES") != null;
+    out.append("editor: prompt [").append(shownPrompt).append("] settings [").append(shownSettings).append("] | saved [").append(saved.replace("\n", "\\n")).append("] | Back: Prompt files ").append(backToFiles).append('\n');
+    boolean editOk = shownPrompt.equals("A sunset over the sea") && shownSettings.equals("Duration: 10 s. Resolution: 768p. Shape: 4:7.")
+        && saved.equals("A sunset over the sea\n\nDuration: 5 s. Resolution: 768p.") && backToFiles;
+    java.lang.reflect.Field open = PromptSheet.class.getDeclaredField("promptFilesOpen");
+    open.setAccessible(true);
+    open.set(null, false);
+    // Clear automatically, and Move automatically waiting for the run's zip.
+    File dl = new File(app.getCacheDir(), "m7-dl"), pics = new File(app.getCacheDir(), "m7-pics"), list = new File(app.getCacheDir(), "m7-list");
+    dl.mkdirs();
+    pics.mkdirs();
+    list.mkdirs();
+    File shot = new File(dl, "shot.png");
+    Files.write(shot.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: shot.png", "saved " + shot.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.auto = true;
+    DownloadMove.clearAuto = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m7-pics");
+    DownloadMove.zipping.incrementAndGet();
+    DownloadsScreen.finished(app);
+    Thread.sleep(200);
+    boolean waited = DownloadMove.waitingForZip && shot.isFile();
+    DownloadMove.zipping.decrementAndGet();
+    DownloadsScreen.lastMoveSaid = null;
+    DownloadsScreen.zipSaved(app);
+    for (int i = 0; i < 100 && DownloadsScreen.lastMoveSaid == null; i++) Thread.sleep(20);
+    for (int i = 0; i < 100 && DownloadsScreen.moving.get(); i++) Thread.sleep(20);
+    idle();
+    boolean movedAfter = new File(pics, "shot.png").isFile() && !shot.exists() && !DownloadMove.waitingForZip;
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    out.append("zip: waited ").append(waited).append(", then ").append(DownloadsScreen.lastMoveSaid).append(", moved ").append(movedAfter).append(" | Clear automatically: runs left ").append(left).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.auto = false;
+    DownloadMove.clearAuto = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s206_prompt_settings_order_clear_auto_zip_wait", out.toString());
+    if (!(splitOk && orderOk && editOk && waited && movedAfter && left == 0)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 03112026_6: Settings' Default move folders (Images, Videos, Music with Browse); the Media browser's
    * File menu (the imports, the zips, Move defined media types); with no folder picked, Move defined
    * media types asks for them, then moves the folder's files of those types (a file in its folder stays).
@@ -12098,7 +12267,10 @@ public class BehaviorTest {
     Files.write(new File(media, "shot.png").toPath(), png);
     Files.write(new File(media, "clip.mp4").toPath(), png);
     Files.write(new File(media, "notes.txt").toPath(), "x".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(media, "beat.mid").toPath(), new byte[] {'M', 'T', 'h', 'd'});
     Files.write(new File(pics, "kept.png").toPath(), png);
+    File music = new File(app.getCacheDir(), "m6-music");
+    music.mkdirs();
     MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
     for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
       Thread.sleep(20);
@@ -12114,6 +12286,7 @@ public class BehaviorTest {
         && MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-browse:video") != null;
     DownloadsScreen.folderSet("video", vids.getAbsolutePath(), "m6-vids");
     DownloadsScreen.folderSet("picture", pics.getAbsolutePath(), "m6-pics");
+    DownloadsScreen.folderSet("audio", music.getAbsolutePath(), "m6-music");
     String shown = String.valueOf(((TextView) MediaBrowser.lastFoldersAsk.getWindow().getDecorView().findViewWithTag("downloads-move-folder:video")).getText());
     MediaBrowser.lastDefaultsSaid = null;
     MediaBrowser.lastFoldersAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
@@ -12122,7 +12295,16 @@ public class BehaviorTest {
       idle();
     }
     String said = MediaBrowser.lastDefaultsSaid;
-    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    idle();
+    // Its window: the result in the status line, the bar full, Close.
+    View mw = MediaBrowser.lastMoveProgress.getWindow().getDecorView();
+    String windowSays = String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText());
+    int barAt = ((android.widget.ProgressBar) mw.findViewWithTag("media-move-progress")).getProgress();
+    String closeText = String.valueOf(MediaBrowser.lastMoveProgress.getButton(android.content.DialogInterface.BUTTON_POSITIVE).getText());
+    MediaBrowser.lastMoveProgress.dismiss();
+    boolean windowOk = said != null && said.equals(windowSays) && barAt == 1000 && "Close".equals(closeText);
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && new File(music, "beat.mid").isFile() && !new File(media, "clip.mp4").exists()
+        && !new File(media, "beat.mid").exists() && new File(media, "notes.txt").isFile();
     b.dialog.dismiss();
     idle();
     // In the pictures' folder itself: nothing to move.
@@ -12141,13 +12323,19 @@ public class BehaviorTest {
     p.dialog.dismiss();
     idle();
     out.append("settings ").append(settings).append(" | file menu: ").append(items).append(" | asked ").append(asked).append(", shows ").append(shown)
-        .append(" | ").append(said).append(", moved ").append(moved).append(" | in its folder: ").append(inPlace).append('\n');
+        .append(" | ").append(said).append(", moved ").append(moved).append(" | window ").append(windowOk).append(" | in its folder: ").append(inPlace).append('\n');
     DownloadMove.ticked.clear();
     DownloadMove.folder.clear();
     DownloadMove.save();
+    // A name taken 32 times over (Android's own "(n)" gives up there): the next free one.
+    java.util.Set<String> taken = new java.util.HashSet<String>();
+    taken.add("sogni-pedit.png");
+    for (int n = 1; n <= 40; n++) taken.add("sogni-pedit (" + n + ").png");
+    String free = MediaBrowser.freeName(taken, "sogni-pedit.png");
+    out.append("free name: ").append(free).append('\n');
     write("s205_settings_move_folders_and_file_menu", out.toString());
     boolean ok = settings && items.contains(FolderZip.SEND) && items.contains(FolderZip.IMPORT) && items.endsWith(DownloadMove.DEFAULTS) && asked && "m6-vids".equals(shown)
-        && "Moved 2 files".equals(said) && moved && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
+        && "Moved 3 files".equals(said) && moved && windowOk && "sogni-pedit (41).png".equals(free) && inPlace != null && inPlace.startsWith("Nothing to move") && new File(pics, "kept.png").isFile();
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12224,7 +12412,7 @@ public class BehaviorTest {
     MediaDir.Entry e = new MediaDir.Entry();
     e.name = "clip.mp4";
     e.id = clip.getAbsolutePath();
-    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false);
+    String why = MediaBrowser.moveToDefault(app, e, android.net.Uri.fromFile(clip), clip.getAbsolutePath(), false, null);
     String clipNow = Playlist.load(pdir, "Moves").items.get(1).file;
     SogniDownloads.Item clipItem = null;
     for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rc) clipItem = r.items.get(0);

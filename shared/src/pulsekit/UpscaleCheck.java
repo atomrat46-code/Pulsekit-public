@@ -61,6 +61,17 @@ public final class UpscaleCheck {
     return name + " is " + wh[0] + "×" + wh[1] + ": " + why + ".\n\nUpscale it first (ImageUpscaler), or add it as it is?";
   }
 
+  /** Use as a reference's question: why to upscale it first, or null when it needs not be asked. */
+  public static String refQuestion(File dir, String name, byte[] bytes) {
+    String q = question(dir, name, bytes);
+    if (q == null) return null;
+    int cut = q.lastIndexOf("\n\n");
+    return (cut >= 0 ? q.substring(0, cut) : q) + "\n\nUpscale it first (ImageUpscaler), or use it as a reference as it is?";
+  }
+
+  /** Use as a reference's question's buttons. */
+  public static final String UPSCALE_FIRST = "Upscale first", AS_IT_IS = "Use as it is";
+
   /** The shapes ImageUpscaler's --aspect is offered, upright and lying. */
   static final int[][] SHAPES = {{4, 7}, {7, 4}, {1, 1}, {4, 3}, {3, 4}, {3, 2}, {2, 3}, {16, 9}, {9, 16}, {4, 5}, {5, 4}, {21, 9}};
   /** Up to this much cut off, Pulsekit's own 4:7 (or 7:4) is suggested before the shape that cuts least. */

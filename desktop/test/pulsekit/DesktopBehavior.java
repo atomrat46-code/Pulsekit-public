@@ -7673,6 +7673,94 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026: the galleries' order button (Newest first / Oldest first, kept); Edit from Prompt files
+   * shows the prompt's settings in a field of their own and Back opens Prompt files again; Clear
+   * automatically; Move automatically waits for a run's zip.
+   */
+  void s193_prompt_settings_order_clear_auto_zip_wait() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    final PromptDb db = (PromptDb) get("promptDb");
+    PromptVault vault = PromptDb.vault();
+    String body = "A sunset over the sea\n\nDuration: 10 s. Resolution: 768p. Shape: 4:7.";
+    long p = vault.addPrompt(vault.addCategory("Clips"), "Sea");
+    long v = vault.addVersion(p, "Sea", "", body, "", "", null, "", null, "", null, "", "");
+    vault.addPromptFile("sea.prompt", ("PKPROMPT1\nsea\n\n\n\n\n---\n" + body).getBytes(StandardCharsets.UTF_8), "Sea v1");
+    FileSort.reversed = false;
+    PromptDb.writeSort("by date");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(2));
+    for (int i = 0; i < 100 && (get("lastGallery") == null || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog g = (JDialog) get("lastGallery");
+    String order = ((javax.swing.AbstractButton) component(g, "gallery-order")).getText();
+    answers.add("(keep)");
+    final javax.swing.AbstractButton turn = (javax.swing.AbstractButton) component(g, "gallery-order");
+    SwingUtilities.invokeLater(turn::doClick);
+    for (int i = 0; i < 100 && (get("lastGallery") == g || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    g = (JDialog) get("lastGallery");
+    String turned = ((javax.swing.AbstractButton) component(g, "gallery-order")).getText();
+    String kept = PromptDb.readSort();
+    boolean orderOk = "Newest first".equals(order) && "Oldest first".equals(turned) && kept != null && kept.endsWith("\treversed");
+    FileSort.reversed = false;
+    PromptDb.writeSort("by date");
+    // Edit (as the prompt file's view does): the prompt and its settings apart.
+    final PromptVault.Version owner = vault.version(v);
+    SwingUtilities.invokeLater(() -> db.editVersion(owner));
+    for (int i = 0; i < 100 && component(frame, "prompt-settings") == null; i++) Thread.sleep(100);
+    idle();
+    final String[] shown = new String[2];
+    edt(() -> {
+      shown[0] = ((javax.swing.text.JTextComponent) component(frame, "prompt-body")).getText();
+      shown[1] = ((javax.swing.text.JTextComponent) component(frame, "prompt-settings")).getText();
+    });
+    // Back: Prompt files again.
+    final JDialog editedFrom = g;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(frame, "prompts-back")).doClick());
+    for (int i = 0; i < 100 && (get("lastGallery") == editedFrom || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog back = (JDialog) get("lastGallery");
+    boolean backOk = back != editedFrom && back.isShowing() && back.getTitle().startsWith("Prompt files");
+    edt(back::dispose);
+    idle();
+    this.out.append("order ").append(order).append(" -> ").append(turned).append(" (kept ").append(String.valueOf(kept).replace('\t', ' ')).append(") | editor: prompt [").append(shown[0])
+        .append("] settings [").append(shown[1]).append("] | Back: ").append(back.getTitle()).append('\n');
+    boolean editOk = "A sunset over the sea".equals(shown[0]) && "Duration: 10 s. Resolution: 768p. Shape: 4:7.".equals(shown[1]) && backOk;
+    // Clear automatically; Move automatically waits for the run's zip.
+    File home = new File(System.getProperty("user.home"), "move7");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, list}) d.mkdirs();
+    File shot = new File(dl, "shot.png");
+    Files.write(shot.toPath(), new byte[] {1, 2});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: shot.png", "saved " + shot.getAbsolutePath(), null);
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.auto = true;
+    DownloadMove.clearAuto = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    DownloadMove.zipping.incrementAndGet();
+    DownloadsScreen.finished(app);
+    boolean waited = DownloadMove.waitingForZip && shot.isFile();
+    DownloadMove.zipping.decrementAndGet();
+    DownloadsScreen.zipSaved(app);
+    boolean movedAfter = new File(pics, "shot.png").isFile() && !shot.exists() && !DownloadMove.waitingForZip;
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    this.out.append("zip: waited ").append(waited).append(", moved after ").append(movedAfter).append(" | Clear automatically: runs left ").append(left).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.auto = false;
+    DownloadMove.clearAuto = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    if (!(orderOk && editOk && waited && movedAfter && left == 0)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 03112026_6: Settings' Default move folders; the Media browser's File menu; with no folder picked,
    * Move defined media types asks for them, then moves the folder's files of those types.
    */
@@ -7708,6 +7796,9 @@ public final class DesktopBehavior {
     Files.write(new File(media, "shot.png").toPath(), new byte[] {1, 2});
     Files.write(new File(media, "clip.mp4").toPath(), new byte[] {3, 4});
     Files.write(new File(media, "notes.txt").toPath(), new byte[] {5});
+    Files.write(new File(media, "beat.mid").toPath(), new byte[] {'M', 'T', 'h', 'd'});
+    final File music = new File(home, "music");
+    music.mkdirs();
     final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
     answers.add("(keep)");
     SwingUtilities.invokeLater(() -> mb.open(media));
@@ -7725,15 +7816,18 @@ public final class DesktopBehavior {
       for (Component c : MediaBrowser.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
     });
     // No folder picked: the question, its Browse… buttons picking the folders, then Move.
-    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : null;
+    DownloadsScreen.folderFor = k -> "video".equals(k) ? vids : "picture".equals(k) ? pics : "audio".equals(k) ? music : null;
     final boolean[] asked = new boolean[1];
     inspectNext = d -> {
       asked[0] = component(d, "downloads-move-browse:video") != null;
       ((javax.swing.AbstractButton) component(d, "downloads-move-browse:video")).doClick();
       ((javax.swing.AbstractButton) component(d, "downloads-move-browse:picture")).doClick();
+      ((javax.swing.AbstractButton) component(d, "downloads-move-browse:audio")).doClick();
     };
     synchronized (answers) {
       answers.add("Move");
+      // The move's window stays open to be read.
+      answers.add("(keep)");
     }
     MediaBrowser.lastSaid = null;
     final javax.swing.JMenuItem[] move = new javax.swing.JMenuItem[1];
@@ -7743,16 +7837,27 @@ public final class DesktopBehavior {
     idle();
     String said = MediaBrowser.lastSaid;
     DownloadsScreen.folderFor = null;
-    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
+    // Its window: the result in the status line, the bar full.
+    final String[] window = new String[2];
+    edt(() -> {
+      JDialog w = MediaBrowser.lastMoveWindow;
+      if (w == null) return;
+      window[0] = ((JLabel) component(w, "media-move-status")).getText();
+      window[1] = String.valueOf(((javax.swing.JProgressBar) component(w, "media-move-progress")).getValue());
+      w.dispose();
+    });
+    boolean windowOk = said != null && said.equals(window[0]) && "1000".equals(window[1]);
+    boolean moved = new File(vids, "clip.mp4").isFile() && new File(pics, "shot.png").isFile() && new File(music, "beat.mid").isFile() && !new File(media, "beat.mid").exists()
+        && !new File(media, "clip.mp4").exists() && new File(media, "notes.txt").isFile();
     // In the pictures' folder: nothing to move.
     String inPlace = DownloadsScreen.moveToDefaults(pics);
     edt(() -> mb.last.dispose());
     this.out.append("settings ").append(settingsOk).append(" | file menu: ").append(items).append("asked ").append(asked[0]).append(" | ").append(said).append(", moved ").append(moved)
-        .append(" | in its folder: ").append(inPlace).append('\n');
+        .append(" | window ").append(windowOk).append(" | in its folder: ").append(inPlace).append('\n');
     DownloadMove.ticked.clear();
     DownloadMove.folder.clear();
     DownloadMove.save();
-    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 2 files".equals(said) && moved
+    boolean ok = settingsOk && items.toString().contains(FolderZip.SEND) && items.toString().contains(DownloadMove.DEFAULTS) && asked[0] && "Moved 3 files".equals(said) && moved && windowOk
         && inPlace.startsWith("Nothing to move");
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -7796,7 +7901,10 @@ public final class DesktopBehavior {
     synchronized (answers) {
       answers.add("Clear");
     }
-    boolean cleared = DownloadsScreen.askClear(app, null);
+    // On the window's thread, as Move now asks it (asked from another thread, the answer could be lost).
+    final boolean[] clearedBox = new boolean[1];
+    edt(() -> clearedBox[0] = DownloadsScreen.askClear(app, null));
+    boolean cleared = clearedBox[0];
     idle();
     int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
     String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
@@ -8977,8 +9085,8 @@ public final class DesktopBehavior {
   }
 
   /**
-   * Process as a Sogni reference on a picture's menu: a 4:7 picture has it, a 4:3 one (to upscale
-   * first) has not, nor any with only Sogni's music tools shown; the menu is in alphabetical order;
+   * Use as a reference on a picture's menu: a 4:7 picture has it, a 4:3 one too (asked first: Upscale
+   * first, Use as it is), none with only Sogni's music tools shown; the menu is in alphabetical order;
    * the item opens the reference dialog. ImageUpscaler's --aspect suggestion for the input picture.
    */
   void s170_process_ref_menus() throws Exception {
@@ -9034,6 +9142,27 @@ public final class DesktopBehavior {
       idle();
     }
     boolean asked = this.out.toString().contains("No program that takes pictures");
+    // The 4:3 one: asked whether to upscale it first; Use as it is goes on to the reference dialog.
+    final MediaDir.Entry w = new MediaDir.Entry();
+    w.name = wide.getName();
+    w.id = wide.getAbsolutePath();
+    w.kind = MediaDir.PICTURE;
+    w.size = wide.length();
+    edt(() -> mb.menu(w, wide, new javax.swing.JButton(), 0, 0));
+    javax.swing.JMenuItem wideItem = null;
+    for (Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.PROCESS_REF.equals(((javax.swing.JMenuItem) c).getText())) wideItem = (javax.swing.JMenuItem) c;
+    final javax.swing.JMenuItem wItem = wideItem;
+    int before = this.out.length();
+    synchronized (answers) {
+      answers.add(UpscaleCheck.AS_IT_IS);
+    }
+    if (wItem != null) SwingUtilities.invokeLater(wItem::doClick);
+    for (int i = 0; i < 30 && !this.out.substring(before).contains("No program that takes pictures"); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    String wideSaid = this.out.substring(before);
+    boolean wideAsked = wideSaid.contains("or use it as a reference as it is?") && wideSaid.contains("pressed " + UpscaleCheck.AS_IT_IS) && wideSaid.contains("No program that takes pictures");
     // ImageUpscaler: the --aspect suggested for its input.
     call("showView", "py");
     call("selectListedProgram", "Java", "ImageUpscaler.java");
@@ -9041,10 +9170,10 @@ public final class DesktopBehavior {
     String[] tip = ((Pulsekit) frame).pyJav.aspectTip();
     edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("\"" + tall.getAbsolutePath() + "\""));
     String[] tipTall = ((Pulsekit) frame).pyJav.aspectTip();
-    this.out.append("item opened the dialog: ").append(asked).append("\naspect for 640x480: ").append(tip == null ? "-" : tip[0] + " (" + tip[1] + ")")
+    this.out.append("item opened the dialog: ").append(asked).append(" | 4:3 asked first, then the dialog: ").append(wideAsked).append("\naspect for 640x480: ").append(tip == null ? "-" : tip[0] + " (" + tip[1] + ")")
         .append("\naspect for 400x700: ").append(tipTall == null ? "-" : tipTall[0] + " (" + tipTall[1] + ")").append('\n');
-    boolean ok = tallMenu.contains(MediaDir.PROCESS_REF) && !wideMenu.contains(MediaDir.PROCESS_REF) && !musicMenu.contains(MediaDir.PROCESS_REF)
-        && tallMenu.equals(sortedTall) && asked && tip != null && tip[0].equals("4:3") && tipTall != null && tipTall[0].equals("4:7");
+    boolean ok = tallMenu.contains(MediaDir.PROCESS_REF) && wideMenu.contains(MediaDir.PROCESS_REF) && !musicMenu.contains(MediaDir.PROCESS_REF)
+        && tallMenu.equals(sortedTall) && asked && wideAsked && tip != null && tip[0].equals("4:3") && tipTall != null && tipTall[0].equals("4:7");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

@@ -181,8 +181,8 @@ final class MediaBrowser {
         // Remembered: the folder picked and the folders opened under it, for the next time.
         final List<String> under = new ArrayList<String>();
         for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
-        // Choose file's Download and favourite tabs do not change the Recent MB folder.
-        if (this.chooser == null || "recent".equals(this.tab)) MediaDir.remember(root.getPath(), under);
+        // Choose file's Download tab does not change the Recent MB folder; a favourite opened does (it is the folder in use).
+        if (this.chooser == null || "recent".equals(this.tab) || this.tab.startsWith("fav")) MediaDir.remember(root.getPath(), under);
         saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
         List<MediaDir.Entry> read = list(dir, this.chooser != null);
@@ -849,6 +849,9 @@ final class MediaBrowser {
     static final String FILE_MENU = "File";
     static final String IMPORT_FILE_ITEM = "Import file\u2026", IMPORT_FOLDER_ITEM = "Import folder\u2026", COPY_FOLDER_ITEM = "Copy folder from\u2026";
 
+    /** Move defined media types' window shown last (for the tests). */
+    static JDialog lastMoveWindow;
+
     /** The File menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastFileMenu;
 
@@ -885,10 +888,42 @@ final class MediaBrowser {
             }
         }
         app.setNow("Moving the defined media types\u2026");
+        // What is moving: the file, how many of how many, and a bar (Hide: it goes on).
+        final JDialog progress = new JDialog(dialog, DownloadMove.DEFAULTS, false);
+        progress.setName("media-move-window");
+        JPanel box = new JPanel(new java.awt.BorderLayout(0, 8));
+        box.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        final JLabel status = new JLabel("Looking for files\u2026");
+        status.setName("media-move-status");
+        final javax.swing.JProgressBar bar = new javax.swing.JProgressBar(0, 1000);
+        bar.setName("media-move-progress");
+        bar.setPreferredSize(new java.awt.Dimension(420, bar.getPreferredSize().height));
+        final JButton hide = new JButton("Hide");
+        hide.setName("media-move-hide");
+        hide.addActionListener(e -> progress.dispose());
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        south.add(hide);
+        box.add(status, java.awt.BorderLayout.NORTH);
+        box.add(bar, java.awt.BorderLayout.CENTER);
+        box.add(south, java.awt.BorderLayout.SOUTH);
+        progress.setContentPane(box);
+        progress.pack();
+        progress.setLocationRelativeTo(dialog);
+        progress.setVisible(true);
+        lastMoveWindow = progress;
+        final javax.swing.Timer watch = new javax.swing.Timer(200, e -> {
+            if (DownloadsScreen.moveStatus.length() > 0) status.setText(DownloadsScreen.moveStatus);
+            bar.setValue(DownloadsScreen.moveProgress);
+        });
+        watch.start();
         new Thread(() -> {
             final String said = DownloadsScreen.moveToDefaults(dir);
             lastSaid = said;
             SwingUtilities.invokeLater(() -> {
+                watch.stop();
+                status.setText(said);
+                bar.setValue(1000);
+                hide.setText("Close");
                 app.setNow(said);
                 gone.set(true);
                 this.fill(dialog, root, dir);
@@ -1133,8 +1168,9 @@ final class MediaBrowser {
         // A file already in the playlist: its third item takes it out.
         final boolean inList = this.listed.contains(f.getAbsolutePath());
         String[] built = MediaDir.menu(inList, entry.kind, this.chooser == null, entry.name, true);
-        // A picture that needs no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
-        if (entry.kind == MediaDir.PICTURE && MediaDir.processRef(PromptDb.dir(), entry.name, MediaDir.head(f))) {
+        // A picture: Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
+        final byte[] refHead = entry.kind == MediaDir.PICTURE ? MediaDir.head(f) : null;
+        if (refHead != null && MediaDir.useRef(entry.name, refHead)) {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.PROCESS_REF;
         }
@@ -1157,7 +1193,20 @@ final class MediaBrowser {
             item.setName("media-menu:" + (slot >= 0 ? String.valueOf(slot) : items[i]));
             if (MediaDir.PROCESS_REF.equals(items[i])) {
                 final File backRoot = this.shownRoot, backDir = this.shown;
-                item.addActionListener(e -> ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir)));
+                item.addActionListener(e -> {
+                    String q = UpscaleCheck.refQuestion(PromptDb.dir(), entry.name, refHead);
+                    if (q != null) {
+                        Object[] options = {UpscaleCheck.UPSCALE_FIRST, UpscaleCheck.AS_IT_IS, "Cancel"};
+                        int ans = javax.swing.JOptionPane.showOptionDialog(card, q, MediaDir.PROCESS_REF, javax.swing.JOptionPane.DEFAULT_OPTION,
+                            javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                        if (ans == 0) {
+                            app.setNow(this.menuPicked(entry, f, MediaDir.UPSCALE_ITEM));
+                            return;
+                        }
+                        if (ans != 1) return;
+                    }
+                    ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
+                });
                 menu.add(item);
                 continue;
             }

@@ -45,8 +45,12 @@ public final class PromptSheet {
   private static long loadedVersionId;
   private static EditText title;
   private static EditText model;
+  /** The gallery an Edit came from (Ref, Result, Prompt files open), for Back; null from elsewhere. */
+  static boolean[] backToGallery;
   private static EditText description;
   private static EditText prompt;
+  /** The settings kept under the prompt (Duration, Resolution, LoRAs...), shown apart. */
+  private static EditText promptSettings;
   private static TextView ref1;
   private static TextView ref2;
   private static TextView result;
@@ -216,7 +220,7 @@ public final class PromptSheet {
           PromptVault.Prompt item = vault.prompt(promptId);
           titleText = item != null && item.title != null ? item.title : "Untitled";
         }
-        loadedVersionId = vault.addVersion(promptId, titleText, text(description), text(prompt), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
+        loadedVersionId = vault.addVersion(promptId, titleText, text(description), promptBody(), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
       } else {
         byte[] bytes = which == 1 ? ref1Bytes : which == 2 ? ref2Bytes : resultBytes;
         String name = which == 1 ? ref1Name : which == 2 ? ref2Name : resultName;
@@ -235,8 +239,8 @@ public final class PromptSheet {
   static String unsavedWhat() {
     if (vault == null || promptId == 0 || prompt == null) return null;
     PromptVault.Version v = loadedVersionId == 0 ? null : vault.version(loadedVersionId);
-    boolean differs = v == null ? text(prompt).trim().length() > 0
-        : !text(prompt).equals(n(v.body)) || !text(description).equals(n(v.description)) || !text(model).equals(n(v.model))
+    boolean differs = v == null ? promptBody().trim().length() > 0
+        : !promptBody().equals(n(v.body)) || !text(description).equals(n(v.description)) || !text(model).equals(n(v.model))
             || !n(ref1Name).equals(n(v.ref1Name)) || !n(ref2Name).equals(n(v.ref2Name)) || !n(resultName).equals(n(v.resultName));
     return differs ? (text(title).trim().length() > 0 ? text(title).trim() : "the prompt") : null;
   }
@@ -251,7 +255,7 @@ public final class PromptSheet {
       return;
     }
     try {
-      loadedVersionId = vault.addVersion(promptId, text(title), text(description), text(prompt), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
+      loadedVersionId = vault.addVersion(promptId, text(title), text(description), promptBody(), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
       toast(activity, "Saved a new version");
       rebuild(activity);
     } catch (Exception ex) {
@@ -271,7 +275,7 @@ public final class PromptSheet {
       return;
     }
     try {
-      vault.updateVersion(loadedVersionId, text(title), text(description), text(prompt), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
+      vault.updateVersion(loadedVersionId, text(title), text(description), promptBody(), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
       java.util.List<PromptVault.Version> rows = vault.versions(promptId);
       toast(activity, "Saved v" + (rows.size() - rows.indexOf(vault.version(loadedVersionId))));
       rebuild(activity);
@@ -321,11 +325,14 @@ public final class PromptSheet {
     } else if (previewBack != 0) {
       buildPreview(activity, col);
     } else if (refsOpen || resultsOpen || promptFilesOpen) {
+      backToGallery = null;
       buildRefGallery(activity, col);
     } else if (dbFor == 1 || dbFor == 2 || dbFor == 3) {
       buildDb(activity, col);
     } else if (promptId == 0) {
       resultTextOpen = false;
+      // The editor left another way: its Back is not owed to a gallery now.
+      backToGallery = null;
       buildList(activity, col);
     } else {
       buildEditor(activity, col);
@@ -679,7 +686,7 @@ public final class PromptSheet {
     // Ref files or Result files: the same gallery, with previews (a video's first frame) and the long-press menu.
     col.addView(caption(activity, (promptFilesOpen ? "PROMPT FILES" : resultsOpen && !refsOpen ? "RESULT FILES" : "REFERENCE FILES") + FileFilter.title().toUpperCase()));
     // Sort by type, date or size: the previews are laid out again in that order (kept for next time).
-    FileSort.current = FileSort.valid(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.current));
+    FileSort.restore(activity.getSharedPreferences(SORT_PREFS, 0).getString("sort", FileSort.keep()));
     LinearLayout sortRow = new LinearLayout(activity);
     sortRow.setOrientation(LinearLayout.HORIZONTAL);
     sortRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -696,7 +703,7 @@ public final class PromptSheet {
         String picked = FileSort.CHOICES[position];
         if (picked.equals(FileSort.current)) return;
         FileSort.current = picked;
-        activity.getSharedPreferences(SORT_PREFS, 0).edit().putString("sort", picked).apply();
+        activity.getSharedPreferences(SORT_PREFS, 0).edit().putString("sort", FileSort.keep()).apply();
         rebuild(activity);
       }
 
@@ -706,6 +713,18 @@ public final class PromptSheet {
     LinearLayout.LayoutParams sortLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
     sortLp.leftMargin = dp(activity, 12);
     sortRow.addView(sort, sortLp);
+    // Which way: Newest first / Oldest first (by size Largest / Smallest first, else A to Z / Z to A).
+    TextView order = button(activity, FileSort.orderLabel(FileSort.current, FileSort.reversed), "#1B1D1F", "#ECEBE6");
+    order.setTag("refs-order");
+    order.setOnClickListener(v -> {
+      FileSort.reversed = !FileSort.reversed;
+      activity.getSharedPreferences(SORT_PREFS, 0).edit().putString("sort", FileSort.keep()).apply();
+      rebuild(activity);
+    });
+    LinearLayout.LayoutParams orderLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(activity, 40));
+    orderLp.leftMargin = dp(activity, 8);
+    order.setPadding(dp(activity, 12), 0, dp(activity, 12), 0);
+    sortRow.addView(order, orderLp);
     LinearLayout.LayoutParams rowLpSort = new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT);
     rowLpSort.bottomMargin = dp(activity, 8);
     col.addView(sortRow, rowLpSort);
@@ -1220,8 +1239,15 @@ public final class PromptSheet {
     back.setOnClickListener(v -> {
       promptId = 0;
       dbFor = 0;
+      if (backToGallery != null) {
+        refsOpen = backToGallery[0];
+        resultsOpen = backToGallery[1];
+        promptFilesOpen = backToGallery[2];
+        backToGallery = null;
+      }
       rebuild(activity);
     });
+    back.setTag("prompt-editor-back");
     TextView menu = button(activity, "Menu", "#1B1D1F", "#ECEBE6");
     String promptTitle = item.title == null ? "" : item.title;
     menu.setOnClickListener(v -> promptMenu(activity, promptId, promptTitle));
@@ -1273,6 +1299,14 @@ public final class PromptSheet {
     prompt.setTag("prompt-body");
     textMenu(activity, prompt);
     col.addView(prompt, areaLp(activity, 200));
+    // The settings a Sogni run keeps under its prompt (Duration, Resolution, Shape, LoRAs...): kept
+    // with the prompt (its last paragraph), shown here apart.
+    col.addView(caption(activity, "SETTINGS \u00b7 OPTIONAL"));
+    promptSettings = area(activity, 3);
+    promptSettings.setTag("prompt-settings");
+    promptSettings.setHint("Duration: 10 s. Resolution: 768p. LoRAs: ...");
+    textMenu(activity, promptSettings);
+    col.addView(promptSettings, areaLp(activity, 90));
     // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
     LinearLayout fromFile = new LinearLayout(activity);
     fromFile.setOrientation(LinearLayout.HORIZONTAL);
@@ -1387,9 +1421,16 @@ public final class PromptSheet {
     }
   }
 
+  /** The prompt as kept: its text, and the settings under it. */
+  private static String promptBody() {
+    return PromptText.join(text(prompt), promptSettings == null ? "" : text(promptSettings));
+  }
+
   private static void fill(PromptVault.Version version) {
     if (description != null) description.setText(version.description);
-    if (prompt != null) prompt.setText(version.body);
+    String[] parts = PromptText.split(version.body);
+    if (prompt != null) prompt.setText(parts[0]);
+    if (promptSettings != null) promptSettings.setText(parts[1]);
     if (model != null) model.setText(modelFor(version.promptId, version.model));
     ref1Name = version.ref1Name == null ? "" : version.ref1Name;
     ref2Name = version.ref2Name == null ? "" : version.ref2Name;
@@ -1476,7 +1517,7 @@ public final class PromptSheet {
           PromptVault.Prompt item = vault.prompt(promptId);
           titleText = item != null && item.title != null ? item.title : "Untitled";
         }
-        loadedVersionId = vault.addVersion(promptId, titleText, text(description), text(prompt), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
+        loadedVersionId = vault.addVersion(promptId, titleText, text(description), promptBody(), text(model), ref1Name, ref1Bytes, ref2Name, ref2Bytes, resultName, resultBytes, codeType, resultText);
       } else {
         vault.putResultText(loadedVersionId, resultText);
       }
@@ -1634,7 +1675,7 @@ public final class PromptSheet {
     }
     String modelName = text(model).replace('\n', ' ').replace('\r', ' ').trim();
     String desc = text(description).replace("\r\n", "\n").replace('\r', '\n').trim();
-    String body = text(prompt).replace("\r\n", "\n").replace('\r', '\n');
+    String body = promptBody().replace("\r\n", "\n").replace('\r', '\n');
     String sheet = PromptRun.encode(name, "", "", ref1Name, ref2Name, category, version, modelName, resultName, codeType, body);
     if (desc.length() > 0) {
       String line = "Description: " + desc.replace('\n', ' ').replace('\r', ' ') + "\n";
@@ -2034,6 +2075,8 @@ public final class PromptSheet {
 
   /** Edit: the prompt the file belongs to, open in the editor at that version (every field). */
   private static void editVersion(Activity activity, PromptVault.Version v) {
+    // Back goes to this gallery again (where it was scrolled).
+    backToGallery = new boolean[] {refsOpen, resultsOpen, promptFilesOpen};
     refsOpen = false;
     resultsOpen = false;
     promptFilesOpen = false;
@@ -2214,11 +2257,21 @@ public final class PromptSheet {
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
-      // Needing no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+      // Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
       final byte[] bytes = vault.fileBytes(versionId, which);
-      if (MediaDir.processRef(activity.getFilesDir(), name, bytes)) {
+      if (MediaDir.useRef(name, bytes)) {
         items.add(MediaDir.PROCESS_REF);
-        runs.add(() -> ProcessRefDialog.open((MainActivity) activity, name, bytes));
+        runs.add(() -> {
+          String q = UpscaleCheck.refQuestion(activity.getFilesDir(), name, bytes);
+          if (q == null) {
+            ProcessRefDialog.open((MainActivity) activity, name, bytes);
+            return;
+          }
+          lastRefAsk = new AlertDialog.Builder(activity).setTitle(MediaDir.PROCESS_REF).setMessage(q)
+            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> upscaleStored(activity, versionId, which, name))
+            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> ProcessRefDialog.open((MainActivity) activity, name, bytes))
+            .setNegativeButton("Cancel", null).show();
+        });
       }
       // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
       final String job = AppSettings.showSogni() ? SogniApi.jobIn(bytes) : null;
@@ -2363,6 +2416,9 @@ public final class PromptSheet {
 
   /** Where Sort by (the Ref files and Result files galleries) is kept. */
   static final String SORT_PREFS = "pulsekit-file-sort";
+
+  /** Use as a reference's question (upscale first?), shown last (for the tests). */
+  static AlertDialog lastRefAsk;
 
   /** The file menu shown last, for the tests. */
   static AlertDialog lastFileMenu;

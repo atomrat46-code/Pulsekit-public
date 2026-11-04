@@ -26,6 +26,21 @@ public final class DownloadMove {
 
   public static boolean on;
   public static boolean auto;
+  /** Clear automatically: the downloads moved (every file of the run) taken off the list after each move. */
+  public static boolean clearAuto;
+  public static final String CLEAR_AUTO = "Clear automatically";
+
+  /**
+   * Move automatically put off: the run's zip (--zip) is still being made, and --zip_delete deletes
+   * the files it zipped once it is saved; the move follows the zip.
+   */
+  public static volatile boolean waitingForZip;
+
+  /** Zips being written now (a run's --zip, after the run): Move automatically waits for them. */
+  public static final java.util.concurrent.atomic.AtomicInteger zipping = new java.util.concurrent.atomic.AtomicInteger();
+
+  /** A download's file no longer there (deleted after its zip, say): left out of the move, not a failure. */
+  public static final String GONE = "\u0000gone";
   /** Each kind's box, folder (a path, or a granted folder's address) and the folder's name as shown. */
   public static final Map<String, Boolean> ticked = new LinkedHashMap<String, Boolean>();
   public static final Map<String, String> folder = new LinkedHashMap<String, String>();
@@ -39,6 +54,7 @@ public final class DownloadMove {
     loadedFrom = dir;
     on = false;
     auto = false;
+    clearAuto = false;
     ticked.clear();
     folder.clear();
     label.clear();
@@ -50,6 +66,7 @@ public final class DownloadMove {
         String[] p = line.split("\t", -1);
         if (p[0].equals("on")) on = p.length > 1 && "1".equals(p[1]);
         else if (p[0].equals("auto")) auto = p.length > 1 && "1".equals(p[1]);
+        else if (p[0].equals("clear")) clearAuto = p.length > 1 && "1".equals(p[1]);
         else if (p.length >= 4) {
           ticked.put(p[0], "1".equals(p[1]));
           folder.put(p[0], p[2]);
@@ -66,6 +83,7 @@ public final class DownloadMove {
     if (dir == null) return;
     StringBuilder sb = new StringBuilder();
     sb.append("on\t").append(on ? "1" : "0").append('\n').append("auto\t").append(auto ? "1" : "0").append('\n');
+    sb.append("clear\t").append(clearAuto ? "1" : "0").append('\n');
     for (String k : KINDS) {
       sb.append(k).append('\t').append(isTicked(k) ? "1" : "0").append('\t').append(clean(folder.get(k))).append('\t').append(clean(label.get(k))).append('\n');
     }
@@ -100,8 +118,20 @@ public final class DownloadMove {
 
   /** The folder a file of this name goes to (its kind ticked, a folder picked), or "". */
   public static synchronized String defaultFor(String name) {
-    String k = SogniDownloads.kindOf(name);
+    String k = kindOf(name);
     return isTicked(k) ? folderOf(k) : "";
+  }
+
+  /**
+   * "picture", "video" or "audio" as the Media browser counts them (MIDI is music, so are WAVE and
+   * HEIC / 3GP pictures and videos), else as the Downloads list does.
+   */
+  public static String kindOf(String name) {
+    int k = MediaDir.kind(name);
+    if (k == MediaDir.PICTURE) return "picture";
+    if (k == MediaDir.VIDEO) return "video";
+    if (k == MediaDir.SOUND) return "audio";
+    return SogniDownloads.kindOf(name);
   }
 
   /** Whether any kind is ticked with its folder (else Move defined media types asks for them). */
@@ -156,6 +186,11 @@ public final class DownloadMove {
   public static String said(int moved, int failed, String firstProblem) {
     if (moved == 0 && failed == 0) return "Nothing to move: no finished downloads of the ticked kinds are left in Download (each kind needs a folder)";
     return "Moved " + moved + (moved == 1 ? " file" : " files") + (failed > 0 ? "; " + failed + " could not be moved" + (firstProblem != null ? " (" + firstProblem + ")" : "") : "");
+  }
+
+  /** After a move: with Clear automatically, the runs moved whole taken off the list; how many. */
+  public static int afterMove(int moved) {
+    return moved > 0 && clearAuto ? SogniDownloads.clearMoved() : 0;
   }
 
   /** Move now done (by hand): the moved downloads off the list? (Move automatically does not ask.) */

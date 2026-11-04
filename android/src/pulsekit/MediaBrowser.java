@@ -226,6 +226,8 @@ final class MediaBrowser {
                     if (!b.there(part[k])) break;
                     b.path.add(part[k]);
                 }
+                // The favourite opened is the Recent MB folder now (and where it is in it).
+                if (b != null) b.root = b.base;
             }
         }
         if (b == null) {
@@ -516,7 +518,10 @@ final class MediaBrowser {
                 folder = found;
                 label = label + "/" + sub;
             }
-            Uri file = DocumentsContract.createDocument(app.getContentResolver(), folder, mime, name);
+            // A name taken there: the next free "name (n)" picked here (Android tries up to (31) of
+            // them, then gives up with "Failed to create unique file": Sogni names its results alike).
+            String picked = freeName(childNames(app, treeUri, DocumentsContract.getDocumentId(folder)), name);
+            Uri file = DocumentsContract.createDocument(app.getContentResolver(), folder, mime, picked);
             if (file == null) throw new java.io.IOException("could not write " + name);
             java.io.OutputStream os = app.getContentResolver().openOutputStream(file);
             try {
@@ -525,9 +530,39 @@ final class MediaBrowser {
                 os.close();
             }
             savedAddress.set(file.toString());
-            return label + "/" + name;
+            return label + "/" + picked;
         } catch (SecurityException ex) {
             throw new java.io.IOException("Pulsekit may not write in this folder: pick it again with Params, Browse (it now asks to write there too)");
+        }
+    }
+
+    /** The names in a granted folder (empty when it cannot be read). */
+    static java.util.Set<String> childNames(MainActivity app, Uri treeUri, String docId) {
+        java.util.Set<String> names = new java.util.HashSet<String>();
+        Cursor c = null;
+        try {
+            c = app.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId),
+                new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String n = c.getString(0);
+                if (n != null) names.add(n.toLowerCase(java.util.Locale.ROOT));
+            }
+        } catch (Exception ignored) {
+            // the provider picks
+        } finally {
+            if (c != null) c.close();
+        }
+        return names;
+    }
+
+    /** `name`, or the first "stem (n).ext" not among `taken` (lower case). */
+    static String freeName(java.util.Set<String> taken, String name) {
+        if (!taken.contains(name.toLowerCase(java.util.Locale.ROOT))) return name;
+        String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        String ext = name.substring(stem.length());
+        for (int n = 1; ; n++) {
+            String next = stem + " (" + n + ")" + ext;
+            if (!taken.contains(next.toLowerCase(java.util.Locale.ROOT))) return next;
         }
     }
 
@@ -583,7 +618,7 @@ final class MediaBrowser {
         java.util.List<String[]> all = new ArrayList<String[]>();
         if (MediaDir.lastRoot.length() > 0) all.add(new String[] {"recent", "Recent MB folder"});
         all.add(new String[] {"download", "Download"});
-        for (int i = 0; i < MediaDir.favourites.size(); i++) all.add(new String[] {"fav:" + i, MediaDir.favouriteLabel(MediaDir.favourites.get(i))});
+        for (int i = 0; i < MediaDir.favourites.size(); i++) all.add(new String[] {"fav:" + i, this.favLabel(MediaDir.favourites.get(i))});
         for (final String[] t : all) {
             TextView pill = this.app.pill(t[1], t[0].equals(this.tab), v -> {
                 if (t[0].equals(this.tab)) return;
@@ -619,7 +654,7 @@ final class MediaBrowser {
         android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this.app);
         scroll.setHorizontalScrollBarEnabled(false);
         scroll.addView(row);
-        scroll.setPadding(0, 0, 0, this.app.dp(8));
+        scroll.setPadding(0, 0, 0, this.app.dp(4));
         this.body.addView(scroll);
     }
 
@@ -1329,7 +1364,7 @@ final class MediaBrowser {
     void favouritesList() {
         final List<String> favs = new ArrayList<String>(MediaDir.favourites);
         String[] rows = new String[favs.size()];
-        for (int i = 0; i < rows.length; i++) rows[i] = MediaDir.favouriteLabel(favs.get(i));
+        for (int i = 0; i < rows.length; i++) rows[i] = this.favLabel(favs.get(i));
         AlertDialog.Builder b = new AlertDialog.Builder(this.app).setTitle(MediaDir.STAR + "Favourite folders").setNegativeButton("Cancel", null);
         if (rows.length == 0) b.setMessage("No favourite folders yet: Add to favourites in a folder");
         else b.setItems(rows, (d, w) -> this.openFavourite(favs.get(w), false));
@@ -1357,7 +1392,7 @@ final class MediaBrowser {
         if (this.dialog != null) this.dialog.dismiss();
         last = b;
         b.show();
-        if (onlyFavourites) this.app.setNow(MediaDir.STAR + "The favourite files in " + MediaDir.favouriteLabel(fav) + " (F off: all of them)");
+        if (onlyFavourites) this.app.setNow(MediaDir.STAR + "The favourite files in " + this.favLabel(fav) + " (F off: all of them)");
     }
 
     /** ☰ Playlists: the folders with files in their default playlist; a tap opens its playlist, held: Open, Save as. */
@@ -1457,7 +1492,49 @@ final class MediaBrowser {
     private String label() {
         if (DOWNLOADS.equals(here())) return "Download";
         if (this.tree == null) return MediaDir.label(here());
-        return MediaDir.label(DocumentsContract.buildDocumentUriUsingTree(this.tree, here()).toString());
+        Uri doc = DocumentsContract.buildDocumentUriUsingTree(this.tree, here());
+        String shown = MediaDir.label(doc.toString());
+        // A folder known by a number (Download's own folders: "1000180279"): its name instead.
+        if (!shown.matches(".*[^0-9].*")) {
+            String name = this.docName(doc);
+            if (name != null && name.length() > 0) return name;
+        }
+        return shown;
+    }
+
+    /** A favourite's name: its folder's, also for one known by a number (Download's own folders). */
+    String favLabel(String fav) {
+        String shown = MediaDir.favouriteLabel(fav);
+        String[] part = fav.split("\t");
+        if (shown.matches(".*[^0-9].*") || part.length < 2 || !part[0].startsWith("content://")) return shown;
+        try {
+            String name = this.docName(DocumentsContract.buildDocumentUriUsingTree(Uri.parse(part[0]), part[part.length - 1]));
+            return name == null || name.length() == 0 ? shown : name;
+        } catch (Exception ex) {
+            return shown;
+        }
+    }
+
+    /** The folders' names asked of Android, by address (a folder known by a number). */
+    private static final java.util.Map<String, String> DOC_NAMES = new java.util.concurrent.ConcurrentHashMap<String, String>();
+
+    /** A document's own name (DISPLAY_NAME), or null. */
+    String docName(Uri doc) {
+        String kept = DOC_NAMES.get(doc.toString());
+        if (kept != null) return kept;
+        Cursor c = null;
+        try {
+            c = this.app.getContentResolver().query(doc, new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+            if (c != null && c.moveToFirst() && c.getString(0) != null) {
+                DOC_NAMES.put(doc.toString(), c.getString(0));
+                return c.getString(0);
+            }
+        } catch (Exception ignored) {
+            // the address as it is
+        } finally {
+            if (c != null) c.close();
+        }
+        return null;
     }
 
     private void show() {
@@ -1574,6 +1651,8 @@ final class MediaBrowser {
             + FileFilter.title().replace(" \u00b7 Group: ", " \u00b7 group ").replace(" \u00b7 ", ", "), 12, false);
         legend.setTextColor(UiKit.MUTED);
         legend.setTag("media-filter-name");
+        // One line: wrapped in the row, it made the row tall (large gaps above and below the letters).
+        legend.setSingleLine(true);
         row.addView(legend);
         // Tagged: only the files with a tag or a category (Tags… and Category… in a file's menu).
         TextView tagged = this.app.pill(MediaTags.filter.length() == 0 ? "Tagged \u25be" : MediaTags.filter + " \u25be", MediaTags.filter.length() > 0, v -> this.tagFilter());
@@ -1581,8 +1660,12 @@ final class MediaBrowser {
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
         tlp.leftMargin = this.app.dp(8);
         row.addView(tagged, tlp);
-        row.setPadding(0, 0, 0, this.app.dp(6));
-        this.body.addView(row);
+        // The letters, the line saying what is shown and Tagged: one row, scrolled sideways when it is wider.
+        android.widget.HorizontalScrollView letters = new android.widget.HorizontalScrollView(this.app);
+        letters.setHorizontalScrollBarEnabled(false);
+        letters.addView(row);
+        letters.setPadding(0, 0, 0, this.app.dp(4));
+        this.body.addView(letters);
         // T1 T2 T3: the files with any of the tags picked.
         this.body.addView(FilterRow.tags(this.app, "media-filter:", (text, on) -> this.app.pill(text, on, null), () -> {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
@@ -1810,7 +1893,7 @@ final class MediaBrowser {
         TextView summary = this.app.text(MediaDir.summary(this.entries), 13, false);
         summary.setTag("media-summary");
         summary.setTextColor(UiKit.MUTED);
-        summary.setPadding(0, 0, 0, this.app.dp(6));
+        summary.setPadding(0, 0, 0, this.app.dp(2));
         this.body.addView(summary);
         android.widget.CheckBox loop = new android.widget.CheckBox(this.app);
         loop.setText("Loop videos");
@@ -2140,8 +2223,9 @@ final class MediaBrowser {
         // Add to playlist: a named one (.pls, File > Playlist viewer/editor), not only this folder's.
         boolean playable = e.kind == MediaDir.PICTURE || e.kind == MediaDir.VIDEO || e.kind == MediaDir.SOUND;
         String[] withPlaylist = playable ? MediaDir.withPlaylistItem(menuItems, Playlist.ADD) : menuItems;
-        // A picture that needs no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
-        if (e.kind == MediaDir.PICTURE && e.dbId == 0 && MediaDir.processRef(this.app.getFilesDir(), e.name, this.head(e))) {
+        // A picture: Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
+        final byte[] refHead = e.kind == MediaDir.PICTURE && e.dbId == 0 ? this.head(e) : null;
+        if (refHead != null && MediaDir.useRef(e.name, refHead)) {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.PROCESS_REF;
         }
@@ -2175,7 +2259,7 @@ final class MediaBrowser {
                 else if (MediaTags.CATEGORY.equals(items[which])) this.category(e);
                 else if (java.util.Arrays.asList(MediaDir.FILE_ACTIONS).contains(items[which])) this.fileAction(e, items[which]);
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
-                else if (MediaDir.PROCESS_REF.equals(items[which])) this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file, this, null));
+                else if (MediaDir.PROCESS_REF.equals(items[which])) this.useAsRef(e, refHead);
                 else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
@@ -2429,15 +2513,38 @@ final class MediaBrowser {
         final boolean inDownload = DOWNLOADS.equals(this.path.get(0));
         final boolean keeper = !RunKeeper.foreground;
         if (keeper) RunKeeper.start(app, "Move downloads");
+        // What is moving: the file, how many of how many, the MB done, and a bar (Hide: it goes on).
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(12), this.app.dp(20), 0);
+        final TextView status = this.app.text(files.isEmpty() ? "Looking for files\u2026" : "Moving " + files.size() + (files.size() == 1 ? " file" : " files") + "\u2026", 14, false);
+        status.setTag("media-move-status");
+        box.addView(status);
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this.app, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setTag("media-move-progress");
+        bar.setMax(1000);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = this.app.dp(8);
+        box.addView(bar, blp);
+        lastMoveProgress = new AlertDialog.Builder(this.app).setTitle(DownloadMove.DEFAULTS).setView(box).setPositiveButton("Hide", null).show();
+        final int count = files.size();
         new Thread(() -> {
             int moved = 0, failed = 0;
             String problem = null;
             try {
                 for (int i = 0; i < files.size(); i++) {
                     MediaDir.Entry e = files.get(i);
-                    final String head = "Moving " + (i + 1) + " of " + files.size() + ": " + e.name;
-                    this.main.post(() -> app.setNow(head));
-                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload);
+                    final String head = "Moving " + (i + 1) + " of " + count + ": " + e.name;
+                    final int index = i;
+                    final long size = e.size;
+                    this.main.post(() -> {
+                        status.setText(head);
+                        bar.setProgress(index * 1000 / count);
+                    });
+                    String why = moveToDefault(app, e, from.get(e), address.get(e), inDownload, done -> this.main.post(() -> {
+                        // At each MB: how far into this file.
+                        status.setText(head + " \u00b7 " + DownloadMove.mb(done) + (size > 0 ? " of " + DownloadMove.mb(size) : ""));
+                        bar.setProgress((int) ((index + (size > 0 ? Math.min(1.0, done / (double) size) : 0.5)) * 1000 / count));
+                    }));
                     if (why == null) moved++;
                     else {
                         failed++;
@@ -2448,17 +2555,29 @@ final class MediaBrowser {
                 DownloadsScreen.moving.set(false);
                 if (keeper) RunKeeper.stop(app);
             }
+            DownloadMove.afterMove(moved);
             final String said = DownloadMove.defaultsSaid(moved, failed, problem);
             lastDefaultsSaid = said;
             this.main.post(() -> {
                 app.setNow(said);
+                status.setText(said);
+                bar.setProgress(1000);
+                if (lastMoveProgress != null && lastMoveProgress.isShowing()) lastMoveProgress.getButton(AlertDialog.BUTTON_POSITIVE).setText("Close");
                 if (this.dialog != null && this.dialog.isShowing()) this.load(this.here());
             });
         }).start();
     }
 
     /** One file into its kind's folder and out of the folder shown; null when moved, else why not. */
-    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload) {
+    /** How far a file's move is: the bytes written so far (said at each MB). */
+    interface Progress {
+        void at(long done);
+    }
+
+    /** Move defined media types' window: the status and the bar (for the tests). */
+    static AlertDialog lastMoveProgress;
+
+    static String moveToDefault(MainActivity app, MediaDir.Entry e, Uri src, String address, boolean inDownload, final Progress progress) {
         try {
             String to = DownloadMove.defaultFor(e.name);
             String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
@@ -2474,8 +2593,16 @@ final class MediaBrowser {
             try {
                 at = saveInto(app, origin, null, e.name, ArtJava.mimeOf(e.name), out -> {
                     byte[] buf = new byte[65536];
+                    long done = 0, said = 0;
                     int n;
-                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        if (progress != null && done - said >= (1 << 20)) {
+                            said = done;
+                            progress.at(done);
+                        }
+                    }
                 });
             } finally {
                 in.close();
@@ -2487,7 +2614,7 @@ final class MediaBrowser {
                 : DocumentsContract.isDocumentUri(app, src) ? DocumentsContract.deleteDocument(app.getContentResolver(), src) : app.getContentResolver().delete(src, null, null) > 0;
             if (!gone) return "copied " + e.name + " to " + at + ", but could not delete it from Download";
             SogniDownloads.Item item = SogniDownloads.inDownload(olds);
-            if (item != null) SogniDownloads.movedAway(item, item.name, now, at);
+            if (item != null) SogniDownloads.movedAway(item, at.lastIndexOf('/') >= 0 && at.lastIndexOf('/') < at.length() - 1 ? at.substring(at.lastIndexOf('/') + 1) : item.name, now, at);
             Playlist.repoint(app.getFilesDir(), olds, now);
             return null;
         } catch (Exception ex) {
@@ -3732,19 +3859,74 @@ final class MediaBrowser {
             this.main.post(() -> {
                 this.app.setNow(shown);
                 android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
-                // A frame that needs no upscaling: asked whether it goes on as a Sogni reference.
-                if (!upscale && saved[0] != null && MediaDir.processRef(this.app.getFilesDir(), savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0], p.dialog);
+                // The frame: asked whether it goes on as a Sogni reference (one to upscale: Upscale first, Use as it is, No).
+                if (!upscale && saved[0] != null && MediaDir.useRef(savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0], p.dialog, where);
             });
         }, "pulsekit-capture").start();
+    }
+
+    /** Use as a reference's question (upscale first?), shown last (for the tests). */
+    static AlertDialog lastRefAsk;
+
+    /**
+     * Use as a reference: into a recent Sogni program as Reference file 1 or 2. A picture smaller than
+     * the last upscaled one, or not 4:7, is asked about first: Upscale first (ImageUpscaler), or Use as it is.
+     */
+    void useAsRef(final MediaDir.Entry e, byte[] head) {
+        String q = UpscaleCheck.refQuestion(this.app.getFilesDir(), e.name, head);
+        if (q == null) {
+            this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file, this, null));
+            return;
+        }
+        lastRefAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF).setMessage(q)
+            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> this.upscale(e))
+            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> this.chosen(e, (name, file) -> ProcessRefDialog.open(this.app, file, this, null)))
+            .setNegativeButton("Cancel", null).show();
     }
 
     /** The question shown last after C (for the tests). */
     static AlertDialog lastProcessAsk;
 
-    /** C's frame needs no upscaling: Process it as a Sogni reference? Yes opens the program and prompt list. */
     void askProcessRef(final String name, final byte[] png, final android.app.Dialog player) {
+        this.askProcessRef(name, png, player, null);
+    }
+
+    /**
+     * C's frame: Use it as a Sogni reference? Yes opens the program and prompt list. A frame smaller
+     * than the last upscaled picture, or not 4:7, is asked Upscale first (ImageUpscaler, `where` its
+     * folder for the result), Use as it is, or No; No: Picture ready.
+     */
+    void askProcessRef(final String name, final byte[] png, final android.app.Dialog player, final String[] where) {
+        String q = UpscaleCheck.refQuestion(this.app.getFilesDir(), name, png);
+        if (q != null) {
+            lastProcessAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF).setMessage(q)
+                .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> {
+                    try {
+                        File dir = new File(this.app.getCacheDir(), "pyjav-in");
+                        if (!dir.isDirectory()) dir.mkdirs();
+                        File in = new File(dir, name);
+                        java.io.FileOutputStream fos = new java.io.FileOutputStream(in);
+                        try {
+                            fos.write(png);
+                        } finally {
+                            fos.close();
+                        }
+                        if (where != null) ORIGIN.put(in.getAbsolutePath(), where);
+                        this.upscaleFile(in, player);
+                    } catch (Exception ex) {
+                        this.app.setNow("Could not hand " + name + " to ImageUpscaler: " + ex.getMessage());
+                    }
+                })
+                .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> ProcessRefDialog.open(this.app, name, png, this, player))
+                .setNegativeButton("No", (d, w) -> {
+                    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+                    files.add(new JavaRun.FileOut(name, png));
+                    PictureOffer.offer(this.app, new JavaRun.Result("Succeeded: " + name, files, 0));
+                }).show();
+            return;
+        }
         lastProcessAsk = new AlertDialog.Builder(this.app).setTitle(MediaDir.PROCESS_REF)
-            .setMessage(name + " needs no upscaling. Process it as a reference of a Sogni program (the program and prompt, then Reference file 1 or 2)?")
+            .setMessage(name + " needs no upscaling. Use it as a reference of a Sogni program (the program and prompt, then Reference file 1 or 2)?")
             .setPositiveButton("Yes", (d, w) -> ProcessRefDialog.open(this.app, name, png, this, player))
             // Not as a reference: Picture ready, with the frame's items (favourites, group, tags, playlist...).
             .setNegativeButton("No", (d, w) -> {
