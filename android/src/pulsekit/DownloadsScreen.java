@@ -169,7 +169,23 @@ final class DownloadsScreen {
             clearAll.setTag("downloads-clear-all");
             LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
             clp.topMargin = app.dp(6);
-            col.addView(clearAll, clp);
+            // Clear automatically: after each move (Move now, Move automatically, the Media browser's),
+            // the downloads moved taken off the list (the files stay in their folders).
+            DownloadMove.load();
+            LinearLayout clearRow = app.row();
+            clearRow.addView(clearAll);
+            CheckBox clearAuto = new CheckBox(app);
+            clearAuto.setText(DownloadMove.CLEAR_AUTO);
+            clearAuto.setTag("downloads-clear-auto");
+            clearAuto.setChecked(DownloadMove.clearAuto);
+            clearAuto.setOnCheckedChangeListener((b, yes) -> {
+                DownloadMove.clearAuto = yes;
+                DownloadMove.save();
+            });
+            LinearLayout.LayoutParams calp = new LinearLayout.LayoutParams(-2, -2);
+            calp.leftMargin = app.dp(10);
+            clearRow.addView(clearAuto, calp);
+            col.addView(clearRow, clp);
             col.addView(movePanel(app, col));
         }
         if (runs.isEmpty()) {
@@ -811,12 +827,14 @@ final class DownloadsScreen {
                 String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
                 String why = moveOne(app, item, origin, i, due.size());
                 if (why == null) moved++;
+                else if (why.equals(DownloadMove.GONE)) continue;
                 else {
                     failed++;
                     if (problem == null) problem = why;
                 }
             }
             lastMoved = moved;
+            DownloadMove.afterMove(moved);
             lastMoveSaid = DownloadMove.said(moved, failed, problem);
             return lastMoveSaid;
         } finally {
@@ -856,8 +874,15 @@ final class DownloadsScreen {
         try {
             Uri uri = uriFor(app, item.where);
             File file = uri == null ? fileFor(item.where) : null;
+            // Gone (deleted once zipped, --zip_delete): left out.
+            if (file != null && !file.exists()) return DownloadMove.GONE;
             final long size = file != null ? file.length() : -1;
-            final InputStream in = uri != null ? app.getContentResolver().openInputStream(uri) : new java.io.FileInputStream(file);
+            final InputStream in;
+            try {
+                in = uri != null ? app.getContentResolver().openInputStream(uri) : new java.io.FileInputStream(file);
+            } catch (java.io.FileNotFoundException gone) {
+                return DownloadMove.GONE;
+            }
             if (in == null) return item.name + " could not be read";
             final String head = "Moving " + (index + 1) + " of " + count + ": " + item.name;
             moveStatus = head;
@@ -921,10 +946,25 @@ final class DownloadsScreen {
     /** A run finished: with Move automatically, its media go to their folders. */
     static void finished(final MainActivity app) {
         if (!DownloadMove.automatic()) return;
+        // The run's zip still being made (--zip; --zip_delete deletes what it zipped): the move waits for it.
+        if (pulsekit.RunZip.current() != null || DownloadMove.zipping.get() > 0) {
+            DownloadMove.waitingForZip = true;
+            return;
+        }
         new Thread(() -> {
             final String said = moveDue(app);
-            if (said.startsWith("Moved")) app.runOnUiThread(() -> app.setNow(said));
+            if (said.startsWith("Moved")) app.runOnUiThread(() -> {
+                app.setNow(said);
+                if (last != null && last.isShowing()) show(app);
+            });
         }).start();
+    }
+
+    /** The run's zip saved: the move it held up goes now. */
+    static void zipSaved(MainActivity app) {
+        if (!DownloadMove.waitingForZip) return;
+        DownloadMove.waitingForZip = false;
+        finished(app);
     }
 
     /** The folder for MediaBrowser.saveInto: a granted folder (and the folder under it), or a path. */

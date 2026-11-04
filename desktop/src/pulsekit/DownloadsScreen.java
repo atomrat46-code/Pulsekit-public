@@ -152,6 +152,16 @@ final class DownloadsScreen {
                 fill(app, body);
             });
             sorts.add(clearAll);
+            // Clear automatically: after each move (Move now, Move automatically, the Media browser's),
+            // the downloads moved taken off the list (the files stay in their folders).
+            DownloadMove.load();
+            final javax.swing.JCheckBox clearAuto = new javax.swing.JCheckBox(DownloadMove.CLEAR_AUTO, DownloadMove.clearAuto);
+            clearAuto.setName("downloads-clear-auto");
+            clearAuto.addActionListener(e -> {
+                DownloadMove.clearAuto = clearAuto.isSelected();
+                DownloadMove.save();
+            });
+            sorts.add(clearAuto);
             body.add(sorts);
             body.add(movePanel(app, body));
         }
@@ -703,6 +713,8 @@ final class DownloadsScreen {
                 moveStatus = "Moving " + (i + 1) + " of " + due.size() + ": " + item.name;
                 moveProgress = i * 1000 / due.size();
                 showMove();
+                // Gone (deleted once zipped, --zip_delete): left out.
+                if (!new File(item.where).isFile()) continue;
                 String said = put((SogniDownloads.Run) due.get(i)[0], item, new File(DownloadMove.folderOf(item.kind())), true);
                 if (said.startsWith("Moved to ")) moved++;
                 else {
@@ -711,6 +723,7 @@ final class DownloadsScreen {
                 }
             }
             lastMoved = moved;
+            DownloadMove.afterMove(moved);
             result = DownloadMove.said(moved, failed, problem);
             return result;
         } finally {
@@ -786,6 +799,7 @@ final class DownloadsScreen {
                 if (item != null) SogniDownloads.movedAway(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
                 Playlist.repoint(PromptDb.dir(), olds, to.getAbsolutePath());
             }
+            DownloadMove.afterMove(moved);
             moveStatus = DownloadMove.defaultsSaid(moved, failed, problem);
             return moveStatus;
         } finally {
@@ -798,8 +812,20 @@ final class DownloadsScreen {
     /** A run finished: with Move automatically, its media go to their folders. */
     static void finished(Pulsekit app) {
         if (!DownloadMove.automatic()) return;
+        // The run's zip still being made (--zip; --zip_delete deletes what it zipped): the move waits for it.
+        if (RunZip.current() != null || DownloadMove.zipping.get() > 0) {
+            DownloadMove.waitingForZip = true;
+            return;
+        }
         String said = moveNow();
         if (said.startsWith("Moved")) app.setNow(said);
+    }
+
+    /** The run's zip saved: the move it held up goes now. */
+    static void zipSaved(Pulsekit app) {
+        if (!DownloadMove.waitingForZip) return;
+        DownloadMove.waitingForZip = false;
+        finished(app);
     }
 
     private static String esc(String s) {

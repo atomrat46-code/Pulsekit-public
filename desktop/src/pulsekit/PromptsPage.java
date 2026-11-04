@@ -58,6 +58,13 @@ final class PromptsPage {
     JTextArea promptDescription;
 
     JTextArea promptBody;
+    /** The settings kept under the prompt (Duration, Resolution, LoRAs...), shown apart. */
+    JTextArea promptSettings;
+
+    /** The prompt as kept: its text, and the settings under it. */
+    String promptText() {
+        return PromptText.join(text(this.promptBody), this.promptSettings == null ? "" : text(this.promptSettings));
+    }
 
     JLabel promptRef1;
 
@@ -654,6 +661,10 @@ final class PromptsPage {
         back.addActionListener(e -> {
             this.promptId = 0;
             this.rebuild();
+            // Opened with Edit from a gallery (Prompt files...): back to it.
+            int gallery = app.promptDb.backToGallery;
+            app.promptDb.backToGallery = -1;
+            if (gallery >= 0) javax.swing.SwingUtilities.invokeLater(() -> app.promptDb.gallery(gallery));
         });
         final String promptTitleText = item.title == null ? "" : item.title;
         JButton menu = app.action("Menu", ELEV, FG);
@@ -713,6 +724,14 @@ final class PromptsPage {
         // Right click or a long press: Select all, Cut, Copy, Paste (as on the phone).
         TextMenu.attach(this.promptBody);
         this.col.add(this.scroll(this.promptBody, 220));
+        // The settings a Sogni run keeps under its prompt (Duration, Resolution, Shape, LoRAs...): kept
+        // with the prompt (its last paragraph), shown here apart.
+        this.col.add(this.caption("SETTINGS \u00b7 OPTIONAL"));
+        this.promptSettings = this.area(3);
+        this.promptSettings.setName("prompt-settings");
+        this.promptSettings.setToolTipText("Duration: 10 s. Resolution: 768p. LoRAs: ...");
+        TextMenu.attach(this.promptSettings);
+        this.col.add(this.scroll(this.promptSettings, 80));
         // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
         JPanel fromFile = this.row();
         JButton select = app.action("Select file", ELEV, FG);
@@ -841,8 +860,10 @@ final class PromptsPage {
 
     void fill(PromptVault.Version version) {
         this.promptDescription.setText(version.description);
-        this.promptBody.setText(version.body);
+        String[] parts = PromptText.split(version.body);
+        this.promptBody.setText(parts[0]);
         this.promptBody.setCaretPosition(0);
+        if (this.promptSettings != null) this.promptSettings.setText(parts[1]);
         this.promptModel.setText(this.modelFor(version.promptId, version.model));
         this.ref1Name = version.ref1Name == null ? "" : version.ref1Name;
         this.ref2Name = version.ref2Name == null ? "" : version.ref2Name;
@@ -993,7 +1014,7 @@ final class PromptsPage {
     void storePickedFile(int which) {
         try {
             if (this.loadedVersionId == 0 || this.vault.version(this.loadedVersionId) == null) {
-                this.loadedVersionId = this.vault.addVersion(this.promptId, this.titleText(), text(this.promptDescription), text(this.promptBody), text(this.promptModel),
+                this.loadedVersionId = this.vault.addVersion(this.promptId, this.titleText(), text(this.promptDescription), this.promptText(), text(this.promptModel),
                     this.ref1Name, this.ref1Bytes, this.ref2Name, this.ref2Bytes, this.resultName, this.resultBytes, this.codeType, this.resultText);
             } else {
                 byte[] bytes = which == 1 ? this.ref1Bytes : which == 2 ? this.ref2Bytes : this.resultBytes;
@@ -1045,7 +1066,7 @@ final class PromptsPage {
 
     void save() {
         try {
-            this.loadedVersionId = this.vault.addVersion(this.promptId, text(this.promptTitle), text(this.promptDescription), text(this.promptBody), text(this.promptModel),
+            this.loadedVersionId = this.vault.addVersion(this.promptId, text(this.promptTitle), text(this.promptDescription), this.promptText(), text(this.promptModel),
                 this.ref1Name, this.ref1Bytes, this.ref2Name, this.ref2Bytes, this.resultName, this.resultBytes, this.codeType, this.resultText);
             app.setNow("Saved a new version");
             this.rebuild();
@@ -1058,8 +1079,8 @@ final class PromptsPage {
     String unsavedWhat() {
         if (this.vault == null || this.promptId == 0 || this.promptBody == null) return null;
         PromptVault.Version v = this.loadedVersionId == 0 ? null : this.vault.version(this.loadedVersionId);
-        boolean differs = v == null ? text(this.promptBody).trim().length() > 0
-            : !text(this.promptBody).equals(n(v.body)) || !text(this.promptDescription).equals(n(v.description)) || !text(this.promptModel).equals(n(v.model))
+        boolean differs = v == null ? this.promptText().trim().length() > 0
+            : !this.promptText().equals(n(v.body)) || !text(this.promptDescription).equals(n(v.description)) || !text(this.promptModel).equals(n(v.model))
                 || !n(this.ref1Name).equals(n(v.ref1Name)) || !n(this.ref2Name).equals(n(v.ref2Name)) || !n(this.resultName).equals(n(v.resultName));
         return differs ? this.titleText() : null;
     }
@@ -1076,7 +1097,7 @@ final class PromptsPage {
             return;
         }
         try {
-            this.vault.updateVersion(this.loadedVersionId, text(this.promptTitle), text(this.promptDescription), text(this.promptBody), text(this.promptModel),
+            this.vault.updateVersion(this.loadedVersionId, text(this.promptTitle), text(this.promptDescription), this.promptText(), text(this.promptModel),
                 this.ref1Name, this.ref1Bytes, this.ref2Name, this.ref2Bytes, this.resultName, this.resultBytes, this.codeType, this.resultText);
             List<PromptVault.Version> rows = this.vault.versions(this.promptId);
             app.setNow("Saved v" + (rows.size() - rows.indexOf(this.vault.version(this.loadedVersionId))));
@@ -1215,7 +1236,7 @@ final class PromptsPage {
             }
             this.resultText = next;
             if (this.loadedVersionId == 0 || this.vault.version(this.loadedVersionId) == null) {
-                this.loadedVersionId = this.vault.addVersion(this.promptId, this.titleText(), text(this.promptDescription), text(this.promptBody), text(this.promptModel), this.ref1Name, this.ref1Bytes,
+                this.loadedVersionId = this.vault.addVersion(this.promptId, this.titleText(), text(this.promptDescription), this.promptText(), text(this.promptModel), this.ref1Name, this.ref1Bytes,
                     this.ref2Name, this.ref2Bytes, this.resultName, this.resultBytes, this.codeType, this.resultText);
             } else {
                 this.vault.putResultText(this.loadedVersionId, this.resultText);
@@ -1250,7 +1271,7 @@ final class PromptsPage {
         }
         String modelName = text(this.promptModel).replace('\n', ' ').replace('\r', ' ').trim();
         String desc = text(this.promptDescription).replace("\r\n", "\n").replace('\r', '\n').trim();
-        String body = text(this.promptBody).replace("\r\n", "\n").replace('\r', '\n');
+        String body = this.promptText().replace("\r\n", "\n").replace('\r', '\n');
         String sheet = PromptRun.encode(name, "", "", this.ref1Name, this.ref2Name, category, version, modelName, this.resultName, this.codeType, body);
         if (desc.length() > 0) {
             String line = "Description: " + desc.replace('\n', ' ').replace('\r', ' ') + "\n";

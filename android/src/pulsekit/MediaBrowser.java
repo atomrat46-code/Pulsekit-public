@@ -2504,6 +2504,7 @@ final class MediaBrowser {
                 DownloadsScreen.moving.set(false);
                 if (keeper) RunKeeper.stop(app);
             }
+            DownloadMove.afterMove(moved);
             final String said = DownloadMove.defaultsSaid(moved, failed, problem);
             lastDefaultsSaid = said;
             this.main.post(() -> {

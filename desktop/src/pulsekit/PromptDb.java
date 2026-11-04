@@ -54,6 +54,9 @@ final class PromptDb {
     static java.util.concurrent.Callable<javax.sound.sampled.Clip> clips = javax.sound.sampled.AudioSystem::getClip;
     /** The gallery shown last, for the tests. */
     JDialog lastGallery;
+    /** The gallery shown last (0 Ref files, 1 Result files, 2 Prompt files), and the one an Edit came from (-1: none), for Back. */
+    int galleryKind;
+    int backToGallery = -1;
 
     PromptDb(Pulsekit app) {
         this.app = app;
@@ -739,6 +742,8 @@ final class PromptDb {
 
     /** Edit: the prompt the file belongs to, open on the Prompts page at that version (every field). */
     void editVersion(PromptVault.Version v) {
+        // The editor's Back opens this gallery again.
+        this.backToGallery = this.lastGallery != null && this.lastGallery.isShowing() ? this.galleryKind : -1;
         if (this.lastGallery != null) this.lastGallery.dispose();
         app.showView("prompts");
         PromptsPage page = app.promptsPage;
@@ -853,12 +858,13 @@ final class PromptDb {
 
     /** The galleries: 0 Ref files, 1 Result files, 2 Prompt files (the sheets runs saved with --saveprompt). */
     void gallery(final int kind) {
+        this.galleryKind = kind;
         FileFilter.use(FileFilter.GALLERY);
         final boolean results = kind == 1;
         final JDialog dialog = new JDialog(app, (kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files") + FileFilter.title(), true);
         JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
-        FileSort.current = FileSort.valid(readSort());
+        FileSort.restore(readSort());
         javax.swing.JComboBox<String> sort = new javax.swing.JComboBox<String>(FileSort.CHOICES);
         sort.setName("gallery-sort");
         sort.setSelectedItem(FileSort.current);
@@ -866,13 +872,23 @@ final class PromptDb {
             String picked = (String) sort.getSelectedItem();
             if (picked == null || picked.equals(FileSort.current)) return;
             FileSort.current = picked;
-            writeSort(picked);
+            writeSort(FileSort.keep());
+            dialog.dispose();
+            this.gallery(kind);
+        });
+        // Which way: Newest first / Oldest first (by size Largest / Smallest first, else A to Z / Z to A).
+        JButton order = new JButton(FileSort.orderLabel(FileSort.current, FileSort.reversed));
+        order.setName("gallery-order");
+        order.addActionListener(e -> {
+            FileSort.reversed = !FileSort.reversed;
+            writeSort(FileSort.keep());
             dialog.dispose();
             this.gallery(kind);
         });
         JPanel sortRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         sortRow.add(new JLabel("Sort by"));
         sortRow.add(sort);
+        sortRow.add(order);
         // A I V S T: all files, or only pictures, videos, sound files or text files.
         sortRow.add(javax.swing.Box.createHorizontalStrut(12));
         galleryFilter = AppSettings.letter(FileFilter.normal(galleryFilter));
@@ -1076,7 +1092,7 @@ final class PromptDb {
     static String readSort() {
         try {
             File f = new File(dir(), "file-sort.txt");
-            return f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim() : null;
+            return f.isFile() ? new String(Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).replace("\n", "").replace("\r", "") : null;
         } catch (Exception ex) {
             return null;
         }

@@ -1628,6 +1628,7 @@ final class PyJav {
         final RunZip z = RunZip.finish();
         if (z == null) return;
         this.testNote("Zipping " + z.size() + " files into " + z.name + "…");
+        DownloadMove.zipping.incrementAndGet();
         new Thread(() -> {
             StringBuilder text = new StringBuilder();
             try {
@@ -1654,6 +1655,9 @@ final class PyJav {
             SwingUtilities.invokeLater(() -> {
                 for (String line : shown.split("\n")) this.testNote(line);
             });
+            // Move automatically, held up until the zip was saved.
+            DownloadMove.zipping.decrementAndGet();
+            DownloadsScreen.zipSaved(app);
         }, "pulsekit-run-zip").start();
     }
 

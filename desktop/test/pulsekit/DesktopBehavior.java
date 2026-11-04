@@ -7673,6 +7673,94 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 04112026: the galleries' order button (Newest first / Oldest first, kept); Edit from Prompt files
+   * shows the prompt's settings in a field of their own and Back opens Prompt files again; Clear
+   * automatically; Move automatically waits for a run's zip.
+   */
+  void s193_prompt_settings_order_clear_auto_zip_wait() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    final PromptDb db = (PromptDb) get("promptDb");
+    PromptVault vault = PromptDb.vault();
+    String body = "A sunset over the sea\n\nDuration: 10 s. Resolution: 768p. Shape: 4:7.";
+    long p = vault.addPrompt(vault.addCategory("Clips"), "Sea");
+    long v = vault.addVersion(p, "Sea", "", body, "", "", null, "", null, "", null, "", "");
+    vault.addPromptFile("sea.prompt", ("PKPROMPT1\nsea\n\n\n\n\n---\n" + body).getBytes(StandardCharsets.UTF_8), "Sea v1");
+    FileSort.reversed = false;
+    PromptDb.writeSort("by date");
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> db.gallery(2));
+    for (int i = 0; i < 100 && (get("lastGallery") == null || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    JDialog g = (JDialog) get("lastGallery");
+    String order = ((javax.swing.AbstractButton) component(g, "gallery-order")).getText();
+    answers.add("(keep)");
+    final javax.swing.AbstractButton turn = (javax.swing.AbstractButton) component(g, "gallery-order");
+    SwingUtilities.invokeLater(turn::doClick);
+    for (int i = 0; i < 100 && (get("lastGallery") == g || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    g = (JDialog) get("lastGallery");
+    String turned = ((javax.swing.AbstractButton) component(g, "gallery-order")).getText();
+    String kept = PromptDb.readSort();
+    boolean orderOk = "Newest first".equals(order) && "Oldest first".equals(turned) && kept != null && kept.endsWith("\treversed");
+    FileSort.reversed = false;
+    PromptDb.writeSort("by date");
+    // Edit (as the prompt file's view does): the prompt and its settings apart.
+    final PromptVault.Version owner = vault.version(v);
+    SwingUtilities.invokeLater(() -> db.editVersion(owner));
+    for (int i = 0; i < 100 && component(frame, "prompt-settings") == null; i++) Thread.sleep(100);
+    idle();
+    final String[] shown = new String[2];
+    edt(() -> {
+      shown[0] = ((javax.swing.text.JTextComponent) component(frame, "prompt-body")).getText();
+      shown[1] = ((javax.swing.text.JTextComponent) component(frame, "prompt-settings")).getText();
+    });
+    // Back: Prompt files again.
+    final JDialog editedFrom = g;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(frame, "prompts-back")).doClick());
+    for (int i = 0; i < 100 && (get("lastGallery") == editedFrom || !((JDialog) get("lastGallery")).isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog back = (JDialog) get("lastGallery");
+    boolean backOk = back != editedFrom && back.isShowing() && back.getTitle().startsWith("Prompt files");
+    edt(back::dispose);
+    idle();
+    this.out.append("order ").append(order).append(" -> ").append(turned).append(" (kept ").append(String.valueOf(kept).replace('\t', ' ')).append(") | editor: prompt [").append(shown[0])
+        .append("] settings [").append(shown[1]).append("] | Back: ").append(back.getTitle()).append('\n');
+    boolean editOk = "A sunset over the sea".equals(shown[0]) && "Duration: 10 s. Resolution: 768p. Shape: 4:7.".equals(shown[1]) && backOk;
+    // Clear automatically; Move automatically waits for the run's zip.
+    File home = new File(System.getProperty("user.home"), "move7");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, list}) d.mkdirs();
+    File shot = new File(dl, "shot.png");
+    Files.write(shot.toPath(), new byte[] {1, 2});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: shot.png", "saved " + shot.getAbsolutePath(), null);
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.auto = true;
+    DownloadMove.clearAuto = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    DownloadMove.zipping.incrementAndGet();
+    DownloadsScreen.finished(app);
+    boolean waited = DownloadMove.waitingForZip && shot.isFile();
+    DownloadMove.zipping.decrementAndGet();
+    DownloadsScreen.zipSaved(app);
+    boolean movedAfter = new File(pics, "shot.png").isFile() && !shot.exists() && !DownloadMove.waitingForZip;
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    this.out.append("zip: waited ").append(waited).append(", moved after ").append(movedAfter).append(" | Clear automatically: runs left ").append(left).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.auto = false;
+    DownloadMove.clearAuto = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(PromptDb.dir());
+    if (!(orderOk && editOk && waited && movedAfter && left == 0)) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * 03112026_6: Settings' Default move folders; the Media browser's File menu; with no folder picked,
    * Move defined media types asks for them, then moves the folder's files of those types.
    */

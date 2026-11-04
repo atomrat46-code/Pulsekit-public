@@ -12068,6 +12068,105 @@ public class BehaviorTest {
   }
 
   /**
+   * 04112026: Prompt files' cards say when (date and time) and the order button turns Sort by date
+   * round (Newest first / Oldest first); Edit shows a prompt's settings (Duration, Resolution...) in
+   * a field of their own, saved under the prompt as before; Back goes to Prompt files again. Clear
+   * automatically takes the moved downloads off the list; Move automatically waits for a run's zip.
+   */
+  @Test
+  public void s206_prompt_settings_order_clear_auto_zip_wait() throws Exception {
+    StringBuilder out = new StringBuilder();
+    // Split and joined again: the same text.
+    String body = "A sunset over the sea\n\nDuration: 10 s. Resolution: 768p. Shape: 4:7.";
+    String[] parts = PromptText.split(body);
+    boolean splitOk = parts[0].equals("A sunset over the sea") && parts[1].equals("Duration: 10 s. Resolution: 768p. Shape: 4:7.") && PromptText.join(parts[0], parts[1]).equals(body)
+        && PromptText.split("Plain prompt\n\nSecond paragraph.")[1].isEmpty();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long p = vault.addPrompt(vault.addCategory("Clips"), "Sea");
+    long v = vault.addVersion(p, "Sea", "", body, "", "", null, "", null, "", null, "", "");
+    vault.addPromptFile("sea.prompt", ("PKPROMPT1\nsea\n\n\n\n\n---\n" + body).getBytes(StandardCharsets.UTF_8), "Sea v1");
+    FileSort.reversed = false;
+    app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).edit().clear().apply();
+    android.widget.LinearLayout pane = PromptSheet.create(app);
+    idle();
+    pane.findViewWithTag("prompts-prompt-files").performClick();
+    idle();
+    String info = String.valueOf(((TextView) pane.findViewWithTag("refs-info:sea.prompt")).getText());
+    String order = String.valueOf(((TextView) pane.findViewWithTag("refs-order")).getText());
+    pane.findViewWithTag("refs-order").performClick();
+    idle();
+    String turned = String.valueOf(((TextView) pane.findViewWithTag("refs-order")).getText());
+    String kept = app.getSharedPreferences(PromptSheet.SORT_PREFS, 0).getString("sort", "");
+    pane.findViewWithTag("refs-order").performClick();
+    idle();
+    out.append("card: ").append(info).append(" | order ").append(order).append(" -> ").append(turned).append(" (kept ").append(kept.replace('\t', ' ')).append(")\n");
+    boolean orderOk = info.matches(".*\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}.*") && "Newest first".equals(order) && "Oldest first".equals(turned) && kept.endsWith("\treversed") && !FileSort.reversed;
+    // Edit from the prompt file's view: the prompt and its settings apart.
+    ((View) findText(pane, "sea.prompt").getParent()).performClick();
+    idle();
+    java.lang.reflect.Field pv = PromptSheet.class.getDeclaredField("lastPromptFilePreview");
+    pv.setAccessible(true);
+    AlertDialog view = (AlertDialog) pv.get(null);
+    view.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    android.widget.EditText promptField = (android.widget.EditText) pane.findViewWithTag("prompt-body");
+    android.widget.EditText settingsField = (android.widget.EditText) pane.findViewWithTag("prompt-settings");
+    String shownPrompt = String.valueOf(promptField.getText()), shownSettings = String.valueOf(settingsField.getText());
+    settingsField.setText("Duration: 5 s. Resolution: 768p.");
+    pane.findViewWithTag("prompt-save-here").performClick();
+    idle();
+    String saved = vault.version(v).body;
+    pane.findViewWithTag("prompt-editor-back").performClick();
+    idle();
+    boolean backToFiles = findText(pane, "PROMPT FILES") != null;
+    out.append("editor: prompt [").append(shownPrompt).append("] settings [").append(shownSettings).append("] | saved [").append(saved.replace("\n", "\\n")).append("] | Back: Prompt files ").append(backToFiles).append('\n');
+    boolean editOk = shownPrompt.equals("A sunset over the sea") && shownSettings.equals("Duration: 10 s. Resolution: 768p. Shape: 4:7.")
+        && saved.equals("A sunset over the sea\n\nDuration: 5 s. Resolution: 768p.") && backToFiles;
+    java.lang.reflect.Field open = PromptSheet.class.getDeclaredField("promptFilesOpen");
+    open.setAccessible(true);
+    open.set(null, false);
+    // Clear automatically, and Move automatically waiting for the run's zip.
+    File dl = new File(app.getCacheDir(), "m7-dl"), pics = new File(app.getCacheDir(), "m7-pics"), list = new File(app.getCacheDir(), "m7-list");
+    dl.mkdirs();
+    pics.mkdirs();
+    list.mkdirs();
+    File shot = new File(dl, "shot.png");
+    Files.write(shot.toPath(), new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+    SogniDownloads.init(list);
+    long r = SogniDownloads.started("SogniPedit.java", 5000L);
+    SogniDownloads.result(r, "Succeeded: shot.png", "saved " + shot.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(r);
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.auto = true;
+    DownloadMove.clearAuto = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "m7-pics");
+    DownloadMove.zipping.incrementAndGet();
+    DownloadsScreen.finished(app);
+    Thread.sleep(200);
+    boolean waited = DownloadMove.waitingForZip && shot.isFile();
+    DownloadMove.zipping.decrementAndGet();
+    DownloadsScreen.lastMoveSaid = null;
+    DownloadsScreen.zipSaved(app);
+    for (int i = 0; i < 100 && DownloadsScreen.lastMoveSaid == null; i++) Thread.sleep(20);
+    for (int i = 0; i < 100 && DownloadsScreen.moving.get(); i++) Thread.sleep(20);
+    idle();
+    boolean movedAfter = new File(pics, "shot.png").isFile() && !shot.exists() && !DownloadMove.waitingForZip;
+    int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
+    out.append("zip: waited ").append(waited).append(", then ").append(DownloadsScreen.lastMoveSaid).append(", moved ").append(movedAfter).append(" | Clear automatically: runs left ").append(left).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.auto = false;
+    DownloadMove.clearAuto = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s206_prompt_settings_order_clear_auto_zip_wait", out.toString());
+    if (!(splitOk && orderOk && editOk && waited && movedAfter && left == 0)) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 03112026_6: Settings' Default move folders (Images, Videos, Music with Browse); the Media browser's
    * File menu (the imports, the zips, Move defined media types); with no folder picked, Move defined
    * media types asks for them, then moves the folder's files of those types (a file in its folder stays).

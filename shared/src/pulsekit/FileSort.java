@@ -17,6 +17,29 @@ public final class FileSort {
   /** The choice shown ("by date" at first, the order the galleries had before). */
   public static volatile String current = "by date";
 
+  /** The other way round: by date the oldest first, by size the smallest, by the others Z to A. */
+  public static volatile boolean reversed;
+
+  /** What the order button says for `choice` the way it is now ("Newest first", "Oldest first", "A to Z"...). */
+  public static String orderLabel(String choice, boolean reversed) {
+    String c = valid(choice);
+    if (c.equals("by date")) return reversed ? "Oldest first" : "Newest first";
+    if (c.equals("by size")) return reversed ? "Smallest first" : "Largest first";
+    return reversed ? "Z to A" : "A to Z";
+  }
+
+  /** The order kept ("by date" or "by date\treversed"): the choice and the way. */
+  public static String keep() {
+    return current + (reversed ? "\treversed" : "");
+  }
+
+  /** The order read back from what keep wrote (an older "by date" alone is the usual way). */
+  public static void restore(String kept) {
+    String k = kept == null ? "" : kept.trim();
+    reversed = k.endsWith("\treversed");
+    current = valid(reversed ? k.substring(0, k.length() - "\treversed".length()) : k);
+  }
+
   private FileSort() {}
 
   /** `choice` when it is one of CHOICES, else "by date". */
@@ -27,6 +50,12 @@ public final class FileSort {
 
   /** The files in `choice`'s order (a new list); by category needs the library (`vault`). */
   public static List<PromptVault.StoredFile> sorted(List<PromptVault.StoredFile> files, String choice, final PromptVault vault) {
+    List<PromptVault.StoredFile> out = sortedOneWay(files, choice, vault);
+    if (reversed) Collections.reverse(out);
+    return out;
+  }
+
+  private static List<PromptVault.StoredFile> sortedOneWay(List<PromptVault.StoredFile> files, String choice, final PromptVault vault) {
     String c = valid(choice);
     if (!c.equals("by category") && !c.equals("by name, version")) return sorted(files, c);
     List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>(files == null ? new ArrayList<PromptVault.StoredFile>() : files);
@@ -57,18 +86,20 @@ public final class FileSort {
     return main == null || main.id == c.id ? one(c.name) : one(main.name) + " \u203a " + one(c.name);
   }
 
-  /** A card's line under the name: its category (when it has one), its type, and with by type or by date its date. */
+  /** A card's line under the name: its category (when it has one), its type, and when it was kept (date and time). */
   public static String info(PromptVault vault, PromptVault.StoredFile f, String choice) {
     StringBuilder sb = new StringBuilder();
     String cat = category(vault, f);
     if (cat.length() > 0) sb.append(cat).append(" \u00b7 ");
     String e = ext(f.name);
     sb.append(e.length() == 0 ? "file" : e.toUpperCase(java.util.Locale.ROOT));
-    PromptVault.Version v = vault == null ? null : vault.version(f.versionId);
-    String c = valid(choice);
-    if (v != null && v.created > 0 && (c.equals("by type") || c.equals("by date"))) {
-      sb.append(" \u00b7 ").append(new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(new java.util.Date(v.created)));
+    // When it was kept, date and time (Sort by date's order shows in it).
+    long created = f.created;
+    if (created <= 0) {
+      PromptVault.Version v = vault == null ? null : vault.version(f.versionId);
+      if (v != null) created = v.created;
     }
+    if (created > 0) sb.append(" \u00b7 ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.ROOT).format(new java.util.Date(created)));
     return sb.toString();
   }
 
