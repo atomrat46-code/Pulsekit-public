@@ -951,6 +951,8 @@ final class StyleLibrary {
                 exp.addActionListener(ev -> onExport.run());
                 m.add(exp);
             }
+            // Add to Collection: the file set, a link in a collection.
+            if (key != null && key.startsWith("f:")) m.add(CollectionsWindow.addItem(app, head, MediaCollections.KIND_FILESET, key, label, 0));
             JMenuItem del = new JMenuItem(deleteLabel);
             del.addActionListener(ev -> onDelete.run());
             m.add(del);

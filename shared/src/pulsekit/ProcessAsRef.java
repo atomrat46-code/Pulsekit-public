@@ -170,6 +170,23 @@ public final class ProcessAsRef {
     return withPicture(saved, token, path);
   }
 
+  /**
+   * The rows left out of the run (kept beside the Params, ProgramParams.OFF_KEY) without the slot's
+   * row: the picture put there is used (its Use box ticked again), not the one kept while it was
+   * unticked. Null when the slot's row was not left out.
+   */
+  public static String offWithout(String kept, String token) {
+    if (kept == null) return null;
+    List<String> args = JavaRun.split(kept);
+    int at = args.indexOf(token);
+    if (at < 0) return null;
+    args.remove(at);
+    if (at < args.size() && !args.get(at).startsWith("--")) args.remove(at);
+    StringBuilder sb = new StringBuilder();
+    for (String a : args) sb.append(sb.length() == 0 ? "" : " ").append(JavaRun.quoteArg(a));
+    return sb.toString();
+  }
+
   /** The choice kept last time (an empty one when there is none). */
   public static Choice load(File dir) {
     Choice c = new Choice();

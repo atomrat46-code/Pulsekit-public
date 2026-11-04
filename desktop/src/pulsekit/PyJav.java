@@ -1078,6 +1078,11 @@ final class PyJav {
                 // PlayList: the playlist it wrote (or merged) kept with the playlists, and opened in the Playlist window.
                 String list = "PlayList.java".equals(name) ? PlaylistWindow.kept(app, result) : null;
                 if (list != null) PlaylistWindow.open(app, list);
+                // Collections: the Collections viewer (on the collection it names).
+                if (result.code == 0 && "Collections.java".equals(name)) {
+                    final String coll = MediaCollections.opened(result.log);
+                    SwingUtilities.invokeLater(() -> CollectionsWindow.show(app, coll));
+                }
                 // Any other failure with its workflow known: asked whether to resume it (no new run is paid for).
                 java.util.List<String> resume = javaProg && !inBatch && result.log != null && result.log.indexOf("Failed") >= 0 ? JavaRun.resumeArgs(name, src, result.log, argv) : null;
                 if (resume != null) {
@@ -2923,6 +2928,13 @@ final class PyJav {
                     JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                     picks.add(pick);
                     picks.add(db);
+                    // A picture row: Recent, the reference pictures used last as small thumbnails.
+                    if (ProgramParams.previewsPicture(p)) {
+                        JButton recent = new JButton(RecentRefs.RECENT);
+                        recent.setName("params-recent:" + p.token);
+                        recent.addActionListener(e -> this.recentRefs(recent, ps, values, index, fileLabels));
+                        picks.add(recent);
+                    }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 } else {
@@ -3322,11 +3334,46 @@ final class PyJav {
      * for a picture row gives its first frame instead, and its last frame to the next picture row
      * still empty (read with VLC off the Swing thread; a video it cannot read stays as it is).
      */
+    /** Recent's menu shown last (for the tests). */
+    static javax.swing.JPopupMenu lastRecentRefs;
+
+    /** Recent: the reference pictures used last, each a small thumbnail with its name; a click puts it in the row. */
+    void recentRefs(java.awt.Component at, java.util.List<ProgramParams.Param> ps, String[] values, int index, JLabel[] labels) {
+        java.util.List<File> pics = RecentRefs.list(PromptDb.dir());
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        if (pics.isEmpty()) {
+            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No recent reference pictures yet");
+            none.setEnabled(false);
+            m.add(none);
+        }
+        for (final File f : pics) {
+            javax.swing.JMenuItem it = new javax.swing.JMenuItem(f.getName());
+            it.setName("params-recent-ref:" + f.getName());
+            try {
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f);
+                if (img != null) {
+                    int side = 48;
+                    double k = Math.min(side / (double) img.getWidth(), side / (double) img.getHeight());
+                    it.setIcon(new javax.swing.ImageIcon(img.getScaledInstance(Math.max(1, (int) (img.getWidth() * k)), Math.max(1, (int) (img.getHeight() * k)), java.awt.Image.SCALE_SMOOTH)));
+                }
+            } catch (Exception ignored) {
+                // its name only
+            }
+            it.addActionListener(e -> this.assignFile(ps, values, index, labels, f.getAbsolutePath(), f.getName() + " \u00b7 recent"));
+            m.add(it);
+        }
+        MenuCancel.add(m);
+        lastRecentRefs = m;
+        if (at.isShowing()) m.show(at, 0, at.getHeight());
+    }
+
     void assignFile(java.util.List<ProgramParams.Param> ps, String[] values, int index, JLabel[] labels, String path, String shown) {
         final int[][] frames = ProgramParams.framesFor(ps, values, index, path);
         if (frames.length == 0) {
             values[index] = path;
             if (labels[index] != null) labels[index].setText(shown != null ? shown : new File(path).getName());
+            // A picture: among the recent references (Recent beside a picture row).
+            if (path != null && MediaDir.kind(path) == MediaDir.PICTURE) RecentRefs.add(PromptDb.dir(), new File(path));
             return;
         }
         final String video = new File(path).getName();

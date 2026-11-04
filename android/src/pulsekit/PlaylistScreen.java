@@ -160,6 +160,10 @@ final class PlaylistScreen {
         });
         delete.setTag("playlist-delete");
         top.addView(delete);
+        // Add to Collection: the playlist itself, a link in a collection.
+        TextView collect = app.pill(MediaCollections.ADD + "\u2026", false, v -> CollectionsScreen.addTo(app, MediaCollections.KIND_PLAYLIST, p.name, p.name, p.items.size()));
+        collect.setTag("playlist-collection");
+        top.addView(collect);
         topScroll.addView(top);
         col.addView(topScroll);
         // A second row (the first ran off the phone's screen): Save, Save as…, Import .pls, Merge .pls.

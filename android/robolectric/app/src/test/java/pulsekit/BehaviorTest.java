@@ -6301,8 +6301,15 @@ public class BehaviorTest {
         for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) items.append('[').append(menu.getListView().getAdapter().getItem(i)).append(']');
         out.append("menu: ").append(items).append(", long press handled ").append(handled).append('\n');
       }
-      Object label = menu.getListView().getAdapter().getItem(Integer.parseInt(pick[1]));
-      org.robolectric.Shadows.shadowOf(menu).clickOnItem(Integer.parseInt(pick[1]));
+      // The item by what it says (0 Add to DB Reference files, 1 ... result files, 2 the default playlist's), not its place.
+      int at = -1;
+      for (int i = 0; i < menu.getListView().getAdapter().getCount(); i++) {
+        String it = String.valueOf(menu.getListView().getAdapter().getItem(i));
+        boolean hit = pick[1].equals("0") ? it.startsWith("Add to DB Reference") : pick[1].equals("1") ? it.startsWith("Add to DB result") : it.endsWith("default playlist");
+        if (hit && at < 0) at = i;
+      }
+      Object label = menu.getListView().getAdapter().getItem(at);
+      org.robolectric.Shadows.shadowOf(menu).clickOnItem(at);
       idle();
       out.append(pick[0]).append(" \"").append(label).append("\": ").append(((TextView) get("now")).getText())
           .append(", badge ").append(bv.findViewWithTag("media-in-playlist:" + pick[0]) != null ? "\u2630" : "-")
@@ -12104,6 +12111,165 @@ public class BehaviorTest {
     b.dialog.dismiss();
     write("s196_refetch_input_and_frame_ready", out.toString());
     if (!ready) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_2: Sogni Params' Recent beside a picture row lists the reference pictures used last
+   * (newest first, each once) as small thumbnails, a tap puts one in the row; Use as a reference into
+   * Reference file 2 ticks that row's Use again when it was unticked (it went into Reference 1's place).
+   */
+  @Test
+  public void s210_recent_refs_and_ref2_on() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File a = new File(app.getCacheDir(), "r10-a.png"), b = new File(app.getCacheDir(), "r10-b.png");
+    Files.write(a.toPath(), plainPng(40, 70));
+    Files.write(b.toPath(), plainPng(70, 40));
+    RecentRefs.add(app.getFilesDir(), a);
+    RecentRefs.add(app.getFilesDir(), b);
+    RecentRefs.add(app.getFilesDir(), a);
+    StringBuilder order = new StringBuilder();
+    for (File f : RecentRefs.list(app.getFilesDir())) order.append(f.getName()).append(' ');
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    View recent = dv.findViewWithTag("params-recent:--image");
+    if (recent != null) recent.performClick();
+    idle();
+    AlertDialog list = PyJavParams.lastRecentRefs;
+    View row = list == null ? null : list.getWindow().getDecorView().findViewWithTag("params-recent-ref:r10-b.png");
+    if (row != null) row.performClick();
+    idle();
+    String value = "";
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) if (PyJavParams.shownParams.get(i).token.equals("--image")) value = PyJavParams.shownValues[i];
+    d.dismiss();
+    idle();
+    out.append("recent: ").append(order.toString().trim()).append(" | button ").append(recent != null).append(" | picked into --image: ").append(new File(value).getName()).append('\n');
+    boolean recentOk = order.toString().trim().equals("r10-a.png r10-b.png") && recent != null && row != null && value.endsWith("r10-b.png");
+    // Reference file 2 unticked in the Params (kept aside): Use as a reference into it ticks it again.
+    PyJavParams.store(app, "SogniPedit.java" + ProgramParams.OFF_KEY, "--image2 /old/kept.png");
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a coat\"", pedit, null);
+    ProcessRefDialog.last = null;
+    ProcessRefDialog.open(app, b);
+    idle();
+    ProcessRefDialog r = ProcessRefDialog.last;
+    r.setSlot(2);
+    r.go();
+    idle();
+    String off = PyJavParams.load(app, "SogniPedit.java" + ProgramParams.OFF_KEY);
+    String args = String.valueOf(app.pyJav.pkPyArgs.getText());
+    android.app.Dialog top = ShadowDialog.getLatestDialog();
+    if (top != null) top.dismiss();
+    idle();
+    out.append("ref 2: kept aside now [").append(off).append("] | args ").append(args.replace(b.getAbsolutePath(), "~/r10-b.png")).append('\n');
+    boolean ref2Ok = off != null && !off.contains("--image2") && args.contains("--image2") && args.contains(b.getAbsolutePath());
+    write("s210_recent_refs_and_ref2_on", out.toString());
+    if (!(recentOk && ref2Ok)) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026_2 Collections: Add to Collection on a Media browser thumbnail makes a collection (New
+   * collection…) with the file in it; a container in it gets a DB file; kept in the DB (read again
+   * from it); a file gone shows missing and Relocate folder… finds it by name; a DB file gone shows
+   * deleted; the Playlist window has Add to Collection…; Collections.java's run names the collection.
+   */
+  @Test
+  public void s209_collections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    File media = new File(app.getCacheDir(), "c9-media");
+    media.mkdirs();
+    File shot = new File(media, "shot.png");
+    Files.write(shot.toPath(), plainPng(40, 70));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:shot.png").performLongClick();
+    idle();
+    java.util.List<String> menu = java.util.Arrays.asList(listItems(MediaBrowser.lastMenu).split(" \\| "));
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(menu.indexOf(MediaCollections.ADD));
+    idle();
+    String pick = listItems(CollectionsScreen.lastAsk);
+    org.robolectric.Shadows.shadowOf(CollectionsScreen.lastAsk).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) CollectionsScreen.lastAsk.getWindow().getDecorView().findViewWithTag("collections-name")).setText("Holiday");
+    CollectionsScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String said = CollectionsScreen.lastSaid;
+    b.dialog.dismiss();
+    // A container, and a DB file into it.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    long fileId = vault.addReferenceImage("sky.png", plainPng(40, 70), "Sky", 1);
+    MediaCollections.load(vault);
+    MediaCollections.Collection c = MediaCollections.named("Holiday");
+    MediaCollections.addContainer(c.top, "Beach");
+    MediaCollections.save(vault);
+    PromptVault.StoredFile sky = null;
+    for (PromptVault.StoredFile f : vault.referenceFiles()) if ("sky.png".equals(f.name)) sky = f;
+    CollectionsScreen.addTo(app, MediaCollections.KIND_DB, Playlist.dbAddress(sky), "sky.png", sky.size);
+    idle();
+    org.robolectric.Shadows.shadowOf(CollectionsScreen.lastAsk).clickOnItem(0);
+    idle();
+    String containers = listItems(CollectionsScreen.lastAsk);
+    org.robolectric.Shadows.shadowOf(CollectionsScreen.lastAsk).clickOnItem(1);
+    idle();
+    String saidDb = CollectionsScreen.lastSaid;
+    // Read again from the DB.
+    MediaCollections.load(PromptVault.open(app.getFilesDir()));
+    c = MediaCollections.named("Holiday");
+    boolean kept = c != null && c.top.entries.size() == 1 && c.top.kids.size() == 1 && c.top.kids.get(0).entries.size() == 1 && c.top.total() == 2;
+    // The viewer: the collection, its container and links.
+    CollectionsScreen.show(app);
+    idle();
+    View cv = CollectionsScreen.last.getWindow().getDecorView();
+    String row = String.valueOf(((TextView) cv.findViewWithTag("collections-row:Holiday")).getText());
+    cv.findViewWithTag("collections-row:Holiday").performClick();
+    idle();
+    cv = CollectionsScreen.last.getWindow().getDecorView();
+    boolean shown = cv.findViewWithTag("collections-container:Beach") != null && cv.findViewWithTag("collections-entry:shot.png") != null;
+    // Missing: the file moved away; Relocate folder… finds it by name.
+    File moved = new File(app.getCacheDir(), "c9-moved");
+    moved.mkdirs();
+    Files.move(shot.toPath(), new File(moved, "shot.png").toPath());
+    CollectionsScreen.open(app, c, c.top);
+    idle();
+    String missing = String.valueOf(((TextView) CollectionsScreen.last.getWindow().getDecorView().findViewWithTag("collections-entry:shot.png")).getText());
+    CollectionsScreen.last.getWindow().getDecorView().findViewWithTag("collections-entry:shot.png").performClick();
+    idle();
+    String entryMenu = listItems(CollectionsScreen.lastMenu);
+    CollectionsScreen.lastMenu.dismiss();
+    int found = CollectionsScreen.relocateFolder(app, c, moved);
+    String after = MediaCollections.status(c.top.entries.get(0), CollectionsScreen.checker(app));
+    // Deleted: a DB file the library no longer has.
+    MediaCollections.Entry gone = new MediaCollections.Entry();
+    gone.kind = MediaCollections.KIND_DB;
+    gone.ref = Playlist.DB_PREFIX + "1:987654/old.png";
+    String deleted = MediaCollections.status(gone, CollectionsScreen.checker(app));
+    CollectionsScreen.last.dismiss();
+    // The Playlist window: Add to Collection….
+    PlaylistScreen.show(app, null);
+    idle();
+    boolean playlistItem = PlaylistScreen.last.getWindow().getDecorView().findViewWithTag("playlist-collection") != null;
+    PlaylistScreen.last.dismiss();
+    idle();
+    String named = MediaCollections.opened("Succeeded: Pulsekit opens the Collections viewer\nCollections: Holiday");
+    out.append("menu has it ").append(menu.contains(MediaCollections.ADD)).append(" | pick ").append(pick).append(" | ").append(said).append('\n')
+        .append("containers ").append(containers).append(" | ").append(saidDb).append(" | kept ").append(kept).append('\n')
+        .append("viewer: ").append(row.replace('\n', ' ')).append(" | shown ").append(shown).append('\n')
+        .append("moved: ").append(missing.replace('\n', ' ')).append(" | menu ").append(entryMenu).append(" | relocated ").append(found).append(", now [").append(after).append("] | DB gone: ").append(deleted)
+        .append(" | playlist item ").append(playlistItem).append(" | Collections.java names ").append(named).append('\n');
+    write("s209_collections", out.toString());
+    boolean ok = menu.contains(MediaCollections.ADD) && pick.equals("New collection\u2026") && said.equals("shot.png added to Holiday") && containers.equals("Holiday | Holiday \u203a Beach | New container\u2026")
+        && saidDb.equals("sky.png added to Holiday \u203a Beach") && kept && row.startsWith("Holiday\n2 links \u00b7 1 container") && shown && missing.endsWith("missing")
+        && entryMenu.contains(CollectionsScreen.RELOCATE_ITEM) && found == 1 && after.isEmpty() && "deleted".equals(deleted) && playlistItem && "Holiday".equals(named);
+    if (!ok) throw new AssertionError(out.toString());
   }
 
   /**

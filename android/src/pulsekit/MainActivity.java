@@ -881,6 +881,11 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) SaveText.write(this, intent.getData());
             return;
         }
+        if (n == CollectionsScreen.RELOCATE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) CollectionsScreen.relocatePicked(this, intent.getData());
+            return;
+        }
         if (n == PyJavParams.PICK_FILE) {
             super.onActivityResult(n, n2, intent);
             // Kept: the next Select file opens in this file's folder.
@@ -1299,6 +1304,11 @@ public class MainActivity extends UiKit {
         playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         playlists.setTextColor(FG);
         playlists.setTag("file-playlists");
+        // Collections: containers of links to files, DB files, playlists and file sets.
+        android.widget.TextView collections = this.text(MediaCollections.TITLE, 14, true);
+        collections.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        collections.setTextColor(FG);
+        collections.setTag("file-collections");
         android.widget.TextView compare = this.text("Compare Hits", 14, true);
         compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
@@ -1316,6 +1326,7 @@ public class MainActivity extends UiKit {
         menu.addView(sound);
         menu.addView(backup);
         menu.addView(playlists);
+        menu.addView(collections);
         menu.addView(general);
         menu.addView(dbSettings);
         menu.addView(midi);
@@ -1379,6 +1390,10 @@ public class MainActivity extends UiKit {
         playlists.setOnClickListener(v -> {
             pop.dismiss();
             PlaylistScreen.show(this, null);
+        });
+        collections.setOnClickListener(v -> {
+            pop.dismiss();
+            CollectionsScreen.show(this);
         });
         midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));

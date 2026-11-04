@@ -233,6 +233,8 @@ final class PromptDb {
             // Add to playlist (a list picked, or a new one) and Add to default playlist.
             m.add(PlaylistWindow.addMenu(app, Playlist.dbAddress(file), file.name));
             m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
+            // Add to Collection: a link to the DB file.
+            m.add(CollectionsWindow.addItem(app, card, MediaCollections.KIND_DB, Playlist.dbAddress(file), file.name, file.size));
             this.lastCardMenu = m;
             MenuCancel.add(m);
             m.show(card, 10, 10);

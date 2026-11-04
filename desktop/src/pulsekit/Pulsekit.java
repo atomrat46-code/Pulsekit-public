@@ -731,6 +731,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
             playlists.setName("file-playlists");
             playlists.addActionListener(e -> PlaylistWindow.open(this, null));
+            // Collections: containers of links to files, DB files, playlists and file sets.
+            JMenuItem collections = new JMenuItem(MediaCollections.TITLE);
+            collections.setName("file-collections");
+            collections.addActionListener(e -> CollectionsWindow.show(this));
             JMenuItem general = new JMenuItem("General settings");
             general.addActionListener(e -> GeneralSettings.show(this));
             // Use encrypted DB, the DBs and their space, Send db to zip, Import db zip.
@@ -754,6 +758,7 @@ public final class Pulsekit extends UiKit {
             menu.add(sound);
             menu.add(backup);
             menu.add(playlists);
+            menu.add(collections);
             menu.add(general);
             menu.add(dbSettings);
             menu.add(midi);

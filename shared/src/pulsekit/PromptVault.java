@@ -86,6 +86,8 @@ public final class PromptVault {
   private final List<Version> versions = new ArrayList<Version>();
   private final List<LibraryFile> library = new ArrayList<LibraryFile>();
   private final List<SogniSection> sogniSections = new ArrayList<SogniSection>();
+  /** The collections (MediaCollections: containers and their links), as their text. */
+  private String collections = "";
   private long nextId = 1;
 
   /**
@@ -474,6 +476,13 @@ public final class PromptVault {
     String blob = which == 1 ? version.ref1Blob : which == 2 ? version.ref2Blob : version.resultBlob;
     if (blob != null) return blobBytes(blob);
     return copy(which == 1 ? version.ref1 : which == 2 ? version.ref2 : version.result);
+  }
+
+  /** Whether the library still has the file (a version's, or one kept on its own), without reading it. */
+  public synchronized boolean hasFile(long versionId, int which) {
+    Version version = version(versionId);
+    if (version != null) return sizeOf(version, which) > 0;
+    return libraryFile(versionId) != null;
   }
 
   /** The size of the version's file in bytes, without reading it (0 when it has none). */
@@ -1169,7 +1178,7 @@ public final class PromptVault {
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
-    out.writeInt(9);
+    out.writeInt(10);
     blobsUsed.clear();
     out.writeInt(categories.size());
     for (int i = 0; i < categories.size(); i++) {
@@ -1252,6 +1261,8 @@ public final class PromptVault {
       writeUtf(out, sec.text);
       out.writeLong(sec.created);
     }
+    // 10: the collections (MediaCollections' text).
+    writeUtf(out, collections);
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
     File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
@@ -1292,7 +1303,7 @@ public final class PromptVault {
     DataInputStream data = new DataInputStream(new ByteArrayInputStream(plain));
     if (data.readInt() != MAGIC) throw new IllegalStateException("Prompt database is damaged");
     int version = data.readInt();
-    if (version < 1 || version > 9) throw new IllegalStateException("Prompt database is from a newer app");
+    if (version < 1 || version > 10) throw new IllegalStateException("Prompt database is from a newer app");
     fileVersion = version;
     int ncat = data.readInt();
     for (int i = 0; i < ncat; i++) {
@@ -1384,6 +1395,7 @@ public final class PromptVault {
           sogniSections.add(sec);
         }
       }
+      if (version >= 10 && data.available() >= 4) collections = readUtf(data);
     }
   }
 
@@ -1413,6 +1425,16 @@ public final class PromptVault {
     sogniSections.add(sec);
     save();
     return sec;
+  }
+
+  /** The collections' text (MediaCollections reads and writes it). */
+  public synchronized String collectionsText() {
+    return collections == null ? "" : collections;
+  }
+
+  public synchronized void setCollectionsText(String text) throws Exception {
+    collections = text == null ? "" : text;
+    save();
   }
 
   /** Edit section: the section's entries changed (its date kept); false when it is gone. */
@@ -1896,6 +1918,7 @@ public final class PromptVault {
         }
         to.versions.add(n);
       }
+      to.collections = from.collections;
       for (SogniSection sec : from.sogniSections) {
         SogniSection n = new SogniSection();
         n.id = sec.id;

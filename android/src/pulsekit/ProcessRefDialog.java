@@ -194,9 +194,14 @@ final class ProcessRefDialog {
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = this.slot;
         ProcessAsRef.save(this.app.getFilesDir(), this.choice);
+        // Among the recent reference pictures (Params' Recent).
+        RecentRefs.add(this.app.getFilesDir(), this.picture);
         // The program's saved Params win over the run's arguments: the picture goes in there too.
         String saved = ProcessAsRef.savedWithPicture(PyJavParams.load(this.app, this.program), token, this.picture.getAbsolutePath());
         if (saved != null) PyJavParams.store(this.app, this.program, saved);
+        // The slot's row left out of the run (its Use box unticked): ticked again, so this picture is used there.
+        String off = ProcessAsRef.offWithout(PyJavParams.load(this.app, this.program + ProgramParams.OFF_KEY), token);
+        if (off != null) PyJavParams.store(this.app, this.program + ProgramParams.OFF_KEY, off);
         PyJav pj = this.app.pyJav;
         pj.pkPyRecentItems = this.recent;
         int index = item == null ? -1 : this.recent.indexOf(item);

@@ -82,6 +82,9 @@ public final class FileSetClicks {
           items.add("Export .fset");
           acts.add(onExport);
         }
+        // Add to Collection: the file set, a link in a collection.
+        items.add(MediaCollections.ADD);
+        acts.add(() -> CollectionsScreen.addTo(host, MediaCollections.KIND_FILESET, key, label, 0));
         items.add("Delete file set");
         if (onDelete != null) acts.add(onDelete);
         new android.app.AlertDialog.Builder(host)

@@ -167,9 +167,14 @@ final class ProcessRefDialog {
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = slot;
         ProcessAsRef.save(PromptDb.dir(), this.choice);
+        // Among the recent reference pictures (Params' Recent).
+        RecentRefs.add(PromptDb.dir(), this.picture);
         // The program's saved Params win over the run's arguments: the picture goes in there too.
         String saved = ProcessAsRef.savedWithPicture(this.app.pyJav.loadParams(name), s.get(slot - 1), this.picture.getAbsolutePath());
         if (saved != null) this.app.pyJav.saveParams(name, saved);
+        // The slot's row left out of the run (its Use box unticked): ticked again, so this picture is used there.
+        String off = ProcessAsRef.offWithout(this.app.pyJav.loadParams(name + ProgramParams.OFF_KEY), s.get(slot - 1));
+        if (off != null) this.app.pyJav.saveParams(name + ProgramParams.OFF_KEY, off);
         this.dialog.dispose();
         // The Media browser closes, so the program and its Params are on top.
         if (this.app.mediaBrowser != null && this.app.mediaBrowser.last != null && this.app.mediaBrowser.last.isShowing()) this.app.mediaBrowser.last.dispose();
