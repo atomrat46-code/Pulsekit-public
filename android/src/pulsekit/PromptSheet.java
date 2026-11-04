@@ -2257,11 +2257,21 @@ public final class PromptSheet {
     if (picture) {
       items.add("Upscale/Resize image");
       runs.add(() -> upscaleStored(activity, versionId, which, name));
-      // Needing no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+      // Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
       final byte[] bytes = vault.fileBytes(versionId, which);
-      if (MediaDir.processRef(activity.getFilesDir(), name, bytes)) {
+      if (MediaDir.useRef(name, bytes)) {
         items.add(MediaDir.PROCESS_REF);
-        runs.add(() -> ProcessRefDialog.open((MainActivity) activity, name, bytes));
+        runs.add(() -> {
+          String q = UpscaleCheck.refQuestion(activity.getFilesDir(), name, bytes);
+          if (q == null) {
+            ProcessRefDialog.open((MainActivity) activity, name, bytes);
+            return;
+          }
+          lastRefAsk = new AlertDialog.Builder(activity).setTitle(MediaDir.PROCESS_REF).setMessage(q)
+            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> upscaleStored(activity, versionId, which, name))
+            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> ProcessRefDialog.open((MainActivity) activity, name, bytes))
+            .setNegativeButton("Cancel", null).show();
+        });
       }
       // A made picture carrying its Sogni job id: Sogni job id (and the workflow that made it).
       final String job = AppSettings.showSogni() ? SogniApi.jobIn(bytes) : null;
@@ -2406,6 +2416,9 @@ public final class PromptSheet {
 
   /** Where Sort by (the Ref files and Result files galleries) is kept. */
   static final String SORT_PREFS = "pulsekit-file-sort";
+
+  /** Use as a reference's question (upscale first?), shown last (for the tests). */
+  static AlertDialog lastRefAsk;
 
   /** The file menu shown last, for the tests. */
   static AlertDialog lastFileMenu;

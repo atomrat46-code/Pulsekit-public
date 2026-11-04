@@ -181,8 +181,8 @@ final class MediaBrowser {
         // Remembered: the folder picked and the folders opened under it, for the next time.
         final List<String> under = new ArrayList<String>();
         for (File f = dir; f != null && !f.equals(root); f = f.getParentFile()) under.add(0, f.getPath());
-        // Choose file's Download and favourite tabs do not change the Recent MB folder.
-        if (this.chooser == null || "recent".equals(this.tab)) MediaDir.remember(root.getPath(), under);
+        // Choose file's Download tab does not change the Recent MB folder; a favourite opened does (it is the folder in use).
+        if (this.chooser == null || "recent".equals(this.tab) || this.tab.startsWith("fav")) MediaDir.remember(root.getPath(), under);
         saveLoop();
         final AtomicBoolean gone = new AtomicBoolean();
         List<MediaDir.Entry> read = list(dir, this.chooser != null);
@@ -1168,8 +1168,9 @@ final class MediaBrowser {
         // A file already in the playlist: its third item takes it out.
         final boolean inList = this.listed.contains(f.getAbsolutePath());
         String[] built = MediaDir.menu(inList, entry.kind, this.chooser == null, entry.name, true);
-        // A picture that needs no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
-        if (entry.kind == MediaDir.PICTURE && MediaDir.processRef(PromptDb.dir(), entry.name, MediaDir.head(f))) {
+        // A picture: Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
+        final byte[] refHead = entry.kind == MediaDir.PICTURE ? MediaDir.head(f) : null;
+        if (refHead != null && MediaDir.useRef(entry.name, refHead)) {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.PROCESS_REF;
         }
@@ -1192,7 +1193,20 @@ final class MediaBrowser {
             item.setName("media-menu:" + (slot >= 0 ? String.valueOf(slot) : items[i]));
             if (MediaDir.PROCESS_REF.equals(items[i])) {
                 final File backRoot = this.shownRoot, backDir = this.shown;
-                item.addActionListener(e -> ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir)));
+                item.addActionListener(e -> {
+                    String q = UpscaleCheck.refQuestion(PromptDb.dir(), entry.name, refHead);
+                    if (q != null) {
+                        Object[] options = {UpscaleCheck.UPSCALE_FIRST, UpscaleCheck.AS_IT_IS, "Cancel"};
+                        int ans = javax.swing.JOptionPane.showOptionDialog(card, q, MediaDir.PROCESS_REF, javax.swing.JOptionPane.DEFAULT_OPTION,
+                            javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                        if (ans == 0) {
+                            app.setNow(this.menuPicked(entry, f, MediaDir.UPSCALE_ITEM));
+                            return;
+                        }
+                        if (ans != 1) return;
+                    }
+                    ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
+                });
                 menu.add(item);
                 continue;
             }

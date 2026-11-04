@@ -10875,7 +10875,11 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
-  /** Media browser: a 4:7 picture's long-press menu has Process as a Sogni reference (a 4:3 one, to upscale first, has not), in alphabetical order; the item opens the reference dialog. */
+  /**
+   * Media browser: a picture's long-press menu has Use as a reference (a 4:7 one and a 4:3 one), in
+   * alphabetical order; on the 4:7 one it opens the reference dialog, on the 4:3 one it asks first
+   * (Upscale first, Use as it is).
+   */
   @Test
   public void s179_process_ref_menu() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -10911,11 +10915,45 @@ public class BehaviorTest {
     String said = shown instanceof AlertDialog && org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage() != null ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) shown).getMessage()) : "";
     boolean opened = ProcessRefDialog.last != null || said.startsWith("No program that takes pictures");
     if (shown != null) shown.dismiss();
+    if (ProcessRefDialog.last != null && ProcessRefDialog.last.dialog != null) ProcessRefDialog.last.dialog.dismiss();
+    // The 4:3 one: asked whether to upscale it first; Use as it is opens the reference dialog.
+    bv.findViewWithTag("media-card:wide.png").performLongClick();
+    idle();
+    MediaBrowser.lastRefAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(wide.indexOf(MediaDir.PROCESS_REF));
+    idle();
+    String asked = MediaBrowser.lastRefAsk == null ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(MediaBrowser.lastRefAsk).getMessage());
+    boolean buttons = MediaBrowser.lastRefAsk != null && UpscaleCheck.UPSCALE_FIRST.contentEquals(MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText())
+        && UpscaleCheck.AS_IT_IS.contentEquals(MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_NEUTRAL).getText());
+    ProcessRefDialog.last = null;
+    if (MediaBrowser.lastRefAsk != null) MediaBrowser.lastRefAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    for (int i = 0; i < 100; i++) {
+      idle();
+      android.app.Dialog d = ShadowDialog.getLatestDialog();
+      if (ProcessRefDialog.last != null || (d instanceof AlertDialog && d != MediaBrowser.lastMenu && d != b.dialog && d != MediaBrowser.lastRefAsk)) break;
+      Thread.sleep(20);
+    }
+    android.app.Dialog after = ShadowDialog.getLatestDialog();
+    String afterSaid = after instanceof AlertDialog && org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage() != null ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage()) : "";
+    boolean asIs = ProcessRefDialog.last != null || afterSaid.startsWith("No program that takes pictures");
+    if (after != null) after.dismiss();
+    if (ProcessRefDialog.last != null && ProcessRefDialog.last.dialog != null) ProcessRefDialog.last.dialog.dismiss();
+    // C's frame (4:3, to upscale): the same question, with No (Picture ready).
+    MediaBrowser.lastProcessAsk = null;
+    b.askProcessRef("clip-0m01s000.png", plainPng(640, 480), null);
+    idle();
+    boolean cAsk = MediaBrowser.lastProcessAsk != null && String.valueOf(org.robolectric.Shadows.shadowOf(MediaBrowser.lastProcessAsk).getMessage()).contains("use it as a reference")
+        && UpscaleCheck.UPSCALE_FIRST.contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText())
+        && UpscaleCheck.AS_IT_IS.contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_NEUTRAL).getText())
+        && "No".contentEquals(MediaBrowser.lastProcessAsk.getButton(AlertDialog.BUTTON_NEGATIVE).getText());
+    if (MediaBrowser.lastProcessAsk != null) MediaBrowser.lastProcessAsk.dismiss();
     b.dialog.dismiss();
+    out.append("C on a 4:3 frame: asked ").append(cAsk).append('\n');
     out.append("4:7 menu: ").append(String.join(" | ", tall)).append("\n4:3 has it: ").append(wide.contains(MediaDir.PROCESS_REF)).append(" | sorted: ").append(tall.equals(sorted))
-        .append(" | item opened the reference dialog: ").append(opened).append('\n');
+        .append(" | item opened the reference dialog: ").append(opened).append("\n4:3 asked: ").append(asked.replace('\n', ' ')).append(" | buttons ").append(buttons).append(" | as it is: ").append(asIs).append('\n');
     write("s179_process_ref_menu", out.toString());
-    if (!tall.contains(MediaDir.PROCESS_REF) || wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened) throw new AssertionError(out.toString());
+    if (!tall.contains(MediaDir.PROCESS_REF) || !wide.contains(MediaDir.PROCESS_REF) || !tall.equals(sorted) || !opened || !asked.contains("not 4:7") || !asked.contains("use it as a reference") || !buttons || !asIs || !cAsk)
+      throw new AssertionError(out.toString());
   }
 
   @Test
@@ -11855,7 +11893,8 @@ public class BehaviorTest {
     idle();
     MediaBrowser.Video v = MediaBrowser.lastVideo;
     java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
-    android.graphics.Bitmap.createBitmap(40, 30, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    // A 4:7 frame: needs no upscaling (Yes / No).
+    android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
     b.askProcessRef("walk-0m01s000.png", png.toByteArray(), v.dialog);
     idle();
     MediaBrowser.lastProcessAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
@@ -12065,6 +12104,37 @@ public class BehaviorTest {
     b.dialog.dismiss();
     write("s196_refetch_input_and_frame_ready", out.toString());
     if (!ready) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 04112026: Choose file on a favourite tab: that folder is the Recent MB folder now (the folder in
+   * use); the Media browser's letters row is one line, scrolled sideways (no tall gaps).
+   */
+  @Test
+  public void s207_favourite_tab_is_recent_and_letters_one_line() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File fav = new File(app.getCacheDir(), "parannetut");
+    fav.mkdirs();
+    Files.write(new File(fav, "a.png").toPath(), plainPng(40, 70));
+    MediaBrowser.load(app);
+    MediaDir.favourites.clear();
+    MediaDir.addFavourite(fav.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastRoot = "";
+    MediaBrowser b = MediaBrowser.chooseTab(app, "fav:0", (name, file) -> {}, null);
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String recent = MediaDir.lastRoot;
+    View legend = b.dialog.getWindow().getDecorView().findViewWithTag("media-filter-name");
+    boolean oneLine = legend != null && legend.getParent() != null && legend.getParent().getParent() instanceof android.widget.HorizontalScrollView
+        && ((TextView) legend).getMaxLines() == 1;
+    b.dialog.dismiss();
+    idle();
+    MediaDir.favourites.clear();
+    out.append("Recent MB folder after the favourite tab: ").append(new File(recent).getName()).append(" | letters row one line ").append(oneLine).append('\n');
+    write("s207_favourite_tab_is_recent_and_letters_one_line", out.toString());
+    if (!fav.getAbsolutePath().equals(recent) || !oneLine) throw new AssertionError(out.toString());
   }
 
   /**

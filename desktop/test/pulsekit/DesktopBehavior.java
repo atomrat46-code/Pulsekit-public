@@ -7901,7 +7901,10 @@ public final class DesktopBehavior {
     synchronized (answers) {
       answers.add("Clear");
     }
-    boolean cleared = DownloadsScreen.askClear(app, null);
+    // On the window's thread, as Move now asks it (asked from another thread, the answer could be lost).
+    final boolean[] clearedBox = new boolean[1];
+    edt(() -> clearedBox[0] = DownloadsScreen.askClear(app, null));
+    boolean cleared = clearedBox[0];
     idle();
     int left = SogniDownloads.tab(SogniDownloads.FINISHED).size();
     String all = DownloadMove.clearAllAsk(SogniDownloads.notMoved());
@@ -9082,8 +9085,8 @@ public final class DesktopBehavior {
   }
 
   /**
-   * Process as a Sogni reference on a picture's menu: a 4:7 picture has it, a 4:3 one (to upscale
-   * first) has not, nor any with only Sogni's music tools shown; the menu is in alphabetical order;
+   * Use as a reference on a picture's menu: a 4:7 picture has it, a 4:3 one too (asked first: Upscale
+   * first, Use as it is), none with only Sogni's music tools shown; the menu is in alphabetical order;
    * the item opens the reference dialog. ImageUpscaler's --aspect suggestion for the input picture.
    */
   void s170_process_ref_menus() throws Exception {
@@ -9139,6 +9142,27 @@ public final class DesktopBehavior {
       idle();
     }
     boolean asked = this.out.toString().contains("No program that takes pictures");
+    // The 4:3 one: asked whether to upscale it first; Use as it is goes on to the reference dialog.
+    final MediaDir.Entry w = new MediaDir.Entry();
+    w.name = wide.getName();
+    w.id = wide.getAbsolutePath();
+    w.kind = MediaDir.PICTURE;
+    w.size = wide.length();
+    edt(() -> mb.menu(w, wide, new javax.swing.JButton(), 0, 0));
+    javax.swing.JMenuItem wideItem = null;
+    for (Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.PROCESS_REF.equals(((javax.swing.JMenuItem) c).getText())) wideItem = (javax.swing.JMenuItem) c;
+    final javax.swing.JMenuItem wItem = wideItem;
+    int before = this.out.length();
+    synchronized (answers) {
+      answers.add(UpscaleCheck.AS_IT_IS);
+    }
+    if (wItem != null) SwingUtilities.invokeLater(wItem::doClick);
+    for (int i = 0; i < 30 && !this.out.substring(before).contains("No program that takes pictures"); i++) {
+      Thread.sleep(100);
+      idle();
+    }
+    String wideSaid = this.out.substring(before);
+    boolean wideAsked = wideSaid.contains("or use it as a reference as it is?") && wideSaid.contains("pressed " + UpscaleCheck.AS_IT_IS) && wideSaid.contains("No program that takes pictures");
     // ImageUpscaler: the --aspect suggested for its input.
     call("showView", "py");
     call("selectListedProgram", "Java", "ImageUpscaler.java");
@@ -9146,10 +9170,10 @@ public final class DesktopBehavior {
     String[] tip = ((Pulsekit) frame).pyJav.aspectTip();
     edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("\"" + tall.getAbsolutePath() + "\""));
     String[] tipTall = ((Pulsekit) frame).pyJav.aspectTip();
-    this.out.append("item opened the dialog: ").append(asked).append("\naspect for 640x480: ").append(tip == null ? "-" : tip[0] + " (" + tip[1] + ")")
+    this.out.append("item opened the dialog: ").append(asked).append(" | 4:3 asked first, then the dialog: ").append(wideAsked).append("\naspect for 640x480: ").append(tip == null ? "-" : tip[0] + " (" + tip[1] + ")")
         .append("\naspect for 400x700: ").append(tipTall == null ? "-" : tipTall[0] + " (" + tipTall[1] + ")").append('\n');
-    boolean ok = tallMenu.contains(MediaDir.PROCESS_REF) && !wideMenu.contains(MediaDir.PROCESS_REF) && !musicMenu.contains(MediaDir.PROCESS_REF)
-        && tallMenu.equals(sortedTall) && asked && tip != null && tip[0].equals("4:3") && tipTall != null && tipTall[0].equals("4:7");
+    boolean ok = tallMenu.contains(MediaDir.PROCESS_REF) && wideMenu.contains(MediaDir.PROCESS_REF) && !musicMenu.contains(MediaDir.PROCESS_REF)
+        && tallMenu.equals(sortedTall) && asked && wideAsked && tip != null && tip[0].equals("4:3") && tipTall != null && tipTall[0].equals("4:7");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

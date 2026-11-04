@@ -751,6 +751,22 @@ final class PromptDb {
         page.loadVersion(v.id);
     }
 
+    /** What C's question picked last: 0 as a reference, 1 upscale first, 2 not as a reference (for the tests). */
+    static int lastFramePick = -1;
+
+    /** A frame C captured, on to ImageUpscaler as its input (Return: the Media browser in the video's folder). */
+    void upscaleShot(File shot, File video, java.awt.Component from) {
+        java.awt.Window w = SwingUtilities.getWindowAncestor(from);
+        if (w != null) w.dispose();
+        if (app.mediaBrowser != null && app.mediaBrowser.last != null) app.mediaBrowser.last.dispose();
+        app.showView("py");
+        app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
+        app.pyJav.setInputFile(shot);
+        final File folder = video.getAbsoluteFile().getParentFile();
+        app.pyJav.setReturn(() -> app.mediaBrowser.open(folder));
+        SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+    }
+
     /** A picture's preview, scaled into the cell; null for anything Java cannot read as a picture. Its size: lastSize. */
     static ImageIcon thumb(String name, byte[] bytes) {
         if (bytes == null) return null;
@@ -1371,12 +1387,23 @@ final class PromptDb {
             JMenuItem upscale = new JMenuItem("Upscale/Resize image");
             upscale.addActionListener(e -> this.upscale(file));
             menu.add(upscale);
-            // Needing no upscaling: Process as a Sogni reference (the Sogni picture tools shown).
+            // Use as a reference (the Sogni picture tools shown); one to upscale is asked about first.
             final byte[] picture = this.bytesOf(file);
-            if (MediaDir.processRef(dir(), file.name, picture)) {
+            if (MediaDir.useRef(file.name, picture)) {
                 JMenuItem process = new JMenuItem(MediaDir.PROCESS_REF);
                 process.setName("gallery-process-ref");
                 process.addActionListener(e -> {
+                    String q = UpscaleCheck.refQuestion(dir(), file.name, picture);
+                    if (q != null) {
+                        Object[] options = {UpscaleCheck.UPSCALE_FIRST, UpscaleCheck.AS_IT_IS, "Cancel"};
+                        int ans = javax.swing.JOptionPane.showOptionDialog(app, q, MediaDir.PROCESS_REF, javax.swing.JOptionPane.DEFAULT_OPTION,
+                            javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                        if (ans == 0) {
+                            this.upscale(file);
+                            return;
+                        }
+                        if (ans != 1) return;
+                    }
                     try {
                         File kept = new File(new File(dir(), "process-ref"), PromptVault.fileTitle(file.name).replaceAll("[\\\\/:*?\"<>|]", "_"));
                         kept.getParentFile().mkdirs();
@@ -1925,18 +1952,34 @@ final class PromptDb {
             }
             this.lastCapture = null;
             this.captureFrame(name, video, player);
-            // A frame that needs no upscaling: asked whether it goes on as a Sogni reference.
+            // The frame: asked whether it goes on as a Sogni reference (Use as a reference); one to upscale
+            // (smaller than the last upscaled, or not 4:7) is asked Upscale first, Use as it is or No.
             final File shot = this.lastCapture;
-            if (shot != null && MediaDir.processRef(dir(), shot.getName(), MediaDir.head(shot))) {
+            byte[] head = shot == null ? null : MediaDir.head(shot);
+            if (shot != null && MediaDir.useRef(shot.getName(), head)) {
+                String q = UpscaleCheck.refQuestion(dir(), shot.getName(), head);
                 String yes = processAnswer != null ? processAnswer.apply(shot.getName()) : null;
-                int ans = yes != null ? ("Yes".equals(yes) ? javax.swing.JOptionPane.YES_OPTION : javax.swing.JOptionPane.NO_OPTION)
-                    : javax.swing.JOptionPane.showConfirmDialog(capture, shot.getName() + " needs no upscaling. Process it as a reference of a Sogni program\n"
-                        + "(the program and prompt, then Reference file 1 or 2)?", MediaDir.PROCESS_REF, javax.swing.JOptionPane.YES_NO_OPTION);
-                if (ans == javax.swing.JOptionPane.YES_OPTION) {
+                // 0 as a reference, 1 upscale first, 2 not as a reference
+                int pick;
+                if (q == null) {
+                    int ans = yes != null ? ("Yes".equals(yes) ? javax.swing.JOptionPane.YES_OPTION : javax.swing.JOptionPane.NO_OPTION)
+                        : javax.swing.JOptionPane.showConfirmDialog(capture, shot.getName() + " needs no upscaling. Use it as a reference of a Sogni program\n"
+                            + "(the program and prompt, then Reference file 1 or 2)?", MediaDir.PROCESS_REF, javax.swing.JOptionPane.YES_NO_OPTION);
+                    pick = ans == javax.swing.JOptionPane.YES_OPTION ? 0 : 2;
+                } else {
+                    Object[] options = {UpscaleCheck.UPSCALE_FIRST, UpscaleCheck.AS_IT_IS, "No"};
+                    int ans = yes != null ? (UpscaleCheck.UPSCALE_FIRST.equals(yes) ? 0 : UpscaleCheck.AS_IT_IS.equals(yes) || "Yes".equals(yes) ? 1 : 2)
+                        : javax.swing.JOptionPane.showOptionDialog(capture, q, MediaDir.PROCESS_REF, javax.swing.JOptionPane.DEFAULT_OPTION, javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                    pick = ans == 0 ? 1 : ans == 1 ? 0 : 2;
+                }
+                lastFramePick = pick;
+                if (pick == 0) {
                     final Runnable back = browserBack(video);
                     java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
                     if (w != null) w.dispose();
                     SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
+                } else if (pick == 1) {
+                    if (processAnswer == null) this.upscaleShot(shot, video, capture);
                 } else if (processAnswer == null) {
                     // Not as a reference: Picture ready, with the frame's items (favourites, group...).
                     SwingUtilities.invokeLater(() -> app.pyJav.offerPictures(java.util.Collections.singletonList(shot)));
@@ -1957,15 +2000,7 @@ final class PromptDb {
                     PromptDb.this.captureFrame(name, video, player);
                     File shot = PromptDb.this.lastCapture;
                     if (shot == null) return;
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(capture);
-                    if (w != null) w.dispose();
-                    if (app.mediaBrowser != null && app.mediaBrowser.last != null) app.mediaBrowser.last.dispose();
-                    app.showView("py");
-                    app.programMenus.selectListedProgram("Java", "ImageUpscaler.java");
-                    app.pyJav.setInputFile(shot);
-                    final File folder = video.getAbsoluteFile().getParentFile();
-                    app.pyJav.setReturn(() -> app.mediaBrowser.open(folder));
-                    SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+                    PromptDb.this.upscaleShot(shot, video, capture);
                 });
                 this.hold.setRepeats(false);
                 this.hold.start();
