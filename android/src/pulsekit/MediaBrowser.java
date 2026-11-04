@@ -3814,23 +3814,19 @@ final class MediaBrowser {
         /** Times a long press brought Mute and the volume to the top, for the tests. */
         int raised;
 
-        /** A long press: the video pauses and Mute and the volume come to the top (another long press hides them). */
+        /** The Sound dialog (Mute and the volume), opened by a long press. */
+        Runnable soundDialog;
+
+        /** A long press: the video pauses, and a small Sound dialog shows Mute and the volume (OK closes it). */
         void hold() {
-            boolean wasPlaying = playing();
             try {
-                // Held: pauses, or (paused) plays.
-                if (wasPlaying) view.pause();
-                else view.start();
+                if (playing()) view.pause();
             } catch (RuntimeException ignored) {
                 // not ready
             }
-            if (sound != null && wasPlaying) {
-                boolean show = sound.getVisibility() != View.VISIBLE;
-                sound.setVisibility(show ? View.VISIBLE : View.GONE);
-                if (show) sound.bringToFront();
-                if (show) raised++;
-            }
+            raised++;
             paintTransport();
+            if (soundDialog != null) soundDialog.run();
         }
 
         /** The time label: where it is / how long it is. */
@@ -3913,6 +3909,7 @@ final class MediaBrowser {
         // As the last video was left: volume, zoom and speed.
         p.loop = MediaDir.loopVideos;
         p.volume = MediaDir.volume;
+        p.muted = MediaDir.muted;
         p.speed = MediaDir.speed;
         lastVideo = p;
         LinearLayout col = this.app.col();
@@ -3948,11 +3945,13 @@ final class MediaBrowser {
         // Mute and volume.
         LinearLayout sound = this.app.row();
         sound.setPadding(this.app.dp(8), this.app.dp(4), this.app.dp(8), 0);
-        p.mute = this.app.pill("Mute", false, v -> {
+        p.mute = this.app.pill(p.muted ? "Unmute" : "Mute", p.muted, v -> {
             p.muted = !p.muted;
             p.mute.setText(p.muted ? "Unmute" : "Mute");
             this.app.paintChip(p.mute, p.muted);
             p.applyVolume();
+            MediaDir.muted = p.muted;
+            save(this.app);
         });
         p.mute.setTag("media-video-mute");
         sound.addView(p.mute);
@@ -3979,10 +3978,12 @@ final class MediaBrowser {
         p.level.setTag("media-video-level");
         p.level.setMinWidth(this.app.dp(52));
         sound.addView(p.level);
-        // Mute and volume at the top, shown by a tap on the video (and hidden by the next).
+        // Mute and volume at the top, kept hidden: a long press on the video shows them in the Sound dialog.
         sound.setTag("media-video-sound");
         sound.setVisibility(View.GONE);
         p.sound = sound;
+        final SeekBar rowVolume = volume;
+        p.soundDialog = () -> this.soundDialog(p, rowVolume);
         col.addView(sound, 1);
         // Stop, Play, Pause and the position: always shown; C (capture the frame) while paused.
         LinearLayout transport = this.app.row();
@@ -4156,6 +4157,7 @@ final class MediaBrowser {
             p.setAwake(false);
             // The next video opens as this one was left.
             MediaDir.volume = p.volume;
+            MediaDir.muted = p.muted;
             MediaDir.zoom = p.zoom;
             MediaDir.speed = p.speed;
             save(this.app);
@@ -4165,6 +4167,66 @@ final class MediaBrowser {
         d.setContentView(col);
         d.show();
         p.view.start();
+    }
+
+    /** The Sound dialog shown last (for the tests). */
+    static AlertDialog lastSoundDialog;
+
+    /** A long press on a video: Mute and a volume slider in a small dialog; kept for the next video; OK closes it. */
+    void soundDialog(final Video p, final SeekBar rowVolume) {
+        LinearLayout box = this.app.col();
+        box.setPadding(this.app.dp(20), this.app.dp(10), this.app.dp(20), 0);
+        LinearLayout row = this.app.row();
+        final TextView level = this.app.text(p.muted ? "muted" : p.volume + "%", 14, false);
+        level.setTag("media-sound-level");
+        level.setMinWidth(this.app.dp(60));
+        final TextView mute = this.app.pill(p.muted ? "Unmute" : "Mute", p.muted, null);
+        mute.setTag("media-sound-mute");
+        mute.setOnClickListener(v -> {
+            p.muted = !p.muted;
+            mute.setText(p.muted ? "Unmute" : "Mute");
+            this.app.paintChip(mute, p.muted);
+            if (p.mute != null) {
+                p.mute.setText(p.muted ? "Unmute" : "Mute");
+                this.app.paintChip(p.mute, p.muted);
+            }
+            p.applyVolume();
+            level.setText(p.muted ? "muted" : p.volume + "%");
+        });
+        row.addView(mute);
+        SeekBar slider = new SeekBar(this.app);
+        slider.setMax(100);
+        slider.setProgress(p.volume);
+        slider.setTag("media-sound-volume");
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
+                p.volume = value;
+                if (rowVolume != null) rowVolume.setProgress(value);
+                p.applyVolume();
+                level.setText(p.muted ? "muted" : value + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, -2, 1f);
+        slp.leftMargin = this.app.dp(8);
+        row.addView(slider, slp);
+        row.addView(level);
+        box.addView(row);
+        lastSoundDialog = new AlertDialog.Builder(this.app).setTitle("Sound").setView(box)
+            .setPositiveButton("OK", null).create();
+        // Closed (OK, Back or a tap outside): kept for the next video.
+        lastSoundDialog.setOnDismissListener(x -> {
+            MediaDir.volume = p.volume;
+            MediaDir.muted = p.muted;
+            save(this.app);
+        });
+        lastSoundDialog.show();
     }
 
     /**

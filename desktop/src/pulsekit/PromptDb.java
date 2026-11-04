@@ -1923,6 +1923,65 @@ final class PromptDb {
         }
     }
 
+    /** The Media browser player's Sound dialog shown last, for the tests. */
+    JDialog lastSoundDialog;
+
+    /**
+     * The Media browser's video held: a small Sound dialog with Mute and the volume (they work on the
+     * player's own, hidden, Mute and volume); OK closes it, and both are kept for the next video.
+     */
+    void soundDialog(JDialog owner, final JButton mute, final javax.swing.JSlider volume, final boolean[] muted) {
+        if (this.lastSoundDialog != null && this.lastSoundDialog.isShowing()) {
+            this.lastSoundDialog.toFront();
+            return;
+        }
+        final JDialog d = new JDialog(owner, "Sound", java.awt.Dialog.ModalityType.MODELESS);
+        final JButton m = new JButton(muted[0] ? "Unmute" : "Mute");
+        m.setName("sound-dialog-mute");
+        final javax.swing.JSlider v = new javax.swing.JSlider(0, 100, volume.getValue());
+        v.setName("sound-dialog-volume");
+        v.setPreferredSize(new Dimension(180, v.getPreferredSize().height));
+        final JLabel lv = new JLabel(muted[0] ? "muted" : volume.getValue() + "%");
+        lv.setName("sound-dialog-level");
+        m.addActionListener(e -> {
+            mute.doClick();
+            m.setText(muted[0] ? "Unmute" : "Mute");
+            lv.setText(muted[0] ? "muted" : v.getValue() + "%");
+        });
+        v.addChangeListener(e -> {
+            volume.setValue(v.getValue());
+            if (!muted[0]) lv.setText(v.getValue() + "%");
+        });
+        JButton ok = new JButton("OK");
+        ok.setName("sound-dialog-ok");
+        ok.addActionListener(e -> d.dispose());
+        d.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                MediaDir.volume = volume.getValue();
+                MediaDir.muted = muted[0];
+                MediaBrowser.saveLoop();
+            }
+        });
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        row.add(m);
+        row.add(new JLabel("Volume"));
+        row.add(v);
+        row.add(lv);
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        bottom.add(ok);
+        JPanel body = new JPanel(new BorderLayout(0, 8));
+        body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        body.add(row, BorderLayout.CENTER);
+        body.add(bottom, BorderLayout.SOUTH);
+        d.setContentPane(body);
+        d.getRootPane().setDefaultButton(ok);
+        d.pack();
+        d.setLocationRelativeTo(owner);
+        this.lastSoundDialog = d;
+        d.setVisible(true);
+    }
+
     /** Media browser: the speed picked (or the remembered one), for the tests. */
     javax.swing.JComboBox<String> lastSpeed;
 
@@ -1948,10 +2007,17 @@ final class PromptDb {
         JLabel time = new JLabel("0:00 / 0:00");
         time.setName("video-time");
         final boolean[] muted = new boolean[1];
+        // The Media browser's player opens muted when the last one was left so.
+        if (remember && MediaDir.muted) {
+            muted[0] = true;
+            mute.setText("Unmute");
+            level.setText("muted");
+        }
         // The speed VLC plays at now (1 until it plays).
         final double[] rate = new double[] {1};
         final boolean[] dragging = new boolean[1];
         player.volume(startVolume);
+        if (muted[0]) player.mute(true);
         // Play, Pause and Stop each always shown (as on the phone); C saves the paused frame.
         // Play while it plays pauses it; Pause while paused plays on.
         play.addActionListener(e -> {
@@ -2156,7 +2222,7 @@ final class PromptDb {
         }
         if (remember) {
             sound.setVisible(false);
-            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and brings Mute and the volume to the top.
+            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and opens Sound (Mute, the volume, OK).
             player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
                 javax.swing.Timer hold;
                 boolean held;
@@ -2172,8 +2238,7 @@ final class PromptDb {
                     this.hold = new javax.swing.Timer(600, ev -> {
                         this.held = true;
                         if (player.playing()) player.pause();
-                        sound.setVisible(!sound.isVisible());
-                        sound.getParent().revalidate();
+                        PromptDb.this.soundDialog(dialog, mute, volume, muted);
                     });
                     this.hold.setRepeats(false);
                     this.hold.start();
@@ -2252,6 +2317,7 @@ final class PromptDb {
                 if (remember) {
                     // The Media browser's next video opens as this one was left.
                     MediaDir.volume = volume.getValue();
+                    MediaDir.muted = muted[0];
                     MediaDir.zoom = player.screen.zoom;
                     MediaDir.speed = MediaDir.SPEEDS[speed.getSelectedIndex()];
                     MediaBrowser.saveLoop();

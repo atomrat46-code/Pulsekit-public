@@ -7673,6 +7673,96 @@ public final class DesktopBehavior {
   }
 
   /**
+   * The Media browser's video held (as on the phone): it pauses and a small Sound dialog shows Mute
+   * and the volume; OK closes it, and the next video opens at that volume, muted as it was left.
+   */
+  void s199_media_video_sound_dialog() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File home = new File(System.getProperty("user.home"));
+    File clips = new File(home, "clips199");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    final java.util.function.Supplier<JDialog> open = () -> {
+      try {
+        set("lastVideo", null);
+        answers.add("Fit");
+        SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+        for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+        Thread.sleep(1500);
+        idle();
+        return (JDialog) get("lastVideo");
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    JDialog dialog = open.get();
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    set("lastSoundDialog", null);
+    // The Sound dialog stays open for the scenario.
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(800);
+    boolean wasPlaying = player.playing();
+    edt(() -> {
+      java.awt.event.MouseEvent press = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mousePressed(press);
+    });
+    Thread.sleep(1000);
+    edt(() -> {
+      java.awt.event.MouseEvent rel = new java.awt.event.MouseEvent(player.screen, java.awt.event.MouseEvent.MOUSE_RELEASED, System.currentTimeMillis(), 0, 10, 10, 1, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : player.screen.getMouseListeners()) l.mouseReleased(rel);
+    });
+    for (int i = 0; i < 50 && !answers.isEmpty(); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    idle();
+    final JDialog sd = (JDialog) get("lastSoundDialog");
+    boolean opened = sd != null && sd.isShowing();
+    boolean paused = !player.playing();
+    out.append("held: was playing ").append(wasPlaying).append(", Sound dialog ").append(opened).append(sd == null ? "" : " titled " + sd.getTitle()).append(", playing ").append(player.playing())
+        .append(", sound row ").append(component(dialog, "video-sound").isVisible() ? "shown" : "hidden").append('\n');
+    if (sd == null) throw new AssertionError(out.toString());
+    edt(() -> ((javax.swing.JSlider) component(sd, "sound-dialog-volume")).setValue(35));
+    String level = ((JLabel) component(sd, "sound-dialog-level")).getText();
+    int rowVolume = ((javax.swing.JSlider) component(dialog, "video-volume")).getValue();
+    edt(() -> ((javax.swing.AbstractButton) component(sd, "sound-dialog-mute")).doClick());
+    String muteText = ((javax.swing.AbstractButton) component(sd, "sound-dialog-mute")).getText();
+    String level2 = ((JLabel) component(sd, "sound-dialog-level")).getText();
+    out.append("volume 35: ").append(level).append(", row ").append(rowVolume).append(" | Mute: ").append(muteText).append(", ").append(level2).append(", row ")
+        .append(((javax.swing.AbstractButton) component(dialog, "video-mute")).getText()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(sd, "sound-dialog-ok")).doClick());
+    idle();
+    out.append("OK: closed ").append(!sd.isShowing()).append(", kept volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    edt(() -> ((javax.swing.JButton) find(dialog.getContentPane(), "Close")).doClick());
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.loadLoop();
+    out.append("read back: volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    JDialog next = open.get();
+    String nextSaid = "next video: volume " + ((javax.swing.JSlider) component(next, "video-volume")).getValue() + ", " + ((javax.swing.AbstractButton) component(next, "video-mute")).getText();
+    out.append(nextSaid).append('\n');
+    edt(() -> ((javax.swing.JButton) find(next.getContentPane(), "Close")).doClick());
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.saveLoop();
+    boolean ok = opened && paused && "35%".equals(level) && rowVolume == 35 && "Unmute".equals(muteText) && "muted".equals(level2) && !sd.isShowing()
+        && out.toString().contains("read back: volume 35 muted true") && nextSaid.equals("next video: volume 35, Unmute");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_4: File > Add folder's media files to playlist (as on the phone): the kinds ticked of the
    * folder into a new playlist, then music into the same one.
    */

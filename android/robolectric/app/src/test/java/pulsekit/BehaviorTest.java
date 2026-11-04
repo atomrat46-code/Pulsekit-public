@@ -12114,6 +12114,73 @@ public class BehaviorTest {
   }
 
   /**
+   * The Media browser's video held: it pauses and a small Sound dialog shows Mute and the volume;
+   * OK closes it, and the next video opens at that volume, muted as it was left.
+   */
+  @Test
+  public void s213_media_video_sound_dialog() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    File media = new File(app.getCacheDir(), "m13");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    android.app.Dialog player = ShadowDialog.getLatestDialog();
+    View screen = player.getWindow().getDecorView().findViewWithTag("media-video");
+    MediaBrowser.lastSoundDialog = null;
+    long t0 = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent down = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, 50, 50, 0);
+    screen.dispatchTouchEvent(down);
+    down.recycle();
+    ShadowLooper.idleMainLooper(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+    android.view.MotionEvent up = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50, 50, 0);
+    screen.dispatchTouchEvent(up);
+    up.recycle();
+    idle();
+    AlertDialog sd = MediaBrowser.lastSoundDialog;
+    boolean opened = sd != null && sd.isShowing();
+    out.append("held: Sound dialog ").append(opened).append(", playing ").append(v.playing()).append('\n');
+    View dv = sd.getWindow().getDecorView();
+    ((android.widget.SeekBar) dv.findViewWithTag("media-sound-volume")).setProgress(35);
+    TextView level = (TextView) dv.findViewWithTag("media-sound-level");
+    out.append("volume 35: ").append(level.getText()).append(", player ").append(v.volume).append(", row ").append(((android.widget.SeekBar) player.getWindow().getDecorView().findViewWithTag("media-video-volume")).getProgress()).append('\n');
+    TextView mute = (TextView) dv.findViewWithTag("media-sound-mute");
+    mute.performClick();
+    out.append("Mute: ").append(mute.getText()).append(", ").append(level.getText()).append(", gain ").append(v.gain()).append(", row ").append(((TextView) player.getWindow().getDecorView().findViewWithTag("media-video-mute")).getText()).append('\n');
+    sd.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("OK: closed ").append(!sd.isShowing()).append(", kept volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    player.dismiss();
+    idle();
+    // Kept in the preferences: read back, and the next video opens so.
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    MediaBrowser.load(app);
+    out.append("read back: volume ").append(MediaDir.volume).append(" muted ").append(MediaDir.muted).append('\n');
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v2 = MediaBrowser.lastVideo;
+    String next = "next video: volume " + v2.volume + " muted " + v2.muted + ", " + ((TextView) ShadowDialog.getLatestDialog().getWindow().getDecorView().findViewWithTag("media-video-mute")).getText();
+    out.append(next).append('\n');
+    ShadowDialog.getLatestDialog().dismiss();
+    b.dialog.dismiss();
+    idle();
+    MediaDir.volume = 80;
+    MediaDir.muted = false;
+    write("s213_media_video_sound_dialog", out.toString());
+    boolean ok = opened && !v.playing() && v.volume == 35 && "muted".contentEquals(level.getText()) && "Unmute".contentEquals(mute.getText()) && v.gain() == 0f
+        && !sd.isShowing() && MediaDir.volume == 80 && next.equals("next video: volume 35 muted true, Unmute") && out.toString().contains("read back: volume 35 muted true");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_4: the Media browser's File > Add folder's media files to playlist: Images, Videos, Music
    * to tick and the playlist (Add new first: its name asked); the folder's files of those kinds go in.
    */
