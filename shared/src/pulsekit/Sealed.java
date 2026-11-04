@@ -20,6 +20,7 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class Sealed {
   private static final byte[] MAGIC = {'P', 'K', 'S', '1'};
   private static final Map<String, byte[]> SALTS = new HashMap<String, byte[]>();
+  private static final char[] HEX = "0123456789abcdef".toCharArray();
 
   private Sealed() {}
 
@@ -56,20 +57,76 @@ public final class Sealed {
     return cipher.doFinal(raw, MAGIC.length + 12, raw.length - MAGIC.length - 12);
   }
 
-  /** Text sealed, as hex (for a settings line). */
+  /**
+   * Text sealed (or read) lately, and its hex, for the key it was sealed with: a list written again
+   * (File > Downloads' runs, the favourites) seals only what changed. Each seal goes to the phone's
+   * keystore; sealing a long list's every line at each write held the screen for seconds ("not
+   * responding").
+   */
+  private static final Map<String, String> TEXTS = new java.util.LinkedHashMap<String, String>(256, 0.75f, true) {
+    @Override
+    protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+      return this.size() > 4096;
+    }
+  };
+  private static Object textsKey;
+
+  /** The hex sealed for `text` before with this key, or null (and the cache emptied for another key). */
+  private static synchronized String sealedBefore(String text) {
+    if (textsKey != PromptVault.keys) {
+      TEXTS.clear();
+      textsKey = PromptVault.keys;
+      return null;
+    }
+    return TEXTS.get(text);
+  }
+
+  private static synchronized void remember(String text, String hex) {
+    if (textsKey != PromptVault.keys) {
+      TEXTS.clear();
+      textsKey = PromptVault.keys;
+    }
+    if (text.length() <= 65536) TEXTS.put(text, hex);
+  }
+
+  /** Text sealed, as hex (for a settings line); the same text again: the same hex as before. */
   public static String sealText(String text) throws Exception {
-    byte[] b = seal(text.getBytes(StandardCharsets.UTF_8));
-    StringBuilder sb = new StringBuilder(b.length * 2);
-    for (byte x : b) sb.append(String.format("%02x", x & 0xff));
-    return sb.toString();
+    String before = sealedBefore(text);
+    if (before != null) return before;
+    String hex = hexOf(seal(text.getBytes(StandardCharsets.UTF_8)));
+    remember(text, hex);
+    return hex;
+  }
+
+  private static String hexOf(byte[] b) {
+    // Hex by hand (String.format for each byte was slow on the phone).
+    char[] out = new char[b.length * 2];
+    for (int i = 0; i < b.length; i++) {
+      out[2 * i] = HEX[(b[i] >> 4) & 0xf];
+      out[2 * i + 1] = HEX[b[i] & 0xf];
+    }
+    return new String(out);
+  }
+
+  /** Forgets the texts sealed (the tests swap keys and files). */
+  static synchronized void forgetTexts() {
+    TEXTS.clear();
+    textsKey = null;
   }
 
   /** sealText()'s hex opened. */
   public static String openText(String hex) throws Exception {
     if (hex == null || hex.length() % 2 != 0) throw new IllegalStateException("Not sealed text");
     byte[] b = new byte[hex.length() / 2];
-    for (int i = 0; i < b.length; i++) b[i] = (byte) Integer.parseInt(hex.substring(2 * i, 2 * i + 2), 16);
-    return new String(open(b), StandardCharsets.UTF_8);
+    for (int i = 0; i < b.length; i++) {
+      int hi = Character.digit(hex.charAt(2 * i), 16), lo = Character.digit(hex.charAt(2 * i + 1), 16);
+      if (hi < 0 || lo < 0) throw new IllegalStateException("Not sealed text");
+      b[i] = (byte) ((hi << 4) | lo);
+    }
+    String text = new String(open(b), StandardCharsets.UTF_8);
+    // Written again unchanged: this hex, without the keystore.
+    remember(text, hex);
+    return text;
   }
 
   /** A name for `text` that does not tell it: 16 hex digits of SHA-256 over the folder's salt and the text. */

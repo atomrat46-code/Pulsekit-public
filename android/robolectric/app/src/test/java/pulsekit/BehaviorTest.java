@@ -12114,6 +12114,45 @@ public class BehaviorTest {
   }
 
   /**
+   * crash-log_3: a Run press waited seconds on File > Downloads' list, each run sealed again at every
+   * write (one keystore call a run). The same text now keeps its sealed line: only what changed is
+   * sealed; a line read is written back as it was; another key seals anew.
+   */
+  @Test
+  public void s219_sealed_lines_kept() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    Sealed.forgetTexts();
+    String a = Sealed.sealText("run one"), a2 = Sealed.sealText("run one"), b = Sealed.sealText("run two");
+    // A line read back (as at start): written again as the same hex.
+    Sealed.forgetTexts();
+    String read = Sealed.openText(a);
+    String again = Sealed.sealText("run one");
+    // 300 runs in File > Downloads (it keeps the last 200): writing it again after one change seals once, quickly.
+    File dir = new File(app.getCacheDir(), "s219");
+    dir.mkdirs();
+    new File(dir, "sogni-downloads.txt").delete();
+    SogniDownloads.init(dir);
+    for (int i = 0; i < 300; i++) SogniDownloads.args(SogniDownloads.started("SogniPedit.java", 1000L + i), "--prompt p" + i);
+    byte[] before = Files.readAllBytes(new File(dir, "sogni-downloads.txt").toPath());
+    long t0 = System.nanoTime();
+    long last = 0;
+    for (int i = 0; i < 20; i++) SogniDownloads.args(last = SogniDownloads.started("SogniPedit.java", 5000L + i), "--prompt q" + i);
+    long ms = (System.nanoTime() - t0) / 1000000;
+    String[] lines = new String(Files.readAllBytes(new File(dir, "sogni-downloads.txt").toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n");
+    String first = new String(before, java.nio.charset.StandardCharsets.UTF_8).split("\n")[100];
+    boolean firstKept = java.util.Arrays.asList(lines).contains(first);
+    out.append("same text: same hex ").append(a.equals(a2)).append(", other text other ").append(!a.equals(b)).append(" | read back ").append(read).append(", written as before ").append(a.equals(again))
+        .append(" | 20 more runs: their writes in ").append(ms).append(" ms, an unchanged run's line kept ").append(firstKept).append(", lines ").append(lines.length).append('\n');
+    int expect = SogniDownloads.count();
+    SogniDownloads.init(app.getFilesDir());
+    write("s219_sealed_lines_kept", out.toString());
+    boolean ok = a.equals(a2) && !a.equals(b) && "run one".equals(read) && a.equals(again) && lines.length == expect && expect == SogniDownloads.MAX && firstKept;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * A "not responding" gets its cause: the main thread's part of Android's thread dump, and the
    * watchdog's record of a busy screen (hang-log.txt, its stack) put under Android's reason.
    */
