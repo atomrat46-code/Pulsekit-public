@@ -1400,6 +1400,8 @@ final class PlaylistScreen {
                         // not ready
                     }
                 }
+                // Sideways, a video playing: the bars hidden, the video on the whole screen (a long press pauses: they show).
+                MediaBrowser.barsFor(app, video.getVisibility() == View.VISIBLE && playhead.getVisibility() != View.VISIBLE && video.isPlaying(), head, rowPlay, rowLoop, rowSound, rowLook);
                 Playlist.Settings now = Playlist.settings(dir);
                 if (now.auto && !held[0]) {
                     boolean playable = video.getVisibility() == View.VISIBLE;
@@ -1410,6 +1412,7 @@ final class PlaylistScreen {
         };
         v.setOnDismissListener(d -> {
             main.removeCallbacks(tick);
+            MediaBrowser.portraitAgain(app);
             try {
                 video.stopPlayback();
             } catch (Exception ignored) {
@@ -1418,6 +1421,7 @@ final class PlaylistScreen {
         });
         show[0].run();
         lastViewer = v;
+        MediaBrowser.mayTurn(app);
         v.show();
         main.postDelayed(tick, 250);
         autoTick = tick;

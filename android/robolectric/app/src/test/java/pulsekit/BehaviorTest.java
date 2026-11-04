@@ -12114,6 +12114,83 @@ public class BehaviorTest {
   }
 
   /**
+   * The phone turned sideways: the full screen players (the Media browser's, Video ready's Full screen
+   * preview, the playlist viewer) let the screen turn, and back upright when closed; sideways, the
+   * Media browser's bars hide while a video plays (paused, they show).
+   */
+  @Test
+  public void s217_videos_turn_sideways() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    int full = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER, upright = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+    MediaBrowser.turning = 0;
+    java.util.function.IntFunction<String> o = x -> x == full ? "turns" : x == upright ? "upright" : String.valueOf(x);
+    File media = new File(app.getCacheDir(), "m17");
+    media.mkdirs();
+    Files.write(new File(media, "wide.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    String before = o.apply(app.getRequestedOrientation());
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:wide.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    String open = o.apply(app.getRequestedOrientation());
+    View top = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-close");
+    View transport = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-play");
+    java.util.function.Supplier<String> bars = () -> (((View) top.getParent()).getVisibility() == View.VISIBLE ? "top" : "-") + "/" + (((View) transport.getParent()).getVisibility() == View.VISIBLE ? "transport" : "-");
+    v.view.start();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String uprightPlaying = bars.get();
+    org.robolectric.RuntimeEnvironment.setQualifiers("+land");
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String sidewaysPlaying = bars.get();
+    v.pauseOrResume();
+    ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+    String sidewaysPaused = bars.get();
+    v.dialog.dismiss();
+    idle();
+    String closed = o.apply(app.getRequestedOrientation());
+    org.robolectric.RuntimeEnvironment.setQualifiers("+port");
+    b.dialog.dismiss();
+    idle();
+    // Video ready's Full screen preview.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    String readyOnly = o.apply(app.getRequestedOrientation());
+    vp.fullScreen(app, new File(app.getCacheDir(), "video-offer/walk.mp4").getAbsolutePath(), 0);
+    idle();
+    String readyFull = o.apply(app.getRequestedOrientation());
+    vp.full.dismiss();
+    idle();
+    String readyBack = o.apply(app.getRequestedOrientation());
+    vp.dialog.dismiss();
+    idle();
+    // The playlist viewer.
+    Playlist pl = new Playlist("Turn");
+    pl.items.add(new Playlist.Item(new File(media, "wide.mp4").getAbsolutePath(), "wide.mp4"));
+    PlaylistScreen.viewer(app, pl, 0);
+    idle();
+    String viewer = o.apply(app.getRequestedOrientation());
+    PlaylistScreen.lastViewer.dismiss();
+    idle();
+    String viewerBack = o.apply(app.getRequestedOrientation());
+    out.append("app ").append(before).append(" | Media browser video: ").append(open).append(", upright playing ").append(uprightPlaying).append(", sideways playing ").append(sidewaysPlaying)
+        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack)
+        .append(" | playlist viewer ").append(viewer).append(", closed ").append(viewerBack).append('\n');
+    write("s217_videos_turn_sideways", out.toString());
+    boolean ok = open.equals("turns") && uprightPlaying.equals("top/transport") && sidewaysPlaying.equals("-/-") && sidewaysPaused.equals("top/transport") && closed.equals("upright")
+        && !readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * 04112026_4: Video ready's Full screen preview: a tap pauses or plays it; paused, Loop video, Mute
    * and the volume show (hidden while it plays); a long press goes back to Video ready.
    */

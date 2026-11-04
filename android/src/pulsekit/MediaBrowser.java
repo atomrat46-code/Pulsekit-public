@@ -4028,11 +4028,14 @@ final class MediaBrowser {
         p.time.setPadding(this.app.dp(8), 0, this.app.dp(8), 0);
         top.addView(p.time);
         final Runnable[] clock = new Runnable[1];
+        // The bars (the top, the transport, zoom and speed): hidden while it plays turned sideways.
+        final View[] chrome = new View[3];
         clock[0] = () -> {
             if (!d.isShowing()) return;
             p.showTime();
             p.keepAwake();
             p.paintTransport();
+            barsFor(this.app, p.playing(), chrome);
             this.main.postDelayed(clock[0], 250);
         };
         TextView close = this.app.pill("Close", true, v -> d.dismiss());
@@ -4215,6 +4218,9 @@ final class MediaBrowser {
         p.speedLabel.setTag("media-video-speed");
         zoom.addView(p.speedLabel);
         col.addView(zoom);
+        chrome[0] = top;
+        chrome[1] = transport;
+        chrome[2] = zoom;
         // The last video's zoom.
         p.zoomTo(MediaDir.zoom);
         // No system controls over the picture: Stop, Play, Pause, C and the position are the row below,
@@ -4281,8 +4287,10 @@ final class MediaBrowser {
         p.appWindow = this.app.getWindow();
         p.dialog = d;
         d.setOnShowListener(x -> this.main.post(clock[0]));
+        mayTurn(this.app);
         d.setOnDismissListener(x -> {
             this.main.removeCallbacks(clock[0]);
+            portraitAgain(this.app);
             p.setAwake(false);
             // The next video opens as this one was left.
             MediaDir.volume = p.volume;
@@ -4296,6 +4304,58 @@ final class MediaBrowser {
         d.setContentView(col);
         d.show();
         p.view.start();
+    }
+
+    /** Full screen players open now that let the phone turn (the app is otherwise upright). */
+    static int turning;
+
+    /**
+     * A full screen player opened: the screen may turn with the phone (as its auto-rotate says), so a
+     * wide video plays across the whole screen.
+     */
+    static void mayTurn(android.app.Activity app) {
+        turning++;
+        try {
+            app.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+        } catch (RuntimeException ignored) {
+            // the phone keeps it as it is
+        }
+    }
+
+    /** That player closed: upright again once no other is open. */
+    static void portraitAgain(android.app.Activity app) {
+        turning = Math.max(0, turning - 1);
+        if (turning > 0) return;
+        try {
+            app.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        } catch (RuntimeException ignored) {
+            // the phone keeps it as it is
+        }
+    }
+
+    /** The screen turned sideways. */
+    static boolean sideways(android.content.Context c) {
+        return c.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /** The bars a player hid (to show again just those). */
+    private static final java.util.Map<View, Boolean> hiddenBars = new java.util.WeakHashMap<View, Boolean>();
+
+    /**
+     * Sideways and playing: the bars hidden, the video on the whole screen; paused (or upright) they
+     * show again, those that were shown.
+     */
+    static void barsFor(android.content.Context c, boolean playing, View... bars) {
+        boolean hide = playing && sideways(c);
+        for (View b : bars) {
+            if (b == null) continue;
+            if (hide && b.getVisibility() == View.VISIBLE) {
+                b.setVisibility(View.GONE);
+                hiddenBars.put(b, Boolean.TRUE);
+            } else if (!hide && hiddenBars.remove(b) != null) {
+                b.setVisibility(View.VISIBLE);
+            }
+        }
     }
 
     /** The Sound dialog shown last (for the tests). */

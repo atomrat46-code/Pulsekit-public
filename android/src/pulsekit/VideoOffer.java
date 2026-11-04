@@ -306,11 +306,14 @@ final class VideoOffer {
                 }
                 fm[0] = null;
                 big.stopPlayback();
+                MediaBrowser.portraitAgain(app);
                 if (view != null && at > 0) view.seekTo(at);
                 MediaBrowser.screenOn(d.getWindow(), false);
             });
             big.setVideoPath(path);
             full = d;
+            // Turned sideways, a wide clip fills the screen.
+            MediaBrowser.mayTurn(app);
             d.show();
             MediaBrowser.screenOn(d.getWindow(), true);
         }
