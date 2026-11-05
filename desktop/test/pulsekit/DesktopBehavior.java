@@ -73,7 +73,15 @@ public final class DesktopBehavior {
       }
       code = 1;
     }
-    for (Throwable e : t.errors) t.out.append("ERROR: ").append(e).append('\n');
+    for (Throwable e : t.errors) {
+      t.out.append("ERROR: ").append(e).append('\n');
+      // What went wrong inside (a dialog's inspection, run on the window's thread).
+      for (Throwable c = e.getCause(); c != null; c = c.getCause()) {
+        t.out.append("  cause: ").append(c).append('\n');
+        StackTraceElement[] st = c.getStackTrace();
+        for (int i = 0; i < Math.min(4, st.length); i++) t.out.append("    at ").append(st[i]).append('\n');
+      }
+    }
     if (!t.errors.isEmpty()) code = 1;
     File dir = new File(args[1]);
     dir.mkdirs();
@@ -7673,6 +7681,67 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Picture ready (as on the phone): Crop image in the picture's right click opens it with the crop
+   * frame on; the crop's menu has Save as…, Process as a reference (Picture ready closes) and Upscale.
+   */
+  void s205_picture_ready_crop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File pic = new File(home, "ready.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(80, 60, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final PyJav py = (PyJav) get("pyJav");
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = new boolean[1];
+    final java.util.function.Consumer<java.awt.Component> rightClick = c -> {
+      java.awt.event.MouseEvent e = new java.awt.event.MouseEvent(c, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : c.getMouseListeners()) l.mousePressed(e);
+    };
+    final java.util.function.BiFunction<javax.swing.JPopupMenu, String, AbstractButton> item = (m, n) -> {
+      for (java.awt.Component c : m.getComponents()) if (c instanceof AbstractButton && n.equals(c.getName())) return (AbstractButton) c;
+      return null;
+    };
+    final java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      return sb.toString();
+    };
+    // Picture ready, then the preview: both stay open for the scenario.
+    answers.add("(keep)");
+    answers.add("(keep)");
+    inspectNext = ready -> {
+      java.awt.Component view = component(ready, "picture-offer:ready.png");
+      rightClick.accept(view);
+      javax.swing.JPopupMenu m = py.lastReadyMenu;
+      seen.append("right click: ").append(items.apply(m).contains(CropBox.CROP)).append('\n');
+      final AbstractButton crop = item.apply(m, "picture-crop:ready.png");
+      m.setVisible(false);
+      inspectNext = preview -> {
+        seen.append("viewer: ").append(preview.getTitle()).append('\n');
+        rightClick.accept(component(preview, "preview-image"));
+        javax.swing.JPopupMenu pm = db.lastPictureMenu;
+        seen.append("crop on: ").append(items.apply(pm)).append('\n');
+        final AbstractButton process = item.apply(pm, "preview-crop:" + CropBox.PROCESS);
+        pm.setVisible(false);
+        SwingUtilities.invokeLater(process::doClick);
+      };
+      SwingUtilities.invokeLater(crop::doClick);
+    };
+    SwingUtilities.invokeLater(() -> {
+      py.offerPictures(java.util.Collections.singletonList(pic));
+      done[0] = true;
+    });
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    Thread.sleep(500);
+    idle();
+    File crop = (File) get("lastCrop");
+    seen.append("Process: Picture ready closed ").append(done[0]).append(", crop ").append(crop == null ? "none" : crop.getName()).append('\n');
+    out.append(seen);
+    boolean ok = seen.toString().contains("right click: true") && seen.toString().contains("crop on: " + CropBox.SAVE + ", " + CropBox.PROCESS + ", " + CropBox.UPSCALE + ", " + CropBox.CANCEL)
+        && done[0] && crop != null && crop.getName().equals("ready-crop.png");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Sogni Params (as on the phone): Reference image 1 and 2 (--image, --image2) each remember the
    * folder their Choose file picked from last, apart; kept with the Media browser's settings (sealed).
    */
@@ -7794,7 +7863,6 @@ public final class DesktopBehavior {
         }
         said.add(one.toString());
         out.append(one).append('\n');
-        if (System.getProperty("pulsekit.debug") != null) out.append(log.getText()).append('\n');
       }
       // Params: the field, with 1 to 4.
       String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);

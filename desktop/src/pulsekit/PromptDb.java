@@ -2501,6 +2501,13 @@ final class PromptDb {
         if (kind == 2) loadPromptVideo();
         final float[] zoom = new float[] {kind == 2 ? (float) PromptVideo.imageZoom : 1f};
         final CropBox[] cropBox = new CropBox[1];
+        // Opened by Picture ready's Crop image: the frame from the start, and Process as a reference in its menu.
+        final java.util.function.Consumer<File> process = this.previewProcess;
+        final Runnable leave = this.previewLeave;
+        if (this.previewCropNow && kind == 2) {
+            cropBox[0] = new CropBox();
+            app.setNow(CropBox.HINT);
+        }
         final boolean[] cropDrag = new boolean[1];
         // The zoom setter (made below): Crop image shows the picture at 100%.
         final java.util.List<java.util.function.Consumer<Float>> zoomTo = new java.util.ArrayList<java.util.function.Consumer<Float>>();
@@ -2574,13 +2581,28 @@ final class PromptDb {
                 void menu(java.awt.event.MouseEvent e) {
                     javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
                     m.setName("preview-picture-menu");
-                    String[] items = cropBox[0] == null ? new String[] {CropBox.CROP} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
+                    String[] items = cropBox[0] == null ? new String[] {CropBox.CROP}
+                        : process != null ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
                     for (String it : items) {
                         javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it);
                         mi.setName("preview-crop:" + it);
-                        mi.addActionListener(ev -> PromptDb.this.cropItem(it, name, bytes, cropBox, folder, dialog, label, f -> {
-                            if (!zoomTo.isEmpty()) zoomTo.get(0).accept(f);
-                        }));
+                        if (CropBox.PROCESS.equals(it)) {
+                            // Picture ready's crop: into another program as a reference (the viewer closes).
+                            mi.addActionListener(ev -> {
+                                File made = PromptDb.this.cropFile(name, bytes, cropBox[0]);
+                                if (made == null) return;
+                                dialog.dispose();
+                                process.accept(made);
+                            });
+                        } else {
+                            mi.addActionListener(ev -> {
+                                // Upscale from Picture ready's crop: Picture ready closes too (ImageUpscaler's Params go on).
+                                if (CropBox.UPSCALE.equals(it) && leave != null) leave.run();
+                                PromptDb.this.cropItem(it, name, bytes, cropBox, folder, dialog, label, f -> {
+                                    if (!zoomTo.isEmpty()) zoomTo.get(0).accept(f);
+                                });
+                            });
+                        }
                         m.add(mi);
                     }
                     PromptDb.this.lastPictureMenu = m;
@@ -2718,6 +2740,32 @@ final class PromptDb {
 
     /** The folder of the picture the Preview window shows next (the Media browser sets it): Save crop saves there. */
     File previewFolder;
+    /** Picture ready's Crop image: the preview opens with the crop frame on, and its crop goes here for Process as a reference. */
+    java.util.function.Consumer<File> previewProcess;
+    boolean previewCropNow;
+    /** Picture ready's Crop image: what closes Picture ready when the crop goes on (Upscale). */
+    Runnable previewLeave;
+
+    /** The crop cut from the picture at its full size, as <name>-crop.png in PyJav's input folder; null (said why) when it cannot be. */
+    File cropFile(String name, byte[] bytes, CropBox box) {
+        try {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            int[] p = box.pixels(img.getWidth(), img.getHeight());
+            java.awt.image.BufferedImage cut = new java.awt.image.BufferedImage(p[2], p[3], java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g = cut.createGraphics();
+            g.drawImage(img.getSubimage(p[0], p[1], p[2], p[3]), 0, 0, null);
+            g.dispose();
+            File in = new File(dir(), "pyjav-in");
+            in.mkdirs();
+            File out = new File(in, CropBox.name(name));
+            javax.imageio.ImageIO.write(cut, "png", out);
+            this.lastCrop = out;
+            return out;
+        } catch (Exception ex) {
+            app.setNow("Could not crop " + name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
+            return null;
+        }
+    }
     /** The last crop saved (where), for the tests. */
     File lastCrop;
 

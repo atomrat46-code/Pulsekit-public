@@ -1157,10 +1157,18 @@ final class PyJav {
             java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
             JLabel view = new JLabel(new javax.swing.ImageIcon(shown));
             view.setName("picture-offer:" + f.getName());
-            view.setToolTipText("Right click: Add to favourites, Add to group");
-            // Right click: Add to favourites, Add to group.
+            view.setToolTipText("Right click: Add to favourites, Add to group, Crop image");
+            // Right click: Add to favourites, Add to group, Crop image.
             final File pic = f;
-            GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
+            GroupMenus.onRightClick(view, () -> {
+                javax.swing.JPopupMenu m = GroupMenus.fileMenu(app, pic);
+                javax.swing.JMenuItem crop = new javax.swing.JMenuItem(CropBox.CROP);
+                crop.setName("picture-crop:" + pic.getName());
+                crop.addActionListener(e -> this.cropReady(pic, view));
+                m.add(crop);
+                this.lastReadyMenu = m;
+                m.show(view, 20, 20);
+            });
             view.setAlignmentX(0.0f);
             col.add(view);
             col.add(javax.swing.Box.createVerticalStrut(8));
@@ -1187,6 +1195,38 @@ final class PyJav {
             } catch (Exception ex) {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
+        }
+    }
+
+    /** Picture ready's right click menu shown last (for the tests). */
+    javax.swing.JPopupMenu lastReadyMenu;
+
+    /**
+     * Picture ready's Crop image: the picture in the preview with the crop frame on; the crop's menu
+     * has Save as… (beside the picture), Process as a reference and Upscale (both close Picture ready).
+     */
+    void cropReady(File pic, java.awt.Component from) {
+        PromptDb db = app.promptDb;
+        final Runnable leave = () -> {
+            java.awt.Window w = SwingUtilities.getWindowAncestor(from);
+            if (w != null) w.dispose();
+        };
+        db.previewFolder = pic.getAbsoluteFile().getParentFile();
+        db.previewCropNow = true;
+        db.previewLeave = leave;
+        db.previewProcess = made -> {
+            leave.run();
+            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, made));
+        };
+        try {
+            db.preview(pic.getName(), java.nio.file.Files.readAllBytes(pic.toPath()));
+        } catch (Exception ex) {
+            app.setNow("Could not read " + pic.getName());
+        } finally {
+            db.previewFolder = null;
+            db.previewCropNow = false;
+            db.previewLeave = null;
+            db.previewProcess = null;
         }
     }
 

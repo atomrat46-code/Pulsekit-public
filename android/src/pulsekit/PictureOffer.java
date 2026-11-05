@@ -43,6 +43,11 @@ final class PictureOffer {
             boolean hidden = !AppSettings.shows("I");
             if (b == null && !hidden) continue;
             final android.view.View view;
+            // The picture into another program, as its Reference file 1 or 2.
+            final JavaRun.FileOut pic = f;
+            // Crop image (its long press): a frame over the picture; the crop's long press saves it,
+            // takes it on as a reference, or upscales it.
+            final CropLayer[] crop = new CropLayer[1];
             if (b != null) {
                 ImageView image = new ImageView(app);
                 image.setImageBitmap(b);
@@ -50,23 +55,29 @@ final class PictureOffer {
                 // At most 45% of the screen high: Process as a reference shows under it without scrolling.
                 image.setMaxHeight(app.getResources().getDisplayMetrics().heightPixels * 45 / 100);
                 view = image;
+                android.widget.FrameLayout holder = new android.widget.FrameLayout(app);
+                holder.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -2));
+                crop[0] = CropLayer.over(app, holder, image, pic.name, new Cropped(app, pic.bytes));
+                view.setTag("picture-offer:" + f.name);
+                col.addView(holder, new LinearLayout.LayoutParams(-1, -2));
             } else {
                 // Not shown: held, it still has the picture's items.
                 view = app.pill("Hold for its items", false, null);
+                view.setTag("picture-offer:" + f.name);
+                col.addView(view, new LinearLayout.LayoutParams(-1, -2));
             }
-            view.setTag("picture-offer:" + f.name);
-            col.addView(view, new LinearLayout.LayoutParams(-1, -2));
-            // The picture into another program, as its Reference file 1 or 2.
-            final JavaRun.FileOut pic = f;
             // Long press: Add to favourites, Add to group.
             view.setOnLongClickListener(v -> {
-                final String[] picItems = TagDialogs.withUseLast(app, new String[] {isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
-                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD}, ReadyRecent.IMAGE);
+                java.util.List<String> base = new ArrayList<String>(java.util.Arrays.asList(isFavourite(app, pic.name, pic.bytes.length) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
+                    MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD));
+                if (crop[0] != null) base.add(CropBox.CROP);
+                final String[] picItems = TagDialogs.withUseLast(app, base.toArray(new String[0]), ReadyRecent.IMAGE);
                 menu = new AlertDialog.Builder(app)
                     .setTitle(pic.name)
                     .setItems(picItems, (d, w) -> {
                         String it = picItems[w];
-                        if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
+                        if (it.equals(CropBox.CROP) && crop[0] != null) crop[0].start();
+                        else if (it.equals(Playlist.ADD)) PlaylistScreen.addReady(app, pic.name, pic.bytes, null);
                         else if (w == 0) toggleFavourite(app, pic.name, pic.bytes.length);
                         else if (it.equals(FileGroups.ADD)) GroupDialogs.addTo(app, groupKeys(app, pic.name, pic.bytes.length), pic.name, null, ReadyRecent.IMAGE);
                         else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, pic.name, pic.bytes.length, null, ReadyRecent.IMAGE);
@@ -95,6 +106,52 @@ final class PictureOffer {
             .setPositiveButton("Close", null)
             .show();
         return true;
+    }
+
+    /**
+     * Picture ready's crop: Save as… into Download (or the program files folder), Process as a
+     * reference (Picture ready closes; the crop into another program), Upscale (ImageUpscaler).
+     */
+    static final class Cropped implements CropLayer.Actions, CropLayer.Processes {
+        final MainActivity app;
+        final byte[] bytes;
+
+        Cropped(MainActivity app, byte[] bytes) {
+            this.app = app;
+            this.bytes = bytes;
+        }
+
+        public Bitmap cut(CropBox at) throws Exception {
+            return CropLayer.cutBytes(this.bytes, at);
+        }
+
+        public String save(String name, byte[] png) throws Exception {
+            String where = ArtJava.publish(this.app, name, png);
+            if (where == null) throw new java.io.IOException("Download takes no file named " + name);
+            return "Saved the crop as " + where;
+        }
+
+        public void process(String name, byte[] png) {
+            if (last != null) last.dismiss();
+            ProcessRefDialog.open(this.app, name, png);
+        }
+
+        public void upscale(String name, byte[] png) throws Exception {
+            if (last != null) last.dismiss();
+            java.io.File dir = new java.io.File(this.app.getCacheDir(), "pyjav-in");
+            if (!dir.isDirectory()) dir.mkdirs();
+            java.io.File in = new java.io.File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+            java.io.FileOutputStream out = new java.io.FileOutputStream(in);
+            try {
+                out.write(png);
+            } finally {
+                out.close();
+            }
+            this.app.openKitView("py");
+            this.app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+            this.app.pyJav.pkUseInputPath(in.getAbsolutePath());
+            this.app.pyJav.pkOpenParams();
+        }
     }
 
     /** The dialog shown last (closed when a picture goes on to Process as a reference), and a picture's long press menu. */

@@ -8848,7 +8848,8 @@ public class BehaviorTest {
     Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
     String kept = def2.items.get(def2.items.size() - 1).file;
     out.append("added: ").append(((TextView) get("now")).getText()).append(", kept ").append(kept.replace(dir.getAbsolutePath(), "<files>")).append(", there ").append(new File(kept).isFile()).append('\n');
-    boolean readyOk = readyMenu.endsWith(Playlist.ADD) && def2.items.size() == 2 && new File(kept).isFile();
+    // Add to playlist, then Crop image (the picture's crop frame).
+    boolean readyOk = readyMenu.endsWith(Playlist.ADD + " | " + CropBox.CROP) && def2.items.size() == 2 && new File(kept).isFile();
     PictureOffer.last.dismiss();
     write("s153_playlist_menus_cancel", out.toString());
     if (!galleryOk || !mediaOk || !readyOk) throw new AssertionError(out.toString());
@@ -12119,6 +12120,67 @@ public class BehaviorTest {
    * shows the run's own clip (its Succeeded line), the first variation.
    */
   /**
+   * Picture ready: Crop image in the picture's long press; the crop's long press has Save as…,
+   * Process as a reference (Picture ready closes, the crop goes on) and Upscale.
+   */
+  @Test
+  public void s223_picture_ready_crop() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> pics = new java.util.ArrayList<JavaRun.FileOut>();
+    pics.add(new JavaRun.FileOut("sky.png", plainPng(80, 60)));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: sky.png", pics, 0));
+    idle();
+    View pv = PictureOffer.last.getWindow().getDecorView();
+    pv.findViewWithTag("picture-offer:sky.png").performLongClick();
+    idle();
+    String items = listItems(PictureOffer.menu);
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(CropBox.CROP);
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(at);
+    idle();
+    // Laid out, so the frame knows where the picture is.
+    pv.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1600, View.MeasureSpec.AT_MOST));
+    pv.layout(0, 0, 1000, pv.getMeasuredHeight());
+    CropLayer c = CropLayer.last;
+    boolean cropping = c != null && c.cropping() && c.getVisibility() == View.VISIBLE;
+    c.menu();
+    idle();
+    String cropItems = listItems(CropLayer.lastMenu);
+    // Save as… (the name asked): saved in Download.
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    idle();
+    CropLayer.lastSaid = null;
+    CropLayer.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && (CropLayer.lastSaid == null || CropLayer.lastSaid.startsWith("Cropping")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String saved = String.valueOf(CropLayer.lastSaid);
+    // Process as a reference: Picture ready closes, the crop goes on to the program picker.
+    File kept = new File(app.getFilesDir(), "process-ref/sky-crop.png");
+    kept.delete();
+    c.menu();
+    idle();
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(1);
+    for (int i = 0; i < 200 && !kept.isFile(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean readyClosed = !PictureOffer.last.isShowing();
+    // No program has taken a picture yet here: its note says so (else the program list shows).
+    android.app.Dialog after = ShadowDialog.getLatestDialog();
+    String note = after instanceof AlertDialog ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage()) : "";
+    String goesOn = kept.isFile() ? kept.getName() + (note.startsWith("No program that takes pictures") ? " (no program yet)" : "") : "none";
+    if (after != null) after.dismiss();
+    idle();
+    out.append("menu has ").append(CropBox.CROP).append(' ').append(at >= 0).append(", cropping ").append(cropping).append(" | crop menu: ").append(cropItems)
+        .append(" | ").append(saved).append(" | Process: Picture ready closed ").append(readyClosed).append(", goes on ").append(goesOn).append('\n');
+    write("s223_picture_ready_crop", out.toString());
+    boolean ok = at >= 0 && cropping && cropItems.equals(CropBox.SAVE + " | " + CropBox.PROCESS + " | " + CropBox.UPSCALE + " | " + CropBox.CANCEL)
+        && saved.startsWith("Saved the crop as") && saved.contains("sky-crop.png") && readyClosed && goesOn.startsWith("sky-crop.png");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Sogni Params: Reference image 1 and 2 (--image, --image2) each remember the folder their Choose
    * file picked from last, apart; kept with the Media browser's settings (sealed).
    */
@@ -13615,7 +13677,9 @@ public class BehaviorTest {
     View pv = PictureOffer.last.getWindow().getDecorView();
     View row = pv.findViewWithTag("ready-saves:pic.png"), picture = pv.findViewWithTag("picture-offer:pic.png");
     ViewGroup parent = row == null ? null : (ViewGroup) row.getParent();
-    boolean above = row != null && picture != null && parent == picture.getParent() && parent.indexOfChild(row) < parent.indexOfChild(picture);
+    // The picture sits in a frame (Crop image's frame goes over it): that frame is under the row.
+    View shownPicture = picture != null && picture.getParent() instanceof android.widget.FrameLayout ? (View) picture.getParent() : picture;
+    boolean above = row != null && shownPicture != null && parent == shownPicture.getParent() && parent.indexOfChild(row) < parent.indexOfChild(shownPicture);
     String labels = "";
     for (String item : MediaDir.READY_SAVES) {
       TextView b = (TextView) pv.findViewWithTag("ready-save:" + item + ":pic.png");
