@@ -9234,7 +9234,7 @@ public final class DesktopBehavior {
     this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(vote).append('\n').append(py).append('\n');
     boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
         && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare; cymbals played on in eighths: 42 (15 hits), 51 (15 hits)")
-        && text.contains("\nc42g ") && text.contains("\nc51g ") && vote.startsWith("Kit kit.kit: ride by passage: ")
+        && text.contains("\nc42g ") && text.contains("\nc51g ") && text.contains("\nridecut ") && said.contains("; ride or hats cut ") && vote.startsWith("Kit kit.kit: ride by passage: ")
         && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.endsWith("made the ride")
         && py.contains("tags 8 8 16 alone 33 runs 32") && py.contains("run velocities 70 120 times 49.7500 51 g") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 109");
     if (!ok) throw new AssertionError(this.out.toString());
