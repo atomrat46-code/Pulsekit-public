@@ -873,6 +873,7 @@ public class DrumMidi_CRT{
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
+        if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
@@ -1863,6 +1864,9 @@ public class DrumMidi_CRT{
     static final double CYM_ALIKE = 0.4;
     /** Another hit this near (a cymbal, a kick, a snare, a tom): the sound is not the cymbal alone, and it is not changed. */
     static final double CYM_ALONE = 0.04;
+    /** KitProfile.rideVote: the passage (seconds each way) and how many cymbals heard alone in it. */
+    static final double RIDE_VOTE_WINDOW = 2.0;
+    static final int RIDE_VOTE_SEEN = 4;
     /** A test beat cymbal under this share of the loudest one is not played by the kit. */
     static final double CYM_SILENT = 0.01;
     static final int[] CYM_NOTES = {CLOSED_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE};
@@ -1902,12 +1906,21 @@ public class DrumMidi_CRT{
      * (index CYM_BANDS) and its level (index CYM_BANDS + 1); null where the audio ends or is silent.
      */
     static double[] cymFeature(double[] x, double sr, double time) {
+        return cymFeature(x, sr, time, true);
+    }
+
+    /**
+     * cymFeature, with what rang before the hit taken off or not: in a song a hat's own ring from
+     * the hat before is taken off too, which leaves its look brighter than the test beat's hats
+     * (heard a second apart); without that, a song's hats look like the learned closed hat.
+     */
+    static double[] cymFeature(double[] x, double sr, double time, boolean takeBefore) {
         int at = (int) Math.round(time * sr);
         double[][] w = {cymWindow(x, sr, at), cymWindow(x, sr, at + CYM_N / 4), cymWindow(x, sr, at + (int) (0.07 * sr)), cymWindow(x, sr, at + (int) (0.09 * sr))};
         for (double[] v : w) if (v == null) return null;
         // What rang already just before the hit (a crash's wash, an open hat): taken off, so the look
         // is the hit's own rise and fade, not the cymbals before it.
-        double[] before = cymWindow(x, sr, at - CYM_N - (int) (0.005 * sr));
+        double[] before = takeBefore ? cymWindow(x, sr, at - CYM_N - (int) (0.005 * sr)) : null;
         double[] out = new double[CYM_BANDS + 2];
         double e1 = 0, e2 = 0, mean = 0;
         for (int k = 0; k < CYM_BANDS; k++) {
@@ -2323,6 +2336,52 @@ public class DrumMidi_CRT{
             StringBuilder said = new StringBuilder();
             for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());
             note("Kit " + name + ": cymbals by their learned sound: " + (said.length() == 0 ? "none changed" : said));
+        }
+
+        /**
+         * Hats played as the ride, passage by passage: a ride or hats are told apart better over a passage
+         * than hit by hit (a ride on a kick or snare looks like a hat there). The cymbal hits heard alone
+         * within RIDE_VOTE_WINDOW seconds (RIDE_VOTE_SEEN at least) vote: each its nearness to the learned
+         * ride less that to the learned closed hat, twice (the hat's nearness with and without the ring
+         * before the hit taken off: a song's hats look brighter than the test beat's with it). Where both
+         * means are over 0, the passage's hats are the ride. Only hats are made the ride: a passage
+         * voting for hats is left as it is (its rides were often right). Needs the ride and closed hat learned.
+         */
+        void rideVote(List<Hit> hits, double[] x, double sr) {
+            double[] rl = look(RIDE_NOTE), hl = look(CLOSED_HAT);
+            if (rl == null || hl == null) return;
+            List<Hit> cym = new ArrayList<Hit>();
+            for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == RIDE_NOTE) cym.add(h);
+            int n = cym.size();
+            boolean[] clean = new boolean[n];
+            double[] d = new double[n], d2 = new double[n];
+            for (int i = 0; i < n; i++) {
+                Hit h = cym.get(i);
+                boolean alone = true;
+                for (Hit o : hits) if (o != h && Math.abs(o.time - h.time) < CYM_ALONE) alone = false;
+                if (!alone) continue;
+                double[] f = cymFeature(x, sr, h.time), g = cymFeature(x, sr, h.time, false);
+                if (f == null || g == null) continue;
+                clean[i] = true;
+                d[i] = cymNear(f, rl) - cymNear(f, hl);
+                d2[i] = cymNear(f, rl) - cymNear(g, hl);
+            }
+            List<Hit> toRide = new ArrayList<Hit>();
+            for (int i = 0; i < n; i++) {
+                Hit h = cym.get(i);
+                if (h.note != CLOSED_HAT) continue;
+                int seen = 0;
+                double sum = 0, sum2 = 0;
+                for (int j = 0; j < n; j++) {
+                    if (!clean[j] || Math.abs(cym.get(j).time - h.time) > RIDE_VOTE_WINDOW) continue;
+                    seen++;
+                    sum += d[j];
+                    sum2 += d2[j];
+                }
+                if (seen >= RIDE_VOTE_SEEN && sum > 0 && sum2 > 0) toRide.add(h);
+            }
+            for (Hit h : toRide) hits.set(hits.indexOf(h), new Hit(h.time, RIDE_NOTE, h.strength));
+            note("Kit " + name + ": ride by passage: " + toRide.size() + " hat" + (toRide.size() == 1 ? "" : "s") + " made the ride");
         }
     }
 

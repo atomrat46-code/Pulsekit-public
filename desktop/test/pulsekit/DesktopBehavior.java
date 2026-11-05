@@ -9061,6 +9061,7 @@ public final class DesktopBehavior {
     String text = kit.isFile() ? new String(Files.readAllBytes(kit.toPath()), StandardCharsets.UTF_8) : "";
     String run = PythonRun.runFor(java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), wav.getAbsolutePath(), mid.getAbsolutePath(), "--kit", kit.getAbsolutePath()), 120, null).trim();
     String moved = run.replaceAll("(?s).*(Kit kit.kit: cymbals[^\n]*).*", "$1");
+    String vote = run.replaceAll("(?s).*(Kit kit.kit: ride by passage[^\n]*).*", "$1");
     File script = new File(dir, "vst_render.py");
     Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
     String check = "import importlib.util, sys, tempfile\n"
@@ -9072,10 +9073,10 @@ public final class DesktopBehavior {
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath()));
     String py = PythonRun.runFor(cmd, 120, null).trim();
-    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(py).append('\n');
+    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(vote).append('\n').append(py).append('\n');
     boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
         && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare")
-        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)")
+        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.startsWith("Kit kit.kit: ride by passage: ") && vote.endsWith("made the ride")
         && py.contains("tags 8 8 16 alone 33") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 77");
     if (!ok) throw new AssertionError(this.out.toString());
   }
