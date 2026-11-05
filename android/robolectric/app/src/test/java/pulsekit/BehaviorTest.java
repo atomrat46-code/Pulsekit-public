@@ -12305,6 +12305,75 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Sogni Params' Choose file: a video's long press has Extract first frame as reference img; the
+   * first frame (a PNG, full size) fills the row as if picked, and the browser closes. The Media
+   * browser (no row) has no such item.
+   */
+  @Test
+  public void s226_first_frame_as_reference() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m26");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.save(app);
+    final String[] got = new String[1];
+    final File[] gotFile = new File[1];
+    MediaBrowser m = MediaBrowser.chooseFor(app, "--image", (name, file) -> {
+      got[0] = name;
+      gotFile[0] = file;
+    }, null);
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    if (video == null) {
+      StringBuilder names = new StringBuilder();
+      for (MediaDir.Entry e : m.allEntries) names.append(e.name).append(' ');
+      throw new AssertionError("no walk.mp4 in " + m.base + ": " + names);
+    }
+    m.menu(video);
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    out.append("menu: ").append(items).append('\n');
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(MediaDir.FIRST_FRAME_REF);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(at);
+    for (int i = 0; i < 200 && got[0] == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    if (gotFile[0] != null) android.graphics.BitmapFactory.decodeFile(gotFile[0].getAbsolutePath(), o);
+    boolean closed = m.dialog == null || !m.dialog.isShowing();
+    out.append("picked ").append(got[0]).append(" ").append(o.outWidth).append("x").append(o.outHeight).append(", browser closed ").append(closed).append(", row place ").append(MediaDir.rowPlace("--image").equals(dir.getAbsolutePath())).append('\n');
+    // The Media browser itself (no row to fill): no such item.
+    MediaBrowser plain = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; plain != null && i < 200 && (plain.loading || plain.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String plainItems = "";
+    if (plain != null) {
+      for (MediaDir.Entry e : plain.allEntries) if (e.name.equals("walk.mp4")) plain.menu(e);
+      idle();
+      plainItems = listItems(MediaBrowser.lastMenu);
+    }
+    out.append("Media browser menu has it: ").append(plainItems.contains(MediaDir.FIRST_FRAME_REF)).append('\n');
+    write("s226_first_frame_as_reference", out.toString());
+    boolean ok = at >= 0 && "walk-first-frame.png".equals(got[0]) && o.outWidth == 32 && o.outHeight == 18 && closed && !plainItems.contains(MediaDir.FIRST_FRAME_REF) && plain != null;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();

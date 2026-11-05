@@ -871,6 +871,15 @@ public final class MediaDir {
   /** A made file's item when Sogni tools are shown and it carries a Sogni job id: the id (and its workflow), with Copy. */
   public static final String SOGNI_JOB = "Sogni job id";
 
+  /** Choose file (a Params row), a video's item: its first frame, as a picture, fills the row. */
+  public static final String FIRST_FRAME_REF = "Extract first frame as reference img";
+
+  /** The picture a video's first frame is written to: "<video's name without its extension>-first-frame.<ext>". */
+  public static String firstFrameName(String video, String ext) {
+    String stem = video == null ? "video" : video.replace('/', '_').replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    return (stem.isEmpty() ? "video" : stem) + "-first-frame." + ext;
+  }
+
   /** The Sogni job id a picture, video or sound file carries, when Sogni tools are shown; else null. */
   public static String sogniJob(File f, String name) {
     int k = kind(name);

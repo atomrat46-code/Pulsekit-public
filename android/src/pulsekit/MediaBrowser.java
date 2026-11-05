@@ -692,6 +692,60 @@ final class MediaBrowser {
         }
     }
 
+    /** The picture Extract first frame wrote last (for the tests). */
+    static File lastFirstFrame;
+
+    /**
+     * Choose file's Extract first frame as reference img: the video's first frame (full size) written as a
+     * PNG in PyJav's input folder, off the main thread, and that picture handed to the row as if picked.
+     */
+    void firstFrameChosen(final MediaDir.Entry e) {
+        final RefBrowser.Picked picked = this.chooser;
+        if (picked == null) return;
+        this.app.setNow("Reading the first frame of " + e.name + "\u2026");
+        new Thread(() -> {
+            File out = null;
+            MediaMetadataRetriever media = new MediaMetadataRetriever();
+            try {
+                if (this.onDisk(e)) media.setDataSource(e.id);
+                else media.setDataSource(this.app, this.uri(e));
+                Bitmap frame = media.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                if (frame == null) frame = media.getFrameAtTime();
+                if (frame != null) {
+                    File dir = new File(this.app.getCacheDir(), "pyjav-in");
+                    if (!dir.isDirectory()) dir.mkdirs();
+                    out = new File(dir, MediaDir.firstFrameName(e.name, "png"));
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                    try {
+                        frame.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                    } finally {
+                        fos.close();
+                    }
+                }
+            } catch (Throwable ex) {
+                out = null;
+            } finally {
+                try {
+                    media.release();
+                } catch (Throwable ignored) {
+                    // released
+                }
+            }
+            final File got = out;
+            this.main.post(() -> {
+                if (got == null) {
+                    this.app.setNow("Could not read the first frame of " + e.name);
+                    return;
+                }
+                lastFirstFrame = got;
+                if (this.dialog != null) this.dialog.dismiss();
+                this.app.setNow("First frame of " + e.name + " \u00b7 " + got.getName());
+                chosenPlace = this.placeHere();
+                picked.picked(got.getName(), got);
+            });
+        }, "pulsekit-first-frame").start();
+    }
+
     /** Choose file: the file tapped, copied into PyJav's input folder off the main thread, then handed on. */
     void chosen(final MediaDir.Entry e) {
         this.chosen(e, this.chooser);
@@ -2619,6 +2673,11 @@ final class MediaBrowser {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.SOGNI_JOB;
         }
+        // Choose file (a Params row), a video: its first frame fills the row as a picture.
+        if (this.chooser != null && e.kind == MediaDir.VIDEO) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaDir.FIRST_FRAME_REF;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
@@ -2645,6 +2704,7 @@ final class MediaBrowser {
                 else if (MediaDir.isKindItem(items[which])) this.kindItem(e, items[which]);
                 else if (MediaDir.PROCESS_REF.equals(items[which])) this.useAsRef(e, refHead);
                 else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
+                else if (MediaDir.FIRST_FRAME_REF.equals(items[which])) this.firstFrameChosen(e);
                 else if (MediaCollections.ADD.equals(items[which])) CollectionsScreen.addTo(this.app, MediaCollections.KIND_FILE, this.playlistAddress(e), e.name, e.size);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })

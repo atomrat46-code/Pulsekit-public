@@ -1503,6 +1503,48 @@ final class MediaBrowser {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
+    /** A video's first frame as a JPEG at most this many pixels across (VLC); the tests put their own. */
+    static java.util.function.BiFunction<File, Integer, byte[]> frameReader = VlcPlayer::firstFrame;
+
+    /** The picture Extract first frame wrote last (for the tests). */
+    static File lastFirstFrame;
+
+    /**
+     * Choose file's Extract first frame as reference img: the video's first frame (full size) written as a
+     * JPEG in ~/.pulsekit/first-frames, and that picture handed to the row as if it had been picked.
+     */
+    void firstFrameChosen(final File video) {
+        final java.util.function.Consumer<File> picked = this.chooser;
+        final JDialog dialog = this.last;
+        if (picked == null) return;
+        app.setNow("Reading the first frame of " + video.getName() + "\u2026");
+        new Thread(() -> {
+            File out = null;
+            try {
+                byte[] jpeg = frameReader.apply(video, 8192);
+                if (jpeg != null && jpeg.length > 0) {
+                    File dir = new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "first-frames");
+                    if (!dir.isDirectory()) dir.mkdirs();
+                    out = new File(dir, MediaDir.firstFrameName(video.getName(), "jpg"));
+                    Files.write(out.toPath(), jpeg);
+                }
+            } catch (Exception ex) {
+                out = null;
+            }
+            final File got = out;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (got == null) {
+                    app.setNow("Could not read the first frame of " + video.getName() + " (VLC plays the videos: is it installed?)");
+                    return;
+                }
+                lastFirstFrame = got;
+                if (dialog != null) dialog.dispose();
+                app.setNow("First frame of " + video.getName() + " \u00b7 " + got.getName());
+                picked.accept(got);
+            });
+        }, "pulsekit-first-frame").start();
+    }
+
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
         // Selecting: a ticked file's menu is the selection's.
         if (this.selecting) {
@@ -1526,6 +1568,11 @@ final class MediaBrowser {
         if (job != null) {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.SOGNI_JOB;
+        }
+        // Choose file (a Params row), a video: its first frame fills the row as a picture.
+        if (this.chooser != null && entry.kind == MediaDir.VIDEO) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.FIRST_FRAME_REF;
         }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
@@ -1554,6 +1601,12 @@ final class MediaBrowser {
                     }
                     ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
                 });
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.FIRST_FRAME_REF.equals(items[i])) {
+                item.setName("media-menu:first-frame");
+                item.addActionListener(e -> this.firstFrameChosen(f));
                 menu.add(item);
                 continue;
             }

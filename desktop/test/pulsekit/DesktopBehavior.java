@@ -7706,6 +7706,73 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * Sogni Params' Choose file: a video's menu has Extract first frame as reference img; the first frame
+   * (full size, a JPEG in ~/.pulsekit/first-frames) fills the row as if picked, and the browser closes.
+   * The Media browser itself (no row) has no such item.
+   */
+  void s210_first_frame_as_reference() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m210");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser.frameReader = (f, side) -> {
+      try {
+        java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", jpeg);
+        return jpeg.toByteArray();
+      } catch (Exception ex) {
+        return null;
+      }
+    };
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaBrowser.loadLoop();
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.saveLoop();
+    final File[] picked = new File[1];
+    final String[] items = new String[2];
+    final boolean[] closed = new boolean[1];
+    final MediaDir.Entry[] video = new MediaDir.Entry[1];
+    for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+    inspectNext = d -> {
+      java.awt.Component card = component(d, "media-card:walk.mp4");
+      mb.menu(video[0], clip, card, 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[0] = sb.toString();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.FIRST_FRAME_REF.equals(((javax.swing.JMenuItem) c).getText())) {
+        mb.lastMenu.setVisible(false);
+        ((javax.swing.JMenuItem) c).doClick();
+      }
+    };
+    SwingUtilities.invokeLater(() -> mb.chooseFor("--image", f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    edt(() -> closed[0] = mb.last == null || !mb.last.isShowing());
+    java.awt.image.BufferedImage frame = picked[0] == null ? null : javax.imageio.ImageIO.read(picked[0]);
+    // The Media browser (no row to fill): no such item.
+    inspectNext = d -> {
+      mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[1] = sb.toString();
+      mb.lastMenu.setVisible(false);
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && items[1] == null; i++) Thread.sleep(100);
+    idle();
+    MediaBrowser.frameReader = VlcPlayer::firstFrame;
+    this.out.append("chooser menu: ").append(items[0]).append("\npicked ").append(picked[0] == null ? "none" : picked[0].getParentFile().getName() + "/" + picked[0].getName())
+        .append(frame == null ? "" : " " + frame.getWidth() + "x" + frame.getHeight()).append(", browser closed ").append(closed[0])
+        .append("\nMedia browser menu has it: ").append(String.valueOf(items[1]).contains(MediaDir.FIRST_FRAME_REF)).append('\n');
+    boolean ok = String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_REF) && picked[0] != null && picked[0].getName().equals("walk-first-frame.jpg")
+        && picked[0].getParentFile().getName().equals("first-frames") && frame != null && frame.getWidth() == 64 && closed[0]
+        && items[1] != null && !items[1].contains(MediaDir.FIRST_FRAME_REF);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * PyJav starts with the program run last (Recent's first) and its parameters, the bundled source
    * shown, not run; a program opened already (not the default drum_midi.py) stays.
    */
