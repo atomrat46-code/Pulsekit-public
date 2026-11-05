@@ -455,7 +455,7 @@ public class DrumMidi_CRT{
         // --learn-kit <render> <times.txt> <out.kit>: a kit's kick and toms, from vst_render's test beat.
         if (args.length > 0 && "--learn-kit".equals(args[0])) {
             if (args.length < 4) {
-                finish("Failed: --learn-kit needs the test beat's render, its notes' times (seconds and note on each line) and the .kit file to write");
+                finish("Failed: --learn-kit needs the test beat's render, its notes' times (seconds and note on each line, then k or s for a cymbal struck with a kick or snare) and the .kit file to write");
                 return;
             }
             KitProfile.learn(new File(args[1]), new File(args[2]), new File(args[3]));
@@ -1947,6 +1947,13 @@ public class DrumMidi_CRT{
         /** The learned cymbals (lines "c<note> ..."): their notes and looks (cymFeature, without the level). */
         final List<Integer> cymNotes = new ArrayList<Integer>();
         final List<double[]> cymLooks = new ArrayList<double[]>();
+        /**
+         * The learned cymbals heard with a kick ("c<note>k") or a snare ("c<note>s"), from the test beat's
+         * cymbals struck with them: a cymbal found on a kick or snare is told apart by these.
+         */
+        final List<Integer> withNotes = new ArrayList<Integer>();
+        final List<Character> withTags = new ArrayList<Character>();
+        final List<double[]> withLooks = new ArrayList<double[]>();
 
         KitProfile(String name) {
             this.name = name;
@@ -2033,10 +2040,31 @@ public class DrumMidi_CRT{
             java.util.Map<Integer, double[]> cymSum = new java.util.TreeMap<Integer, double[]>();
             java.util.Map<Integer, Integer> cymCount = new java.util.HashMap<Integer, Integer>();
             java.util.Set<Integer> cymUnread = new java.util.LinkedHashSet<Integer>();
+            // A cymbal struck with a kick ("k" after its note) or a snare ("s"): its look then, apart.
+            java.util.Map<String, double[]> withSum = new java.util.TreeMap<String, double[]>();
+            java.util.Map<String, Integer> withCount = new java.util.HashMap<String, Integer>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
                 int note = Integer.parseInt(w[1]);
+                String tag = w.length > 2 ? w[2].trim() : "";
+                if (isCymbalNote(note) && (tag.equals("k") || tag.equals("s"))) {
+                    // A cymbal struck with a kick or snare: its look at the note (both start there).
+                    double wat = Double.parseDouble(w[0]);
+                    double won = onset(audio.samples, audio.sampleRate, wat);
+                    double[] f = won < 0 ? null : cymFeature(audio.samples, audio.sampleRate, won);
+                    if (f == null) continue;
+                    String wk = note + tag;
+                    if (!withSum.containsKey(wk)) {
+                        withSum.put(wk, new double[CYM_BANDS + 2]);
+                        withCount.put(wk, Integer.valueOf(0));
+                    }
+                    double[] ws = withSum.get(wk);
+                    for (int k = 0; k < CYM_BANDS + 2; k++) ws[k] += f[k];
+                    withCount.put(wk, Integer.valueOf(withCount.get(wk).intValue() + 1));
+                    continue;
+                }
+                if (tag.length() > 0) continue;
                 if (isCymbalNote(note)) {
                     // A cymbal alone: its look where its sound starts.
                     double cat = Double.parseDouble(w[0]);
@@ -2127,6 +2155,26 @@ public class DrumMidi_CRT{
                 cymKept.add(e.getKey() + " " + cymName(e.getKey().intValue()) + (c > 1 ? " (" + c + " hits)" : ""));
             }
             for (Integer n : cymUnread) if (!cymSum.containsKey(n)) cymLeft.add(n + " " + cymName(n.intValue()) + " (no sound at its hits)");
+            // The cymbals with a kick or snare: kept for the cymbals heard alone too (a cymbal the kit does not
+            // play would be the kick or snare alone).
+            List<String> withKept = new ArrayList<String>();
+            for (java.util.Map.Entry<String, double[]> e : withSum.entrySet()) {
+                String key = e.getKey();
+                int wn = Integer.parseInt(key.substring(0, key.length() - 1));
+                boolean heard = false;
+                for (String k2 : cymKept) if (k2.startsWith(wn + " ")) heard = true;
+                if (!heard) continue;
+                double[] ws = e.getValue();
+                int c = withCount.get(key).intValue();
+                double norm = 0;
+                for (int k = 0; k < CYM_BANDS; k++) norm += ws[k] * ws[k];
+                norm = Math.sqrt(norm);
+                if (norm <= 0) continue;
+                sb.append('c').append(key);
+                for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ws[k] / norm));
+                sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ws[CYM_BANDS] / c)).append('\n');
+                withKept.add(wn + (key.endsWith("k") ? " with kick" : " with snare"));
+            }
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
             List<String> none = new ArrayList<String>();
             for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
@@ -2135,18 +2183,27 @@ public class DrumMidi_CRT{
                 + (late > 0.03 ? "; hits up to " + Math.round(late * 1000) + " ms after their notes" : "")
                 + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?")
                 + (cymKept.isEmpty() ? "" : "; cymbals " + String.join(", ", cymKept))
-                + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft)));
+                + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft))
+                + (withKept.isEmpty() ? "" : "; cymbals on a kick or snare: " + String.join(", ", withKept)));
         }
 
         static KitProfile read(File f) throws Exception {
             KitProfile k = new KitProfile(f.getName());
             for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
-                if (w.length > CYM_BANDS + 1 && w[0].startsWith("c")) {
+                if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+[ks]?")) {
                     double[] c = new double[CYM_BANDS + 1];
                     for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
-                    k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
-                    k.cymLooks.add(c);
+                    char last = w[0].charAt(w[0].length() - 1);
+                    if (last == 'k' || last == 's') {
+                        // A cymbal heard with a kick or a snare.
+                        k.withNotes.add(Integer.valueOf(w[0].substring(1, w[0].length() - 1)));
+                        k.withTags.add(Character.valueOf(last));
+                        k.withLooks.add(c);
+                    } else {
+                        k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
+                        k.cymLooks.add(c);
+                    }
                     continue;
                 }
                 if (w.length < KIT_BANDS + 1 || w[0].startsWith("#")) continue;
@@ -2201,9 +2258,14 @@ public class DrumMidi_CRT{
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
             // Every other hit's time: a kick's, snare's or tom's sound under a cymbal makes it look darker
             // and longer (a crash, an open hat), so only cymbals heard alone are told apart again.
+            List<Hit> byTime = new ArrayList<Hit>(hits);
+            Collections.sort(byTime, new java.util.Comparator<Hit>() {
+                public int compare(Hit p, Hit q) {
+                    return Double.compare(p.time, q.time);
+                }
+            });
             List<Double> cymTimes = new ArrayList<Double>();
-            for (Hit h : hits) cymTimes.add(Double.valueOf(h.time));
-            Collections.sort(cymTimes);
+            for (Hit h : byTime) cymTimes.add(Double.valueOf(h.time));
             for (int i = 0; i < hits.size(); i++) {
                 Hit h = hits.get(i);
                 if (!isCymbalNote(h.note)) continue;
@@ -2211,26 +2273,51 @@ public class DrumMidi_CRT{
                 if (k < 0) k = -k - 1;
                 // Itself is one of the times; any other within CYM_ALONE (at the very same time too) is another drum.
                 int near = 0;
-                for (int j = Math.max(0, k - 4); j < Math.min(cymTimes.size(), k + 5); j++) if (Math.abs(cymTimes.get(j).doubleValue() - h.time) < CYM_ALONE) near++;
-                if (near > 1) continue;
+                Hit other = null;
+                for (int j = Math.max(0, k - 4); j < Math.min(cymTimes.size(), k + 5); j++) {
+                    if (Math.abs(cymTimes.get(j).doubleValue() - h.time) >= CYM_ALONE) continue;
+                    near++;
+                    if (byTime.get(j) != h) other = byTime.get(j);
+                }
+                // With one kick or one snare on it: told apart by the kit's cymbals learned with that drum (when learned).
+                char with = near == 2 && other != null ? (other.note == KICK_NOTE ? 'k' : other.note == SNARE_NOTE ? 's' : ' ') : near > 1 ? ' ' : 0;
+                if (with == ' ') continue;
+                List<Integer> kNotes = new ArrayList<Integer>();
+                List<double[]> kLooks = new ArrayList<double[]>();
+                if (with == 0) {
+                    kNotes = cymNotes;
+                    kLooks = cymLooks;
+                } else {
+                    for (int j = 0; j < withNotes.size(); j++) {
+                        if (withTags.get(j).charValue() != with) continue;
+                        kNotes.add(withNotes.get(j));
+                        kLooks.add(withLooks.get(j));
+                    }
+                    if (kNotes.size() < 2) continue;
+                }
                 double[] f = cymFeature(x, sr, h.time);
                 if (f == null) continue;
                 int best = -1;
                 double top = -9, mine = -9;
-                for (int j = 0; j < cymNotes.size(); j++) {
-                    double v = cymNear(f, cymLooks.get(j));
+                double[] bestLook = null, mineLook = null;
+                for (int j = 0; j < kNotes.size(); j++) {
+                    double v = cymNear(f, kLooks.get(j));
                     if (v > top) {
                         top = v;
-                        best = cymNotes.get(j).intValue();
+                        best = kNotes.get(j).intValue();
+                        bestLook = kLooks.get(j);
                     }
-                    if (cymNotes.get(j).intValue() == h.note) mine = v;
+                    if (kNotes.get(j).intValue() == h.note) {
+                        mine = v;
+                        mineLook = kLooks.get(j);
+                    }
                 }
                 // A kind the profile has not learned is left as it is (KVLT's ride was not heard: its rides
                 // went to its closed hat); so is one too like the nearest in this kit, or not near enough.
                 if (best < 0 || best == h.note || mine <= -9 || top < CYM_LEAST || top - mine < CYM_MARGIN) continue;
-                if (cymNear(look(h.note), look(best)) > CYM_ALIKE) continue;
+                if (cymNear(mineLook, bestLook) > CYM_ALIKE) continue;
                 hits.set(i, new Hit(h.time, best, h.strength));
-                String key = cymName(h.note) + " to " + cymName(best);
+                String key = cymName(h.note) + " to " + cymName(best) + (with == 'k' ? " (on a kick)" : with == 's' ? " (on a snare)" : "");
                 moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
             }
             StringBuilder said = new StringBuilder();

@@ -9006,6 +9006,80 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * The test beat's cymbals struck with a kick or snare (times tagged "k" / "s"): --learn-kit writes their
+   * looks apart (c42k, c51s ...), --kit tells a cymbal on a snare apart by them, and vst_render's test beat
+   * plays them (kit_events) and tags them for --learn-kit.
+   */
+  void s207_drummidi_cymbals_with_kick_snare() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymbal-with");
+    dir.mkdirs();
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    int sr = 44100;
+    double[] x = new double[sr * 44];
+    java.util.Random r = new java.util.Random(3);
+    StringBuilder times = new StringBuilder();
+    for (int k = 0; k < 3; k++) {
+      double t = 2.0 + 0.5 * k, tt = 3.5 + 0.5 * k;
+      for (int i = 0; i < sr * 0.3; i++) {
+        x[(int) (t * sr) + i] += 0.8 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * 60 * i / sr);
+        x[(int) (tt * sr) + i] += 0.6 * Math.exp(-i / (0.1 * sr)) * Math.sin(2 * Math.PI * 120 * i / sr);
+      }
+      times.append(String.format(java.util.Locale.ROOT, "%.4f 36\n%.4f 43\n", t, tt));
+    }
+    int[] notes = {42, 46, 51, 49};
+    double t = 13.0;
+    // Each cymbal alone 3 times, then twice with a kick and twice with a snare.
+    for (int pass = 0; pass < 2; pass++) {
+      for (int c = 0; c < 4; c++) {
+        for (int k = 0; k < (pass == 0 ? 3 : 4); k++) {
+          double prev = 0;
+          String tag = pass == 0 ? "" : k < 2 ? " k" : " s";
+          for (int i = 0; i < sr * 0.9; i++) {
+            double s = i / (double) sr, w = r.nextDouble() * 2 - 1, v;
+            if (c == 0) v = (w - prev) * Math.exp(-s / 0.02) * 0.5;
+            else if (c == 1) v = (w - prev) * Math.exp(-s / 0.35) * 0.4;
+            else if (c == 2) v = (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+            else v = (0.5 * w + 0.3 * prev) * Math.exp(-s / 0.9) * 0.5;
+            if (tag.equals(" k") && s < 0.3) v += 0.8 * Math.exp(-s / 0.08) * Math.sin(2 * Math.PI * 60 * s);
+            if (tag.equals(" s") && s < 0.3) v += Math.exp(-s / 0.06) * (0.4 * Math.sin(2 * Math.PI * 200 * s) + 0.5 * w);
+            prev = w;
+            x[(int) (t * sr) + i] += v;
+          }
+          times.append(String.format(java.util.Locale.ROOT, "%.4f %d%s\n", t, notes[c], tag));
+          t += 1.0;
+        }
+      }
+    }
+    short[] pcm = new short[x.length];
+    for (int i = 0; i < x.length; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, Math.round(x[i] * 20000)));
+    File wav = new File(dir, "check.wav"), txt = new File(dir, "times.txt"), kit = new File(dir, "kit.kit"), mid = new File(dir, "check-dm.mid");
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, sr));
+    Files.write(txt.toPath(), times.toString().getBytes(StandardCharsets.UTF_8));
+    String said = PythonRun.runFor(java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), "--learn-kit", wav.getAbsolutePath(), txt.getAbsolutePath(), kit.getAbsolutePath()), 120, null).trim();
+    String text = kit.isFile() ? new String(Files.readAllBytes(kit.toPath()), StandardCharsets.UTF_8) : "";
+    String run = PythonRun.runFor(java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), wav.getAbsolutePath(), mid.getAbsolutePath(), "--kit", kit.getAbsolutePath()), 120, null).trim();
+    String moved = run.replaceAll("(?s).*(Kit kit.kit: cymbals[^\n]*).*", "$1");
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys, tempfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "e = vr.kit_events()\n"
+        + "print('tags', sum(1 for x in e if x[3] == 'k'), sum(1 for x in e if x[3] == 's'), sum(1 for x in e if x[3] == '-'), 'alone', len(vr.kit_times()))\n"
+        + "print('velocities', sorted(set(x[2] for x in e if x[1] == 42 and x[3] == '')))\n"
+        + "print('beat notes', len(vr.midi_notes(vr.check_midi(tempfile.mkdtemp()))[1]))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath()));
+    String py = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(py).append('\n');
+    boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
+        && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare")
+        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)")
+        && py.contains("tags 8 8 16 alone 33") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 77");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** A one-track MIDI file (480 ticks a beat) around the track's bytes. */
   private static byte[] midiFile(byte[] track) throws java.io.IOException {
     java.io.ByteArrayOutputStream mid = new java.io.ByteArrayOutputStream();

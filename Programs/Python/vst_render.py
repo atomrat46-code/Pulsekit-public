@@ -56,8 +56,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
   --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42; then the kick
-                  and each tom alone) through the
-                  plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
+                  and each tom alone; each cymbal alone, soft to hard, and with a kick and with a
+                  snare) through the plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
                   plugin play with these settings? Every run does that check first, and a plugin that
                   is silent for it is skipped (with --plugin2 to --plugin4 the next one goes on): load
                   a kit with --edit. In a run, a silent render is left out (no test, no MP3 of it),
@@ -1372,23 +1372,43 @@ def sogni_zips(folder, only=None, recursive=False):
 
 # The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
 # alone, KIT_HITS times, half a second apart; then the cymbals (closed hat, open hat, ride, crash)
-# alone, KIT_HITS times, a second apart (they ring longer).
+# alone, KIT_HITS times, a second apart (they ring longer), soft, mid and hard (KIT_VELOCITIES: a
+# song's hits are not all alike); then each cymbal KIT_WITH times struck with a kick and KIT_WITH
+# times with a snare (a song's rides and hats are mostly on one): the profile learns how they look then.
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
 KIT_CYMBALS = (42, 46, 51, 49)
 KIT_HITS = 3
+KIT_VELOCITIES = (70, 100, 120)
+KIT_WITH = 2
+KIT_COMPANIONS = ((36, "k"), (38, "s"))
+
+
+def kit_events():
+    """Every note of the test beat's second part: (seconds, note, velocity, tag), at its 120 BPM. The tag
+    is "" for a drum alone, "k" or "s" for a cymbal struck with a kick or a snare, and "-" for that kick
+    or snare (not learned)."""
+    out = [(2.0 + 0.5 * (i * KIT_HITS + k), n, 100, "") for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
+    start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
+    out += [(start + 1.0 * (i * KIT_HITS + k), n, KIT_VELOCITIES[k % len(KIT_VELOCITIES)], "")
+            for i, n in enumerate(KIT_CYMBALS) for k in range(KIT_HITS)]
+    t = start + 1.0 * len(KIT_CYMBALS) * KIT_HITS
+    for n in KIT_CYMBALS:
+        for drum, tag in KIT_COMPANIONS:
+            for _ in range(KIT_WITH):
+                out += [(t, n, 100, tag), (t, drum, 100, "-")]
+                t += 1.0
+    return out
 
 
 def kit_times():
     """The kick, toms and cymbals of the test beat, alone: (seconds, note), at its 120 BPM."""
-    drums = [(2.0 + 0.5 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
-    start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
-    return drums + [(start + 1.0 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_CYMBALS) for k in range(KIT_HITS)]
+    return [(t, n) for t, n, _, tag in kit_events() if tag == ""]
 
 
 def check_midi(folder):
     """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
     beats, closed hats (42) on the eighths, on the drum channel; then the kick, each tom and each
-    cymbal alone (kit_times); returns its path."""
+    cymbal alone, and each cymbal with a kick and with a snare (kit_events); returns its path."""
     events = []
     for k in range(8):
         tick = k * 240
@@ -1396,9 +1416,9 @@ def check_midi(folder):
         for n in notes:
             events.append((tick, 0x99, n, 100))
             events.append((tick + 120, 0x89, n, 0))
-    for t, n in kit_times():
+    for t, n, vel, _ in kit_events():
         tick = int(round(t * 960))
-        events.append((tick, 0x99, n, 100))
+        events.append((tick, 0x99, n, vel))
         events.append((tick + 120, 0x89, n, 0))
     events.sort(key=lambda e: (e[0], e[1] == 0x99))
     data, last = bytearray(), 0
@@ -1441,10 +1461,15 @@ def learn_kit(java, jar, audio, rate, bits, nmap, out):
     write_wav(wav, audio, rate, bits)
     times = os.path.join(work, "check-times.txt")
     with open(times, "w") as f:
-        for t, n in kit_times():
+        for t, n, _, tag in kit_events():
             m = nmap.get(n, n)
-            if m is not None and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
+            if tag == "-" or m is None:
+                continue
+            if tag == "" and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
                 f.write("%.4f %d\n" % (t, m))
+            elif tag and n in KIT_CYMBALS and m in KIT_CYMBALS:
+                # A cymbal struck with a kick ("k") or a snare ("s"): learned apart, as it sounds then.
+                f.write("%.4f %d %s\n" % (t, m, tag))
     try:
         r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", "--learn-kit", wav, times, os.path.abspath(out)],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)

@@ -60,9 +60,14 @@ def render(kitdir, name, midis, out):
     # The kit profile, from the test beat as played (its second part: each drum alone).
     times = os.path.join(work, "times.txt")
     with open(times, "w") as f:
+        # The beat's cymbals struck with a kick or snare (kit_events' tags): tagged, and their kick or snare left out.
+        tags = {round(t, 2): tag for t, n, _, tag in vr.kit_events() if tag in ("k", "s")}
         for t, n in vr.midi_notes(os.path.join(where, "check.mid"))[1]:
-            if t >= 1.99 and (n == 36 or n in vr.TOMS or n in vr.KIT_CYMBALS):
-                f.write("%.4f %d\n" % (t, n))
+            tag = tags.get(round(t, 2), "")
+            if t < 1.99 or (tag and n not in vr.KIT_CYMBALS):
+                continue
+            if n == 36 or n in vr.TOMS or n in vr.KIT_CYMBALS:
+                f.write("%.4f %d%s\n" % (t, n, " " + tag if tag else ""))
     jar = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.jar")
     r = subprocess.run(["java", "-cp", jar, "DrumMidi_CRT", "--learn-kit", os.path.join(where, "check.wav"), times, os.path.join(where, "kit.kit")],
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
