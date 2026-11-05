@@ -92,6 +92,47 @@ final class MediaBrowser {
         this.show(at[0], at[1]);
     }
 
+    /**
+     * Choose file for a Params row (`key`, its switch): it opens where that row's file was picked
+     * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
+     */
+    void chooseFor(final String key, final java.util.function.Consumer<File> picked, Runnable other) {
+        loadLoop();
+        java.util.function.Consumer<File> keep = f -> {
+            // The folder it came from: this row's next Choose file opens there.
+            String place = this.placeHere();
+            if (place.length() > 0) {
+                MediaDir.rowPlace(key, place);
+                saveLoop();
+            }
+            picked.accept(f);
+        };
+        String place = MediaDir.rowPlace(key);
+        if (place.length() > 0) {
+            String[] part = place.split("\t");
+            File root = new File(part[0]).getAbsoluteFile();
+            if (root.isDirectory()) {
+                java.util.List<String> below = new ArrayList<String>();
+                for (int k = 1; k < part.length; k++) below.add(part[k]);
+                this.chooser = keep;
+                this.other = other;
+                this.tab = "row";
+                this.show(root, under(root, below));
+                return;
+            }
+        }
+        this.choose(keep, other);
+    }
+
+    /** Where the browser is, as a row's place: its folder and the folders opened under it ("" when none). */
+    String placeHere() {
+        if (this.shownRoot == null || this.shown == null) return "";
+        File root = this.shownRoot.getAbsoluteFile();
+        java.util.List<String> below = new ArrayList<String>();
+        for (File f = this.shown.getAbsoluteFile(); f != null && !f.equals(root); f = f.getParentFile()) below.add(0, f.getPath());
+        return MediaDir.placeOf(root.getPath(), below);
+    }
+
     /** The tab's folder: {root (Up stops there), the folder to show}. */
     File[] tabFolders(String t) {
         if (t.equals("recent") && new File(MediaDir.lastRoot).isDirectory()) {

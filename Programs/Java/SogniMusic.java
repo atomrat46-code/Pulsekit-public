@@ -187,6 +187,8 @@ public final class SogniMusic {
     long seed = System.currentTimeMillis() % 100000;
     // Off only when asked, on every run.
     SogniApi.noFilter = false;
+    // --variations: one result unless asked (a run in the app keeps the last run's count otherwise).
+    SogniApi.variations = 1;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -217,6 +219,9 @@ public final class SogniMusic {
       else if (a.equals("--zip_delete")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
+      else if (a.equals("--variations") && i + 1 < args.length) {
+        if (!SogniApi.setVariations(args[++i])) return 2;
+      }
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
       else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
@@ -376,6 +381,11 @@ public final class SogniMusic {
       return 1;
     }
     SogniApi api = new SogniApi(apiBase, key);
+    // --random, --compare_models and --multi_session each make one track a run (their steps after need one).
+    if (SogniApi.variations > 1 && (randomCount > 0 || sessions.size() > 1 || compareModels != null && compareModels.trim().length() > 0)) {
+      say("Note: --variations is for one track's run; --random, --compare_models and --multi_session make one track a run");
+      SogniApi.variations = 1;
+    }
     if (randomCount > 0) {
       return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, sessions, randomModels, durationGiven ? duration : -1, bpmGiven ? bpm : -1,
           keyGiven ? keyscale : null, timesigGiven ? timesig : -1, lyrics, confirm, maxCost, deleteFromSogni);
@@ -410,25 +420,38 @@ public final class SogniMusic {
         say("Failed: " + why(api, id, wf));
         return 1;
       }
-      String url = SogniApi.str(audio.get(0).get("url"));
-      String mime = SogniApi.str(audio.get(0).get("mimeType"));
-      String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
-      // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
-      File file = inWork(out != null ? out : trackName(genre, id) + ext);
-      // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
-      String given = SogniApi.extension(file.getName(), null);
-      if (given != null && !given.equals(ext)) file = new File(file.getPath().substring(0, file.getPath().length() - given.length()) + ext);
-      String stem = file.getPath().substring(0, file.getPath().length() - (SogniApi.extension(file.getName(), null) == null ? 0 : ext.length()));
-      for (int n = 1; file.exists(); n++) file = new File(stem + "(" + n + ")" + ext);
-      byte[] data = api.download(url);
-      FileOutputStream fos = new FileOutputStream(file);
-      try {
-        fos.write(data);
-      } finally {
-        fos.close();
+      // Each variation (--variations): the first as named, then <name>-2, <name>-3...
+      List<Map<String, Object>> keep = SogniApi.variationsOf(wf, audio);
+      File file = null;
+      for (int v = 0; v < keep.size(); v++) {
+        String url = SogniApi.str(keep.get(v).get("url"));
+        String mime = SogniApi.str(keep.get(v).get("mimeType"));
+        String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
+        // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
+        File one = inWork(out != null ? out : trackName(genre, id) + ext);
+        // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
+        String given = SogniApi.extension(one.getName(), null);
+        if (given != null && !given.equals(ext)) one = new File(one.getPath().substring(0, one.getPath().length() - given.length()) + ext);
+        String stem = one.getPath().substring(0, one.getPath().length() - (SogniApi.extension(one.getName(), null) == null ? 0 : ext.length()));
+        if (v > 0) {
+          stem = stem + "-" + (v + 1);
+          one = new File(stem + ext);
+        }
+        for (int n = 1; one.exists(); n++) one = new File(stem + "(" + n + ")" + ext);
+        byte[] data = api.download(url);
+        FileOutputStream fos = new FileOutputStream(one);
+        try {
+          fos.write(data);
+        } finally {
+          fos.close();
+        }
+        say("Wrote " + one.getName() + " (" + (data.length / 1024) + " KB)");
+        if (file == null) {
+          file = one;
+          resultFile = one.getName();
+        }
       }
-      say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      resultFile = file.getName();
+      if (keep.size() > 1) say("Variations: " + keep.size());
       if (!"completed".equals(status)) say("Note: workflow " + status);
       // --delete_from_sogni: the render deleted on Sogni now that it is saved here.
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
@@ -691,7 +714,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
   }
 
   /**
@@ -959,6 +982,33 @@ public final class SogniMusic {
   /** Sogni's hosted API: a copy of shared/src/pulsekit/SogniApi.java (android/build.sh checks they match). */
   static final class SogniApi {
     // --- SogniApi begin ---
+    /** --variations: how many results a run asks Sogni for (numberOfVariations); each one is saved. */
+    public static int variations = 1;
+    public static final int MAX_VARIATIONS = 4;
+
+    /** --variations N: 1 to MAX_VARIATIONS; false (said why) otherwise. */
+    public static boolean setVariations(String text) {
+      int n;
+      try {
+        n = Integer.parseInt(text.trim());
+      } catch (Exception ex) {
+        n = 0;
+      }
+      if (n < 1 || n > MAX_VARIATIONS) {
+        System.out.println("Failed: --variations is 1 to " + MAX_VARIATIONS + " (how many results Sogni makes; each is saved)");
+        return false;
+      }
+      variations = n;
+      return true;
+    }
+
+    /** The results to save: each variation the workflow made (its artifacts), else the first one found. */
+    public static List<Map<String, Object>> variationsOf(Map<String, Object> record, List<Map<String, Object>> made) {
+      List<Map<String, Object>> art = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), art);
+      if (art.isEmpty() || made.size() <= 1) return new ArrayList<Map<String, Object>>(made.subList(0, Math.min(1, made.size())));
+      return made;
+    }
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
     /**
@@ -1060,7 +1110,7 @@ public final class SogniMusic {
       if (timesig > 0) args.put("timesig", Integer.valueOf(timesig));
       if (model != null && model.length() > 0) args.put("model", model);
       if (lyrics != null && lyrics.length() > 0) args.put("lyrics", lyrics);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "music");
       step.put("toolName", "generate_music");
@@ -1109,7 +1159,7 @@ public final class SogniMusic {
       if (!audio) args.put("generateAudio", Boolean.FALSE);
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -1161,7 +1211,7 @@ public final class SogniMusic {
       if (height > 0) args.put("height", Integer.valueOf(height));
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       if (seed >= 0) args.put("seed", Long.valueOf(seed));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -1192,7 +1242,7 @@ public final class SogniMusic {
       args.put("prompt", prompt);
       args.put("model", "krea-identity-edit");
       args.put("sourceImageIndex", Integer.valueOf(-1));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();

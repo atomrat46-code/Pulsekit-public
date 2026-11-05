@@ -1081,6 +1081,13 @@ public class MainActivity extends UiKit {
         }
     }
 
+    public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        // Turned sideways while a smaller video player shows: its video full screen (upright: back).
+        SidewaysVideo.turned(config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE);
+    }
+
+    @Override
     protected void onDestroy() {
         this.gridEditor.hideLenMenu();
         this.playback.stop();

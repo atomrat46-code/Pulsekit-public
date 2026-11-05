@@ -135,6 +135,8 @@ public final class SogniTextVideo {
     boolean deleteFromSogni = false;
     // The LoRAs need Sogni's Safe Content Filter off: off on every SogniTextVideo run.
     SogniApi.noFilter = true;
+    // --variations: one result unless asked (a run in the app keeps the last run's count otherwise).
+    SogniApi.variations = 1;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -148,6 +150,9 @@ public final class SogniTextVideo {
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--variations") && i + 1 < args.length) {
+        if (!SogniApi.setVariations(args[++i])) return 2;
+      }
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -261,17 +266,28 @@ public final class SogniTextVideo {
         say("Failed: " + why(api, id, wf));
         return 1;
       }
-      String url = SogniApi.str(clips.get(0).get("url"));
-      String ext = SogniApi.mediaExtension(url, SogniApi.mimeOf(clips.get(0)), ".mp4");
+      // Each variation (--variations): the first as named, then <name>-2, <name>-3...
+      List<Map<String, Object>> keep = SogniApi.variationsOf(wf, clips);
       String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, id);
-      byte[] data = api.download(url);
-      File file = saveData(name + ext, data);
-      if (file == null) {
-        say("Failed: could not save " + name + ext);
-        return 1;
+      String ext = SogniApi.mediaExtension(SogniApi.str(keep.get(0).get("url")), SogniApi.mimeOf(keep.get(0)), ".mp4");
+      File file = null;
+      for (int v = 0; v < keep.size(); v++) {
+        String url = SogniApi.str(keep.get(v).get("url"));
+        String extV = SogniApi.mediaExtension(url, SogniApi.mimeOf(keep.get(v)), ".mp4");
+        String nameV = v == 0 ? name : name + "-" + (v + 1);
+        byte[] data = api.download(url);
+        File saved = saveData(nameV + extV, data);
+        if (saved == null) {
+          say("Failed: could not save " + nameV + extV);
+          return 1;
+        }
+        say("Wrote " + saved.getName() + " (" + size(data.length) + ")");
+        if (file == null) {
+          file = saved;
+          resultFile = saved.getName();
+        }
       }
-      say("Wrote " + file.getName() + " (" + size(data.length) + ")");
-      resultFile = file.getName();
+      if (keep.size() > 1) say("Variations: " + keep.size());
       if (!"completed".equals(status)) say("Note: workflow " + status);
       // --delete_from_sogni: the render deleted on Sogni now that it is saved here.
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
@@ -295,7 +311,7 @@ public final class SogniTextVideo {
 
   static void usage() {
     say("Usage: java SogniTextVideo [output.mp4] [--prompt text] [--duration seconds] [--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] "
-        + "[--no_audio] [--exact_prompt] [--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--workflow id] [--delete_from_sogni]");
+        + "[--no_audio] [--exact_prompt] [--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
   }
 
   /** 768 (also empty), 720, 1080 or 1440 ("1080p", "2K" read the same way); -1 for anything else. */
@@ -450,6 +466,33 @@ public final class SogniTextVideo {
   /** shared/src/pulsekit/SogniApi.java, copied here (programs see only the Java runtime); android/build.sh checks they match. */
   static final class SogniApi {
     // --- SogniApi begin ---
+    /** --variations: how many results a run asks Sogni for (numberOfVariations); each one is saved. */
+    public static int variations = 1;
+    public static final int MAX_VARIATIONS = 4;
+
+    /** --variations N: 1 to MAX_VARIATIONS; false (said why) otherwise. */
+    public static boolean setVariations(String text) {
+      int n;
+      try {
+        n = Integer.parseInt(text.trim());
+      } catch (Exception ex) {
+        n = 0;
+      }
+      if (n < 1 || n > MAX_VARIATIONS) {
+        System.out.println("Failed: --variations is 1 to " + MAX_VARIATIONS + " (how many results Sogni makes; each is saved)");
+        return false;
+      }
+      variations = n;
+      return true;
+    }
+
+    /** The results to save: each variation the workflow made (its artifacts), else the first one found. */
+    public static List<Map<String, Object>> variationsOf(Map<String, Object> record, List<Map<String, Object>> made) {
+      List<Map<String, Object>> art = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), art);
+      if (art.isEmpty() || made.size() <= 1) return new ArrayList<Map<String, Object>>(made.subList(0, Math.min(1, made.size())));
+      return made;
+    }
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
     /**
@@ -551,7 +594,7 @@ public final class SogniTextVideo {
       if (timesig > 0) args.put("timesig", Integer.valueOf(timesig));
       if (model != null && model.length() > 0) args.put("model", model);
       if (lyrics != null && lyrics.length() > 0) args.put("lyrics", lyrics);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "music");
       step.put("toolName", "generate_music");
@@ -600,7 +643,7 @@ public final class SogniTextVideo {
       if (!audio) args.put("generateAudio", Boolean.FALSE);
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -652,7 +695,7 @@ public final class SogniTextVideo {
       if (height > 0) args.put("height", Integer.valueOf(height));
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       if (seed >= 0) args.put("seed", Long.valueOf(seed));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -683,7 +726,7 @@ public final class SogniTextVideo {
       args.put("prompt", prompt);
       args.put("model", "krea-identity-edit");
       args.put("sourceImageIndex", Integer.valueOf(-1));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();

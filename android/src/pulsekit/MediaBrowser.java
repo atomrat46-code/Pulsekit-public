@@ -214,6 +214,52 @@ final class MediaBrowser {
         return chooseTab(app, MediaDir.openTab(MediaDir.lastRoot.length() > 0), picked, other);
     }
 
+    /**
+     * Choose file for a Params row (`key`, its switch): it opens where that row's file was picked
+     * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
+     */
+    static MediaBrowser chooseFor(final MainActivity app, final String key, final RefBrowser.Picked picked, Runnable other) {
+        load(app);
+        RefBrowser.Picked keep = (name, file) -> {
+            // The folder it came from: this row's next Choose file opens there.
+            if (chosenPlace != null && chosenPlace.length() > 0) {
+                MediaDir.rowPlace(key, chosenPlace);
+                save(app);
+            }
+            picked.picked(name, file);
+        };
+        String place = MediaDir.rowPlace(key);
+        if (place.equals("download")) return chooseTab(app, "download", keep, other);
+        if (place.length() > 0) {
+            String[] part = place.split("\t");
+            MediaBrowser b = make(app, part[0], false);
+            if (b != null) {
+                for (int k = 1; k < part.length; k++) {
+                    if (!b.there(part[k])) break;
+                    b.path.add(part[k]);
+                }
+                b.root = b.base;
+                b.chooser = keep;
+                b.tab = "row";
+                b.other = other;
+                last = b;
+                b.show();
+                return b;
+            }
+        }
+        return choose(app, keep, other);
+    }
+
+    /** The folder the file Choose file handed on last came from ("root\tfolder..." or "download"). */
+    static String chosenPlace;
+
+    /** Where this browser is, as a row's place: "download", or its folder and the folders opened under it. */
+    String placeHere() {
+        if (this.tree == null && !this.path.isEmpty() && DOWNLOADS.equals(this.path.get(0))) return "download";
+        if (this.root == null) return "";
+        return MediaDir.placeOf(this.root, this.path.subList(1, this.path.size()));
+    }
+
     static MediaBrowser chooseTab(MainActivity app, String tab, RefBrowser.Picked picked, Runnable other) {
         MediaBrowser b = null;
         if (tab.equals("recent")) b = make(app, MediaDir.lastRoot, true);
@@ -687,6 +733,7 @@ final class MediaBrowser {
                 }
                 if (this.dialog != null) this.dialog.dismiss();
                 this.app.setNow("Chose " + e.name);
+                chosenPlace = this.placeHere();
                 picked.picked(e.name, got);
             });
         }, "pulsekit-choose-file").start();
@@ -3616,6 +3663,7 @@ final class MediaBrowser {
         frame.addView(image, new FrameLayout.LayoutParams(-1, -1));
         final TextView title = this.app.text("", 13, false);
         title.setPadding(this.app.dp(12), this.app.dp(10), this.app.dp(12), this.app.dp(6));
+        title.setTag("media-full-title");
         title.setBackgroundColor(0x88000000);
         frame.addView(title, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
         LinearLayout bar = this.app.row();
@@ -3737,9 +3785,16 @@ final class MediaBrowser {
                 });
             }
         });
+        // A swipe (not zoomed in, not cropping): the previous or the next picture, as the arrows.
+        final Swipe swipe = new Swipe(this.app);
         image.setOnTouchListener((v, ev) -> {
             press.onTouchEvent(ev);
             pinch.onTouchEvent(ev);
+            int step = swipe.feed(ev);
+            if (step != 0 && image.getScaleX() <= 1f && !crop.cropping()) {
+                (step < 0 ? prev : next).performClick();
+                return true;
+            }
             if (ev.getPointerCount() == 1 && image.getScaleX() > 1f) {
                 if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
                     down[0] = ev.getRawX() - image.getTranslationX();
@@ -4048,12 +4103,15 @@ final class MediaBrowser {
         p.view.setTag("media-video");
         frame.addView(p.view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         // Small arrows at the left and right edges: the folder's previous and next video (none at its first or last).
+        // A swipe across the video works as them.
+        final View[] arrows = new View[2];
         for (int edge = 0; edge < 2; edge++) {
             final boolean back = edge == 0;
             final int to = at < 0 ? -1 : back ? at - 1 : at + 1;
             if (to < 0 || to >= videos.size()) continue;
             TextView arrow = this.app.text(back ? "\u2039" : "\u203a", 30, true);
             arrow.setTag(back ? "media-video-left" : "media-video-right");
+            arrows[edge] = arrow;
             arrow.setGravity(Gravity.CENTER);
             arrow.setBackgroundColor(0x66000000);
             arrow.setOnClickListener(v -> {
@@ -4240,8 +4298,16 @@ final class MediaBrowser {
             down[2] = 1;
             p.hold();
         };
+        final Swipe swipe = new Swipe(this.app);
         final View.OnTouchListener touch = (v, ev) -> {
             pinch.onTouchEvent(ev);
+            // A swipe (not zoomed in): the previous or the next video, as the arrows.
+            int step = swipe.feed(ev);
+            if (step != 0 && p.zoom <= 1.01f && arrows[step < 0 ? 0 : 1] != null) {
+                this.main.removeCallbacks(hold);
+                arrows[step < 0 ? 0 : 1].performClick();
+                return true;
+            }
             int act = ev.getActionMasked();
             if (act == MotionEvent.ACTION_DOWN) {
                 down[0] = ev.getRawX() - p.view.getTranslationX();

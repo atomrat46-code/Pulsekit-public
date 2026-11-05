@@ -349,6 +349,10 @@ final class VideoOffer {
         for (JavaRun.FileOut f : result.files) if (isVideo(f.name) && f.bytes != null && f.bytes.length > 0) videos.add(f);
         if (videos.isEmpty()) return false;
         JavaRun.FileOut clip = videos.get(0);
+        // The run's own clip (its "Succeeded:" line): the first of its variations.
+        String named = null;
+        for (String line : String.valueOf(result.log).split("\n")) if (line.trim().startsWith("Succeeded: ")) named = line.trim().substring(11).trim();
+        for (JavaRun.FileOut f : videos) if (named != null && f.name.equals(named)) clip = f;
         // A joined clip (SogniVideo's Join with this video) is the one to watch.
         for (JavaRun.FileOut f : videos) if (f.name.toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) clip = f;
         final String path = cacheCopy(app, clip.name, clip.bytes);
@@ -466,9 +470,30 @@ final class VideoOffer {
             .setView(scroll)
             .setPositiveButton("Close", null)
             .create();
+        // Turned sideways: the clip full screen from where it is (upright again: back here).
+        final SidewaysVideo.Small wide = new SidewaysVideo.Small() {
+            @Override
+            public boolean shown() {
+                return p.open && dialog.isShowing() && (p.full == null || !p.full.isShowing()) && p.view.getVisibility() == android.view.View.VISIBLE;
+            }
+
+            @Override
+            public android.app.Dialog wide() {
+                int at = 0;
+                try {
+                    at = Math.max(0, p.view.getCurrentPosition());
+                } catch (Exception ignored) {
+                    // not ready
+                }
+                if (p.playing) p.playPause();
+                p.fullScreen(app, path, at);
+                return p.full;
+            }
+        };
         dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override
             public void onDismiss(DialogInterface d) {
+                SidewaysVideo.closed(wide);
                 p.open = false;
                 p.playing = false;
                 p.awake();
@@ -479,6 +504,7 @@ final class VideoOffer {
         p.dialog = dialog;
         p.window = dialog.getWindow();
         p.appWindow = app.getWindow();
+        SidewaysVideo.opened(app, wide);
         dialog.show();
         p.open = true;
         p.tick();

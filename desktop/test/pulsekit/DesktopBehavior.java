@@ -73,7 +73,15 @@ public final class DesktopBehavior {
       }
       code = 1;
     }
-    for (Throwable e : t.errors) t.out.append("ERROR: ").append(e).append('\n');
+    for (Throwable e : t.errors) {
+      t.out.append("ERROR: ").append(e).append('\n');
+      // What went wrong inside (a dialog's inspection, run on the window's thread).
+      for (Throwable c = e.getCause(); c != null; c = c.getCause()) {
+        t.out.append("  cause: ").append(c).append('\n');
+        StackTraceElement[] st = c.getStackTrace();
+        for (int i = 0; i < Math.min(4, st.length); i++) t.out.append("    at ").append(st[i]).append('\n');
+      }
+    }
     if (!t.errors.isEmpty()) code = 1;
     File dir = new File(args[1]);
     dir.mkdirs();
@@ -7673,6 +7681,257 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Browse sections (as on the phone): grouped by the prompt's first two sentences, A to Z; a
+   * group's right click lists its sections under it; a section's double click shows it fully (Load).
+   */
+  void s206_sections_grouped() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot. Warm light.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: a red kite. over hills. Stormy sky.\n");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    PyJav.sectionShownAnswer = 0;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      seen.append("rows: ").append(rows.apply(list)).append('\n');
+      java.awt.Rectangle r = list.getCellBounds(0, 0);
+      java.awt.event.MouseEvent right = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, r.x + 5, r.y + 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
+      seen.append("opened: ").append(rows.apply(list)).append('\n');
+      // The second section of the group (row 2): double click shows it fully, Load there.
+      java.awt.Rectangle r2 = list.getCellBounds(2, 2);
+      java.awt.event.MouseEvent two = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, r2.x + 5, r2.y + 5, 2, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mouseClicked(two);
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    PyJav.sectionShownAnswer = null;
+    String shown = String.valueOf(py.lastSectionShown).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ");
+    seen.append("shown: ").append(shown).append(" | ").append(PyJav.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+    out.append(seen);
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    String t = seen.toString();
+    boolean ok = t.contains("rows: \u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
+        && t.contains("opened: \u25be a red kite. over hills. (2) | a red kite. over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras")
+        && shown.equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && t.contains("Loaded: A red kite. Over hills. Blue sky.") && done[0];
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Picture ready (as on the phone): Crop image in the picture's right click opens it with the crop
+   * frame on; the crop's menu has Save as…, Process as a reference (Picture ready closes) and Upscale.
+   */
+  void s205_picture_ready_crop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File pic = new File(home, "ready.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(80, 60, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    final PyJav py = (PyJav) get("pyJav");
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = new boolean[1];
+    final java.util.function.Consumer<java.awt.Component> rightClick = c -> {
+      java.awt.event.MouseEvent e = new java.awt.event.MouseEvent(c, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : c.getMouseListeners()) l.mousePressed(e);
+    };
+    final java.util.function.BiFunction<javax.swing.JPopupMenu, String, AbstractButton> item = (m, n) -> {
+      for (java.awt.Component c : m.getComponents()) if (c instanceof AbstractButton && n.equals(c.getName())) return (AbstractButton) c;
+      return null;
+    };
+    final java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      return sb.toString();
+    };
+    // Picture ready, then the preview: both stay open for the scenario.
+    answers.add("(keep)");
+    answers.add("(keep)");
+    inspectNext = ready -> {
+      java.awt.Component view = component(ready, "picture-offer:ready.png");
+      rightClick.accept(view);
+      javax.swing.JPopupMenu m = py.lastReadyMenu;
+      seen.append("right click: ").append(items.apply(m).contains(CropBox.CROP)).append('\n');
+      final AbstractButton crop = item.apply(m, "picture-crop:ready.png");
+      m.setVisible(false);
+      inspectNext = preview -> {
+        seen.append("viewer: ").append(preview.getTitle()).append('\n');
+        rightClick.accept(component(preview, "preview-image"));
+        javax.swing.JPopupMenu pm = db.lastPictureMenu;
+        seen.append("crop on: ").append(items.apply(pm)).append('\n');
+        final AbstractButton process = item.apply(pm, "preview-crop:" + CropBox.PROCESS);
+        pm.setVisible(false);
+        SwingUtilities.invokeLater(process::doClick);
+      };
+      SwingUtilities.invokeLater(crop::doClick);
+    };
+    SwingUtilities.invokeLater(() -> {
+      py.offerPictures(java.util.Collections.singletonList(pic));
+      done[0] = true;
+    });
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    Thread.sleep(500);
+    idle();
+    File crop = (File) get("lastCrop");
+    seen.append("Process: Picture ready closed ").append(done[0]).append(", crop ").append(crop == null ? "none" : crop.getName()).append('\n');
+    out.append(seen);
+    boolean ok = seen.toString().contains("right click: true") && seen.toString().contains("crop on: " + CropBox.SAVE + ", " + CropBox.PROCESS + ", " + CropBox.UPSCALE + ", " + CropBox.CANCEL)
+        && done[0] && crop != null && crop.getName().equals("ready-crop.png");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params (as on the phone): Reference image 1 and 2 (--image, --image2) each remember the
+   * folder their Choose file picked from last, apart; kept with the Media browser's settings (sealed).
+   */
+  void s204_choose_file_folder_per_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File a = new File(home, "m204a"), b = new File(home, "m204b");
+    a.mkdirs();
+    b.mkdirs();
+    for (File d : new File[] {a, b}) javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 35, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(d, d.getName() + ".png"));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File[] picked = new File[1];
+    final String[] shown = new String[1];
+    java.util.function.BiFunction<String, String, String> pickIn = (key, card) -> {
+      picked[0] = null;
+      shown[0] = null;
+      inspectNext = d -> {
+        shown[0] = mb.shown == null ? "none" : mb.shown.getName();
+        if (card != null) ((AbstractButton) component(d, "media-card:" + card)).doClick();
+        else d.dispose();
+      };
+      SwingUtilities.invokeLater(() -> mb.chooseFor(key, f -> picked[0] = f, () -> {}));
+      try {
+        for (int i = 0; i < 100 && (shown[0] == null || card != null && picked[0] == null); i++) Thread.sleep(100);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      return shown[0] + (card != null ? " picked " + (picked[0] == null ? "none" : picked[0].getName()) : "");
+    };
+    MediaBrowser.loadLoop();
+    MediaDir.remember(a.getAbsolutePath(), new ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.saveLoop();
+    String first = pickIn.apply("--image", "m204a.png");
+    MediaBrowser.loadLoop();
+    MediaDir.remember(b.getAbsolutePath(), new ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.saveLoop();
+    String second = pickIn.apply("--image2", "m204b.png");
+    String again1 = pickIn.apply("--image", null), again2 = pickIn.apply("--image2", null);
+    String kept = new String(Files.readAllBytes(MediaBrowser.settings().toPath()), StandardCharsets.UTF_8);
+    out.append("image: ").append(first).append(" | image2: ").append(second).append(" | again: image opens ").append(again1).append(", image2 opens ").append(again2)
+        .append(" | sealed ").append(kept.contains("row=") && !kept.contains("m204a")).append('\n');
+    boolean ok = first.equals("m204a picked m204a.png") && second.equals("m204b picked m204b.png") && again1.equals("m204a") && again2.equals("m204b") && kept.contains("row=") && !kept.contains("m204a");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * --variations N (every Sogni program): numberOfVariations sent as asked, every result saved (the
+   * first as named, then <name>-2, <name>-3), 1 to 4 only; Params has the field with 1 to 4.
+   */
+  void s203_sogni_variations() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> bodies = Collections.synchronizedList(new ArrayList<String>());
+    final int[] asked = {1};
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      if (body.contains("numberOfVariations")) {
+        bodies.add(body);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"numberOfVariations\"\\s*:\\s*(\\d+)").matcher(body);
+        if (m.find()) asked[0] = Integer.parseInt(m.group(1));
+      }
+      byte[] reply;
+      String type = "application/json";
+      boolean video = body.contains("generate_video") || path.contains("vid");
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = path.endsWith(".mp4") ? "video/mp4" : "image/png";
+        reply = path.getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/creative-agent/workflows/wf")) {
+        String ext = path.endsWith("wfv1") ? ".mp4" : ".png";
+        StringBuilder art = new StringBuilder();
+        for (int i = 1; i <= asked[0]; i++) art.append(i > 1 ? "," : "").append("{\"url\":\"http://127.0.0.1:").append(port).append("/files/r").append(i).append(ext).append("\",\"mimeType\":\"").append(ext.equals(".mp4") ? "video/mp4" : "image/png").append("\"}");
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + path.substring(path.lastIndexOf('/') + 1) + "\",\"status\":\"completed\",\"artifacts\":[" + art + "]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + (video ? "wfv1" : "wfp1") + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[][] runs = {{"SogniPadd.java", "out.png --prompt \"a red kite\" --variations 3"}, {"SogniTextVideo.java", "clip.mp4 --prompt \"waves at dusk\" --variations 2"},
+        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"}};
+      List<String> said = new ArrayList<String>();
+      for (String[] r : runs) {
+        bodies.clear();
+        call("selectListedProgram", "Java", r[0]);
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyLog")).setText(""));
+        final String extra = r[1] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+        // Picture ready / Video ready: closed.
+        answers.add("Close");
+        answers.add("Close");
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        StringBuilder one = new StringBuilder(r[0]).append(":");
+        for (String line : String.valueOf(log.getText()).split("\n")) {
+          if (line.startsWith("Wrote ") || line.startsWith("Variations") || line.startsWith("Succeeded") || line.startsWith("Failed: --variations")) one.append(" [").append(line.replaceAll(" \\(.*\\)$", "")).append(']');
+        }
+        synchronized (bodies) {
+          for (String b : bodies) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"numberOfVariations\"\\s*:\\s*(\\d+)").matcher(b);
+            if (m.find()) one.append(" sent ").append(m.group(1));
+          }
+        }
+        said.add(one.toString());
+        out.append(one).append('\n');
+      }
+      // Params: the field, with 1 to 4.
+      String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);
+      ProgramParams.Param field = null;
+      for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals("--variations")) field = p;
+      out.append("Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append('\n');
+      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out-2.png] [Wrote out-3.png] [Variations: 3] [Succeeded: out.png] sent 3")
+          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip-2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+          && said.get(2).startsWith("SogniPadd.java: [Failed: --variations is 1 to 4") && !said.get(2).contains("sent")
+          && field != null && "1,2,3,4".equals(String.join(",", field.choices));
+      if (!ok) throw new AssertionError(out.toString());
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
    * 04112026_4 (as on the phone): a move folder's Subfolder with % codes (%ddmmyyyy/pics; %n the next
    * free number), made when missing; the field beside each type.
    */
@@ -7997,7 +8256,7 @@ public final class DesktopBehavior {
     MediaDir.sortBy = MediaDir.SORT_NAME;
     edt(mb::refreshShown);
     boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
-        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+        && byType.equals("sub beta.png alpha.jpg gamma.png clip.mp4");
     // Search: *.png; then CLI among the videos; cleared.
     MediaBrowser.searchAnswer = new String[] {"*.png", "A"};
     edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-search")).doClick());

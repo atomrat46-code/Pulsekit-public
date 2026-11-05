@@ -8848,7 +8848,8 @@ public class BehaviorTest {
     Playlist def2 = Playlist.load(dir, Playlist.DEFAULT);
     String kept = def2.items.get(def2.items.size() - 1).file;
     out.append("added: ").append(((TextView) get("now")).getText()).append(", kept ").append(kept.replace(dir.getAbsolutePath(), "<files>")).append(", there ").append(new File(kept).isFile()).append('\n');
-    boolean readyOk = readyMenu.endsWith(Playlist.ADD) && def2.items.size() == 2 && new File(kept).isFile();
+    // Add to playlist, then Crop image (the picture's crop frame).
+    boolean readyOk = readyMenu.endsWith(Playlist.ADD + " | " + CropBox.CROP) && def2.items.size() == 2 && new File(kept).isFile();
     PictureOffer.last.dismiss();
     write("s153_playlist_menus_cancel", out.toString());
     if (!galleryOk || !mediaOk || !readyOk) throw new AssertionError(out.toString());
@@ -11859,6 +11860,9 @@ public class BehaviorTest {
     String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(0));
     org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
     idle();
+    // A tap shows the section fully; Load there.
+    PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
     String asked = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).getMessage());
     PyJavParams.lastSections.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
     idle();
@@ -12114,6 +12118,359 @@ public class BehaviorTest {
   }
 
   /**
+   * --variations N (the Sogni programs' shared SogniApi): 1 to 4; every artifact a workflow made is
+   * kept (without artifacts only the first found); Params has the field with 1 to 4; Video ready
+   * shows the run's own clip (its Succeeded line), the first variation.
+   */
+  /**
+   * Browse sections grouped by the prompt's first two sentences (A to Z, a group's newest first): a
+   * group's long press lists its sections; a section tapped shows fully (Load there).
+   */
+  @Test
+  public void s224_sections_grouped() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot. Warm light.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: a red  kite. over hills. Stormy sky.\n");
+    String lead = SogniSections.lead("One. Two! Three? Four.", 2) + " | " + SogniSections.lead("No end here", 2) + " | " + SogniSections.lead("", 2);
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.browseSections(app, "SogniPadd", none, noFields);
+    idle();
+    String rows = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    android.widget.ListView lv = PyJavParams.lastSections.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    String group = PyJavParams.lastGroup == null ? "none" : listItems(PyJavParams.lastGroup).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastGroup).clickOnItem(1);
+    idle();
+    String shown = String.valueOf(((TextView) PyJavParams.lastSectionShown.getWindow().getDecorView().findViewWithTag("section-full-text")).getText()).replaceAll("Saved [0-9.: ]+", "Saved <when>");
+    boolean loadThere = PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString().equals(SogniSections.LOAD);
+    PyJavParams.lastSectionShown.dismiss();
+    idle();
+    out.append("lead: ").append(lead).append("\nrows: ").append(rows).append("\ngroup: ").append(group).append("\nshown: ").append(shown.replace("\n", " / ")).append(" | Load there ").append(loadThere).append('\n');
+    write("s224_sections_grouped", out.toString());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    boolean ok = lead.equals("One. Two! | No end here | (no prompt)")
+        && rows.startsWith("\u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
+        && group.startsWith("a red kite. over hills. Stormy sky.") && group.contains(" | A red kite. Over hills. Blue sky. · loras")
+        && shown.replace("\n", " / ").equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && loadThere;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Picture ready: Crop image in the picture's long press; the crop's long press has Save as…,
+   * Process as a reference (Picture ready closes, the crop goes on) and Upscale.
+   */
+  @Test
+  public void s223_picture_ready_crop() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<JavaRun.FileOut> pics = new java.util.ArrayList<JavaRun.FileOut>();
+    pics.add(new JavaRun.FileOut("sky.png", plainPng(80, 60)));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: sky.png", pics, 0));
+    idle();
+    View pv = PictureOffer.last.getWindow().getDecorView();
+    pv.findViewWithTag("picture-offer:sky.png").performLongClick();
+    idle();
+    String items = listItems(PictureOffer.menu);
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(CropBox.CROP);
+    org.robolectric.Shadows.shadowOf(PictureOffer.menu).clickOnItem(at);
+    idle();
+    // Laid out, so the frame knows where the picture is.
+    pv.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1600, View.MeasureSpec.AT_MOST));
+    pv.layout(0, 0, 1000, pv.getMeasuredHeight());
+    CropLayer c = CropLayer.last;
+    boolean cropping = c != null && c.cropping() && c.getVisibility() == View.VISIBLE;
+    c.menu();
+    idle();
+    String cropItems = listItems(CropLayer.lastMenu);
+    // Save as… (the name asked): saved in Download.
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    idle();
+    CropLayer.lastSaid = null;
+    CropLayer.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 200 && (CropLayer.lastSaid == null || CropLayer.lastSaid.startsWith("Cropping")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String saved = String.valueOf(CropLayer.lastSaid);
+    // Process as a reference: Picture ready closes, the crop goes on to the program picker.
+    File kept = new File(app.getFilesDir(), "process-ref/sky-crop.png");
+    kept.delete();
+    c.menu();
+    idle();
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(1);
+    for (int i = 0; i < 200 && !kept.isFile(); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean readyClosed = !PictureOffer.last.isShowing();
+    // No program has taken a picture yet here: its note says so (else the program list shows).
+    android.app.Dialog after = ShadowDialog.getLatestDialog();
+    String note = after instanceof AlertDialog ? String.valueOf(org.robolectric.Shadows.shadowOf((AlertDialog) after).getMessage()) : "";
+    String goesOn = kept.isFile() ? kept.getName() + (note.startsWith("No program that takes pictures") ? " (no program yet)" : "") : "none";
+    if (after != null) after.dismiss();
+    idle();
+    out.append("menu has ").append(CropBox.CROP).append(' ').append(at >= 0).append(", cropping ").append(cropping).append(" | crop menu: ").append(cropItems)
+        .append(" | ").append(saved).append(" | Process: Picture ready closed ").append(readyClosed).append(", goes on ").append(goesOn).append('\n');
+    write("s223_picture_ready_crop", out.toString());
+    boolean ok = at >= 0 && cropping && cropItems.equals(CropBox.SAVE + " | " + CropBox.PROCESS + " | " + CropBox.UPSCALE + " | " + CropBox.CANCEL)
+        && saved.startsWith("Saved the crop as") && saved.contains("sky-crop.png") && readyClosed && goesOn.startsWith("sky-crop.png");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params: Reference image 1 and 2 (--image, --image2) each remember the folder their Choose
+   * file picked from last, apart; kept with the Media browser's settings (sealed).
+   */
+  @Test
+  public void s222_choose_file_folder_per_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File a = new File(app.getCacheDir(), "m22a"), bdir = new File(app.getCacheDir(), "m22b");
+    a.mkdirs();
+    bdir.mkdirs();
+    Files.write(new File(a, "one.png").toPath(), plainPng(20, 35));
+    Files.write(new File(bdir, "two.png").toPath(), plainPng(20, 35));
+    final String[] got = new String[1];
+    java.util.function.BiFunction<String, String, String> pickIn = (key, card) -> {
+      got[0] = null;
+      MediaBrowser m = MediaBrowser.chooseFor(app, key, (name, file) -> got[0] = name, null);
+      String root = m == null ? "none" : new File(String.valueOf(m.base)).getName();
+      try {
+        for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+          Thread.sleep(20);
+          idle();
+        }
+        if (card != null) {
+          View c = m.dialog.getWindow().getDecorView().findViewWithTag("media-card:" + card);
+          if (c != null) c.performClick();
+          for (int i = 0; i < 200 && got[0] == null; i++) {
+            Thread.sleep(20);
+            idle();
+          }
+        } else {
+          m.dialog.dismiss();
+          idle();
+        }
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+      return root + (card != null ? " picked " + got[0] : "");
+    };
+    // Reference image 1 from A (the Media browser's folder now), Reference image 2 from B.
+    MediaDir.remember(a.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.save(app);
+    String first = pickIn.apply("--image", "one.png");
+    MediaDir.remember(bdir.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.save(app);
+    String second = pickIn.apply("--image2", "two.png");
+    // Again: each opens in its own folder (the Media browser's folder is B now).
+    String again1 = pickIn.apply("--image", null), again2 = pickIn.apply("--image2", null);
+    // Kept: read back.
+    String kept = MediaDir.encode();
+    MediaDir.decode(kept);
+    boolean back = MediaDir.rowPlace("--image").equals(a.getAbsolutePath()) && MediaDir.rowPlace("--image2").equals(bdir.getAbsolutePath());
+    out.append("image: ").append(first).append(" | image2: ").append(second).append(" | again: image opens ").append(again1).append(", image2 opens ").append(again2)
+        .append(" | read back ").append(back).append(", sealed ").append(kept.contains("row=") && !kept.contains("m22a")).append('\n');
+    write("s222_choose_file_folder_per_row", out.toString());
+    boolean ok = first.equals("m22a picked one.png") && second.equals("m22b picked two.png") && again1.equals("m22a") && again2.equals("m22b") && back && kept.contains("row=") && !kept.contains("m22a");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** Every TextView under `v`. */
+  private static java.util.List<TextView> allText(View v) {
+    java.util.List<TextView> out = new java.util.ArrayList<TextView>();
+    if (v instanceof TextView) out.add((TextView) v);
+    if (v instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) out.addAll(allText(((android.view.ViewGroup) v).getChildAt(i)));
+    return out;
+  }
+
+  @Test
+  public void s221_sogni_variations() throws Exception {
+    StringBuilder out = new StringBuilder();
+    boolean nine = SogniApi.setVariations("9"), zero = SogniApi.setVariations("0"), three = SogniApi.setVariations("3");
+    int now = SogniApi.variations;
+    SogniApi.variations = 1;
+    java.util.Map<String, Object> wf = new java.util.LinkedHashMap<String, Object>();
+    java.util.List<Object> art = new java.util.ArrayList<Object>();
+    java.util.List<java.util.Map<String, Object>> made = new java.util.ArrayList<java.util.Map<String, Object>>();
+    for (int i = 1; i <= 3; i++) {
+      java.util.Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+      m.put("url", "https://x.example/r" + i + ".png");
+      art.add(m);
+      made.add(m);
+    }
+    wf.put("artifacts", art);
+    int kept = SogniApi.variationsOf(wf, made).size();
+    int keptNoArtifacts = SogniApi.variationsOf(new java.util.LinkedHashMap<String, Object>(), made).size();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Java/SogniVideo.java").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    ProgramParams.Param field = null;
+    for (ProgramParams.Param q : ProgramParams.parse(src)) if (q.token.equals("--variations")) field = q;
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    byte[] mp4 = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    clips.add(new JavaRun.FileOut("clip-2.mp4", mp4));
+    clips.add(new JavaRun.FileOut("clip.mp4", mp4));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote clip.mp4\nWrote clip-2.mp4\nVariations: 2\nSucceeded: clip.mp4", clips, 0));
+    idle();
+    String title = "";
+    for (TextView t : allText(VideoOffer.last.dialog.getWindow().getDecorView())) if (t.getText().toString().startsWith("clip")) title = t.getText().toString();
+    VideoOffer.last.dialog.dismiss();
+    idle();
+    out.append("9 ").append(nine).append(", 0 ").append(zero).append(", 3 ").append(three).append(" (").append(now).append(") | kept ").append(kept).append(", without artifacts ").append(keptNoArtifacts)
+        .append(" | Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append(" | Video ready: ").append(title).append('\n');
+    write("s221_sogni_variations", out.toString());
+    boolean ok = !nine && !zero && three && now == 3 && kept == 3 && keptNoArtifacts == 1 && field != null && "1,2,3,4".equals(String.join(",", field.choices)) && title.startsWith("clip.mp4");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sort by type: the types in their order, then by date (Order: the oldest or the newest first), in
+   * the Media browser and the Prompts page's galleries. In full screen a swipe works as the arrows
+   * (Media browser video and picture, the playlist viewer); turned sideways, Video ready's clip goes
+   * full screen, and upright again back.
+   */
+  @Test
+  public void s220_type_date_swipe_sideways() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // Sort by type, then date.
+    String[][] files = {{"b.png", "3"}, {"a.mp4", "1"}, {"c.jpg", "1"}, {"d.mp4", "2"}, {"e.mp3", "0"}};
+    java.util.List<MediaDir.Entry> es = new java.util.ArrayList<MediaDir.Entry>();
+    for (String[] f : files) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = f[0];
+      e.id = f[0];
+      e.kind = MediaDir.kind(f[0]);
+      e.date = Long.parseLong(f[1]);
+      es.add(e);
+    }
+    java.util.function.Function<java.util.List<MediaDir.Entry>, String> names = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (MediaDir.Entry e : l) sb.append(e.name).append(' ');
+      return sb.toString().trim();
+    };
+    String oldest = names.apply(MediaDir.sortedBy(es, MediaDir.SORT_TYPE, false)), newest = names.apply(MediaDir.sortedBy(es, MediaDir.SORT_TYPE, true));
+    java.util.List<PromptVault.StoredFile> sf = new java.util.ArrayList<PromptVault.StoredFile>();
+    for (String[] f : files) {
+      PromptVault.StoredFile x = new PromptVault.StoredFile();
+      x.name = f[0];
+      x.versionId = Long.parseLong(f[1]) + 10;
+      sf.add(x);
+    }
+    java.util.function.Function<java.util.List<PromptVault.StoredFile>, String> fnames = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (PromptVault.StoredFile x : l) sb.append(x.name).append(' ');
+      return sb.toString().trim();
+    };
+    FileSort.reversed = false;
+    String galleryNewest = fnames.apply(FileSort.sorted(sf, "by type", null));
+    FileSort.reversed = true;
+    String galleryOldest = fnames.apply(FileSort.sorted(sf, "by type", null));
+    FileSort.reversed = false;
+    out.append("type, oldest first: ").append(oldest).append(" | newest first: ").append(newest).append(" (").append(MediaDir.orderLabel(MediaDir.SORT_TYPE, true)).append(") | gallery: ")
+        .append(galleryNewest).append(" | reversed: ").append(galleryOldest).append(" (").append(FileSort.orderLabel("by type", true)).append(")\n");
+    boolean sortOk = oldest.equals("c.jpg b.png a.mp4 d.mp4 e.mp3") && newest.equals("b.png c.jpg d.mp4 a.mp4 e.mp3") && "Newest first".equals(MediaDir.orderLabel(MediaDir.SORT_TYPE, true))
+        && galleryNewest.equals("b.png c.jpg d.mp4 a.mp4 e.mp3") && galleryOldest.equals("c.jpg b.png a.mp4 d.mp4 e.mp3") && "Oldest first".equals(FileSort.orderLabel("by type", true));
+    // Swipes in the Media browser's video player and picture viewer.
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    File media = new File(app.getCacheDir(), "m20");
+    media.mkdirs();
+    for (String n : new String[] {"a.mp4", "b.mp4"}) Files.write(new File(media, n).toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    for (String n : new String[] {"p.png", "q.png"}) Files.write(new File(media, n).toPath(), plainPng(20, 35));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.function.BiConsumer<View, Integer> swipe = (v, dir) -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      float from = dir < 0 ? 400 : 100, to = dir < 0 ? 100 : 400;
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, from, 300, 0);
+      v.dispatchTouchEvent(d);
+      d.recycle();
+      android.view.MotionEvent m = android.view.MotionEvent.obtain(t0, t0 + 60, android.view.MotionEvent.ACTION_MOVE, (from + to) / 2, 305, 0);
+      v.dispatchTouchEvent(m);
+      m.recycle();
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, t0 + 120, android.view.MotionEvent.ACTION_UP, to, 310, 0);
+      v.dispatchTouchEvent(u);
+      u.recycle();
+      ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+    };
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:a.mp4").performClick();
+    idle();
+    java.util.function.Supplier<String> video = () -> ((TextView) MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video-title")).getText().toString().replace("  \u00b7 looping", "");
+    StringBuilder vids = new StringBuilder(video.get());
+    swipe.accept(MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video"), -1);
+    vids.append(" < swipe: ").append(video.get());
+    swipe.accept(MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video"), 1);
+    vids.append(" > swipe: ").append(video.get());
+    MediaBrowser.lastVideo.dialog.dismiss();
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:p.png").performClick();
+    idle();
+    android.app.Dialog pic = ShadowDialog.getLatestDialog();
+    TextView title = (TextView) pic.getWindow().getDecorView().findViewWithTag("media-full-title");
+    StringBuilder pics = new StringBuilder(title.getText());
+    swipe.accept(pic.getWindow().getDecorView().findViewWithTag("media-full"), -1);
+    pics.append(" < swipe: ").append(title.getText());
+    pic.dismiss();
+    b.dialog.dismiss();
+    idle();
+    // The playlist viewer.
+    Playlist pl = new Playlist("Swipe");
+    pl.items.add(new Playlist.Item(new File(media, "p.png").getAbsolutePath(), "p.png"));
+    pl.items.add(new Playlist.Item(new File(media, "q.png").getAbsolutePath(), "q.png"));
+    PlaylistScreen.viewer(app, pl, 0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    StringBuilder list = new StringBuilder(((TextView) vw.findViewWithTag("viewer-where")).getText());
+    swipe.accept(vw.findViewWithTag("viewer-stage"), -1);
+    list.append(" < swipe: ").append(((TextView) vw.findViewWithTag("viewer-where")).getText());
+    PlaylistScreen.lastViewer.dismiss();
+    idle();
+    out.append("video: ").append(vids).append(" | picture: ").append(pics).append(" | playlist: ").append(list).append('\n');
+    boolean swipeOk = vids.toString().equals("a.mp4 < swipe: b.mp4 > swipe: a.mp4") && pics.toString().startsWith("p.png") && pics.toString().contains("< swipe: q.png")
+        && !list.toString().split(" < swipe: ")[0].equals(list.toString().split(" < swipe: ")[1]);
+    // Turned sideways while Video ready shows: its clip full screen; upright again: back.
+    MediaBrowser.turning = 0;
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    boolean mayTurn = app.getRequestedOrientation() == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+    android.content.res.Configuration land = new android.content.res.Configuration(app.getResources().getConfiguration());
+    land.orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    app.onConfigurationChanged(land);
+    idle();
+    boolean wide = vp.full != null && vp.full.isShowing() && SidewaysVideo.full == vp.full;
+    android.content.res.Configuration port = new android.content.res.Configuration(land);
+    port.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
+    app.onConfigurationChanged(port);
+    idle();
+    boolean back = !vp.full.isShowing() && vp.dialog.isShowing();
+    vp.dialog.dismiss();
+    idle();
+    boolean upright = app.getRequestedOrientation() == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+    out.append("Video ready: may turn ").append(mayTurn).append(", sideways full screen ").append(wide).append(", upright back ").append(back).append(", closed: upright ").append(upright).append('\n');
+    write("s220_type_date_swipe_sideways", out.toString());
+    boolean ok = sortOk && swipeOk && mayTurn && wide && back && upright;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * crash-log_3: a Run press waited seconds on File > Downloads' list, each run sealed again at every
    * write (one keystore call a run). The same text now keeps its sealed line: only what changed is
    * sealed; a line read is written back as it was; another key seals anew.
@@ -12234,6 +12591,8 @@ public class BehaviorTest {
     String readyBack = o.apply(app.getRequestedOrientation());
     vp.dialog.dismiss();
     idle();
+    // Video ready lets the screen turn too (sideways: its clip full screen); closed: upright.
+    String readyClosed = o.apply(app.getRequestedOrientation());
     // The playlist viewer.
     Playlist pl = new Playlist("Turn");
     pl.items.add(new Playlist.Item(new File(media, "wide.mp4").getAbsolutePath(), "wide.mp4"));
@@ -12244,11 +12603,11 @@ public class BehaviorTest {
     idle();
     String viewerBack = o.apply(app.getRequestedOrientation());
     out.append("app ").append(before).append(" | Media browser video: ").append(open).append(", upright playing ").append(uprightPlaying).append(", sideways playing ").append(sidewaysPlaying)
-        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack)
+        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack).append(", closed ").append(readyClosed)
         .append(" | playlist viewer ").append(viewer).append(", closed ").append(viewerBack).append('\n');
     write("s217_videos_turn_sideways", out.toString());
     boolean ok = open.equals("turns") && uprightPlaying.equals("top/transport") && sidewaysPlaying.equals("-/-") && sidewaysPaused.equals("top/transport") && closed.equals("upright")
-        && !readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
+        && readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("turns") && readyClosed.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12606,7 +12965,7 @@ public class BehaviorTest {
     b.refilter();
     out.append("name: ").append(byName).append(" | newest: ").append(newest).append(" (").append(orderLabel).append(") | type: ").append(byType).append('\n');
     boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
-        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+        && byType.equals("sub beta.png alpha.jpg gamma.png clip.mp4");
     // Search: *.png, then pictures holding "a".
     b.searchDialog();
     idle();
@@ -13362,7 +13721,9 @@ public class BehaviorTest {
     View pv = PictureOffer.last.getWindow().getDecorView();
     View row = pv.findViewWithTag("ready-saves:pic.png"), picture = pv.findViewWithTag("picture-offer:pic.png");
     ViewGroup parent = row == null ? null : (ViewGroup) row.getParent();
-    boolean above = row != null && picture != null && parent == picture.getParent() && parent.indexOfChild(row) < parent.indexOfChild(picture);
+    // The picture sits in a frame (Crop image's frame goes over it): that frame is under the row.
+    View shownPicture = picture != null && picture.getParent() instanceof android.widget.FrameLayout ? (View) picture.getParent() : picture;
+    boolean above = row != null && shownPicture != null && parent == shownPicture.getParent() && parent.indexOfChild(row) < parent.indexOfChild(shownPicture);
     String labels = "";
     for (String item : MediaDir.READY_SAVES) {
       TextView b = (TextView) pv.findViewWithTag("ready-save:" + item + ":pic.png");

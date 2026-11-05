@@ -1062,6 +1062,10 @@ final class PyJav {
                 if (!inBatch && !savedVideos.isEmpty() && result.code == 0) {
                     // A joined clip (SogniVideo's Join with this video) is the one to watch.
                     File watch = savedVideos.get(0);
+                    // The run's own clip (its "Succeeded:" line): the first of its variations.
+                    String named = null;
+                    for (String line : String.valueOf(result.log).split("\n")) if (line.trim().startsWith("Succeeded: ")) named = line.trim().substring(11).trim();
+                    for (File v : savedVideos) if (named != null && v.getName().equals(named)) watch = v;
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
@@ -1153,10 +1157,18 @@ final class PyJav {
             java.awt.Image shown = img.getScaledInstance(Math.max(1, (int) (img.getWidth() * scale)), Math.max(1, (int) (img.getHeight() * scale)), java.awt.Image.SCALE_SMOOTH);
             JLabel view = new JLabel(new javax.swing.ImageIcon(shown));
             view.setName("picture-offer:" + f.getName());
-            view.setToolTipText("Right click: Add to favourites, Add to group");
-            // Right click: Add to favourites, Add to group.
+            view.setToolTipText("Right click: Add to favourites, Add to group, Crop image");
+            // Right click: Add to favourites, Add to group, Crop image.
             final File pic = f;
-            GroupMenus.onRightClick(view, () -> GroupMenus.fileMenu(app, pic).show(view, 20, 20));
+            GroupMenus.onRightClick(view, () -> {
+                javax.swing.JPopupMenu m = GroupMenus.fileMenu(app, pic);
+                javax.swing.JMenuItem crop = new javax.swing.JMenuItem(CropBox.CROP);
+                crop.setName("picture-crop:" + pic.getName());
+                crop.addActionListener(e -> this.cropReady(pic, view));
+                m.add(crop);
+                this.lastReadyMenu = m;
+                m.show(view, 20, 20);
+            });
             view.setAlignmentX(0.0f);
             col.add(view);
             col.add(javax.swing.Box.createVerticalStrut(8));
@@ -1183,6 +1195,38 @@ final class PyJav {
             } catch (Exception ex) {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
+        }
+    }
+
+    /** Picture ready's right click menu shown last (for the tests). */
+    javax.swing.JPopupMenu lastReadyMenu;
+
+    /**
+     * Picture ready's Crop image: the picture in the preview with the crop frame on; the crop's menu
+     * has Save as… (beside the picture), Process as a reference and Upscale (both close Picture ready).
+     */
+    void cropReady(File pic, java.awt.Component from) {
+        PromptDb db = app.promptDb;
+        final Runnable leave = () -> {
+            java.awt.Window w = SwingUtilities.getWindowAncestor(from);
+            if (w != null) w.dispose();
+        };
+        db.previewFolder = pic.getAbsoluteFile().getParentFile();
+        db.previewCropNow = true;
+        db.previewLeave = leave;
+        db.previewProcess = made -> {
+            leave.run();
+            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, made));
+        };
+        try {
+            db.preview(pic.getName(), java.nio.file.Files.readAllBytes(pic.toPath()));
+        } catch (Exception ex) {
+            app.setNow("Could not read " + pic.getName());
+        } finally {
+            db.previewFolder = null;
+            db.previewCropNow = false;
+            db.previewLeave = null;
+            db.previewProcess = null;
         }
     }
 
@@ -1246,6 +1290,26 @@ final class PyJav {
         }
     }
 
+    /** Browse sections' list shown last, and the full view's answer for the tests (0 Load, 1 Edit, 2 Remove, -1 Close; null: asked). */
+    javax.swing.JList<String> lastSectionsList;
+    static Integer sectionShownAnswer;
+    String lastSectionShown;
+
+    /** A section shown fully (its entries, a line each): what was picked, 0 Load, 1 Edit, 2 Remove, -1 Close. */
+    int showSection(java.awt.Component at, PromptVault.SogniSection sec) {
+        this.lastSectionShown = SogniSections.full(sec);
+        if (sectionShownAnswer != null) return sectionShownAnswer.intValue();
+        javax.swing.JTextArea text = new javax.swing.JTextArea(this.lastSectionShown, 10, 60);
+        text.setName("section-full-text");
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Close"};
+        int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(text), SogniSections.label(sec), JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        return ans >= 0 && ans <= 2 ? ans : -1;
+    }
+
     /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
     void browseSections(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
         java.util.List<PromptVault.SogniSection> all;
@@ -1267,19 +1331,108 @@ final class PyJav {
             if (sectionAction != null && sectionAction == 1) edit = true;
             if (sectionAction != null && sectionAction == 2) delete = true;
         } else {
-            javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
-            for (PromptVault.SogniSection sec : all) model.addElement(SogniSections.label(sec));
-            javax.swing.JList<String> list = new javax.swing.JList<String>(model);
+            // Grouped by the prompt's first sentences, A to Z: a group's right click (or hold) lists its
+            // sections under it; a double click shows a section fully (Load, Edit, Remove there too).
+            final java.util.List<SogniSections.Group> groups = SogniSections.groups(all);
+            final java.util.Set<SogniSections.Group> open = new java.util.HashSet<SogniSections.Group>();
+            final java.util.List<Object> rows = new java.util.ArrayList<Object>();
+            final javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
+            final Runnable fill = () -> {
+                rows.clear();
+                model.clear();
+                for (SogniSections.Group g : groups) {
+                    rows.add(g);
+                    model.addElement(open.contains(g) ? "\u25be " + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
+                    if (!open.contains(g)) continue;
+                    for (PromptVault.SogniSection sec : g.sections) {
+                        rows.add(sec);
+                        model.addElement("      " + SogniSections.label(sec));
+                    }
+                }
+            };
+            fill.run();
+            final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
             list.setName("sections-list");
             list.setSelectedIndex(0);
-            list.setVisibleRowCount(Math.min(12, all.size()));
+            list.setVisibleRowCount(Math.min(12, Math.max(4, rows.size())));
+            this.lastSectionsList = list;
+            final java.util.function.IntConsumer toggle = i -> {
+                if (i < 0 || i >= rows.size() || !(rows.get(i) instanceof SogniSections.Group)) return;
+                SogniSections.Group g = (SogniSections.Group) rows.get(i);
+                if (g.sections.size() < 2) return;
+                if (!open.remove(g)) open.add(g);
+                fill.run();
+                list.setSelectedIndex(rows.indexOf(g));
+            };
+            final java.util.function.IntFunction<PromptVault.SogniSection> sectionAt = i -> {
+                if (i < 0 || i >= rows.size()) return null;
+                Object r = rows.get(i);
+                if (r instanceof PromptVault.SogniSection) return (PromptVault.SogniSection) r;
+                SogniSections.Group g = (SogniSections.Group) r;
+                return g.sections.size() == 1 ? g.sections.get(0) : null;
+            };
+            // A section shown fully and an action picked there (0 Load, 1 Edit, 2 Remove).
+            final PromptVault.SogniSection[] fullSec = new PromptVault.SogniSection[1];
+            final int[] fullAct = {-1};
+            list.addMouseListener(new java.awt.event.MouseAdapter() {
+                javax.swing.Timer hold;
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    final int i = list.locationToIndex(e.getPoint());
+                    if (SwingUtilities.isRightMouseButton(e) || e.isPopupTrigger()) {
+                        toggle.accept(i);
+                        return;
+                    }
+                    this.hold = new javax.swing.Timer(600, ev -> toggle.accept(i));
+                    this.hold.setRepeats(false);
+                    this.hold.start();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    if (this.hold != null) this.hold.stop();
+                }
+
+                @Override
+                public void mouseClicked(java.awt.event.MouseEvent e) {
+                    if (!SwingUtilities.isLeftMouseButton(e) || e.getClickCount() < 2) return;
+                    int i = list.locationToIndex(e.getPoint());
+                    PromptVault.SogniSection sec = sectionAt.apply(i);
+                    if (sec == null) {
+                        toggle.accept(i);
+                        return;
+                    }
+                    int act = PyJav.this.showSection(list, sec);
+                    if (act < 0) return;
+                    fullSec[0] = sec;
+                    fullAct[0] = act;
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(list);
+                    if (w != null) w.dispose();
+                }
+            });
             Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Cancel"};
-            int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
-                JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-            chosen = list.getSelectedIndex();
+            PromptVault.SogniSection sec;
+            int ans;
+            while (true) {
+                ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+                if (fullSec[0] != null) {
+                    sec = fullSec[0];
+                    ans = fullAct[0];
+                    break;
+                }
+                if (ans < 0 || ans > 2) return;
+                int i = list.getSelectedIndex();
+                sec = sectionAt.apply(i);
+                if (sec != null) break;
+                // A group of several picked: its sections open under it, to pick one.
+                if (i < 0) return;
+                toggle.accept(i);
+            }
+            chosen = all.indexOf(sec);
             if (ans == 1) edit = true;
             else if (ans == 2) delete = true;
-            else if (ans != 0) return;
         }
         if (chosen < 0 || chosen >= all.size()) return;
         PromptVault.SogniSection sec = all.get(chosen);
@@ -2886,7 +3039,8 @@ final class PyJav {
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
-                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
+                // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
+                else pick.addActionListener(e -> app.mediaBrowser.chooseFor(p.token, f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"}
                         : "sf2".equals(p.ext) ? new String[] {"sf2", "sfz", "zip", "gz", "tgz", "tar"}

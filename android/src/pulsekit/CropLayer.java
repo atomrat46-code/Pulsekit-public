@@ -31,6 +31,12 @@ final class CropLayer extends View {
         void upscale(String name, byte[] png) throws Exception;
     }
 
+    /** A viewer whose crop can also go into another program as a reference (Picture ready's). */
+    interface Processes {
+        /** Process as a reference with it, as `name` (on the screen's thread). */
+        void process(String name, byte[] png) throws Exception;
+    }
+
     final Activity activity;
     final ImageView image;
     /** The picture's name (the viewer sets it as it goes to another picture). */
@@ -169,13 +175,16 @@ final class CropLayer extends View {
         return true;
     }
 
-    /** The crop's long press: Save as…, Upscale, Cancel crop. */
+    /** The crop's long press: Save as…, (Picture ready's) Process as a reference, Upscale, Cancel crop. */
     void menu() {
-        final String[] items = {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
+        final boolean processes = this.actions instanceof Processes;
+        final String[] items = processes ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
         lastMenu = new AlertDialog.Builder(this.activity).setTitle(CropBox.name(this.name))
             .setItems(items, (dlg, w) -> {
-                if (w == 0) this.saveAs();
-                else if (w == 1) this.made(png -> this.actions.upscale(CropBox.name(this.name), png));
+                String it = items[w];
+                if (it.equals(CropBox.SAVE)) this.saveAs();
+                else if (it.equals(CropBox.PROCESS)) this.made(png -> ((Processes) this.actions).process(CropBox.name(this.name), png));
+                else if (it.equals(CropBox.UPSCALE)) this.made(png -> this.actions.upscale(CropBox.name(this.name), png));
                 else this.stop();
             }).setNegativeButton("Close", null).show();
     }

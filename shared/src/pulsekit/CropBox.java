@@ -12,6 +12,8 @@ public final class CropBox {
   public static final String CROP = "Crop image";
   public static final String SAVE = "Save as\u2026";
   public static final String UPSCALE = "Upscale";
+  /** Picture ready's crop: into another program as its Reference file 1 or 2. */
+  public static final String PROCESS = "Process as a reference";
   public static final String CANCEL = "Cancel crop";
   public static final String HINT = "Drag the frame's borders or corners (or inside it, to move it). A long press saves or upscales the crop.";
   /** The frame's colour (ARGB). */

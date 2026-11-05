@@ -126,7 +126,7 @@ public final class MediaDir {
 
   /** Order's button: what the order is now ("A to Z", "Newest first"...). */
   public static String orderLabel(String by, boolean desc) {
-    if (SORT_DATE.equals(by)) return desc ? "Newest first" : "Oldest first";
+    if (SORT_DATE.equals(by) || SORT_TYPE.equals(by)) return desc ? "Newest first" : "Oldest first";
     return desc ? "Z to A" : "A to Z";
   }
 
@@ -141,8 +141,10 @@ public final class MediaDir {
         int k;
         if (SORT_DATE.equals(by)) k = Long.compare(a.date, b.date);
         else if (SORT_TYPE.equals(by)) {
-          k = Integer.compare(typeRank(a), typeRank(b));
-          if (k == 0) k = splitName(a.name, false)[1].compareToIgnoreCase(splitName(b.name, false)[1]);
+          // By type: pictures, videos, sounds, the rest (always so), then by date (Order: the newest or the oldest first).
+          int t = Integer.compare(typeRank(a), typeRank(b));
+          if (t != 0) return t;
+          k = Long.compare(a.date, b.date);
         } else k = 0;
         if (k == 0) k = a.name.compareToIgnoreCase(b.name);
         return desc ? -k : k;
@@ -451,6 +453,31 @@ public final class MediaDir {
     return new ArrayList<String>(lastPath);
   }
 
+  /**
+   * Choose file's folder for each Params row (its switch: --image, --image2...): where the file
+   * picked last for that row was, as "root\tfolder\tfolder..." (or "download"); each row opens there.
+   */
+  private static final java.util.Map<String, String> ROWS = new java.util.LinkedHashMap<String, String>();
+
+  /** The row's folder ("" when none yet). */
+  public static synchronized String rowPlace(String key) {
+    String v = key == null ? null : ROWS.get(key);
+    return v == null ? "" : v;
+  }
+
+  /** The row's folder kept (`place` from placeOf, or "download"). */
+  public static synchronized void rowPlace(String key, String place) {
+    if (key == null || key.length() == 0 || place == null || place.length() == 0) return;
+    ROWS.put(key, place.replace('\n', ' '));
+  }
+
+  /** "root\tfolder\tfolder": a folder picked and the folders opened under it. */
+  public static String placeOf(String root, List<String> under) {
+    StringBuilder sb = new StringBuilder(root == null ? "" : root.replace('\t', ' ').replace('\n', ' '));
+    if (under != null) for (String p : under) sb.append('\t').append(p.replace('\t', ' ').replace('\n', ' '));
+    return sb.toString();
+  }
+
   /** Remembers the folder picked and the folders opened under it (encode() keeps them). */
   public static void remember(String root, List<String> under) {
     lastRoot = root == null ? "" : root;
@@ -507,6 +534,14 @@ public final class MediaDir {
     StringBuilder places = new StringBuilder();
     synchronized (MediaDir.class) {
       for (java.util.Map.Entry<String, Integer> e : PLACES.entrySet()) places.append("\nat=").append(e.getKey()).append(':').append(e.getValue());
+      // Each Params row's Choose file folder, sealed.
+      for (java.util.Map.Entry<String, String> e : ROWS.entrySet()) {
+        try {
+          places.append("\nrow=").append(Sealed.sealText(e.getKey() + "\n" + e.getValue()));
+        } catch (Exception ex) {
+          // without a key, not kept
+        }
+      }
     }
     return "loop=" + (loopVideos ? 1 : 0) + "\nvolume=" + volume + "\nmute=" + (muted ? 1 : 0) + "\nzoom=" + zoom + "\nspeed=" + speed
         + "\nsort=" + sortBy + (sortDesc ? "\tdesc" : "") + (sealed.length() > 0 ? "\nplace=" + sealed : "") + favs + (tab.length() > 0 ? "\ntab=" + tab : "") + places + "\n";
@@ -528,6 +563,7 @@ public final class MediaDir {
     lastTab = "";
     synchronized (MediaDir.class) {
       PLACES.clear();
+      ROWS.clear();
     }
     if (text == null) return;
     for (String line : text.split("\n")) {
@@ -562,6 +598,19 @@ public final class MediaDir {
             }
           } else {
             lastTab = v;
+          }
+        }
+        else if (k.equals("row")) {
+          try {
+            String row = Sealed.openText(v);
+            int nl = row.indexOf('\n');
+            if (nl > 0) {
+              synchronized (MediaDir.class) {
+                ROWS.put(row.substring(0, nl), row.substring(nl + 1));
+              }
+            }
+          } catch (Exception ex) {
+            // unreadable: left out
           }
         }
         else if (k.equals("fav")) {

@@ -133,6 +133,8 @@ public final class SogniChat {
     String rejoin = null;
     // SogniChat runs with Sogni's Safe Content Filter off unless --filter_on asks for it, on every run.
     SogniApi.noFilter = true;
+    // --variations: one result unless asked (a run in the app keeps the last run's count otherwise).
+    SogniApi.variations = 1;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -163,6 +165,9 @@ public final class SogniChat {
       else if (a.equals("--filter_on")) SogniApi.noFilter = false;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--saveprompt")) savePrompt = true;
+      else if (a.equals("--variations") && i + 1 < args.length) {
+        if (!SogniApi.setVariations(args[++i])) return 2;
+      }
       else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
       else if (a.equals("--run") && i + 1 < args.length) {
         String id = args[++i].trim();
@@ -467,7 +472,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
   }
 
   /**
@@ -1379,6 +1384,33 @@ public final class SogniChat {
   /** shared/src/pulsekit/SogniApi.java, copied here (programs see only the Java runtime); android/build.sh checks they match. */
   static final class SogniApi {
     // --- SogniApi begin ---
+    /** --variations: how many results a run asks Sogni for (numberOfVariations); each one is saved. */
+    public static int variations = 1;
+    public static final int MAX_VARIATIONS = 4;
+
+    /** --variations N: 1 to MAX_VARIATIONS; false (said why) otherwise. */
+    public static boolean setVariations(String text) {
+      int n;
+      try {
+        n = Integer.parseInt(text.trim());
+      } catch (Exception ex) {
+        n = 0;
+      }
+      if (n < 1 || n > MAX_VARIATIONS) {
+        System.out.println("Failed: --variations is 1 to " + MAX_VARIATIONS + " (how many results Sogni makes; each is saved)");
+        return false;
+      }
+      variations = n;
+      return true;
+    }
+
+    /** The results to save: each variation the workflow made (its artifacts), else the first one found. */
+    public static List<Map<String, Object>> variationsOf(Map<String, Object> record, List<Map<String, Object>> made) {
+      List<Map<String, Object>> art = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), art);
+      if (art.isEmpty() || made.size() <= 1) return new ArrayList<Map<String, Object>>(made.subList(0, Math.min(1, made.size())));
+      return made;
+    }
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
     /**
@@ -1480,7 +1512,7 @@ public final class SogniChat {
       if (timesig > 0) args.put("timesig", Integer.valueOf(timesig));
       if (model != null && model.length() > 0) args.put("model", model);
       if (lyrics != null && lyrics.length() > 0) args.put("lyrics", lyrics);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "music");
       step.put("toolName", "generate_music");
@@ -1529,7 +1561,7 @@ public final class SogniChat {
       if (!audio) args.put("generateAudio", Boolean.FALSE);
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -1581,7 +1613,7 @@ public final class SogniChat {
       if (height > 0) args.put("height", Integer.valueOf(height));
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       if (seed >= 0) args.put("seed", Long.valueOf(seed));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -1612,7 +1644,7 @@ public final class SogniChat {
       args.put("prompt", prompt);
       args.put("model", "krea-identity-edit");
       args.put("sourceImageIndex", Integer.valueOf(-1));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
