@@ -695,6 +695,33 @@ public class ImageUpscaler {
     /** shared/src/pulsekit/SogniApi.java, copied here (programs see only the Java runtime); android/build.sh checks they match. */
     static final class SogniApi {
     // --- SogniApi begin ---
+    /** --variations: how many results a run asks Sogni for (numberOfVariations); each one is saved. */
+    public static int variations = 1;
+    public static final int MAX_VARIATIONS = 4;
+
+    /** --variations N: 1 to MAX_VARIATIONS; false (said why) otherwise. */
+    public static boolean setVariations(String text) {
+      int n;
+      try {
+        n = Integer.parseInt(text.trim());
+      } catch (Exception ex) {
+        n = 0;
+      }
+      if (n < 1 || n > MAX_VARIATIONS) {
+        System.out.println("Failed: --variations is 1 to " + MAX_VARIATIONS + " (how many results Sogni makes; each is saved)");
+        return false;
+      }
+      variations = n;
+      return true;
+    }
+
+    /** The results to save: each variation the workflow made (its artifacts), else the first one found. */
+    public static List<Map<String, Object>> variationsOf(Map<String, Object> record, List<Map<String, Object>> made) {
+      List<Map<String, Object>> art = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), art);
+      if (art.isEmpty() || made.size() <= 1) return new ArrayList<Map<String, Object>>(made.subList(0, Math.min(1, made.size())));
+      return made;
+    }
     public static final String BASE = "https://api.sogni.ai";
     public static final String APP_SOURCE = "pulsekit";
     /**
@@ -796,7 +823,7 @@ public class ImageUpscaler {
       if (timesig > 0) args.put("timesig", Integer.valueOf(timesig));
       if (model != null && model.length() > 0) args.put("model", model);
       if (lyrics != null && lyrics.length() > 0) args.put("lyrics", lyrics);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       Map<String, Object> step = new LinkedHashMap<String, Object>();
       step.put("id", "music");
       step.put("toolName", "generate_music");
@@ -845,7 +872,7 @@ public class ImageUpscaler {
       if (!audio) args.put("generateAudio", Boolean.FALSE);
       if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -897,7 +924,7 @@ public class ImageUpscaler {
       if (height > 0) args.put("height", Integer.valueOf(height));
       if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
       if (seed >= 0) args.put("seed", Long.valueOf(seed));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();
@@ -928,7 +955,7 @@ public class ImageUpscaler {
       args.put("prompt", prompt);
       args.put("model", "krea-identity-edit");
       args.put("sourceImageIndex", Integer.valueOf(-1));
-      args.put("numberOfVariations", Integer.valueOf(1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
       if (loras != null && !loras.isEmpty()) {
         args.put("loras", new ArrayList<Object>(loras));
         List<Object> s = new ArrayList<Object>();

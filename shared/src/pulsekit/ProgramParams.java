@@ -406,6 +406,13 @@ public final class ProgramParams {
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
     // Sogni programs: the render deleted on Sogni once it is downloaded (Sogni keeps it up to 48 hours otherwise).
     if (p.flag && !p.takesValue && p.token.equals("--delete_from_sogni")) p.label = "Delete from Sogni after download";
+    // Sogni programs: numberOfVariations, how many results Sogni makes in one run; each is saved (name, name-2...).
+    if (p.flag && p.takesValue && p.token.equals("--variations")) {
+      p.label = "Variations (results a run makes)";
+      p.hint = "1; each one is charged";
+      p.choices = new String[] {"1", "2", "3", "4"};
+      p.choiceValues = new String[] {"1", "2", "3", "4"};
+    }
     // SogniChat: the sheet goes into the prompt library with the saved chat (.txt) as its result file.
     if (p.flag && !p.takesValue && p.token.equals("--saveprompt") && chat) p.label = "Save the prompt, and the answer .txt as its result file in DB";
     if (p.flag && p.takesValue && p.token.equals("--instruments")) p.hint = "e.g. bass, rhodes piano";

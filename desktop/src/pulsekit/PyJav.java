@@ -1062,6 +1062,10 @@ final class PyJav {
                 if (!inBatch && !savedVideos.isEmpty() && result.code == 0) {
                     // A joined clip (SogniVideo's Join with this video) is the one to watch.
                     File watch = savedVideos.get(0);
+                    // The run's own clip (its "Succeeded:" line): the first of its variations.
+                    String named = null;
+                    for (String line : String.valueOf(result.log).split("\n")) if (line.trim().startsWith("Succeeded: ")) named = line.trim().substring(11).trim();
+                    for (File v : savedVideos) if (named != null && v.getName().equals(named)) watch = v;
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
@@ -2886,7 +2890,8 @@ final class PyJav {
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
-                else pick.addActionListener(e -> app.mediaBrowser.choose(f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
+                // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
+                else pick.addActionListener(e -> app.mediaBrowser.chooseFor(p.token, f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null), () -> {
                     JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]).getParentFile() : null);
                     String[] exts = "mid".equals(p.ext) ? new String[] {"mid", "midi", "h2song", "h2pattern", "rpp"} : "wav".equals(p.ext) ? new String[] {"wav", "wave"}
                         : "sf2".equals(p.ext) ? new String[] {"sf2", "sfz", "zip", "gz", "tgz", "tar"}

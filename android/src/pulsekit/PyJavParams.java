@@ -204,7 +204,9 @@ public final class PyJavParams {
         chosen.setPadding(dp(activity, 8), 0, 0, 0);
         chosen.setText(fileLabel(values[i]));
         shownLabels[i] = chosen;
-        pick.setOnClickListener(v -> pickFile(activity, values, index, chosen));
+        // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
+        final String rowKey = p.token;
+        pick.setOnClickListener(v -> pickFile(activity, values, index, chosen, rowKey));
         row.addView(pick);
         if (p.refs) {
           // A picture can also come from the prompt library's reference files; greyed when it has none.
@@ -873,22 +875,33 @@ public final class PyJavParams {
   }
 
   static void pickFile(final Activity activity, final String[] values, final int index, final TextView label) {
+    pickFile(activity, values, index, label, null);
+  }
+
+  /** The Params row whose system picker is open (its switch): the file picked there is its row's last. */
+  static String pendingRow;
+
+  /** As above, for the row `key` (its switch): it opens where that row's last file was. */
+  static void pickFile(final Activity activity, final String[] values, final int index, final TextView label, final String key) {
     Runnable system = () -> {
       pendingPrompt = null;
       pendingValues = values;
       pendingIndex = index;
       pendingLabel = label;
+      pendingRow = key;
       Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
       intent.addCategory(Intent.CATEGORY_OPENABLE);
       intent.setType("*/*");
-      startIn(activity, intent);
+      startIn(activity, intent, key);
       activity.startActivityForResult(intent, PICK_FILE);
     };
     if (!(activity instanceof MainActivity)) {
       system.run();
       return;
     }
-    MediaBrowser.choose((MainActivity) activity, (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null), system);
+    RefBrowser.Picked put = (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null);
+    if (key != null && key.length() > 0) MediaBrowser.chooseFor((MainActivity) activity, key, put, system);
+    else MediaBrowser.choose((MainActivity) activity, put, system);
   }
 
   /** Recent's list shown last (for the tests). */
@@ -950,6 +963,7 @@ public final class PyJavParams {
     pendingIndex = -1;
     pendingLabel = null;
     pendingPrompt = field;
+    pendingRow = null;
     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     intent.addCategory(Intent.CATEGORY_OPENABLE);
     intent.setType("text/*");
@@ -961,12 +975,23 @@ public final class PyJavParams {
 
   /** The file Select file picked last: the next one opens in its folder (a subfolder of Download too). */
   static void pickedLast(Activity activity, android.net.Uri uri) {
-    activity.getSharedPreferences(PICK_PREFS, 0).edit().putString("last", uri.toString()).apply();
+    android.content.SharedPreferences.Editor e = activity.getSharedPreferences(PICK_PREFS, 0).edit().putString("last", uri.toString());
+    // A Params row's own: its next system picker opens there.
+    if (pendingRow != null && pendingRow.length() > 0) e.putString("last:" + pendingRow, uri.toString());
+    pendingRow = null;
+    e.apply();
   }
 
   /** The picker opened where the last file picked is (Android 8 on). */
   static void startIn(Activity activity, Intent intent) {
-    String last = activity.getSharedPreferences(PICK_PREFS, 0).getString("last", "");
+    startIn(activity, intent, null);
+  }
+
+  /** As above; for a Params row (`key`), where that row's last file is (else the last of any). */
+  static void startIn(Activity activity, Intent intent, String key) {
+    android.content.SharedPreferences prefs = activity.getSharedPreferences(PICK_PREFS, 0);
+    String last = key == null ? "" : prefs.getString("last:" + key, "");
+    if (last.length() == 0) last = prefs.getString("last", "");
     if (last.length() > 0 && android.os.Build.VERSION.SDK_INT >= 26) intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(last));
   }
 

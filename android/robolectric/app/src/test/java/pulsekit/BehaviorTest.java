@@ -12114,6 +12114,120 @@ public class BehaviorTest {
   }
 
   /**
+   * --variations N (the Sogni programs' shared SogniApi): 1 to 4; every artifact a workflow made is
+   * kept (without artifacts only the first found); Params has the field with 1 to 4; Video ready
+   * shows the run's own clip (its Succeeded line), the first variation.
+   */
+  /**
+   * Sogni Params: Reference image 1 and 2 (--image, --image2) each remember the folder their Choose
+   * file picked from last, apart; kept with the Media browser's settings (sealed).
+   */
+  @Test
+  public void s222_choose_file_folder_per_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File a = new File(app.getCacheDir(), "m22a"), bdir = new File(app.getCacheDir(), "m22b");
+    a.mkdirs();
+    bdir.mkdirs();
+    Files.write(new File(a, "one.png").toPath(), plainPng(20, 35));
+    Files.write(new File(bdir, "two.png").toPath(), plainPng(20, 35));
+    final String[] got = new String[1];
+    java.util.function.BiFunction<String, String, String> pickIn = (key, card) -> {
+      got[0] = null;
+      MediaBrowser m = MediaBrowser.chooseFor(app, key, (name, file) -> got[0] = name, null);
+      String root = m == null ? "none" : new File(String.valueOf(m.base)).getName();
+      try {
+        for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+          Thread.sleep(20);
+          idle();
+        }
+        if (card != null) {
+          View c = m.dialog.getWindow().getDecorView().findViewWithTag("media-card:" + card);
+          if (c != null) c.performClick();
+          for (int i = 0; i < 200 && got[0] == null; i++) {
+            Thread.sleep(20);
+            idle();
+          }
+        } else {
+          m.dialog.dismiss();
+          idle();
+        }
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+      return root + (card != null ? " picked " + got[0] : "");
+    };
+    // Reference image 1 from A (the Media browser's folder now), Reference image 2 from B.
+    MediaDir.remember(a.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.save(app);
+    String first = pickIn.apply("--image", "one.png");
+    MediaDir.remember(bdir.getAbsolutePath(), new java.util.ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.save(app);
+    String second = pickIn.apply("--image2", "two.png");
+    // Again: each opens in its own folder (the Media browser's folder is B now).
+    String again1 = pickIn.apply("--image", null), again2 = pickIn.apply("--image2", null);
+    // Kept: read back.
+    String kept = MediaDir.encode();
+    MediaDir.decode(kept);
+    boolean back = MediaDir.rowPlace("--image").equals(a.getAbsolutePath()) && MediaDir.rowPlace("--image2").equals(bdir.getAbsolutePath());
+    out.append("image: ").append(first).append(" | image2: ").append(second).append(" | again: image opens ").append(again1).append(", image2 opens ").append(again2)
+        .append(" | read back ").append(back).append(", sealed ").append(kept.contains("row=") && !kept.contains("m22a")).append('\n');
+    write("s222_choose_file_folder_per_row", out.toString());
+    boolean ok = first.equals("m22a picked one.png") && second.equals("m22b picked two.png") && again1.equals("m22a") && again2.equals("m22b") && back && kept.contains("row=") && !kept.contains("m22a");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /** Every TextView under `v`. */
+  private static java.util.List<TextView> allText(View v) {
+    java.util.List<TextView> out = new java.util.ArrayList<TextView>();
+    if (v instanceof TextView) out.add((TextView) v);
+    if (v instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) out.addAll(allText(((android.view.ViewGroup) v).getChildAt(i)));
+    return out;
+  }
+
+  @Test
+  public void s221_sogni_variations() throws Exception {
+    StringBuilder out = new StringBuilder();
+    boolean nine = SogniApi.setVariations("9"), zero = SogniApi.setVariations("0"), three = SogniApi.setVariations("3");
+    int now = SogniApi.variations;
+    SogniApi.variations = 1;
+    java.util.Map<String, Object> wf = new java.util.LinkedHashMap<String, Object>();
+    java.util.List<Object> art = new java.util.ArrayList<Object>();
+    java.util.List<java.util.Map<String, Object>> made = new java.util.ArrayList<java.util.Map<String, Object>>();
+    for (int i = 1; i <= 3; i++) {
+      java.util.Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+      m.put("url", "https://x.example/r" + i + ".png");
+      art.add(m);
+      made.add(m);
+    }
+    wf.put("artifacts", art);
+    int kept = SogniApi.variationsOf(wf, made).size();
+    int keptNoArtifacts = SogniApi.variationsOf(new java.util.LinkedHashMap<String, Object>(), made).size();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Java/SogniVideo.java").toPath()), java.nio.charset.StandardCharsets.UTF_8);
+    ProgramParams.Param field = null;
+    for (ProgramParams.Param q : ProgramParams.parse(src)) if (q.token.equals("--variations")) field = q;
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    byte[] mp4 = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    clips.add(new JavaRun.FileOut("clip-2.mp4", mp4));
+    clips.add(new JavaRun.FileOut("clip.mp4", mp4));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote clip.mp4\nWrote clip-2.mp4\nVariations: 2\nSucceeded: clip.mp4", clips, 0));
+    idle();
+    String title = "";
+    for (TextView t : allText(VideoOffer.last.dialog.getWindow().getDecorView())) if (t.getText().toString().startsWith("clip")) title = t.getText().toString();
+    VideoOffer.last.dialog.dismiss();
+    idle();
+    out.append("9 ").append(nine).append(", 0 ").append(zero).append(", 3 ").append(three).append(" (").append(now).append(") | kept ").append(kept).append(", without artifacts ").append(keptNoArtifacts)
+        .append(" | Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append(" | Video ready: ").append(title).append('\n');
+    write("s221_sogni_variations", out.toString());
+    boolean ok = !nine && !zero && three && now == 3 && kept == 3 && keptNoArtifacts == 1 && field != null && "1,2,3,4".equals(String.join(",", field.choices)) && title.startsWith("clip.mp4");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Sort by type: the types in their order, then by date (Order: the oldest or the newest first), in
    * the Media browser and the Prompts page's galleries. In full screen a swipe works as the arrows
    * (Media browser video and picture, the playlist viewer); turned sideways, Video ready's clip goes

@@ -7673,6 +7673,145 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Sogni Params (as on the phone): Reference image 1 and 2 (--image, --image2) each remember the
+   * folder their Choose file picked from last, apart; kept with the Media browser's settings (sealed).
+   */
+  void s204_choose_file_folder_per_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File a = new File(home, "m204a"), b = new File(home, "m204b");
+    a.mkdirs();
+    b.mkdirs();
+    for (File d : new File[] {a, b}) javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(20, 35, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", new File(d, d.getName() + ".png"));
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final File[] picked = new File[1];
+    final String[] shown = new String[1];
+    java.util.function.BiFunction<String, String, String> pickIn = (key, card) -> {
+      picked[0] = null;
+      shown[0] = null;
+      inspectNext = d -> {
+        shown[0] = mb.shown == null ? "none" : mb.shown.getName();
+        if (card != null) ((AbstractButton) component(d, "media-card:" + card)).doClick();
+        else d.dispose();
+      };
+      SwingUtilities.invokeLater(() -> mb.chooseFor(key, f -> picked[0] = f, () -> {}));
+      try {
+        for (int i = 0; i < 100 && (shown[0] == null || card != null && picked[0] == null); i++) Thread.sleep(100);
+        idle();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      return shown[0] + (card != null ? " picked " + (picked[0] == null ? "none" : picked[0].getName()) : "");
+    };
+    MediaBrowser.loadLoop();
+    MediaDir.remember(a.getAbsolutePath(), new ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.saveLoop();
+    String first = pickIn.apply("--image", "m204a.png");
+    MediaBrowser.loadLoop();
+    MediaDir.remember(b.getAbsolutePath(), new ArrayList<String>());
+    MediaDir.lastTab = "";
+    MediaBrowser.saveLoop();
+    String second = pickIn.apply("--image2", "m204b.png");
+    String again1 = pickIn.apply("--image", null), again2 = pickIn.apply("--image2", null);
+    String kept = new String(Files.readAllBytes(MediaBrowser.settings().toPath()), StandardCharsets.UTF_8);
+    out.append("image: ").append(first).append(" | image2: ").append(second).append(" | again: image opens ").append(again1).append(", image2 opens ").append(again2)
+        .append(" | sealed ").append(kept.contains("row=") && !kept.contains("m204a")).append('\n');
+    boolean ok = first.equals("m204a picked m204a.png") && second.equals("m204b picked m204b.png") && again1.equals("m204a") && again2.equals("m204b") && kept.contains("row=") && !kept.contains("m204a");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * --variations N (every Sogni program): numberOfVariations sent as asked, every result saved (the
+   * first as named, then <name>-2, <name>-3), 1 to 4 only; Params has the field with 1 to 4.
+   */
+  void s203_sogni_variations() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final List<String> bodies = Collections.synchronizedList(new ArrayList<String>());
+    final int[] asked = {1};
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      if (body.contains("numberOfVariations")) {
+        bodies.add(body);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"numberOfVariations\"\\s*:\\s*(\\d+)").matcher(body);
+        if (m.find()) asked[0] = Integer.parseInt(m.group(1));
+      }
+      byte[] reply;
+      String type = "application/json";
+      boolean video = body.contains("generate_video") || path.contains("vid");
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = path.endsWith(".mp4") ? "video/mp4" : "image/png";
+        reply = path.getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/v1/creative-agent/workflows/wf")) {
+        String ext = path.endsWith("wfv1") ? ".mp4" : ".png";
+        StringBuilder art = new StringBuilder();
+        for (int i = 1; i <= asked[0]; i++) art.append(i > 1 ? "," : "").append("{\"url\":\"http://127.0.0.1:").append(port).append("/files/r").append(i).append(ext).append("\",\"mimeType\":\"").append(ext.equals(".mp4") ? "video/mp4" : "image/png").append("\"}");
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + path.substring(path.lastIndexOf('/') + 1) + "\",\"status\":\"completed\",\"artifacts\":[" + art + "]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + (video ? "wfv1" : "wfp1") + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      String[][] runs = {{"SogniPadd.java", "out.png --prompt \"a red kite\" --variations 3"}, {"SogniTextVideo.java", "clip.mp4 --prompt \"waves at dusk\" --variations 2"},
+        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"}};
+      List<String> said = new ArrayList<String>();
+      for (String[] r : runs) {
+        bodies.clear();
+        call("selectListedProgram", "Java", r[0]);
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyLog")).setText(""));
+        final String extra = r[1] + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+        // Picture ready / Video ready: closed.
+        answers.add("Close");
+        answers.add("Close");
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        StringBuilder one = new StringBuilder(r[0]).append(":");
+        for (String line : String.valueOf(log.getText()).split("\n")) {
+          if (line.startsWith("Wrote ") || line.startsWith("Variations") || line.startsWith("Succeeded") || line.startsWith("Failed: --variations")) one.append(" [").append(line.replaceAll(" \\(.*\\)$", "")).append(']');
+        }
+        synchronized (bodies) {
+          for (String b : bodies) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"numberOfVariations\"\\s*:\\s*(\\d+)").matcher(b);
+            if (m.find()) one.append(" sent ").append(m.group(1));
+          }
+        }
+        said.add(one.toString());
+        out.append(one).append('\n');
+        if (System.getProperty("pulsekit.debug") != null) out.append(log.getText()).append('\n');
+      }
+      // Params: the field, with 1 to 4.
+      String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);
+      ProgramParams.Param field = null;
+      for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals("--variations")) field = p;
+      out.append("Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append('\n');
+      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out-2.png] [Wrote out-3.png] [Variations: 3] [Succeeded: out.png] sent 3")
+          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip-2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+          && said.get(2).startsWith("SogniPadd.java: [Failed: --variations is 1 to 4") && !said.get(2).contains("sent")
+          && field != null && "1,2,3,4".equals(String.join(",", field.choices));
+      if (!ok) throw new AssertionError(out.toString());
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  /**
    * 04112026_4 (as on the phone): a move folder's Subfolder with % codes (%ddmmyyyy/pics; %n the next
    * free number), made when missing; the field beside each type.
    */

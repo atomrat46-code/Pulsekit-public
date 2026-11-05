@@ -349,6 +349,10 @@ final class VideoOffer {
         for (JavaRun.FileOut f : result.files) if (isVideo(f.name) && f.bytes != null && f.bytes.length > 0) videos.add(f);
         if (videos.isEmpty()) return false;
         JavaRun.FileOut clip = videos.get(0);
+        // The run's own clip (its "Succeeded:" line): the first of its variations.
+        String named = null;
+        for (String line : String.valueOf(result.log).split("\n")) if (line.trim().startsWith("Succeeded: ")) named = line.trim().substring(11).trim();
+        for (JavaRun.FileOut f : videos) if (named != null && f.name.equals(named)) clip = f;
         // A joined clip (SogniVideo's Join with this video) is the one to watch.
         for (JavaRun.FileOut f : videos) if (f.name.toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) clip = f;
         final String path = cacheCopy(app, clip.name, clip.bytes);

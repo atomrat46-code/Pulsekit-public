@@ -214,6 +214,52 @@ final class MediaBrowser {
         return chooseTab(app, MediaDir.openTab(MediaDir.lastRoot.length() > 0), picked, other);
     }
 
+    /**
+     * Choose file for a Params row (`key`, its switch): it opens where that row's file was picked
+     * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
+     */
+    static MediaBrowser chooseFor(final MainActivity app, final String key, final RefBrowser.Picked picked, Runnable other) {
+        load(app);
+        RefBrowser.Picked keep = (name, file) -> {
+            // The folder it came from: this row's next Choose file opens there.
+            if (chosenPlace != null && chosenPlace.length() > 0) {
+                MediaDir.rowPlace(key, chosenPlace);
+                save(app);
+            }
+            picked.picked(name, file);
+        };
+        String place = MediaDir.rowPlace(key);
+        if (place.equals("download")) return chooseTab(app, "download", keep, other);
+        if (place.length() > 0) {
+            String[] part = place.split("\t");
+            MediaBrowser b = make(app, part[0], false);
+            if (b != null) {
+                for (int k = 1; k < part.length; k++) {
+                    if (!b.there(part[k])) break;
+                    b.path.add(part[k]);
+                }
+                b.root = b.base;
+                b.chooser = keep;
+                b.tab = "row";
+                b.other = other;
+                last = b;
+                b.show();
+                return b;
+            }
+        }
+        return choose(app, keep, other);
+    }
+
+    /** The folder the file Choose file handed on last came from ("root\tfolder..." or "download"). */
+    static String chosenPlace;
+
+    /** Where this browser is, as a row's place: "download", or its folder and the folders opened under it. */
+    String placeHere() {
+        if (this.tree == null && !this.path.isEmpty() && DOWNLOADS.equals(this.path.get(0))) return "download";
+        if (this.root == null) return "";
+        return MediaDir.placeOf(this.root, this.path.subList(1, this.path.size()));
+    }
+
     static MediaBrowser chooseTab(MainActivity app, String tab, RefBrowser.Picked picked, Runnable other) {
         MediaBrowser b = null;
         if (tab.equals("recent")) b = make(app, MediaDir.lastRoot, true);
@@ -687,6 +733,7 @@ final class MediaBrowser {
                 }
                 if (this.dialog != null) this.dialog.dismiss();
                 this.app.setNow("Chose " + e.name);
+                chosenPlace = this.placeHere();
                 picked.picked(e.name, got);
             });
         }, "pulsekit-choose-file").start();
