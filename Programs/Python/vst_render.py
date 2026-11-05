@@ -80,8 +80,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   The test beat as played is kept too: vst-check-<plugin>.wav (an MP3 with --mp3) and
                   its notes' times, vst-check-<plugin>-times.txt (what the kit profile is learned from).
                   Each test run then puts every report, test beat, times file and kit profile in the
-                  output folder into one zip, vst-test-results.zip (made again each run: after runs of
-                  several plugins it holds them all).
+                  output folder into one zip, vst-test-results.zip (added to by each run: after runs of
+                  several plugins it holds them all) and deletes the loose reports, test beats and times
+                  files; the kit profiles stay (--compare_kits reads them).
   --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
                   (its --snare-leak): fewer false hats on the snare, some real ones lost.
   --no-kit        with --test: no kit profile. Otherwise the test beat's kick and toms (each played
@@ -1694,11 +1695,13 @@ RESULTS_ZIP = "vst-test-results.zip"
 
 def results_zip(dirs):
     """--test: every test's report, test beat (its MP3, else its WAV), times and kit profile in the folders
-    (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) in one zip, RESULTS_ZIP, in the first
-    folder: made again by each test run, so after runs of several plugins it holds them all. Its path, or
-    None when there was nothing to put in."""
+    (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) into one zip, RESULTS_ZIP, in the first
+    folder. The zip is added to, not made anew: what it holds stays, a file of the same name is replaced,
+    so after runs of several plugins it holds them all. Then the reports, test beats and times files are
+    deleted (they are in the zip); the kit profiles stay (--kit, --compare_kits). A test beat goes only
+    with its times file (a --check WAV has none and stays). Its path, or None when there was nothing."""
     import zipfile
-    files = []
+    files, loose = [], []
     for d in dirs:
         if not os.path.isdir(d):
             continue
@@ -1707,28 +1710,47 @@ def results_zip(dirs):
             if not os.path.isfile(p) or p in files:
                 continue
             low = f.lower()
-            test = low.startswith("vst-test-") and low.endswith(".txt")
+            report = low.startswith("vst-test-") and low.endswith(".txt")
             kit = low.startswith("vst-kit-") and low.endswith(".kit")
-            check = low.startswith("vst-check-") and low.endswith((".mp3", ".wav", "-times.txt"))
-            if check and low.endswith(".wav") and os.path.isfile(p[:-4] + ".mp3"):
+            times = low.startswith("vst-check-") and low.endswith("-times.txt")
+            beat = low.startswith("vst-check-") and low.endswith((".mp3", ".wav")) and os.path.isfile(p[:-4] + "-times.txt")
+            if beat and low.endswith(".wav") and os.path.isfile(p[:-4] + ".mp3"):
+                loose.append(p)
                 continue
-            if test or kit or check:
+            if report or kit or times or beat:
                 files.append(p)
+                if not kit:
+                    loose.append(p)
     if not files:
         return None
     path = os.path.join(dirs[0], RESULTS_ZIP)
     work = path + ".part"
-    names = set()
+    names = {}
+    for p in files:
+        names.setdefault(os.path.basename(p), p)
+    kept = 0
     with zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as z:
-        for p in files:
-            name = os.path.basename(p)
-            if name in names:
-                continue
-            names.add(name)
+        if os.path.isfile(path):
+            try:
+                with zipfile.ZipFile(path) as old:
+                    for info in old.infolist():
+                        if info.filename not in names:
+                            z.writestr(info, old.read(info.filename))
+                            kept += 1
+            except (zipfile.BadZipFile, OSError) as e:
+                print("Results zip: %s could not be read (%s): made anew" % (RESULTS_ZIP, e))
+        for name, p in sorted(names.items()):
             z.write(p, name)
     os.replace(work, path)
-    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles; %.1f MB)"
-          % (path, len(names), os.path.getsize(path) / float(ZIP_MB)))
+    removed = 0
+    for p in loose:
+        try:
+            os.remove(p)
+            removed += 1
+        except OSError:
+            pass
+    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles%s; %.1f MB); %d loose file%s deleted, the kit profiles kept"
+          % (path, len(names) + kept, ", %d from earlier runs" % kept if kept else "", os.path.getsize(path) / float(ZIP_MB), removed, "" if removed == 1 else "s"))
     return path
 
 

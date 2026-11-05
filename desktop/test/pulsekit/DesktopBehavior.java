@@ -7246,14 +7246,17 @@ public final class DesktopBehavior {
         + "vr.Gizmo = G\n"
         + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--skip_existing', '--test', '--drummidi', os.path.join(d, 'DrumMidi_CRT.jar')])\n"
         + "print('renders %d' % G.n)\n"
-        + "kept = sorted(f for f in os.listdir(out) if f.startswith('vst-check-'))\n"
-        + "print('kept ' + ' '.join(kept))\n"
-        + "print('times ' + open(os.path.join(out, [f for f in kept if f.endswith('-times.txt')][0])).read().splitlines()[0])\n"
-        // Every test's files in one zip, made again by each run: another plugin's kit and an older report go in too.
+        // Every test's files in one zip; the loose report, test beat and times deleted, kit profiles kept.
         + "import zipfile\n"
-        + "print('results ' + ' '.join(sorted(zipfile.ZipFile(os.path.join(out, 'vst-test-results.zip')).namelist())))\n"
+        + "z = zipfile.ZipFile(os.path.join(out, 'vst-test-results.zip'))\n"
+        + "print('results ' + ' '.join(sorted(z.namelist())))\n"
+        + "print('times ' + z.read('vst-check-kit-times.txt').decode().splitlines()[0])\n"
+        + "print('left ' + ' '.join(sorted(f for f in os.listdir(out) if f.startswith('vst-'))))\n"
+        // The next run (another plugin) adds to the zip; a --check WAV (no times file) is neither zipped nor deleted.
         + "open(os.path.join(out, 'vst-kit-Other.kit'), 'w').write('36 0\\n'); open(os.path.join(out, 'vst-test-Other.txt'), 'w').write('All:\\n')\n"
-        + "print('again ' + str(len(zipfile.ZipFile(vr.results_zip([out])).namelist())))\n";
+        + "open(os.path.join(out, 'vst-check-Solo.wav'), 'wb').write(b'RIFF')\n"
+        + "print('again ' + ' '.join(sorted(zipfile.ZipFile(vr.results_zip([out])).namelist())))\n"
+        + "print('left2 ' + ' '.join(sorted(f for f in os.listdir(out) if f.startswith('vst-'))))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
@@ -7261,7 +7264,9 @@ public final class DesktopBehavior {
     boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
         && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
         && said.contains("Test beat: vst-check-") && said.contains("-times.txt\n") && said.contains("times 2.0000 36")
-        && said.contains("results vst-check-kit-times.txt vst-check-kit.wav vst-test-kit.txt") && said.contains("again 5")
+        && said.contains("results vst-check-kit-times.txt vst-check-kit.wav vst-test-kit.txt") && said.contains("left vst-test-results.zip\n")
+        && said.contains("again vst-check-kit-times.txt vst-check-kit.wav vst-kit-Other.kit vst-test-Other.txt vst-test-kit.txt")
+        && said.contains("left2 vst-check-Solo.wav vst-kit-Other.kit vst-test-results.zip")
         && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
     if (!ok) throw new AssertionError(this.out.toString());
   }
