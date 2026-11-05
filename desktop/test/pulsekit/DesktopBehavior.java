@@ -9038,7 +9038,7 @@ public final class DesktopBehavior {
     File jar = new File(dir, "DrumMidi_CRT.jar");
     Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
     int sr = 44100;
-    double[] x = new double[sr * 44];
+    double[] x = new double[sr * 56];
     java.util.Random r = new java.util.Random(3);
     StringBuilder times = new StringBuilder();
     for (int k = 0; k < 3; k++) {
@@ -9073,6 +9073,23 @@ public final class DesktopBehavior {
         }
       }
     }
+    // The hat and the ride played on in eighths, 16 each (tagged g).
+    t += 1.0;
+    for (int c : new int[] {0, 2}) {
+      for (int k = 0; k < 16; k++) {
+        double prev = 0;
+        for (int i = 0; i < sr * 0.9; i++) {
+          double s = i / (double) sr, w = r.nextDouble() * 2 - 1;
+          double v = c == 0 ? (w - prev) * Math.exp(-s / 0.02) * 0.5
+              : (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+          prev = w;
+          x[(int) (t * sr) + i] += v;
+        }
+        times.append(String.format(java.util.Locale.ROOT, "%.4f %d g\n", t, c == 0 ? 42 : 51));
+        t += 0.25;
+      }
+      t += 1.0;
+    }
     short[] pcm = new short[x.length];
     for (int i = 0; i < x.length; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, Math.round(x[i] * 20000)));
     File wav = new File(dir, "check.wav"), txt = new File(dir, "times.txt"), kit = new File(dir, "kit.kit"), mid = new File(dir, "check-dm.mid");
@@ -9088,7 +9105,8 @@ public final class DesktopBehavior {
     String check = "import importlib.util, sys, tempfile\n"
         + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
         + "e = vr.kit_events()\n"
-        + "print('tags', sum(1 for x in e if x[3] == 'k'), sum(1 for x in e if x[3] == 's'), sum(1 for x in e if x[3] == '-'), 'alone', len(vr.kit_times()))\n"
+        + "print('tags', sum(1 for x in e if x[3] == 'k'), sum(1 for x in e if x[3] == 's'), sum(1 for x in e if x[3] == '-'), 'alone', len(vr.kit_times()), 'runs', sum(1 for x in e if x[3] == 'g'))\n"
+        + "print('run velocities', sorted(set(x[2] for x in e if x[3] == 'g'))[0], sorted(set(x[2] for x in e if x[3] == 'g'))[-1], 'times', vr.kit_times_text({}).splitlines()[-1])\n"
         + "print('velocities', sorted(set(x[2] for x in e if x[1] == 42 and x[3] == '')))\n"
         + "print('beat notes', len(vr.midi_notes(vr.check_midi(tempfile.mkdtemp()))[1]))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
@@ -9096,9 +9114,10 @@ public final class DesktopBehavior {
     String py = PythonRun.runFor(cmd, 120, null).trim();
     this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(vote).append('\n').append(py).append('\n');
     boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
-        && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare")
-        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.startsWith("Kit kit.kit: ride by passage: ") && vote.endsWith("made the ride")
-        && py.contains("tags 8 8 16 alone 33") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 77");
+        && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare; cymbals played on in eighths: 42 (15 hits), 51 (15 hits)")
+        && text.contains("\nc42g ") && text.contains("\nc51g ") && vote.startsWith("Kit kit.kit: ride by passage (the hat and ride played on in eighths): ")
+        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.endsWith("made the ride")
+        && py.contains("tags 8 8 16 alone 33 runs 32") && py.contains("run velocities 70 120 times 49.7500 51 g") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 109");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

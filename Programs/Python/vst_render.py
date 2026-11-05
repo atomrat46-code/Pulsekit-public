@@ -57,7 +57,7 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   the effect's window opens after the instrument's.
   --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42; then the kick
                   and each tom alone; each cymbal alone, soft to hard, and with a kick and with a
-                  snare) through the plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
+                  snare; the closed hat and the ride played on in eighths) through the plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
                   plugin play with these settings? Every run does that check first, and a plugin that
                   is silent for it is skipped (with --plugin2 to --plugin4 the next one goes on): load
                   a kit with --edit. In a run, a silent render is left out (no test, no MP3 of it),
@@ -1382,18 +1382,23 @@ def sogni_zips(folder, only=None, recursive=False):
 # alone, KIT_HITS times, a second apart (they ring longer), soft, mid and hard (KIT_VELOCITIES: a
 # song's hits are not all alike); then each cymbal KIT_WITH times struck with a kick and KIT_WITH
 # times with a snare (a song's rides and hats are mostly on one): the profile learns how they look then.
+# Last, the closed hat and the ride each played on in eighths, KIT_GROOVE_HITS of them, soft to hard
+# (KIT_GROOVE_VELOCITIES): as a song plays them, each hit over the ring of the one before.
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
 KIT_CYMBALS = (42, 46, 51, 49)
 KIT_HITS = 3
 KIT_VELOCITIES = (70, 100, 120)
 KIT_WITH = 2
 KIT_COMPANIONS = ((36, "k"), (38, "s"))
+KIT_GROOVE = (42, 51)
+KIT_GROOVE_HITS = 16
+KIT_GROOVE_VELOCITIES = (70, 120)
 
 
 def kit_events():
     """Every note of the test beat's second part: (seconds, note, velocity, tag), at its 120 BPM. The tag
-    is "" for a drum alone, "k" or "s" for a cymbal struck with a kick or a snare, and "-" for that kick
-    or snare (not learned)."""
+    is "" for a drum alone, "k" or "s" for a cymbal struck with a kick or a snare, "-" for that kick
+    or snare (not learned), and "g" for a closed hat or ride played on in eighths."""
     out = [(2.0 + 0.5 * (i * KIT_HITS + k), n, 100, "") for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
     start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
     out += [(start + 1.0 * (i * KIT_HITS + k), n, KIT_VELOCITIES[k % len(KIT_VELOCITIES)], "")
@@ -1404,6 +1409,11 @@ def kit_events():
             for _ in range(KIT_WITH):
                 out += [(t, n, 100, tag), (t, drum, 100, "-")]
                 t += 1.0
+    lo, hi = KIT_GROOVE_VELOCITIES
+    for n in KIT_GROOVE:
+        for i in range(KIT_GROOVE_HITS):
+            out.append((t + 0.25 * i, n, int(round(lo + (hi - lo) * i / float(KIT_GROOVE_HITS - 1))), "g"))
+        t += 0.25 * KIT_GROOVE_HITS + 1.0
     return out
 
 
@@ -1415,7 +1425,8 @@ def kit_times():
 def check_midi(folder):
     """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
     beats, closed hats (42) on the eighths, on the drum channel; then the kick, each tom and each
-    cymbal alone, and each cymbal with a kick and with a snare (kit_events); returns its path."""
+    cymbal alone, each cymbal with a kick and with a snare, and the closed hat and ride played on in
+    eighths (kit_events); returns its path."""
     events = []
     for k in range(8):
         tick = k * 240
@@ -1460,7 +1471,7 @@ def kit_missing(said):
 def kit_times_text(nmap):
     """The test beat's notes DrumMidi --learn-kit learns the kit from, as the plugin plays them (--map:
     a note played as another drum, or not at all, is left out): "seconds note" lines, then k or s for a
-    cymbal struck with a kick or a snare."""
+    cymbal struck with a kick or a snare, g for one played on in eighths."""
     lines = []
     for t, n, _, tag in kit_events():
         m = nmap.get(n, n)

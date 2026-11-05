@@ -60,8 +60,8 @@ def render(kitdir, name, midis, out):
     # The kit profile, from the test beat as played (its second part: each drum alone).
     times = os.path.join(work, "times.txt")
     with open(times, "w") as f:
-        # The beat's cymbals struck with a kick or snare (kit_events' tags): tagged, and their kick or snare left out.
-        tags = {round(t, 2): tag for t, n, _, tag in vr.kit_events() if tag in ("k", "s")}
+        # The beat's cymbals struck with a kick or snare, or played on in eighths (kit_events' tags): tagged; the kick or snare left out.
+        tags = {round(t, 2): tag for t, n, _, tag in vr.kit_events() if tag in ("k", "s", "g")}
         for t, n in vr.midi_notes(os.path.join(where, "check.mid"))[1]:
             tag = tags.get(round(t, 2), "")
             if t < 1.99 or (tag and n not in vr.KIT_CYMBALS):
