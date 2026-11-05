@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * The Prompts page's Ref files and Result files galleries: Sort by type (pictures, videos, sound
- * files, text files, then the rest, each by name), by date (the newest kept first: files are
+ * files, text files, then the rest, each by date), by date (the newest kept first: files are
  * numbered in the order they come into the library) or by size (the largest first). The choice is
  * kept: on the phone in the app's preferences, on the desktop in ~/.pulsekit/file-sort.txt.
  */
@@ -23,7 +23,7 @@ public final class FileSort {
   /** What the order button says for `choice` the way it is now ("Newest first", "Oldest first", "A to Z"...). */
   public static String orderLabel(String choice, boolean reversed) {
     String c = valid(choice);
-    if (c.equals("by date")) return reversed ? "Oldest first" : "Newest first";
+    if (c.equals("by date") || c.equals("by type")) return reversed ? "Oldest first" : "Newest first";
     if (c.equals("by size")) return reversed ? "Smallest first" : "Largest first";
     return reversed ? "Z to A" : "A to Z";
   }
@@ -50,6 +50,8 @@ public final class FileSort {
 
   /** The files in `choice`'s order (a new list); by category needs the library (`vault`). */
   public static List<PromptVault.StoredFile> sorted(List<PromptVault.StoredFile> files, String choice, final PromptVault vault) {
+    // By type the types stay in their order; reversed, each type's oldest first.
+    if (valid(choice).equals("by type")) return byType(files, reversed);
     List<PromptVault.StoredFile> out = sortedOneWay(files, choice, vault);
     if (reversed) Collections.reverse(out);
     return out;
@@ -113,12 +115,7 @@ public final class FileSort {
     String c = valid(choice);
     Comparator<PromptVault.StoredFile> byName = (a, b) -> name(a).compareToIgnoreCase(name(b));
     if (c.equals("by type")) {
-      Collections.sort(out, (a, b) -> {
-        int k = rank(a.name) - rank(b.name);
-        if (k != 0) return k;
-        int e = ext(a.name).compareTo(ext(b.name));
-        return e != 0 ? e : byName.compare(a, b);
-      });
+      return byType(files, false);
     } else if (c.equals("by size")) {
       Collections.sort(out, (a, b) -> {
         int s = Integer.compare(b.size, a.size);
@@ -128,6 +125,22 @@ public final class FileSort {
       // The library numbers a version and a file kept on its own from one counter: a higher number is newer.
       Collections.sort(out, (a, b) -> Long.compare(b.versionId, a.versionId));
     }
+    return out;
+  }
+
+  /**
+   * By type: pictures, videos, sound files, text files, the rest; each type by date, the newest
+   * first (`oldestFirst`: the oldest), then by name.
+   */
+  static List<PromptVault.StoredFile> byType(List<PromptVault.StoredFile> files, final boolean oldestFirst) {
+    List<PromptVault.StoredFile> out = new ArrayList<PromptVault.StoredFile>(files == null ? new ArrayList<PromptVault.StoredFile>() : files);
+    Collections.sort(out, (a, b) -> {
+      int k = rank(a.name) - rank(b.name);
+      if (k != 0) return k;
+      // The library numbers a version and a file kept on its own from one counter: a higher number is newer.
+      int d = oldestFirst ? Long.compare(a.versionId, b.versionId) : Long.compare(b.versionId, a.versionId);
+      return d != 0 ? d : name(a).compareToIgnoreCase(name(b));
+    });
     return out;
   }
 

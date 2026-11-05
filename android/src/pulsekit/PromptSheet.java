@@ -3119,6 +3119,9 @@ public final class PromptSheet {
       previewBaseH = dp(activity, 240);
       VideoView view = new VideoView(activity);
       previewVideo = view;
+      // Turned sideways: this video full screen from where it is (upright again: back here).
+      SidewaysVideo.opened(activity, SIDEWAYS);
+      sidewaysFrom = activity;
       ZoomBox box = new ZoomBox(activity);
       box.setClipChildren(false);
       box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
@@ -3670,7 +3673,30 @@ public final class PromptSheet {
     focusId = 0;
   }
 
+  /** The Prompts page's video, full screen when the phone turns sideways. */
+  private static Activity sidewaysFrom;
+  private static final SidewaysVideo.Small SIDEWAYS = new SidewaysVideo.Small() {
+    @Override
+    public boolean shown() {
+      return previewVideo != null && previewVideo.isShown() && previewFile != null;
+    }
+
+    @Override
+    public android.app.Dialog wide() {
+      VideoView v = previewVideo;
+      int at = 0;
+      try {
+        at = Math.max(0, v.getCurrentPosition());
+        if (v.isPlaying()) v.pause();
+      } catch (Exception ignored) {
+        // not ready
+      }
+      return SidewaysVideo.play(sidewaysFrom, previewFile.getAbsolutePath(), at, previewVideoMuted ? 0f : previewVideoVol / 100f, v);
+    }
+  };
+
   private static void releasePreview() {
+    SidewaysVideo.closed(SIDEWAYS);
     if (previewVideo != null) {
       try {
         previewVideo.stopPlayback();

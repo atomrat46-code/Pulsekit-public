@@ -126,7 +126,7 @@ public final class MediaDir {
 
   /** Order's button: what the order is now ("A to Z", "Newest first"...). */
   public static String orderLabel(String by, boolean desc) {
-    if (SORT_DATE.equals(by)) return desc ? "Newest first" : "Oldest first";
+    if (SORT_DATE.equals(by) || SORT_TYPE.equals(by)) return desc ? "Newest first" : "Oldest first";
     return desc ? "Z to A" : "A to Z";
   }
 
@@ -141,8 +141,10 @@ public final class MediaDir {
         int k;
         if (SORT_DATE.equals(by)) k = Long.compare(a.date, b.date);
         else if (SORT_TYPE.equals(by)) {
-          k = Integer.compare(typeRank(a), typeRank(b));
-          if (k == 0) k = splitName(a.name, false)[1].compareToIgnoreCase(splitName(b.name, false)[1]);
+          // By type: pictures, videos, sounds, the rest (always so), then by date (Order: the newest or the oldest first).
+          int t = Integer.compare(typeRank(a), typeRank(b));
+          if (t != 0) return t;
+          k = Long.compare(a.date, b.date);
         } else k = 0;
         if (k == 0) k = a.name.compareToIgnoreCase(b.name);
         return desc ? -k : k;

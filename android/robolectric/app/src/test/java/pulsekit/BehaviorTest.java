@@ -12114,6 +12114,143 @@ public class BehaviorTest {
   }
 
   /**
+   * Sort by type: the types in their order, then by date (Order: the oldest or the newest first), in
+   * the Media browser and the Prompts page's galleries. In full screen a swipe works as the arrows
+   * (Media browser video and picture, the playlist viewer); turned sideways, Video ready's clip goes
+   * full screen, and upright again back.
+   */
+  @Test
+  public void s220_type_date_swipe_sideways() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // Sort by type, then date.
+    String[][] files = {{"b.png", "3"}, {"a.mp4", "1"}, {"c.jpg", "1"}, {"d.mp4", "2"}, {"e.mp3", "0"}};
+    java.util.List<MediaDir.Entry> es = new java.util.ArrayList<MediaDir.Entry>();
+    for (String[] f : files) {
+      MediaDir.Entry e = new MediaDir.Entry();
+      e.name = f[0];
+      e.id = f[0];
+      e.kind = MediaDir.kind(f[0]);
+      e.date = Long.parseLong(f[1]);
+      es.add(e);
+    }
+    java.util.function.Function<java.util.List<MediaDir.Entry>, String> names = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (MediaDir.Entry e : l) sb.append(e.name).append(' ');
+      return sb.toString().trim();
+    };
+    String oldest = names.apply(MediaDir.sortedBy(es, MediaDir.SORT_TYPE, false)), newest = names.apply(MediaDir.sortedBy(es, MediaDir.SORT_TYPE, true));
+    java.util.List<PromptVault.StoredFile> sf = new java.util.ArrayList<PromptVault.StoredFile>();
+    for (String[] f : files) {
+      PromptVault.StoredFile x = new PromptVault.StoredFile();
+      x.name = f[0];
+      x.versionId = Long.parseLong(f[1]) + 10;
+      sf.add(x);
+    }
+    java.util.function.Function<java.util.List<PromptVault.StoredFile>, String> fnames = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (PromptVault.StoredFile x : l) sb.append(x.name).append(' ');
+      return sb.toString().trim();
+    };
+    FileSort.reversed = false;
+    String galleryNewest = fnames.apply(FileSort.sorted(sf, "by type", null));
+    FileSort.reversed = true;
+    String galleryOldest = fnames.apply(FileSort.sorted(sf, "by type", null));
+    FileSort.reversed = false;
+    out.append("type, oldest first: ").append(oldest).append(" | newest first: ").append(newest).append(" (").append(MediaDir.orderLabel(MediaDir.SORT_TYPE, true)).append(") | gallery: ")
+        .append(galleryNewest).append(" | reversed: ").append(galleryOldest).append(" (").append(FileSort.orderLabel("by type", true)).append(")\n");
+    boolean sortOk = oldest.equals("c.jpg b.png a.mp4 d.mp4 e.mp3") && newest.equals("b.png c.jpg d.mp4 a.mp4 e.mp3") && "Newest first".equals(MediaDir.orderLabel(MediaDir.SORT_TYPE, true))
+        && galleryNewest.equals("b.png c.jpg d.mp4 a.mp4 e.mp3") && galleryOldest.equals("c.jpg b.png a.mp4 d.mp4 e.mp3") && "Oldest first".equals(FileSort.orderLabel("by type", true));
+    // Swipes in the Media browser's video player and picture viewer.
+    MediaDir.sortBy = MediaDir.SORT_NAME;
+    MediaDir.sortDesc = false;
+    File media = new File(app.getCacheDir(), "m20");
+    media.mkdirs();
+    for (String n : new String[] {"a.mp4", "b.mp4"}) Files.write(new File(media, n).toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    for (String n : new String[] {"p.png", "q.png"}) Files.write(new File(media, n).toPath(), plainPng(20, 35));
+    org.robolectric.shadows.ShadowMediaPlayer.setMediaInfoProvider(ds -> new org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(3500, 0));
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    java.util.function.BiConsumer<View, Integer> swipe = (v, dir) -> {
+      long t0 = android.os.SystemClock.uptimeMillis();
+      float from = dir < 0 ? 400 : 100, to = dir < 0 ? 100 : 400;
+      android.view.MotionEvent d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, from, 300, 0);
+      v.dispatchTouchEvent(d);
+      d.recycle();
+      android.view.MotionEvent m = android.view.MotionEvent.obtain(t0, t0 + 60, android.view.MotionEvent.ACTION_MOVE, (from + to) / 2, 305, 0);
+      v.dispatchTouchEvent(m);
+      m.recycle();
+      android.view.MotionEvent u = android.view.MotionEvent.obtain(t0, t0 + 120, android.view.MotionEvent.ACTION_UP, to, 310, 0);
+      v.dispatchTouchEvent(u);
+      u.recycle();
+      ShadowLooper.idleMainLooper(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+    };
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:a.mp4").performClick();
+    idle();
+    java.util.function.Supplier<String> video = () -> ((TextView) MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video-title")).getText().toString().replace("  \u00b7 looping", "");
+    StringBuilder vids = new StringBuilder(video.get());
+    swipe.accept(MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video"), -1);
+    vids.append(" < swipe: ").append(video.get());
+    swipe.accept(MediaBrowser.lastVideo.dialog.getWindow().getDecorView().findViewWithTag("media-video"), 1);
+    vids.append(" > swipe: ").append(video.get());
+    MediaBrowser.lastVideo.dialog.dismiss();
+    idle();
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:p.png").performClick();
+    idle();
+    android.app.Dialog pic = ShadowDialog.getLatestDialog();
+    TextView title = (TextView) pic.getWindow().getDecorView().findViewWithTag("media-full-title");
+    StringBuilder pics = new StringBuilder(title.getText());
+    swipe.accept(pic.getWindow().getDecorView().findViewWithTag("media-full"), -1);
+    pics.append(" < swipe: ").append(title.getText());
+    pic.dismiss();
+    b.dialog.dismiss();
+    idle();
+    // The playlist viewer.
+    Playlist pl = new Playlist("Swipe");
+    pl.items.add(new Playlist.Item(new File(media, "p.png").getAbsolutePath(), "p.png"));
+    pl.items.add(new Playlist.Item(new File(media, "q.png").getAbsolutePath(), "q.png"));
+    PlaylistScreen.viewer(app, pl, 0);
+    idle();
+    View vw = PlaylistScreen.lastViewer.getWindow().getDecorView();
+    StringBuilder list = new StringBuilder(((TextView) vw.findViewWithTag("viewer-where")).getText());
+    swipe.accept(vw.findViewWithTag("viewer-stage"), -1);
+    list.append(" < swipe: ").append(((TextView) vw.findViewWithTag("viewer-where")).getText());
+    PlaylistScreen.lastViewer.dismiss();
+    idle();
+    out.append("video: ").append(vids).append(" | picture: ").append(pics).append(" | playlist: ").append(list).append('\n');
+    boolean swipeOk = vids.toString().equals("a.mp4 < swipe: b.mp4 > swipe: a.mp4") && pics.toString().startsWith("p.png") && pics.toString().contains("< swipe: q.png")
+        && !list.toString().split(" < swipe: ")[0].equals(list.toString().split(" < swipe: ")[1]);
+    // Turned sideways while Video ready shows: its clip full screen; upright again: back.
+    MediaBrowser.turning = 0;
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    VideoOffer.Player vp = VideoOffer.last;
+    boolean mayTurn = app.getRequestedOrientation() == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+    android.content.res.Configuration land = new android.content.res.Configuration(app.getResources().getConfiguration());
+    land.orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    app.onConfigurationChanged(land);
+    idle();
+    boolean wide = vp.full != null && vp.full.isShowing() && SidewaysVideo.full == vp.full;
+    android.content.res.Configuration port = new android.content.res.Configuration(land);
+    port.orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
+    app.onConfigurationChanged(port);
+    idle();
+    boolean back = !vp.full.isShowing() && vp.dialog.isShowing();
+    vp.dialog.dismiss();
+    idle();
+    boolean upright = app.getRequestedOrientation() == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+    out.append("Video ready: may turn ").append(mayTurn).append(", sideways full screen ").append(wide).append(", upright back ").append(back).append(", closed: upright ").append(upright).append('\n');
+    write("s220_type_date_swipe_sideways", out.toString());
+    boolean ok = sortOk && swipeOk && mayTurn && wide && back && upright;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * crash-log_3: a Run press waited seconds on File > Downloads' list, each run sealed again at every
    * write (one keystore call a run). The same text now keeps its sealed line: only what changed is
    * sealed; a line read is written back as it was; another key seals anew.
@@ -12234,6 +12371,8 @@ public class BehaviorTest {
     String readyBack = o.apply(app.getRequestedOrientation());
     vp.dialog.dismiss();
     idle();
+    // Video ready lets the screen turn too (sideways: its clip full screen); closed: upright.
+    String readyClosed = o.apply(app.getRequestedOrientation());
     // The playlist viewer.
     Playlist pl = new Playlist("Turn");
     pl.items.add(new Playlist.Item(new File(media, "wide.mp4").getAbsolutePath(), "wide.mp4"));
@@ -12244,11 +12383,11 @@ public class BehaviorTest {
     idle();
     String viewerBack = o.apply(app.getRequestedOrientation());
     out.append("app ").append(before).append(" | Media browser video: ").append(open).append(", upright playing ").append(uprightPlaying).append(", sideways playing ").append(sidewaysPlaying)
-        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack)
+        .append(", paused ").append(sidewaysPaused).append(", closed ").append(closed).append(" | Video ready ").append(readyOnly).append(", full screen ").append(readyFull).append(", back ").append(readyBack).append(", closed ").append(readyClosed)
         .append(" | playlist viewer ").append(viewer).append(", closed ").append(viewerBack).append('\n');
     write("s217_videos_turn_sideways", out.toString());
     boolean ok = open.equals("turns") && uprightPlaying.equals("top/transport") && sidewaysPlaying.equals("-/-") && sidewaysPaused.equals("top/transport") && closed.equals("upright")
-        && !readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
+        && readyOnly.equals("turns") && readyFull.equals("turns") && readyBack.equals("turns") && readyClosed.equals("upright") && viewer.equals("turns") && viewerBack.equals("upright");
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -12606,7 +12745,7 @@ public class BehaviorTest {
     b.refilter();
     out.append("name: ").append(byName).append(" | newest: ").append(newest).append(" (").append(orderLabel).append(") | type: ").append(byType).append('\n');
     boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
-        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+        && byType.equals("sub beta.png alpha.jpg gamma.png clip.mp4");
     // Search: *.png, then pictures holding "a".
     b.searchDialog();
     idle();

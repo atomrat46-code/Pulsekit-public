@@ -7997,7 +7997,7 @@ public final class DesktopBehavior {
     MediaDir.sortBy = MediaDir.SORT_NAME;
     edt(mb::refreshShown);
     boolean sortOk = byName.equals("sub alpha.jpg beta.png clip.mp4 gamma.png") && newest.equals("sub clip.mp4 gamma.png alpha.jpg beta.png") && "Newest first".equals(orderLabel)
-        && byType.equals("sub alpha.jpg beta.png gamma.png clip.mp4");
+        && byType.equals("sub beta.png alpha.jpg gamma.png clip.mp4");
     // Search: *.png; then CLI among the videos; cleared.
     MediaBrowser.searchAnswer = new String[] {"*.png", "A"};
     edt(() -> ((javax.swing.AbstractButton) component(mb.last, "media-search")).doClick());

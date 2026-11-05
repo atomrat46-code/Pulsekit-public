@@ -3616,6 +3616,7 @@ final class MediaBrowser {
         frame.addView(image, new FrameLayout.LayoutParams(-1, -1));
         final TextView title = this.app.text("", 13, false);
         title.setPadding(this.app.dp(12), this.app.dp(10), this.app.dp(12), this.app.dp(6));
+        title.setTag("media-full-title");
         title.setBackgroundColor(0x88000000);
         frame.addView(title, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
         LinearLayout bar = this.app.row();
@@ -3737,9 +3738,16 @@ final class MediaBrowser {
                 });
             }
         });
+        // A swipe (not zoomed in, not cropping): the previous or the next picture, as the arrows.
+        final Swipe swipe = new Swipe(this.app);
         image.setOnTouchListener((v, ev) -> {
             press.onTouchEvent(ev);
             pinch.onTouchEvent(ev);
+            int step = swipe.feed(ev);
+            if (step != 0 && image.getScaleX() <= 1f && !crop.cropping()) {
+                (step < 0 ? prev : next).performClick();
+                return true;
+            }
             if (ev.getPointerCount() == 1 && image.getScaleX() > 1f) {
                 if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
                     down[0] = ev.getRawX() - image.getTranslationX();
@@ -4048,12 +4056,15 @@ final class MediaBrowser {
         p.view.setTag("media-video");
         frame.addView(p.view, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
         // Small arrows at the left and right edges: the folder's previous and next video (none at its first or last).
+        // A swipe across the video works as them.
+        final View[] arrows = new View[2];
         for (int edge = 0; edge < 2; edge++) {
             final boolean back = edge == 0;
             final int to = at < 0 ? -1 : back ? at - 1 : at + 1;
             if (to < 0 || to >= videos.size()) continue;
             TextView arrow = this.app.text(back ? "\u2039" : "\u203a", 30, true);
             arrow.setTag(back ? "media-video-left" : "media-video-right");
+            arrows[edge] = arrow;
             arrow.setGravity(Gravity.CENTER);
             arrow.setBackgroundColor(0x66000000);
             arrow.setOnClickListener(v -> {
@@ -4240,8 +4251,16 @@ final class MediaBrowser {
             down[2] = 1;
             p.hold();
         };
+        final Swipe swipe = new Swipe(this.app);
         final View.OnTouchListener touch = (v, ev) -> {
             pinch.onTouchEvent(ev);
+            // A swipe (not zoomed in): the previous or the next video, as the arrows.
+            int step = swipe.feed(ev);
+            if (step != 0 && p.zoom <= 1.01f && arrows[step < 0 ? 0 : 1] != null) {
+                this.main.removeCallbacks(hold);
+                arrows[step < 0 ? 0 : 1].performClick();
+                return true;
+            }
             int act = ev.getActionMasked();
             if (act == MotionEvent.ACTION_DOWN) {
                 down[0] = ev.getRawX() - p.view.getTranslationX();

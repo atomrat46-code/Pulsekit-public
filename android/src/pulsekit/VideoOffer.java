@@ -466,9 +466,30 @@ final class VideoOffer {
             .setView(scroll)
             .setPositiveButton("Close", null)
             .create();
+        // Turned sideways: the clip full screen from where it is (upright again: back here).
+        final SidewaysVideo.Small wide = new SidewaysVideo.Small() {
+            @Override
+            public boolean shown() {
+                return p.open && dialog.isShowing() && (p.full == null || !p.full.isShowing()) && p.view.getVisibility() == android.view.View.VISIBLE;
+            }
+
+            @Override
+            public android.app.Dialog wide() {
+                int at = 0;
+                try {
+                    at = Math.max(0, p.view.getCurrentPosition());
+                } catch (Exception ignored) {
+                    // not ready
+                }
+                if (p.playing) p.playPause();
+                p.fullScreen(app, path, at);
+                return p.full;
+            }
+        };
         dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
             @Override
             public void onDismiss(DialogInterface d) {
+                SidewaysVideo.closed(wide);
                 p.open = false;
                 p.playing = false;
                 p.awake();
@@ -479,6 +500,7 @@ final class VideoOffer {
         p.dialog = dialog;
         p.window = dialog.getWindow();
         p.appWindow = app.getWindow();
+        SidewaysVideo.opened(app, wide);
         dialog.show();
         p.open = true;
         p.tick();

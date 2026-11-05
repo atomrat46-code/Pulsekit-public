@@ -1368,8 +1368,16 @@ final class PlaylistScreen {
                 app.setNow(held[0] ? "Held: Auto mode waits on this picture (a long press again goes on)" : "Auto mode goes on");
             }
         };
+        // A swipe (not zoomed in): the previous or the next file, as ◀ ▶.
+        final Swipe swipe = new Swipe(app);
         stage.setOnTouchListener((x, ev) -> {
             pinch.onTouchEvent(ev);
+            int step = swipe.feed(ev);
+            if (step != 0 && zoom[0] <= 1.01f) {
+                main.removeCallbacks(hold);
+                (step < 0 ? prev : next).performClick();
+                return true;
+            }
             int act = ev.getActionMasked();
             if (act == MotionEvent.ACTION_DOWN) {
                 down[0] = ev.getRawX();
