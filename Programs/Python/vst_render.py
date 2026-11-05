@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -128,6 +128,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --zip_mb N      zips of at most N MB each (--zip implied): vst-render-...-part1of3.zip and so on, for a
                   chat or mail that takes files up to a size (30 for 30 MB). Each MIDI stays with its WAV
                   and DrumMidi's MIDI, and each zip has the report, the settings and vst-render-run.txt.
+  --zip_outdir F  then copies the run's zips (and with --test vst-test-results.zip) into folder F too,
+                  made when missing: one place to pick them up from (a cloud or chat folder).
   --zip_nowav     the zip without the WAVs (--zip implied): the MIDI files, DrumMidi's MIDI files and the
                   report are small, the WAVs are most of it (a 20 s WAV is about 3.5 MB). A thousand
                   tests fit in one zip this way; send the WAVs of the files that matter by themselves.
@@ -1704,6 +1706,34 @@ def packed_size(path):
 RESULTS_ZIP = "vst-test-results.zip"
 
 
+def copy_zips(zips, folder):
+    """--zip_outdir: the run's zips copied into the folder (made when missing; a zip of the same name there
+    is replaced). The copies' paths."""
+    import shutil
+    if not zips:
+        print("Zip folder: no zip made in this run, nothing copied to %s" % folder)
+        return []
+    try:
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+    except OSError as e:
+        print("Zip folder: %s could not be made (%s): the zips stay where they are" % (folder, e))
+        return []
+    out = []
+    for z in zips:
+        target = os.path.join(folder, os.path.basename(z))
+        if os.path.abspath(target) == os.path.abspath(z):
+            out.append(z)
+            continue
+        try:
+            shutil.copyfile(z, target)
+            out.append(target)
+        except OSError as e:
+            print("Zip folder: %s not copied (%s)" % (os.path.basename(z), e))
+    print("Zip folder: %d zip%s copied to %s" % (len(out), "" if len(out) == 1 else "s", folder))
+    return out
+
+
 def results_zip(dirs):
     """--test: every test's report, test beat (its MP3, else its WAV), times and kit profile in the folders
     (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) into one zip, RESULTS_ZIP, in the first
@@ -1900,7 +1930,7 @@ def main(argv):
         pass
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
             "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
     switches = set()
@@ -2527,8 +2557,15 @@ def main(argv):
                         rel if two else None, check_files + ([kit_file] if kit_file and os.path.isfile(kit_file) else []))
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
+        ready = list(made)
+    else:
+        ready = []
     if test:
-        results_zip([d for d in (where, opts["--outdir"] or ".") if d])
+        results = results_zip([d for d in (where, opts["--outdir"] or ".") if d])
+        if results:
+            ready.append(results)
+    if opts["--zip_outdir"]:
+        copy_zips(ready, opts["--zip_outdir"])
     if batch is not None:
         made = len(batch_done) - kept
         print("Succeeded: %d of %d MIDI files rendered%s%s" % (made, len(batch), ", %d kept from before" % kept if kept else "",

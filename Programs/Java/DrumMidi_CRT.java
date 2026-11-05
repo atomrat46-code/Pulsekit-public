@@ -2294,12 +2294,6 @@ public class DrumMidi_CRT{
          * nearest, when that is clearly nearer (CYM_MARGIN) than the kind it was written as; a hit with
          * another cymbal at it (two cymbals at once) is left as it is. Needs two cymbals learned.
          */
-        /** A learned cymbal's look played on in eighths ("c<note>g"; null when not learned). */
-        double[] grooveLook(int note) {
-            for (int j = 0; j < withNotes.size(); j++) if (withNotes.get(j).intValue() == note && withTags.get(j).charValue() == 'g') return withLooks.get(j);
-            return null;
-        }
-
         /** A learned cymbal's look (null when not learned). */
         double[] look(int note) {
             int j = cymNotes.indexOf(Integer.valueOf(note));
@@ -2386,17 +2380,11 @@ public class DrumMidi_CRT{
          * before the hit taken off: a song's hats look brighter than the test beat's with it). Where both
          * means are over 0, the passage's hats are the ride. Only hats are made the ride: a passage
          * voting for hats is left as it is (its rides were often right). Needs the ride and closed hat learned.
-         * When the profile has both played on in eighths (c42g, c51g: heard as in a song), the hits vote by
-         * those looks alone: nearness to the ride's less that to the hat's, the mean over 0 for the ride.
+         * (The looks played on in eighths, c42g and c51g, are not used: with them songs' hats voted for the
+         * ride, the closed hats right went from 81% to 68% in Riot and from 67% to 35% in Artillery.)
          */
         void rideVote(List<Hit> hits, double[] x, double sr) {
             double[] rl = look(RIDE_NOTE), hl = look(CLOSED_HAT);
-            double[] rg = grooveLook(RIDE_NOTE), hg = grooveLook(CLOSED_HAT);
-            boolean inRuns = rg != null && hg != null;
-            if (inRuns) {
-                rl = rg;
-                hl = hg;
-            }
             if (rl == null || hl == null) return;
             List<Hit> cym = new ArrayList<Hit>();
             for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == RIDE_NOTE) cym.add(h);
@@ -2412,7 +2400,7 @@ public class DrumMidi_CRT{
                 if (f == null || g == null) continue;
                 clean[i] = true;
                 d[i] = cymNear(f, rl) - cymNear(f, hl);
-                d2[i] = inRuns ? d[i] : cymNear(f, rl) - cymNear(g, hl);
+                d2[i] = cymNear(f, rl) - cymNear(g, hl);
             }
             List<Hit> toRide = new ArrayList<Hit>();
             for (int i = 0; i < n; i++) {
@@ -2429,7 +2417,7 @@ public class DrumMidi_CRT{
                 if (seen >= RIDE_VOTE_SEEN && sum > 0 && sum2 > 0) toRide.add(h);
             }
             for (Hit h : toRide) hits.set(hits.indexOf(h), new Hit(h.time, RIDE_NOTE, h.strength));
-            note("Kit " + name + ": ride by passage" + (inRuns ? " (the hat and ride played on in eighths)" : "") + ": " + toRide.size() + " hat" + (toRide.size() == 1 ? "" : "s") + " made the ride");
+            note("Kit " + name + ": ride by passage: " + toRide.size() + " hat" + (toRide.size() == 1 ? "" : "s") + " made the ride");
         }
     }
 

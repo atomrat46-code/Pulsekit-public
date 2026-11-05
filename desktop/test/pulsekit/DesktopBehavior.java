@@ -7705,6 +7705,58 @@ public final class DesktopBehavior {
    * Browse sections (as on the phone): grouped by the prompt's first two sentences, A to Z; a
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
+  /**
+   * PyJav starts with the program run last (Recent's first) and its parameters, the bundled source
+   * shown, not run; a program opened already (not the default drum_midi.py) stays.
+   */
+  void s208_pyjav_opens_last_program() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    final String[] seen = new String[3];
+    edt(() -> {
+      PyJavRecent.remember(app.pyJav.pyRecentDir(), "vst_render.py", "--test --mp3 256", "print('old')\n", null);
+      app.pyName = "drum_midi.py";
+      app.pyJav.openLastProgram();
+      seen[0] = app.pyName + " | " + ((javax.swing.text.JTextComponent) get("pyExtra")).getText() + " | bundled " + app.pyEditor.getText().contains("def kit_events");
+      PyJavRecent.remember(app.pyJav.pyRecentDir(), "SogniChat.java", "", "x", null);
+      app.pyName = "MidiDrumGen.java";
+      app.pyJav.openLastProgram();
+      seen[1] = app.pyName;
+    });
+    this.out.append(seen[0]).append('\n').append(seen[1]).append('\n');
+    boolean ok = "vst_render.py | --test --mp3 256 | bundled true".equals(seen[0]) && "MidiDrumGen.java".equals(seen[1]);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** vst_render --zip_outdir: the run's zips and the test results zip copied into the folder (made); Params labels it. */
+  void s209_vst_render_zip_outdir() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "zip-outdir");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "zs = []\n"
+        + "for n in ('vst-render-Kit-part1of2.zip', 'vst-render-Kit-part2of2.zip', 'vst-test-results.zip'):\n"
+        + "    open(os.path.join(d, n), 'wb').write(b'PK'); zs.append(os.path.join(d, n))\n"
+        + "got = vr.copy_zips(zs, os.path.join(d, 'pickup', 'today'))\n"
+        + "print('copied ' + ' '.join(sorted(os.listdir(os.path.join(d, 'pickup', 'today')))))\n"
+        + "print('none %s' % vr.copy_zips([], os.path.join(d, 'pickup')))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    String label = "", tab = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--zip_outdir")) {
+      label = q.label;
+      tab = String.valueOf(q.tab) + (q.dir ? " dir" : "");
+    }
+    this.out.append(said).append("\nParams: ").append(label).append(" (").append(tab).append(")\n");
+    boolean ok = said.contains("copied vst-render-Kit-part1of2.zip vst-render-Kit-part2of2.zip vst-test-results.zip")
+        && said.contains("Zip folder: 3 zips copied to ") && said.contains("none []") && said.contains("no zip made in this run")
+        && label.startsWith("Copy the run's zips") && tab.equals("Output dir");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   void s206_sections_grouped() throws Exception {
     final PyJav py = (PyJav) get("pyJav");
     PromptVault vault = PromptDb.vault();
@@ -9115,7 +9167,7 @@ public final class DesktopBehavior {
     this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(vote).append('\n').append(py).append('\n');
     boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
         && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare; cymbals played on in eighths: 42 (15 hits), 51 (15 hits)")
-        && text.contains("\nc42g ") && text.contains("\nc51g ") && vote.startsWith("Kit kit.kit: ride by passage (the hat and ride played on in eighths): ")
+        && text.contains("\nc42g ") && text.contains("\nc51g ") && vote.startsWith("Kit kit.kit: ride by passage: ")
         && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.endsWith("made the ride")
         && py.contains("tags 8 8 16 alone 33 runs 32") && py.contains("run velocities 70 120 times 49.7500 51 g") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 109");
     if (!ok) throw new AssertionError(this.out.toString());

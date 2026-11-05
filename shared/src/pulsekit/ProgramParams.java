@@ -842,6 +842,10 @@ public final class ProgramParams {
       p.hint = "30 for a 30 MB chat limit; empty: one zip";
     } else if (p.token.equals("--zip_nowav")) {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
+    } else if (p.token.equals("--zip_outdir")) {
+      p.dir = true;
+      p.label = "Copy the run's zips (and the test results zip) into this folder too";
+      p.hint = "empty: the zips stay beside the WAVs";
     }
   }
 

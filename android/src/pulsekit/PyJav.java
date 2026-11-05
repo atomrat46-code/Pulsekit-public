@@ -397,6 +397,21 @@ final class PyJav {
         this.pkShowRunning(item.name);
     }
 
+    /** The program shown when PyJav starts: the one run last, with its parameters (not run). */
+    String pkLastOpened;
+
+    /**
+     * PyJav starts with the program run last (Recent's first) and its parameters, not run, unless a
+     * program was opened already (a file given to the app).
+     */
+    void pkOpenLastProgram() {
+        if (!"drum_midi.py".equals(app.pyName)) return;
+        this.pkPyRecentItems = pulsekit.PyJavRecent.load(app.getFilesDir());
+        if (this.pkPyRecentItems == null || this.pkPyRecentItems.isEmpty()) return;
+        this.pkApplyRecent(1);
+        this.pkLastOpened = app.pyName;
+    }
+
     /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
     /** Select program: the program and its parameters are loaded; Run starts it. */
     public void pkLoadRecent(int index) {
@@ -426,6 +441,8 @@ final class PyJav {
         slot = slot + 1;
         this.pkPyRecent.setOnItemSelectedListener(pulsekit.PyJavUi.recent(app));
         this.pkRefreshRecent(0);
+        // The program run last (Recent's first) is open when PyJav starts, once the pane is built.
+        app.pyPane.post(this::pkOpenLastProgram);
         // The hint keeps its full text for filling in a program's args (pkHintText); it shows it
         // without the "Extra args:" line, which the Arguments box below shows itself.
         this.pkPyHint = new android.widget.TextView(app) {

@@ -296,7 +296,25 @@ final class PyJav {
         editorBox.setMinimumSize(new Dimension(50, 60));
         outputBox.setMinimumSize(new Dimension(50, 60));
         jPanel.add((Component)this.pySplit, "Center");
+        // The program run last (Recent's first) is open when PyJav starts, once the window is built.
+        SwingUtilities.invokeLater(this::openLastProgram);
         return jPanel;
+    }
+
+    /** The program shown when PyJav starts: the one run last, with its parameters (not run). */
+    String lastOpened;
+
+    /**
+     * PyJav starts with the program run last (Recent's first) and its parameters, not run, unless a
+     * program was opened already (a file given to the app).
+     */
+    void openLastProgram() {
+        if (!"drum_midi.py".equals(app.pyName)) return;
+        this.reloadPyRecent(0);
+        if (this.pyRecentItems == null || this.pyRecentItems.isEmpty()) return;
+        PyJavRecent.Item last = this.pyRecentItems.get(0);
+        this.applyPyRecent(last);
+        this.lastOpened = last.name;
     }
 
     /** Code above, Output below: the divider between them is dragged. */

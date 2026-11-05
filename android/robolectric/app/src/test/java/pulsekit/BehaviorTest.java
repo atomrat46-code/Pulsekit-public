@@ -12126,6 +12126,24 @@ public class BehaviorTest {
    * Browse sections grouped by the prompt's first two sentences (A to Z, a group's newest first): a
    * group's long press lists its sections; a section tapped shows fully (Load there).
    */
+  /**
+   * PyJav starts with the program run last (Recent's first) and its parameters, the bundled source
+   * shown, not run; a program opened already (not the default drum_midi.py) stays.
+   */
+  @Test
+  public void s225_pyjav_opens_last_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PyJavRecent.remember(app.getFilesDir(), "vst_render.py", "--test --mp3 256", "print('old')\n", null);
+    app.pyName = "drum_midi.py";
+    app.pyJav.pkOpenLastProgram();
+    out.append(app.pyName).append(" | ").append(app.pyJav.pkPyArgs.getText()).append(" | bundled ").append(app.pyEditor.getText().toString().contains("def kit_events")).append('\n');
+    PyJavRecent.remember(app.getFilesDir(), "SogniChat.java", "", "x", null);
+    app.pyName = "MidiDrumGen.java";
+    app.pyJav.pkOpenLastProgram();
+    out.append(app.pyName);
+    if (!out.toString().equals("vst_render.py | --test --mp3 256 | bundled true\nMidiDrumGen.java")) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s224_sections_grouped() throws Exception {
     StringBuilder out = new StringBuilder();
