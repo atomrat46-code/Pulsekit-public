@@ -7248,7 +7248,12 @@ public final class DesktopBehavior {
         + "print('renders %d' % G.n)\n"
         + "kept = sorted(f for f in os.listdir(out) if f.startswith('vst-check-'))\n"
         + "print('kept ' + ' '.join(kept))\n"
-        + "print('times ' + open(os.path.join(out, [f for f in kept if f.endswith('-times.txt')][0])).read().splitlines()[0])\n";
+        + "print('times ' + open(os.path.join(out, [f for f in kept if f.endswith('-times.txt')][0])).read().splitlines()[0])\n"
+        // Every test's files in one zip, made again by each run: another plugin's kit and an older report go in too.
+        + "import zipfile\n"
+        + "print('results ' + ' '.join(sorted(zipfile.ZipFile(os.path.join(out, 'vst-test-results.zip')).namelist())))\n"
+        + "open(os.path.join(out, 'vst-kit-Other.kit'), 'w').write('36 0\\n'); open(os.path.join(out, 'vst-test-Other.txt'), 'w').write('All:\\n')\n"
+        + "print('again ' + str(len(zipfile.ZipFile(vr.results_zip([out])).namelist())))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
@@ -7256,6 +7261,7 @@ public final class DesktopBehavior {
     boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
         && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
         && said.contains("Test beat: vst-check-") && said.contains("-times.txt\n") && said.contains("times 2.0000 36")
+        && said.contains("results vst-check-kit-times.txt vst-check-kit.wav vst-test-kit.txt") && said.contains("again 5")
         && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
     if (!ok) throw new AssertionError(this.out.toString());
   }

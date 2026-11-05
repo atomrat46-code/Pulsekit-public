@@ -79,6 +79,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
                   The test beat as played is kept too: vst-check-<plugin>.wav (an MP3 with --mp3) and
                   its notes' times, vst-check-<plugin>-times.txt (what the kit profile is learned from).
+                  Each test run then puts every report, test beat, times file and kit profile in the
+                  output folder into one zip, vst-test-results.zip (made again each run: after runs of
+                  several plugins it holds them all).
   --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
                   (its --snare-leak): fewer false hats on the snare, some real ones lost.
   --no-kit        with --test: no kit profile. Otherwise the test beat's kick and toms (each played
@@ -1686,6 +1689,49 @@ def packed_size(path):
     return min(n + len(z.flush()), os.path.getsize(path) + 64)
 
 
+RESULTS_ZIP = "vst-test-results.zip"
+
+
+def results_zip(dirs):
+    """--test: every test's report, test beat (its MP3, else its WAV), times and kit profile in the folders
+    (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) in one zip, RESULTS_ZIP, in the first
+    folder: made again by each test run, so after runs of several plugins it holds them all. Its path, or
+    None when there was nothing to put in."""
+    import zipfile
+    files = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            if not os.path.isfile(p) or p in files:
+                continue
+            low = f.lower()
+            test = low.startswith("vst-test-") and low.endswith(".txt")
+            kit = low.startswith("vst-kit-") and low.endswith(".kit")
+            check = low.startswith("vst-check-") and low.endswith((".mp3", ".wav", "-times.txt"))
+            if check and low.endswith(".wav") and os.path.isfile(p[:-4] + ".mp3"):
+                continue
+            if test or kit or check:
+                files.append(p)
+    if not files:
+        return None
+    path = os.path.join(dirs[0], RESULTS_ZIP)
+    work = path + ".part"
+    names = set()
+    with zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in files:
+            name = os.path.basename(p)
+            if name in names:
+                continue
+            names.add(name)
+            z.write(p, name)
+    os.replace(work, path)
+    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles; %.1f MB)"
+          % (path, len(names), os.path.getsize(path) / float(ZIP_MB)))
+    return path
+
+
 def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0, no_wav=False, relfn=None, check=None):
     """--zip: the inputs and what was made in one zip beside the report (or, with --zip_mb, in zips of at
     most that many MB); their paths.
@@ -2448,6 +2494,8 @@ def main(argv):
                         rel if two else None, check_files + ([kit_file] if kit_file and os.path.isfile(kit_file) else []))
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
+    if test:
+        results_zip([d for d in (where, opts["--outdir"] or ".") if d])
     if batch is not None:
         made = len(batch_done) - kept
         print("Succeeded: %d of %d MIDI files rendered%s%s" % (made, len(batch), ", %d kept from before" % kept if kept else "",
