@@ -11860,6 +11860,9 @@ public class BehaviorTest {
     String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(0));
     org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
     idle();
+    // A tap shows the section fully; Load there.
+    PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
     String asked = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).getMessage());
     PyJavParams.lastSections.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
     idle();
@@ -12119,6 +12122,47 @@ public class BehaviorTest {
    * kept (without artifacts only the first found); Params has the field with 1 to 4; Video ready
    * shows the run's own clip (its Succeeded line), the first variation.
    */
+  /**
+   * Browse sections grouped by the prompt's first two sentences (A to Z, a group's newest first): a
+   * group's long press lists its sections; a section tapped shows fully (Load there).
+   */
+  @Test
+  public void s224_sections_grouped() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot. Warm light.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: a red  kite. over hills. Stormy sky.\n");
+    String lead = SogniSections.lead("One. Two! Three? Four.", 2) + " | " + SogniSections.lead("No end here", 2) + " | " + SogniSections.lead("", 2);
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.browseSections(app, "SogniPadd", none, noFields);
+    idle();
+    String rows = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    android.widget.ListView lv = PyJavParams.lastSections.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    String group = PyJavParams.lastGroup == null ? "none" : listItems(PyJavParams.lastGroup).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastGroup).clickOnItem(1);
+    idle();
+    String shown = String.valueOf(((TextView) PyJavParams.lastSectionShown.getWindow().getDecorView().findViewWithTag("section-full-text")).getText()).replaceAll("Saved [0-9.: ]+", "Saved <when>");
+    boolean loadThere = PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString().equals(SogniSections.LOAD);
+    PyJavParams.lastSectionShown.dismiss();
+    idle();
+    out.append("lead: ").append(lead).append("\nrows: ").append(rows).append("\ngroup: ").append(group).append("\nshown: ").append(shown.replace("\n", " / ")).append(" | Load there ").append(loadThere).append('\n');
+    write("s224_sections_grouped", out.toString());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    boolean ok = lead.equals("One. Two! | No end here | (no prompt)")
+        && rows.startsWith("\u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
+        && group.startsWith("a red kite. over hills. Stormy sky.") && group.contains(" | A red kite. Over hills. Blue sky. · loras")
+        && shown.replace("\n", " / ").equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && loadThere;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /**
    * Picture ready: Crop image in the picture's long press; the crop's long press has Save as…,
    * Process as a reference (Picture ready closes, the crop goes on) and Upscale.

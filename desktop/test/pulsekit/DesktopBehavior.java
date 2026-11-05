@@ -7681,6 +7681,58 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Browse sections (as on the phone): grouped by the prompt's first two sentences, A to Z; a
+   * group's right click lists its sections under it; a section's double click shows it fully (Load).
+   */
+  void s206_sections_grouped() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot. Warm light.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: a red kite. over hills. Stormy sky.\n");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    PyJav.sectionShownAnswer = 0;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      seen.append("rows: ").append(rows.apply(list)).append('\n');
+      java.awt.Rectangle r = list.getCellBounds(0, 0);
+      java.awt.event.MouseEvent right = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, r.x + 5, r.y + 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
+      seen.append("opened: ").append(rows.apply(list)).append('\n');
+      // The second section of the group (row 2): double click shows it fully, Load there.
+      java.awt.Rectangle r2 = list.getCellBounds(2, 2);
+      java.awt.event.MouseEvent two = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, r2.x + 5, r2.y + 5, 2, false, java.awt.event.MouseEvent.BUTTON1);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mouseClicked(two);
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    PyJav.sectionShownAnswer = null;
+    String shown = String.valueOf(py.lastSectionShown).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ");
+    seen.append("shown: ").append(shown).append(" | ").append(PyJav.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+    out.append(seen);
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    String t = seen.toString();
+    boolean ok = t.contains("rows: \u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
+        && t.contains("opened: \u25be a red kite. over hills. (2) | a red kite. over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras")
+        && shown.equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && t.contains("Loaded: A red kite. Over hills. Blue sky.") && done[0];
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Picture ready (as on the phone): Crop image in the picture's right click opens it with the crop
    * frame on; the crop's menu has Save as…, Process as a reference (Picture ready closes) and Upscale.
    */

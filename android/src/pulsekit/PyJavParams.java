@@ -613,19 +613,61 @@ public final class PyJavParams {
       sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
       return;
     }
-    String[] rows = new String[all.size()];
-    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(all.get(i));
+    // Grouped by the prompt's first sentences, A to Z: a group's long press (or tap) lists its sections.
+    final List<SogniSections.Group> groups = SogniSections.groups(all);
+    String[] rows = new String[groups.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.groupLabel(groups.get(i));
     lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
-        .setItems(rows, (d, w) -> pickSection(activity, program, ps, fields, all.get(w)))
+        .setItems(rows, (d, w) -> {
+          SogniSections.Group g = groups.get(w);
+          if (g.sections.size() == 1) showSection(activity, program, ps, fields, g.sections.get(0));
+          else groupSections(activity, program, ps, fields, g);
+        })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
-    // Held: Load, Edit section, Remove section.
+    // Held: a group's sections; a section of its own, Load, Edit section, Remove section.
     final AlertDialog list = lastSections;
     list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
       list.dismiss();
-      sectionMenu(activity, program, ps, fields, all.get(position));
+      SogniSections.Group g = groups.get(position);
+      if (g.sections.size() == 1) sectionMenu(activity, program, ps, fields, g.sections.get(0));
+      else groupSections(activity, program, ps, fields, g);
       return true;
     });
+  }
+
+  /** A group's sections listed (for the tests). */
+  static AlertDialog lastGroup, lastSectionShown;
+
+  /** A group's sections, the newest first: a tap shows one fully; held, Load, Edit section, Remove section. */
+  static void groupSections(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final SogniSections.Group g) {
+    String[] rows = new String[g.sections.size()];
+    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.label(g.sections.get(i));
+    lastGroup = new AlertDialog.Builder(activity).setTitle(g.lead)
+        .setItems(rows, (d, w) -> showSection(activity, program, ps, fields, g.sections.get(w)))
+        .setNeutralButton("Back", (d, w) -> browseSections(activity, program, ps, fields))
+        .setNegativeButton("Cancel", null).show();
+    final AlertDialog list = lastGroup;
+    list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+      list.dismiss();
+      sectionMenu(activity, program, ps, fields, g.sections.get(position));
+      return true;
+    });
+  }
+
+  /** A section shown fully (its entries, a line each): Load, Edit or remove…, Close. */
+  static void showSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    TextView text = new TextView(activity);
+    text.setTag("section-full-text");
+    text.setText(SogniSections.full(sec));
+    text.setTextIsSelectable(true);
+    text.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), dp(activity, 8));
+    android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+    scroll.addView(text);
+    lastSectionShown = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setView(scroll)
+        .setPositiveButton(SogniSections.LOAD, (d, w) -> pickSection(activity, program, ps, fields, sec))
+        .setNeutralButton("Edit or remove\u2026", (d, w) -> sectionMenu(activity, program, ps, fields, sec))
+        .setNegativeButton("Close", null).show();
   }
 
   /** A section's long-press menu shown last, and Edit section's / Remove section's dialog (for the tests). */

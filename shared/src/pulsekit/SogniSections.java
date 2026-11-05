@@ -91,6 +91,69 @@ public final class SogniSections {
     return out;
   }
 
+  /** Browse sections' groups: the sections whose prompt starts with the same sentences. */
+  public static final class Group {
+    /** The first sentences of their prompt, as shown. */
+    public String lead = "";
+    /** Its sections, the newest first. */
+    public final java.util.List<PromptVault.SogniSection> sections = new java.util.ArrayList<PromptVault.SogniSection>();
+  }
+
+  /** How many of the prompt's first sentences make a group. */
+  public static final int LEAD_SENTENCES = 2;
+
+  /** A prompt's first `n` sentences (each ending with . ! or ?, or the prompt's end), spaces made one; "(no prompt)" when there is none. */
+  public static String lead(String prompt, int n) {
+    String p = prompt == null ? "" : prompt.replaceAll("\\s+", " ").trim();
+    if (p.isEmpty()) return "(no prompt)";
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("[.!?]+(\\s|$)").matcher(p);
+    int end = p.length();
+    for (int i = 0; i < n && m.find(); i++) end = m.end();
+    return p.substring(0, Math.min(end, p.length())).trim();
+  }
+
+  /** A section's group lead: its prompt's first LEAD_SENTENCES sentences. */
+  public static String lead(PromptVault.SogniSection s) {
+    return lead(read(s.text).get("--prompt"), LEAD_SENTENCES);
+  }
+
+  /** The sections grouped by their lead (case aside), the groups in A to Z order, each group's newest first. */
+  public static java.util.List<Group> groups(java.util.List<PromptVault.SogniSection> all) {
+    Map<String, Group> by = new LinkedHashMap<String, Group>();
+    for (PromptVault.SogniSection s : all) {
+      String lead = lead(s);
+      String key = lead.toLowerCase(java.util.Locale.ROOT);
+      Group g = by.get(key);
+      if (g == null) {
+        g = new Group();
+        g.lead = lead;
+        by.put(key, g);
+      }
+      g.sections.add(s);
+    }
+    java.util.List<Group> out = new java.util.ArrayList<Group>(by.values());
+    for (Group g : out) java.util.Collections.sort(g.sections, (a, b) -> Long.compare(b.created, a.created));
+    java.util.Collections.sort(out, (a, b) -> {
+      boolean na = a.lead.equals("(no prompt)"), nb = b.lead.equals("(no prompt)");
+      if (na != nb) return na ? 1 : -1;
+      return a.lead.compareToIgnoreCase(b.lead);
+    });
+    return out;
+  }
+
+  /** A group's row: one section as its own label; several as their lead (cut at 80) and how many ("… (3)"). */
+  public static String groupLabel(Group g) {
+    if (g.sections.size() == 1) return label(g.sections.get(0));
+    String lead = g.lead.length() > 80 ? g.lead.substring(0, 80) + "\u2026" : g.lead;
+    return "\u25b8 " + lead + " (" + g.sections.size() + ")";
+  }
+
+  /** A section shown fully: when it was saved, then its entries, a line each. */
+  public static String full(PromptVault.SogniSection s) {
+    String when = new java.text.SimpleDateFormat("d.M.yyyy HH:mm", java.util.Locale.ROOT).format(new java.util.Date(s.created));
+    return "Saved " + when + "\n\n" + s.text.trim();
+  }
+
   /** A section in a list: its prompt's start and what else it sets ("a portrait in soft light… · loras, skin_detail"). */
   public static String label(PromptVault.SogniSection s) {
     Map<String, String> f = read(s.text);
