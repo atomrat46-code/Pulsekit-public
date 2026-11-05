@@ -7123,6 +7123,11 @@ public final class DesktopBehavior {
         + "z = vr.make_zip(out, 'Kit', ['--dir', d, '--test', '--zip', '--bpm', '80'], d, [(song, copy)], [sys.argv[5]], [sys.argv[6]], sys.argv[7], opts, 80.0)\n"
         + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z[0]).namelist())))\n"
         + "print('asks %s' % vr.ask_zip())\n"
+        // --test: the test beat (here the song's WAV stands in) and its times in check/, in the zip too; --zip_nowav leaves the WAV out.
+        + "c = vr.make_zip(out, 'Kit', ['--test'], d, [(song, None)], [], [], sys.argv[7], opts, None, 0, False, None, [sys.argv[5], sys.argv[6], None])\n"
+        + "print('check ' + ' '.join(n for n in sorted(zipfile.ZipFile(c[0]).namelist()) if n.startswith('check/')))\n"
+        + "c = vr.make_zip(out, 'Kit', ['--test'], d, [(song, None)], [], [], sys.argv[7], opts, None, 0, True, None, [sys.argv[5], sys.argv[6]])\n"
+        + "print('nowav check ' + ' '.join(n for n in sorted(zipfile.ZipFile(c[0]).namelist()) if n.startswith('check/')))\n"
         // --zip_mb 1: three MIDIs with 0.6 MB WAVs that do not shrink, a zip each, each with the report and the run.
         + "import os, shutil\n"
         + "played, wavs = [], []\n"
@@ -7145,6 +7150,7 @@ public final class DesktopBehavior {
     this.out.append(said).append("\nvst_render.py --zip: ").append(plain).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("names dm/beats/song-Kit-dm.mid midi-80bpm/beats/song.mid midi/beats/song.mid vst-render-run.txt vst-test-Kit.txt wav/beats/song-Kit.wav")
         && said.contains("Zipped 5 files") && said.contains("asks None")
+        && said.contains("check check/song-Kit-dm.mid check/song-Kit.wav") && said.contains("nowav check check/song-Kit-dm.mid\n")
         && said.contains("parts 3: -part1of3.zip midi/beats/s0.mid,vst-render-run.txt,vst-test-Kit.txt,wav/beats/s0-Kit.wav | -part2of3.zip midi/beats/s1.mid,")
         && said.contains("sizes ok True") && !plain.contains("unknown switch") && label.startsWith("Zip:");
     if (!ok) throw new AssertionError(this.out.toString());
@@ -7239,13 +7245,17 @@ public final class DesktopBehavior {
         + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
         + "vr.Gizmo = G\n"
         + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--skip_existing', '--test', '--drummidi', os.path.join(d, 'DrumMidi_CRT.jar')])\n"
-        + "print('renders %d' % G.n)\n";
+        + "print('renders %d' % G.n)\n"
+        + "kept = sorted(f for f in os.listdir(out) if f.startswith('vst-check-'))\n"
+        + "print('kept ' + ' '.join(kept))\n"
+        + "print('times ' + open(os.path.join(out, [f for f in kept if f.endswith('-times.txt')][0])).read().splitlines()[0])\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
     this.out.append(said).append('\n');
     boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
         && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
+        && said.contains("Test beat: vst-check-") && said.contains("-times.txt\n") && said.contains("times 2.0000 36")
         && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
     if (!ok) throw new AssertionError(this.out.toString());
   }
