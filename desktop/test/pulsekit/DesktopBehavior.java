@@ -8191,6 +8191,54 @@ public final class DesktopBehavior {
   }
 
   /**
+   * DrumMidi with a kit profile whose open hat and crash sound alike (Riot's learned cymbals): its crash
+   * peaks would be the open hats, so it takes crashes only from the dark and ridden passes and says so;
+   * a profile whose crash sounds unlike its open hat keeps the crash peaks.
+   */
+  void s231_open_like_crash() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "openlike-test");
+    dir.mkdirs();
+    String head = "# DrumMidi kit profile\n36 0.3361 0.4714 0.3750 -0.0212 0.1075 0.1213 0.0699 0.1536 0.0784 -0.1441 -0.1107 -0.2269 -0.2140 -0.3507 -0.2984 -0.3400\n"
+        + "43 -0.3844 -0.3928 -0.1734 0.3948 0.3823 -0.0372 0.0489 0.3094 0.3949 0.1182 0.0046 -0.0971 -0.2020 -0.1126 -0.1008 -0.1000\n"
+        + "c42 -0.0025 -0.5514 -0.0348 0.1796 0.2900 0.5238 0.3681 0.0262 -0.1448 -0.1897 -0.2709 -0.1936 -0.8556\n"
+        + "c46 0.4306 -0.0660 0.1993 0.1393 0.1539 0.3376 0.2142 -0.0082 -0.1512 -0.3131 -0.5320 -0.4045 0.2096\n"
+        + "c51 0.6849 0.1699 -0.1297 -0.3246 -0.3083 0.1071 -0.1332 -0.0981 -0.4188 0.1784 0.1077 0.1648 -0.5039\n";
+    File alike = new File(dir, "alike.kit"), unlike = new File(dir, "unlike.kit");
+    Files.write(alike.toPath(), (head + "c49 0.0283 -0.0217 0.3189 0.3734 0.3427 0.0989 0.1469 -0.0727 0.0453 -0.2396 -0.6182 -0.4023 0.1225\n").getBytes(StandardCharsets.UTF_8));
+    Files.write(unlike.toPath(), (head + "c49 -0.6000 -0.4000 -0.2000 0.0000 0.1000 0.2000 0.1000 0.2000 0.3000 0.4000 0.5000 0.4000 0.6900\n").getBytes(StandardCharsets.UTF_8));
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 6); rng = np.random.default_rng(7)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.5 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 40) * 0.5\n"
+        + "for b in range(10):\n    put(0.25 + b * 0.5, kick)\n    put(0.5 + b * 0.5, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String[] said = new String[2];
+    File[] kits = {alike, unlike};
+    for (int k = 0; k < 2; k++) {
+      Process p = new ProcessBuilder(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "g" + k + ".mid").getAbsolutePath(), "--kit", kits[k].getAbsolutePath())
+          .directory(dir).redirectErrorStream(true).start();
+      String all = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+      p.waitFor();
+      said[k] = "";
+      for (String line : all.split("\n")) if (line.contains("sounds like its crash")) said[k] = line.trim();
+      if (!all.contains("Wrote ")) said[k] = "failed: " + all;
+    }
+    this.out.append("alike: ").append(said[0]).append("\nunlike: ").append(said[1].isEmpty() ? "(crash peaks kept)" : said[1]).append('\n');
+    boolean ok = said[0].equals("Kit alike.kit: its open hat sounds like its crash: crashes only where they are dark or ridden") && said[1].isEmpty();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * DrumMidi --faded-opens: a Params switch (on/off), in DrumMidi's settings line when given and off
    * otherwise, passed on by vst_render --test and labelled in its Params; open hats that fade like
    * closed ones become closed only with it (a groove of short hats written open by DrumMidi's ring test).

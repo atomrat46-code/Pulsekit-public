@@ -978,7 +978,11 @@ public class DrumMidi_CRT{
             if (hat[t] > ride[t] * 1.35) continue;
             hits.add(new Hit(t * (double) HOP / sr, RIDE_NOTE, ride[t]));
         }
-        List<Integer> crashPeaks = cymbals ? pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32) : new ArrayList<Integer>();
+        // A kit whose open hat sounds like its crash (its profile's looks: openLikeCrash) gets its
+        // crashes only from the later passes (dark, ridden): here its open hats would be the crashes.
+        boolean openLikeCrash = kit != null && kit.openLikeCrash();
+        if (openLikeCrash) note("Kit " + kit.name + ": its open hat sounds like its crash: crashes only where they are dark or ridden");
+        List<Integer> crashPeaks = cymbals && !openLikeCrash ? pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32) : new ArrayList<Integer>();
         for (int i = 0; i < crashPeaks.size(); i++) {
             int t = crashPeaks.get(i).intValue();
             if (!isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
@@ -2106,6 +2110,8 @@ public class DrumMidi_CRT{
     static final double CYM_MARGIN = 0.25, CYM_LEAST = 0.5;
     /** Two learned cymbals this alike (cymNear) are not told apart in this kit: neither changes to the other. */
     static final double CYM_ALIKE = 0.4;
+    /** KitProfile.openLikeCrash: the open hat's and crash's looks this near (Riot 0.78; other kits 0.07-0.43). */
+    static final double OPEN_CRASH_ALIKE = 0.6;
     /** Another hit this near (a cymbal, a kick, a snare, a tom): the sound is not the cymbal alone, and it is not changed. */
     static final double CYM_ALONE = 0.04;
     /** KitProfile.rideVote: the passage (seconds each way) and how many cymbals heard alone in it. */
@@ -2587,6 +2593,17 @@ public class DrumMidi_CRT{
          * nearest, when that is clearly nearer (CYM_MARGIN) than the kind it was written as; a hit with
          * another cymbal at it (two cymbals at once) is left as it is. Needs two cymbals learned.
          */
+        /**
+         * The kit's open hat and crash sound alike: their learned looks nearer than OPEN_CRASH_ALIKE.
+         * Then the crash peaks are the open hats: on the 7.11. kit tests Riot's (0.78; Anarchy 0.07,
+         * Artillery 0.22, KVLT 0.43) crashes written there were 102 open hats, 34 closed hats, 58 nothing
+         * and 8 crashes; without them its open hats right went 116 -> 215 of 333, its crashes 9 -> 5 of 38.
+         */
+        boolean openLikeCrash() {
+            double[] o = look(OPEN_HAT), c = look(CRASH_NOTE);
+            return o != null && c != null && cymNear(o, c) > OPEN_CRASH_ALIKE;
+        }
+
         /** A learned cymbal's look (null when not learned). */
         double[] look(int note) {
             int j = cymNotes.indexOf(Integer.valueOf(note));
