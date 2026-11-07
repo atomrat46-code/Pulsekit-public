@@ -30,6 +30,11 @@ public final class Mp4Media {
     Mp4Join.withSound(picture, sound, dest);
   }
 
+  /** The videos one after another into `dest` (the same picture format); a note about sound left out, or "". */
+  public static String join(java.util.List<File> videos, File dest) throws IOException {
+    return Mp4Join.joinAll(videos, dest);
+  }
+
   /** As above, the picture's size written as w×h in its headers. */
   public static void withSound(File picture, File sound, File dest, int w, int h) throws IOException {
     Mp4Join.withSound(picture, sound, dest, w, h);

@@ -84,25 +84,12 @@ final class VideoRender {
             File made = null;
             File work = null;
             try {
-                VlcPlayer.Probe probe = VlcPlayer.probe(video, 64);
-                if (probe == null || probe.width <= 0 || probe.height <= 0) throw new java.io.IOException("VLC could not read its size");
-                int[] p = VideoFit.plan(probe.width, probe.height, w, h, pad, anchor);
-                work = java.nio.file.Files.createTempDirectory("pulsekit-rerender").toFile();
-                // One pass: the shape (crop or bars, in the video's own pixels), then scaled (canvas), the picture alone;
-                // no B-frames or look-ahead, so VLC's encoder holds back no frames at the end.
-                File two = new File(work, "sized.mp4");
-                String sout = "#transcode{vcodec=h264,venc=x264{crf=18,preset=medium,bframes=0,lookahead=0,threads=1},vfilter='croppadd{cropleft=" + p[0] + ",croptop=" + p[1]
-                    + ",cropright=" + p[2] + ",cropbottom=" + p[3] + ",paddleft=" + p[4] + ",paddtop=" + p[5] + ",paddright=" + p[6] + ",paddbottom=" + p[7] + "}:canvas{width=" + w
-                    + ",height=" + h + "}'}:std{access=file,mux=mp4,dst=" + two.getAbsolutePath() + "}";
-                String why = VlcPlayer.transcode(video, sout, f -> say(app, name, f), 30 * 60 * 1000L, null, ":no-sout-audio");
-                if (why != null || !two.isFile() || two.length() < 64) throw new java.io.IOException(why == null ? "VLC made no video" : why);
                 if (!dir.isDirectory()) dir.mkdirs();
                 String base = VideoFit.name(name, w, h).replaceAll("\\.mp4$", "");
                 made = new File(dir, base + ".mp4");
                 for (int n = 1; made.exists(); n++) made = new File(dir, base + "(" + n + ").mp4");
-                // The original's sound, copied as it is.
-                Mp4Media.withSound(two, video, made, w, h);
-                said = "ReRendered " + name + " at " + w + "×" + h + " (" + VideoFit.said(p) + "): " + made.getPath();
+                String plan = renderFile(video, made, w, h, pad, anchor, f -> say(app, name, f));
+                said = "ReRendered " + name + " at " + w + "\u00d7" + h + " (" + plan + "): " + made.getPath();
             } catch (Exception ex) {
                 if (made != null) made.delete();
                 made = null;
@@ -119,6 +106,52 @@ final class VideoRender {
             lastSaid = said;
             SwingUtilities.invokeLater(() -> app.setNow(shown));
         }, "pulsekit-rerender").start();
+    }
+
+    /**
+     * `video` made again as `made` at w×h with VLC (crop or bars, the part kept `anchor`), its sound the
+     * original's; what it did, in words. One pass: the shape in the video's own pixels, then scaled
+     * (canvas), the picture alone; no B-frames or look-ahead, so VLC's encoder holds back no frames at the end.
+     */
+    static String renderFile(File video, File made, int w, int h, boolean pad, double anchor, java.util.function.DoubleConsumer progress) throws Exception {
+        VlcPlayer.Probe probe = VlcPlayer.probe(video, 64);
+        if (probe == null || probe.width <= 0 || probe.height <= 0) throw new java.io.IOException("VLC could not read the size of " + video.getName());
+        int[] p = VideoFit.plan(probe.width, probe.height, w, h, pad, anchor);
+        File work = java.nio.file.Files.createTempDirectory("pulsekit-rerender").toFile();
+        try {
+            File two = new File(work, "sized.mp4");
+            String sout = "#transcode{vcodec=h264,venc=x264{crf=18,preset=medium,bframes=0,lookahead=0,threads=1},vfilter='croppadd{cropleft=" + p[0] + ",croptop=" + p[1]
+                + ",cropright=" + p[2] + ",cropbottom=" + p[3] + ",paddleft=" + p[4] + ",paddtop=" + p[5] + ",paddright=" + p[6] + ",paddbottom=" + p[7] + "}:canvas{width=" + w
+                + ",height=" + h + "}'}:std{access=file,mux=mp4,dst=" + two.getAbsolutePath() + "}";
+            String why = VlcPlayer.transcode(video, sout, progress, 30 * 60 * 1000L, null, ":no-sout-audio");
+            if (why != null || !two.isFile() || two.length() < 64) throw new java.io.IOException(why == null ? "VLC made no video" : why);
+            // The original's sound, copied as it is.
+            Mp4Media.withSound(two, video, made, w, h);
+            return VideoFit.said(p);
+        } finally {
+            File[] left = work.listFiles();
+            if (left != null) for (File f : left) f.delete();
+            work.delete();
+        }
+    }
+
+    /** JoinVideo --size and SogniVideo --join_size: VLC measures and makes the videos (JoinSizes). */
+    static JoinSizes.Sizer sizer() {
+        return new JoinSizes.Sizer() {
+            public int[] size(File video) {
+                VlcPlayer.Probe p = VlcPlayer.probe(video, 64);
+                return p == null || p.width <= 0 ? null : new int[] {p.width, p.height};
+            }
+
+            public void render(File src, File dst, int w, int h, boolean pad, double anchor) throws Exception {
+                if (!VlcPlayer.available()) throw new java.io.IOException("making videos one size needs VLC on this computer (videolan.org)");
+                renderFile(src, dst, w, h, pad, anchor, null);
+            }
+
+            public String keep(String name, byte[] data) {
+                return null;
+            }
+        };
     }
 
     private static long lastSay;

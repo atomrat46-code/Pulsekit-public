@@ -59,6 +59,9 @@ import java.util.Map;
  * other video, saved beside it as <clip name>-merged.mp4 (no re-encoding: the two pictures must be
  * in the same format, as two Sogni clips from the same model are). --join_first puts the other video
  * first (an earlier scene, then the clip that continues it). The clip is kept as it is.
+ * --join_size WxH|largest (with --join_fit crop|pad, --join_area centre|top|bottom): the two are of
+ * other sizes or shapes; Pulsekit makes both that size after the run (largest: the larger one's) and
+ * joins them, so this program leaves the join to it.
  */
 public final class SogniVideo {
   public static void main(String[] args) throws Exception {
@@ -156,6 +159,7 @@ public final class SogniVideo {
     String joinPath = null;
     String loraText = null;
     boolean joinFirst = false;
+    String joinSized = null;
     double duration = 5;
     double maxCost = 0;
     boolean confirm = false;
@@ -185,6 +189,11 @@ public final class SogniVideo {
       else if (a.equals("--join") && i + 1 < args.length) joinPath = args[++i].trim();
       else if (a.equals("--loras") && i + 1 < args.length) loraText = args[++i].trim();
       else if (a.equals("--join_first")) joinFirst = true;
+      // Pulsekit's: the join made at one size after the run (it re-renders the two).
+      else if ((a.equals("--join_size") || a.equals("--join_fit") || a.equals("--join_area")) && i + 1 < args.length) {
+        if (a.equals("--join_size")) joinSized = args[i + 1].trim();
+        i++;
+      }
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--variations") && i + 1 < args.length) {
         if (!SogniApi.setVariations(args[++i])) return 2;
@@ -367,7 +376,8 @@ public final class SogniVideo {
         }
       }
       if (keep.size() > 1) say("Variations: " + keep.size());
-      if (joinFile != null) joinWith(file, joinFile, name, ext, joinFirst);
+      if (joinFile != null && joinSized != null) say("Join: Pulsekit makes " + file.getName() + " and " + joinFile.getName() + " one size (" + joinSized + ") and joins them after the run");
+      else if (joinFile != null) joinWith(file, joinFile, name, ext, joinFirst);
       if (!"completed".equals(status)) say("Note: workflow " + status);
       // --delete_from_sogni: the render deleted on Sogni now that it is saved here.
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
@@ -425,7 +435,7 @@ public final class SogniVideo {
 
   static void usage() {
     say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--key_file credentials.txt] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--join_size WxH|largest] [--join_fit crop|pad] [--join_area centre|top|bottom] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
   }
 

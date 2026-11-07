@@ -3,7 +3,7 @@
  * with --b_first), then videos c to f when given.
  *
  *   java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4]
- *       [output.mp4] [--b_first] [--addtodb] [--list <listfile>]
+ *       [output.mp4] [--b_first] [--addtodb] [--list <listfile>] [--size WxH|largest] [--fit crop|pad] [--area centre|top|bottom]
  *
  * --video_c..f  More videos, after a and b, in order.
  * output.mp4  Default: <video a>-merged.mp4 in the work folder (Downloads on the phone); a name in
@@ -12,6 +12,10 @@
  * --addtodb   PyJav also keeps the joined video in the prompt library, as a result file.
  * --list      A text file listing the videos to join, in order (one a line; any number of them):
  *             BatchRun --join gives its clips this way. Videos given as well follow them.
+ * --size      WxH or largest (the largest video's size): Pulsekit makes every video that size first
+ *             (it re-renders them; the program cannot), so videos of other sizes or shapes join.
+ * --fit       crop (to fill, the default) or pad (black bars), for --size.
+ * --area      centre, top or bottom (left or right on a wide picture): the part kept when cropping.
  *
  * The two pictures must be in the same format (codec, size and codec setup), as two Sogni clips
  * from the same model are; otherwise it says why. Sound is joined when both have it in the same
@@ -44,7 +48,7 @@ public final class JoinVideo {
 
   static void usage() {
     System.out.println("Usage: java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4] "
-        + "[output.mp4] [--b_first] [--addtodb] [--list <listfile>]");
+        + "[output.mp4] [--b_first] [--addtodb] [--list <listfile>] [--size WxH|largest] [--fit crop|pad] [--area centre|top|bottom]");
   }
 
   static int run(String[] args) {
@@ -73,6 +77,11 @@ public final class JoinVideo {
         listed = readList(new File(args[++i].trim()));
         if (listed == null) return 2;
       } else if (a.equals("--b_first")) bFirst = true;
+      else if ((a.equals("--size") || a.equals("--fit") || a.equals("--area")) && i + 1 < args.length) {
+        // Pulsekit makes the videos one size before the run and leaves these out; here they came alone.
+        if (a.equals("--size")) System.out.println("Note: --size is made by Pulsekit (it re-renders the videos); joining them as they are");
+        i++;
+      }
       else if (a.equals("--addtodb")) addToDb = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();

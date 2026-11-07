@@ -959,6 +959,23 @@ public final class ProgramParams {
       p.hint = "after the videos before it";
     }
     if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
+    // One size: Pulsekit makes every video that size first (VLC on a computer, the phone's encoder).
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.SIZE)) {
+      p.label = "Make them one size first (videos of other sizes or shapes)";
+      p.hint = "empty: joined as they are (one format only); largest: the largest video's size";
+      p.choices = new String[] {JoinSizes.LARGEST, "1080x1920", "720x1280", "1920x1080", "1280x720", "1080x1080"};
+      p.choiceValues = p.choices;
+    }
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.FIT)) {
+      p.label = "One size: crop to fill, or fit with black bars (pad)";
+      p.choices = new String[] {"crop", "pad"};
+      p.choiceValues = p.choices;
+    }
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.AREA)) {
+      p.label = "One size, cropping: the part kept";
+      p.choices = new String[] {"centre", "top", "bottom"};
+      p.choiceValues = p.choices;
+    }
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
     if (p.flag && p.takesValue && p.token.equals("--list")) {
       p.ext = "txt";
@@ -1125,6 +1142,23 @@ public final class ProgramParams {
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--join_first")) p.label = "Joined video first (then the new clip)";
       return;
+    }
+    // Join with this video at one size: Pulsekit makes the two that size after the run and joins them.
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_SIZE)) {
+      p.label = "Join at one size (the clip and the video of other sizes or shapes)";
+      p.hint = "empty: joined as they are (one format only); largest: the larger one's size";
+      p.choices = new String[] {JoinSizes.LARGEST, "1080x1920", "720x1280", "1920x1080", "1280x720", "1080x1080"};
+      p.choiceValues = p.choices;
+    }
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_FIT)) {
+      p.label = "Join at one size: crop to fill, or fit with black bars (pad)";
+      p.choices = new String[] {"crop", "pad"};
+      p.choiceValues = p.choices;
+    }
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_AREA)) {
+      p.label = "Join at one size, cropping: the part kept";
+      p.choices = new String[] {"centre", "top", "bottom"};
+      p.choiceValues = p.choices;
     }
     if (p.token.equals("--prompt")) p.hint = "what happens: the motion, the camera, the sound";
     if (p.token.equals("--image")) {

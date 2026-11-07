@@ -12990,6 +12990,55 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch D: JoinSizes with a stand-in sizer. JoinVideo --size largest --fit pad: every video (given and
+   * --video_c) made the largest one's size into a folder of its own, its name kept, --size, --fit and
+   * --area left out of the arguments. SogniVideo --join_size 640x360 --join_first: the clip and the video
+   * made that size and joined, the other first, as <clip>-merged.mp4.
+   */
+  @Test
+  public void s239_join_one_size() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getCacheDir(), "d3");
+    dir.mkdirs();
+    final File a = new File(dir, "scene one.mp4"), wide = new File(dir, "wide.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), a.toPath());
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), wide.toPath());
+    final List<String> calls = new ArrayList<String>();
+    JoinSizes.Sizer fake = new JoinSizes.Sizer() {
+      public int[] size(File v) {
+        return v.getName().startsWith("wide") ? new int[] {321, 181} : new int[] {160, 120};
+      }
+
+      public void render(File src, File dst, int w, int h, boolean pad, double anchor) throws Exception {
+        calls.add(src.getName() + " " + w + "x" + h + (pad ? " pad" : " crop") + " " + anchor);
+        Files.copy(src.toPath(), dst.toPath());
+      }
+
+      public String keep(String name, byte[] data) {
+        return null;
+      }
+    };
+    File tmp = new File(dir, "tmp");
+    StringBuilder log = new StringBuilder();
+    List<String> args = JoinSizes.prepare(java.util.Arrays.asList(a.getAbsolutePath(), wide.getAbsolutePath(), "--size", "largest", "--fit", "pad", "--video_c", a.getAbsolutePath(), "--b_first"), tmp, fake, log);
+    StringBuilder shown = new StringBuilder();
+    for (String x : args) shown.append(x.startsWith(tmp.getAbsolutePath()) ? "<tmp>/" + new File(x).getName() : x).append(' ');
+    out.append("JoinVideo: ").append(shown.toString().trim()).append("\nrenders: ").append(calls).append('\n').append(log);
+    boolean before = args.size() == 5 && args.get(0).startsWith(tmp.getAbsolutePath()) && args.get(0).endsWith("scene one.mp4") && args.get(1).endsWith("wide.mp4")
+        && args.get(2).equals("--video_c") && args.get(4).equals("--b_first") && !args.contains("--size") && !args.contains("--fit") && calls.size() == 3
+        && calls.get(1).equals("wide.mp4 320x180 pad 0.5");
+    calls.clear();
+    StringBuilder log2 = new StringBuilder();
+    File merged = JoinSizes.joinAfter(java.util.Arrays.asList("--prompt", "x", "--join", wide.getAbsolutePath(), "--join_size", "640x360", "--join_first", "--join_area", "top"),
+        a, "scene one.mp4", new File(dir, "join"), fake, log2);
+    out.append("SogniVideo: ").append(merged.getName()).append(' ').append(merged.length() > a.length() ? "longer than the clip" : merged.length() + " bytes").append(" renders ").append(calls).append('\n').append(log2);
+    write("s239_join_one_size", out.toString());
+    boolean after = merged.getName().equals("scene one-merged.mp4") && merged.length() > a.length() && calls.size() == 2 && calls.get(0).equals("scene one.mp4 640x360 crop 0.0")
+        && log2.toString().startsWith("Joined wide.mp4 and then scene one.mp4 at 640");
+    if (!before || !after) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

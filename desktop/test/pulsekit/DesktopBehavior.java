@@ -473,6 +473,54 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch D: JoinVideo --size: two videos in other formats (a 4:3 with sound, a wide one without) made
+   * 320×240 with bars first (VLC), then joined; without --size they cannot be joined.
+   */
+  void s222_join_one_size() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    File a = new File(home, "scene one.mp4"), wide = new File(home, "wide.mp4");
+    Files.copy(new File(dir, "clip-a.mp4").toPath(), a.toPath());
+    Files.copy(new File(dir, "clip-wide.mp4").toPath(), wide.toPath());
+    call("showView", "py");
+    call("selectListedProgram", "Java", "JoinVideo.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String pair = "\"" + a.getAbsolutePath() + "\" \"" + wide.getAbsolutePath() + "\"";
+    StringBuilder lines = new StringBuilder();
+    for (String extra : new String[] {pair, pair + " --size 320x240 --fit pad"}) {
+      answers.add("Close");
+      edt(() -> log.setText(""));
+      set("pyInputPath", null);
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(600);
+      lines.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : textOf(log).split("\n")) {
+        if (line.startsWith("Joined") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Made") || line.startsWith("Making") || line.startsWith("Note"))
+          lines.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    out.append(lines);
+    File merged = null;
+    try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+      for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("scene one-merged.*\\.mp4")).sorted()::iterator) merged = f.toFile();
+    }
+    String body = merged == null ? "" : new String(Files.readAllBytes(merged.toPath()), StandardCharsets.ISO_8859_1);
+    int at = body.indexOf("avc1", Math.max(0, body.indexOf("stsd")));
+    int[] got = at < 0 ? null : new int[] {(body.charAt(at + 28) << 8) | body.charAt(at + 29), (body.charAt(at + 30) << 8) | body.charAt(at + 31)};
+    out.append("joined: ").append(merged == null ? "none" : merged.getName() + " " + (got == null ? "?" : got[0] + "x" + got[1])).append('\n');
+    String text = lines.toString();
+    boolean ok = text.contains("different formats") && text.contains("Made scene one.mp4 at 320\u00d7240") && text.contains("Made wide.mp4 at 320\u00d7240")
+        && merged != null && got != null && got[0] == 320 && got[1] == 240;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Batch D (as on the phone): ReRender in a video's Media browser menu: with VLC, the video at
    * 720×1280 cropped (the left part kept), then at 1280×720 with bars, each beside it as
    * <video>-WxH.mp4 with the original's sound.

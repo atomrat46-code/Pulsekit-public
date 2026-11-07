@@ -625,7 +625,9 @@ public final class JavaRun {
           PictureCopies.clean(made);
         }
       }
-      return runJava(n, source, bytes, argv);
+      // JoinVideo --size, SogniVideo --join_size: the app re-renders the videos to one size (JoinSizes).
+      final String nn = n;
+      return JoinSizes.around(n, argv, a -> runJava(nn, source, bytes, a));
     }
     if (isNode(low)) return runNode(n, source == null ? "" : source, argv);
     return runPython(n, source == null ? "" : source, argv);

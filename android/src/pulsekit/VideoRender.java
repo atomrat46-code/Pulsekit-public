@@ -169,6 +169,44 @@ final class VideoRender {
         main.post(() -> app.setNow(text));
     }
 
+    /** JoinVideo --size and SogniVideo --join_size: the phone measures and makes the videos (JoinSizes); the joined one kept in Download. */
+    static JoinSizes.Sizer sizer(final MainActivity app) {
+        return new JoinSizes.Sizer() {
+            public int[] size(File video) {
+                android.media.MediaMetadataRetriever m = new android.media.MediaMetadataRetriever();
+                try {
+                    m.setDataSource(video.getAbsolutePath());
+                    int w = Integer.parseInt(m.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                    int h = Integer.parseInt(m.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                    String r = m.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                    return r != null && (r.equals("90") || r.equals("270")) ? new int[] {h, w} : new int[] {w, h};
+                } catch (Throwable ex) {
+                    return null;
+                } finally {
+                    try {
+                        m.release();
+                    } catch (Throwable ignored) {
+                        // released
+                    }
+                }
+            }
+
+            public void render(File src, File dst, int w, int h, boolean pad, double anchor) throws Exception {
+                File picture = new File(dst.getParentFile(), "picture-" + dst.getName());
+                try {
+                    VideoRender.render(src, picture, w, h, pad, anchor, null);
+                    Mp4Media.withSound(picture, src, dst, w, h);
+                } finally {
+                    picture.delete();
+                }
+            }
+
+            public String keep(String name, byte[] data) {
+                return ArtJava.publish(app, name, data);
+            }
+        };
+    }
+
     static void copy(java.io.InputStream in, File to) throws java.io.IOException {
         java.io.FileOutputStream out = new java.io.FileOutputStream(to);
         try {

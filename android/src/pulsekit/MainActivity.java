@@ -341,6 +341,8 @@ public class MainActivity extends UiKit {
         this.show(REMEMBERED_TABS.contains(lastTab) ? lastTab : this.view);
 
         ArtJava.pinWorkDir(this);
+        // JoinVideo --size, SogniVideo --join_size: the phone's encoder makes the videos one size first.
+        JoinSizes.sizer = VideoRender.sizer(this);
         this.handler.postDelayed(this.dbWatch, 400);
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());
