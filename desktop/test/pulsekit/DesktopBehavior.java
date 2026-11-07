@@ -8945,6 +8945,40 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * vst_render's warm-up: before the test beat every drum and cymbal is played once (soft, mid, hard)
+   * through the plugin and thrown away, so a sampler that loads a sound when it is first played has it;
+   * a learned kit missing a cymbal (KVLT's ride) counts as missing, so the test beat is played again.
+   */
+  void s230_vst_render_warm_up() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "warm-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "vr.WARM_PAUSE = 0\n"
+        + "m = vr.warm_midi(sys.argv[2])\n"
+        + "length, notes = vr.midi_notes(m)\n"
+        + "print('warm notes %s, %d hits, %.1f s' % (sorted(set(n for t, n in notes)), len(notes), length))\n"
+        + "class Chain:\n"
+        + "    calls = []\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        Chain.calls.append((os.path.basename(midi), sorted(set(n for t, n in vr.midi_notes(midi)[1]))))\n"
+        + "        return None, 0, 0\n"
+        + "print('warm_up %s rendered %s' % (vr.warm_up(Chain(), None), Chain.calls))\n"
+        + "kept = 'Wrote k.kit: kick and toms 36 (3 hits), 41 (3 hits); cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)'\n"
+        + "print('missing: ride %d, with a tom silent too %d, all heard %d' % (vr.kit_missing(kept), vr.kit_missing(kept.replace('; cymbals 42', '; silent in this kit: 43 (0.3% of the kick); cymbals 42')), vr.kit_missing(kept.split('; cymbals not heard')[0])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    this.out.append(said).append('\n');
+    boolean ok = said.contains("warm notes [36, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 57], 42 hits")
+        && said.contains("warm_up True rendered [('vst-warm.mid', [36, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 57])]")
+        && said.contains("missing: ride 1, with a tom silent too 2, all heard 0");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** vst_render --zip_outdir: the run's zips and the test results zip copied into the folder (made); Params labels it. */
   void s209_vst_render_zip_outdir() throws Exception {
     File dir = new File(System.getProperty("user.home"), "zip-outdir");

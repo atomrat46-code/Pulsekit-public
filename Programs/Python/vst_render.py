@@ -1463,9 +1463,62 @@ def check_midi(folder):
     return path
 
 
+# The warm-up before the test beat: each drum and cymbal a test or song plays, soft, mid and hard, into
+# a render nobody hears. A sampler that loads a drum's sounds only when it is first played (KVLT's ride
+# and crash stayed silent through a whole test beat, then played in the songs after it) has them then.
+WARM_NOTES = (36, 38, 41, 43, 45, 47, 48, 42, 44, 46, 51, 53, 49, 57)
+WARM_PAUSE = 2.0
+
+
+def warm_midi(folder):
+    """The warm-up as a MIDI file in the folder: WARM_NOTES, each at KIT_VELOCITIES, 0.15 s apart."""
+    events, tick = [], 0
+    for n in WARM_NOTES:
+        for vel in KIT_VELOCITIES:
+            events.append((tick, 0x99, n, vel))
+            events.append((tick + 60, 0x89, n, 0))
+            tick += 144
+    events.sort(key=lambda e: (e[0], e[1] == 0x99))
+    data, last = bytearray(), 0
+    for tick, status, note, vel in events:
+        delta = tick - last
+        last = tick
+        var = [delta & 0x7F]
+        while delta > 0x7F:
+            delta >>= 7
+            var.insert(0, (delta & 0x7F) | 0x80)
+        data += bytes(var) + bytes([status, note, vel])
+    data += b"\x00\xff\x2f\x00"
+    path = os.path.join(folder, "vst-warm.mid")
+    with open(path, "wb") as f:
+        f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480) + b"MTrk" + struct.pack(">I", len(data)) + bytes(data))
+    return path
+
+
+def warm_up(chain, np):
+    """The warm-up played through the chain and thrown away, then WARM_PAUSE seconds for the plugin to
+    finish loading; True when it played."""
+    import tempfile
+    import time
+    folder = tempfile.mkdtemp(prefix="vst-warm-")
+    midi = warm_midi(folder)
+    try:
+        chain.render(np, midi=midi, tail=1.0)
+    except ValueError:
+        return False
+    finally:
+        try:
+            os.remove(midi)
+            os.rmdir(folder)
+        except OSError:
+            pass
+    time.sleep(WARM_PAUSE)
+    return True
+
+
 def kit_missing(said):
-    """The kick and toms DrumMidi --learn-kit heard nothing (or next to nothing) of: how many (99 when it
-    learned no tom, or failed)."""
+    """The kick, toms and cymbals DrumMidi --learn-kit heard nothing (or next to nothing) of: how many
+    (99 when it learned no tom, or failed)."""
     if not said.startswith("Wrote ") or "no tom played" in said:
         return 99
     n = 0
@@ -1473,6 +1526,9 @@ def kit_missing(said):
         part = part.strip()
         if part.startswith("silent in this kit:") or part.startswith("nothing to read:"):
             n += len(re.findall(r"\b\d+ \(", part))
+        elif part.startswith("cymbals not heard:"):
+            # "51 ride (0.0% of the loudest cymbal), 49 crash (no sound at its hits)"
+            n += len(re.findall(r"\b\d+ [a-z ]+\(", part))
     return n
 
 
@@ -2296,6 +2352,10 @@ def main(argv):
     if not opts["--wav"]:
         # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
+        # Every drum and cymbal played once first, unheard: a sampler that loads a sound when it is
+        # first played (KVLT) has them all for the test beat.
+        if not gizmo and warm_up(chain, np):
+            print("Warm-up: every drum and cymbal played once before the test beat (a plugin that loads a sound when it is first played has them now)")
         try:
             check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)
         except ValueError as e:
