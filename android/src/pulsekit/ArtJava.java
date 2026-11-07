@@ -174,7 +174,9 @@ public final class ArtJava {
     } catch (NoSuchMethodException ex) {
       return fail(head + "\n" + main + " has no public static void main(String[]).");
     }
-    final String[] args = placeInputs(work, argv);
+    final String[] args = zipsHere(main, work, placeInputs(work, argv));
+    // DrumMidi_CRT --zip: its zips (written into the work folder's pk-zips) go into Download (or Download/<--zip_outdir>).
+    final File zipsIn = new File(work, ZIPS);
     // SogniMusic --outdir: the run's files kept in Download/<that folder> (% codes filled in).
     String sub = runSub(main.replaceAll(".*\\.", "") + ".java", argv);
     lastSub = sub;
@@ -251,6 +253,18 @@ public final class ArtJava {
         String saved = publish(ctx, fn, body, sub);
         if (saved != null) ps.println("saved " + saved);
       }
+    }
+    File[] zips = zipsIn.listFiles();
+    if (zips != null) {
+      for (File z : zips) {
+        if (!z.isFile() || !z.getName().endsWith(".zip")) continue;
+        byte[] body = read(z);
+        files.add(new JavaRun.FileOut(z.getName(), body));
+        String saved = publish(ctx, z.getName(), body, zipSub);
+        if (saved != null) ps.println("saved " + saved);
+        z.delete();
+      }
+      zipsIn.delete();
     }
     if (args != null) {
       for (int i = 0; i < args.length; i++) {
@@ -778,6 +792,37 @@ public final class ArtJava {
    * Copy a program output file to the program files folder chosen in Drum Midi Settings, else to
    * Download. Android opens relative paths on "/", which is read-only.
    */
+  /** The work folder's folder DrumMidi_CRT --zip writes its zips into (then kept in Download). */
+  static final String ZIPS = "pk-zips";
+  /** DrumMidi_CRT --zip_outdir of the run going on: its folder under Download (% codes filled in), or null for Download itself. */
+  static volatile String zipSub;
+
+  /**
+   * DrumMidi_CRT --zip (one WAV, or --zip_outdir given as a relative folder): its zips written into the
+   * work folder's pk-zips, to be kept in Download (Download/<that folder>); a whole path stays as it is.
+   */
+  static String[] zipsHere(String main, File work, String[] args) {
+    zipSub = null;
+    if (args == null || !ProgramFolder.isDrumMidi(main.replaceAll(".*\\.", "") + ".jar")) return args;
+    List<String> a = new ArrayList<String>(java.util.Arrays.asList(args));
+    boolean zip = a.contains("--zip") || a.contains("--zip_mb");
+    int at = a.indexOf("--zip_outdir");
+    String to = new File(work, ZIPS).getAbsolutePath();
+    if (at >= 0 && at + 1 < a.size()) {
+      String given = a.get(at + 1).trim();
+      if (new File(given).isAbsolute()) return args;
+      String sub = ProgramFolder.subdir(given, downloads()).replaceAll("(^|/)\\.\\.?(?=/|$)", "").replaceAll("/+", "/").replaceAll("^/|/$", "");
+      zipSub = sub.length() == 0 ? null : sub;
+      a.set(at + 1, to);
+    } else if (zip && !a.contains("--dir")) {
+      a.add("--zip_outdir");
+      a.add(to);
+    } else {
+      return args;
+    }
+    return a.toArray(new String[0]);
+  }
+
   /** SogniMusic --outdir of the run that went last: its folder under Download (% codes filled in), or null. */
   static volatile String lastSub;
 

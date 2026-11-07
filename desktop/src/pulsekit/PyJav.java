@@ -788,7 +788,7 @@ final class PyJav {
         // File > Downloads: the Sogni run is in progress until its result is in.
         SogniDownloads.init(PromptDb.dir());
         final long download = this.reconnectDownload != 0 ? this.reconnectDownload
-            : pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
+            : (pending != null || SogniDownloads.other(name)) && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
         this.reconnectDownload = 0;
         // Create again (File > Downloads): the arguments this run had.
         if (download != 0) SogniDownloads.args(download, filled);
@@ -1029,8 +1029,8 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
-                    // Move downloaded media files to, automatically.
-                    DownloadsScreen.finished(app);
+                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
+                    if (!SogniDownloads.dropIfEmpty(download)) DownloadsScreen.finished(app);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.

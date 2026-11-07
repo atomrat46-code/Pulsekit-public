@@ -473,6 +473,94 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch C (as on the phone): Downloads' Move panel has Also other programs' files; ticked, another
+   * program's run is listed (with what it saved), one that saved nothing is not kept, and the Sogni
+   * programs are listed either way.
+   */
+  void s219_downloads_other_programs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    File wav = new File(dl, "groove.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0});
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("Midi2Wav.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: groove.wav", "Saved " + wav.getAbsolutePath(), null);
+    SogniDownloads.done(run);
+    final boolean[] box = new boolean[2];
+    DownloadsScreen.tab = "";
+    // The box is in the Move panel, shown with Move downloaded media files to ticked.
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.others = false;
+    DownloadMove.save();
+    // The Downloads window (another message may come first: it is passed by).
+    final java.util.function.Consumer<JDialog>[] look = new java.util.function.Consumer[1];
+    look[0] = d -> {
+      javax.swing.JCheckBox others = (javax.swing.JCheckBox) component(d, "downloads-move-others");
+      if (others == null && component(d, "downloads-empty") == null && !d.getTitle().contains("Downloads")) {
+        inspectNext = look[0];
+        return;
+      }
+      box[0] = others != null && !others.isSelected();
+      if (others != null) others.doClick();
+      box[1] = DownloadMove.others;
+    };
+    inspectNext = look[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && !box[1]; i++) Thread.sleep(100);
+    idle();
+    boolean listedOther = SogniDownloads.listed("MidiDrumGen.java"), listedSogni = SogniDownloads.listed("SogniPedit.java");
+    long empty = SogniDownloads.started("CompareHits.java", System.currentTimeMillis());
+    SogniDownloads.result(empty, "Succeeded: compared", "Hits: 12", null);
+    SogniDownloads.done(empty);
+    boolean dropped = SogniDownloads.dropIfEmpty(empty);
+    boolean keptWav = !SogniDownloads.dropIfEmpty(run);
+    out.append("box shown, off: ").append(box[0]).append(", ticked: ").append(box[1]).append(" | listed: other ").append(listedOther).append(", Sogni ").append(listedSogni)
+        .append(" | saved nothing dropped ").append(dropped).append(", saved a WAV kept ").append(keptWav).append('\n');
+    if (!box[0] || !box[1] || !listedOther || !listedSogni || !dropped || !keptWav) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: DrumMidi_CRT --zip --zip_outdir dm%n: the MIDI it makes zipped into dm1 under the program
+   * files folder (the run's own folder goes), then dm2; without --zip_outdir, into the program files folder.
+   */
+  void s218_drummidi_zip() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "beat.wav");
+    short[] pcm = new short[22050 * 4];
+    for (int i = 0; i < pcm.length; i++) {
+      double t = (i % 11025) / 22050.0;
+      pcm[i] = t < 0.15 ? (short) (24000 * Math.exp(-t * 30) * Math.sin(2 * Math.PI * 60 * t)) : 0;
+    }
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "DrumMidi_CRT.jar");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> call("setInputFile", wav));
+    final String base = ((javax.swing.text.JTextComponent) get("pyExtra")).getText();
+    for (String extra : new String[] {" --zip --zip_outdir dm%n", " --zip --zip_outdir dm%n", " --zip"}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(base + extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      for (String line : String.valueOf(log.getText()).split("\n")) {
+        if (line.startsWith("Wrote") && line.contains(".zip") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    File kept = new File(home, ".pulsekit");
+    String[] one = new File(kept, "dm1").list(), two = new File(kept, "dm2").list();
+    String[] top = kept.list((d, n) -> n.endsWith(".zip"));
+    out.append("dm1: ").append(one == null ? "none" : String.join(",", one)).append(", dm2: ").append(two == null ? "none" : String.join(",", two))
+        .append(", beside: ").append(top == null ? "none" : String.join(",", top)).append('\n');
+    boolean ok = one != null && one.length == 1 && one[0].endsWith(".zip") && two != null && two.length == 1 && top != null && top.length >= 1;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Wav2Mp3: one WAV as an MP3 (the length and level back, through the app's decoder, gapless),
    * then a folder of them at once (--dir, --outdir) at another bitrate, in mono.
    */

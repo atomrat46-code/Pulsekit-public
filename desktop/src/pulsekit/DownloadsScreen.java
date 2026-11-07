@@ -644,6 +644,17 @@ final class DownloadsScreen {
         });
         buttons.add(auto);
         panel.add(buttons);
+        // Also other programs' files: their runs listed too (from now on), so Move now and Move automatically take their files.
+        final javax.swing.JCheckBox others = new javax.swing.JCheckBox(DownloadMove.OTHERS, DownloadMove.others);
+        others.setName("downloads-move-others");
+        others.setToolTipText(DownloadMove.OTHERS_NOTE);
+        others.setAlignmentX(0.0f);
+        others.addActionListener(e -> {
+            DownloadMove.others = others.isSelected();
+            DownloadMove.save();
+            if (others.isSelected()) app.setNow(DownloadMove.OTHERS_NOTE);
+        });
+        panel.add(others);
         JPanel progress = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         progress.setAlignmentX(0.0f);
         progress.add(status);

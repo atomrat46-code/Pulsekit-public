@@ -33,6 +33,12 @@ import java.util.Set;
  * --dir <folder> runs on every WAV in the folder (--recursive: its subfolders too), each written as
  * <wav>-dm.mid beside it with the same switches: a Midi2Wav or vst_render.py batch for CompareHits --batch.
  *
+ * --zip puts the MIDI file(s) made (and the --log file) in a zip too: <output>.zip beside the MIDI, or
+ * <folder>-dm.zip in --dir's folder. --zip_mb N (--zip implied) makes zips of at most N MB each
+ * (<name>-part1of3.zip...; a file is never split). --zip_outdir <folder> writes the zips there instead
+ * (made when missing), with % codes: after a %, dd, d, mm, m, yyyy, yy and n follow each other
+ * (%ddmmyy is 071126; %n the first number from 1 whose folder is not there yet; %% is a %).
+ *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
  *
@@ -330,12 +336,169 @@ public class DrumMidi_CRT{
 
     public static void main(String[] args) throws Exception {
         startDirs = new String[] {System.getProperty("pulsekit.work"), System.getProperty("user.dir"), System.getProperty("java.io.tmpdir")};
+        zip = false;
+        zipMb = 0;
+        zipOutdir = null;
+        made.clear();
+        zipBase = null;
+        zipDir = null;
         try {
             run(args);
+            if (zip && !made.isEmpty()) zipMade();
         } catch (Throwable ex) {
             String m = ex.getMessage();
             finish("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
         }
+    }
+
+    /** --zip, --zip_mb, --zip_outdir; the files made (the MIDI, the log) and the zip's name and folder. */
+    static boolean zip;
+    static double zipMb;
+    static String zipOutdir;
+    static final List<File> made = new ArrayList<File>();
+    static String zipBase;
+    static File zipDir;
+
+    /** --zip: what the run made into zips (of at most --zip_mb MB each), in --zip_outdir or beside the MIDI. */
+    static void zipMade() {
+        File dir = zipDir;
+        if (zipOutdir != null && zipOutdir.length() > 0) {
+            String path = expandFolder(zipOutdir, java.util.Calendar.getInstance());
+            File d = new File(path);
+            if (!d.isAbsolute()) d = new File(workDir(), path);
+            dir = d;
+        }
+        if (dir == null) dir = made.get(0).getAbsoluteFile().getParentFile();
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            System.out.println("Could not make the zip's folder " + dir.getPath());
+            return;
+        }
+        long limit = zipMb > 0 ? (long) (zipMb * 1024 * 1024) : Long.MAX_VALUE;
+        List<List<File>> parts = new ArrayList<List<File>>();
+        List<File> now = new ArrayList<File>();
+        long size = 0;
+        for (File f : made) {
+            if (!f.isFile()) continue;
+            if (!now.isEmpty() && size + f.length() > limit) {
+                parts.add(now);
+                now = new ArrayList<File>();
+                size = 0;
+            }
+            now.add(f);
+            size += f.length();
+        }
+        if (!now.isEmpty()) parts.add(now);
+        String base = zipBase != null ? zipBase : made.get(0).getName().replaceAll("(?i)\\.midi?$", "");
+        for (int k = 0; k < parts.size(); k++) {
+            File z = new File(dir, base + (parts.size() > 1 ? "-part" + (k + 1) + "of" + parts.size() : "") + ".zip");
+            try {
+                java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new FileOutputStream(z));
+                try {
+                    Set<String> names = new HashSet<String>();
+                    for (File f : parts.get(k)) {
+                        String n = f.getName();
+                        for (int c = 2; !names.add(n); c++) n = f.getName().replaceAll("(\\.[^.]+)?$", "-" + c + "$1");
+                        zos.putNextEntry(new java.util.zip.ZipEntry(n));
+                        zos.write(readBytes(f));
+                        zos.closeEntry();
+                    }
+                } finally {
+                    zos.close();
+                }
+                System.out.println(String.format(java.util.Locale.ROOT, "Wrote %s: %d file%s, %.1f KB (%s)", z.getName(), parts.get(k).size(), parts.get(k).size() == 1 ? "" : "s",
+                        z.length() / 1024.0, z.getAbsoluteFile().getParent()));
+            } catch (Exception ex) {
+                System.out.println("Could not write " + z.getName() + " (" + ex.getMessage() + ")");
+            }
+        }
+    }
+
+    static byte[] readBytes(File f) throws java.io.IOException {
+        FileInputStream in = new FileInputStream(f);
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /** The folder a relative --zip_outdir is under: Pulsekit's work folder, else the current one. */
+    static File workDir() {
+        String w = System.getProperty("pulsekit.work");
+        return new File(w != null && w.length() > 0 ? w : System.getProperty("user.dir", "."));
+    }
+
+    /**
+     * --zip_outdir's % codes filled in for `now`; %n is the first number from 1 whose folder (the path
+     * up to the part %n is in) is not there yet. No % codes: the path as it is.
+     */
+    static String expandFolder(String pattern, java.util.Calendar now) {
+        if (pattern.indexOf('%') < 0) return pattern;
+        String one = fillCodes(pattern, now, 1), two = fillCodes(pattern, now, 2);
+        if (one.equals(two)) return one;
+        int at = 0;
+        while (at < Math.min(one.length(), two.length()) && one.charAt(at) == two.charAt(at)) at++;
+        for (int n = 1; n < 100000; n++) {
+            String path = fillCodes(pattern, now, n);
+            int end = path.indexOf('/', at);
+            int endB = path.indexOf('\\', at);
+            if (end < 0 || (endB >= 0 && endB < end)) end = endB;
+            File head = new File(end < 0 ? path : path.substring(0, end));
+            if (!head.isAbsolute()) head = new File(workDir(), head.getPath());
+            if (!head.exists()) return path;
+        }
+        return one;
+    }
+
+    /** The % codes filled in, n as `n` (dd d mm m yyyy yy n; %% is a %; a lone % stays). */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c != '%') {
+                out.append(c);
+                continue;
+            }
+            if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+                out.append('%');
+                i++;
+                continue;
+            }
+            int j = i + 1;
+            while (j < pattern.length()) {
+                String rest = pattern.substring(j);
+                if (rest.startsWith("yyyy")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+                    j += 4;
+                } else if (rest.startsWith("yy")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+                    j += 2;
+                } else if (rest.startsWith("dd")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+                    j += 2;
+                } else if (rest.startsWith("d")) {
+                    out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+                    j += 1;
+                } else if (rest.startsWith("mm")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+                    j += 2;
+                } else if (rest.startsWith("m")) {
+                    out.append(now.get(java.util.Calendar.MONTH) + 1);
+                    j += 1;
+                } else if (rest.startsWith("n")) {
+                    out.append(n);
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+            if (j == i + 1) out.append('%');
+            i = j - 1;
+        }
+        return out.toString();
     }
 
     static final String DEFAULT_LOG = "DrumMidi_CRT_log.txt";
@@ -382,6 +545,7 @@ public class DrumMidi_CRT{
                     fos.close();
                 }
                 System.out.println("Log: " + f.getAbsolutePath());
+                if (!made.contains(f.getAbsoluteFile())) made.add(f.getAbsoluteFile());
             } catch (Exception ex) {
                 System.out.println("Could not write the log " + logPath + ": " + ex.getMessage());
             }
@@ -438,6 +602,9 @@ public class DrumMidi_CRT{
             if (mid.isFile() && mid.lastModified() != before) done++;
         }
         logPath = keepLog;
+        // --zip: the folder's MIDI files (and the log) as <folder>-dm.zip in the folder (or --zip_outdir).
+        zipBase = dir.getName() + "-dm";
+        zipDir = dir;
         finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " WAV files in " + dir.getName() + " (<wav>-dm.mid beside each)");
     }
 
@@ -473,6 +640,21 @@ public class DrumMidi_CRT{
         for (int i = 0; i < args.length; i++) {
             String a = args[i] == null ? "" : args[i].trim();
             if (a.length() == 0) continue;
+            // --zip, --zip_mb N, --zip_outdir <folder>: the MIDI made (and the log) also zipped.
+            if ("--zip".equals(a)) {
+                zip = true;
+                continue;
+            }
+            if ("--zip_mb".equals(a) && i + 1 < args.length) {
+                zipMb = Double.parseDouble(args[++i].trim());
+                zip = true;
+                continue;
+            }
+            if ("--zip_outdir".equals(a) && i + 1 < args.length) {
+                zipOutdir = args[++i].trim();
+                zip = true;
+                continue;
+            }
             if ("--log".equals(a)) {
                 // --log alone writes DrumMidi_CRT_log.txt.
                 String nx = i + 1 < args.length && args[i + 1] != null ? args[i + 1].trim() : "";
@@ -500,7 +682,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -954,6 +1136,7 @@ public class DrumMidi_CRT{
             finish("Failed: MIDI file was not written");
             return;
         }
+        made.add(written);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (writeToms ? "" : " (--no-toms: toms not written)"));
         note("MIDI Extracted to: " + written.getAbsolutePath());

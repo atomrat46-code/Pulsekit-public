@@ -338,6 +338,16 @@ public final class ProgramParams {
       p.hint = DrumMidiArgs.HINTS[i];
       p.suggested = DrumMidiArgs.SUGGESTED[i];
     }
+    // DrumMidi_CRT's zips: the MIDI made (and the log) also in a zip, in parts of at most N MB, in a folder of its own.
+    if (drumMidi && p.flag && p.token.equals("--zip") && !p.takesValue) p.label = "Zip the output: the MIDI (and the log) in a zip too";
+    if (drumMidi && p.flag && p.token.equals("--zip_mb")) {
+      p.label = "Zips of at most this many MB each (zip implied)";
+      p.hint = "empty: one zip; e.g. 5 makes part1of3, part2of3...";
+    }
+    if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
+      p.label = "Zip folder (made when missing)";
+      p.hint = "empty: beside the MIDI (Download / the program files folder); % codes: dm%ddmmyy, zips%n";
+    }
     if (p.label == null || p.label.length() == 0) {
       String s = p.token.replaceAll("^-+", "").replace('_', ' ').replace('-', ' ');
       if (!p.flag && p.ext != null) p.label = p.token;

@@ -77,6 +77,11 @@ public final class ProgramFolder {
     }
   }
 
+  /** DrumMidi_CRT (its jar or its source). */
+  public static boolean isDrumMidi(String program) {
+    return "DrumMidi_CRT.jar".equals(program) || "DrumMidi_CRT.java".equals(program);
+  }
+
   /** SogniMusic's --outdir: where Pulsekit keeps the run's tracks, WAVs and zip, as typed (% codes in it); null when not given. */
   public static String outdirArg(String program, java.util.List<String> argv) {
     if (!"SogniMusic.java".equals(program) || argv == null) return null;
@@ -112,7 +117,7 @@ public final class ProgramFolder {
    * A batch's folders made whole on the desktop, where a program runs in a temporary folder that
    * goes when it ends: MidiDrumGen's --outdir (with --count and no --outdir, midi-batch-<seed> with
    * a --seed added), MidiBatch's --dir, --list and --outdir (midi-mix-<seed> when not given),
-   * Midi2Wav's --dir and --kits,
+   * Midi2Wav's --dir and --kits, DrumMidi_CRT's --zip_outdir (and with --zip on one WAV, the program files folder),
    * vst_render.py's --dir and --outdir, and CompareHits' --batch, when given as a
    * plain name, are under `base` (the program files folder).
    */
@@ -125,7 +130,8 @@ public final class ProgramFolder {
         : "VideoFrames.java".equals(program) ? new String[] {"--dir", "--outdir"}
         : "MidiBatch.java".equals(program) ? new String[] {"--dir", "--list", "--outdir"}
         : "Midi2Wav.java".equals(program) ? new String[] {"--dir", "--kits"}
-        : "SogniMusic.java".equals(program) ? new String[] {"--batchdir"} : new String[0];
+        : "SogniMusic.java".equals(program) ? new String[] {"--batchdir"}
+        : isDrumMidi(program) ? new String[] {"--zip_outdir"} : new String[0];
     if (keys.length == 0) return argv;
     for (int i = 0; i + 1 < out.size(); i++) {
       String a = out.get(i) == null ? "" : out.get(i).trim();
@@ -134,6 +140,11 @@ public final class ProgramFolder {
         String v = out.get(i + 1) == null ? "" : out.get(i + 1).trim();
         if (v.length() > 0 && !v.startsWith("-") && !new File(v).isAbsolute()) out.set(i + 1, new File(base, v).getAbsolutePath());
       }
+    }
+    // DrumMidi_CRT --zip (one WAV): the zip kept in the program files folder (the run's own folder goes when it ends).
+    if (isDrumMidi(program) && (out.contains("--zip") || out.contains("--zip_mb")) && !out.contains("--zip_outdir") && !out.contains("--dir")) {
+      out.add("--zip_outdir");
+      out.add(base.getAbsolutePath());
     }
     boolean mix = "MidiBatch.java".equals(program);
     if ((mix || "MidiDrumGen.java".equals(program) && out.contains("--count")) && !out.contains("--outdir")) {

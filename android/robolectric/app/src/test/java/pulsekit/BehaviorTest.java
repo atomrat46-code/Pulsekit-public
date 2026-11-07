@@ -12773,6 +12773,105 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch C: DrumMidi_CRT --zip on the phone: its zips written into the work folder's pk-zips (then kept
+   * in Download), a relative --zip_outdir as Download/<folder> (% codes filled in); a whole path, --dir
+   * without a zip folder and other programs left as they are.
+   */
+  @Test
+  public void s235_drummidi_zip_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File work = new File(app.getCacheDir(), "c4-work");
+    work.mkdirs();
+    String to = new File(work, ArtJava.ZIPS).getAbsolutePath();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    String[] plain = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip"});
+    String plainSub = ArtJava.zipSub;
+    String[] dated = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip_mb", "5", "--zip_outdir", "dm%ddmmyy"});
+    String datedSub = ArtJava.zipSub;
+    String[] whole = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip_outdir", "/sdcard/x"});
+    String[] dir = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"--dir", "/sdcard/wavs", "--zip"});
+    String[] other = ArtJava.zipsHere("MidiDrumGen", work, new String[] {"--zip", "--outdir", "x"});
+    out.append("plain: ").append(String.join(" ", plain).replace(to, "<zips>")).append(" (").append(plainSub).append(")\n")
+        .append("dated: ").append(String.join(" ", dated).replace(to, "<zips>")).append(" (").append(String.valueOf(datedSub).replace(today, "<today>")).append(")\n")
+        .append("whole: ").append(String.join(" ", whole)).append("\ndir: ").append(String.join(" ", dir)).append("\nother: ").append(String.join(" ", other)).append('\n');
+    write("s235_drummidi_zip_phone", out.toString());
+    boolean ok = String.join(" ", plain).equals("in.wav out.mid --zip --zip_outdir " + to) && plainSub == null
+        && String.join(" ", dated).equals("in.wav out.mid --zip_mb 5 --zip_outdir " + to) && ("dm" + today).equals(datedSub)
+        && String.join(" ", whole).equals("in.wav out.mid --zip_outdir /sdcard/x") && String.join(" ", dir).equals("--dir /sdcard/wavs --zip")
+        && String.join(" ", other).equals("--zip --outdir x");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: Downloads > Also other programs' files: with the box on, another program's run (MidiDrumGen,
+   * DrumMidi_CRT...) is listed with what it saved, and Move now takes its music too; one that saved no
+   * file goes off the list; with the box off, only the Sogni programs are listed. The box is in the Move panel.
+   */
+  @Test
+  public void s236_downloads_other_programs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File list = new File(app.getCacheDir(), "c5-list"), dl = new File(app.getCacheDir(), "c5-dl"), music = new File(app.getCacheDir(), "c5-music");
+    list.mkdirs();
+    dl.mkdirs();
+    music.mkdirs();
+    File wav = new File(dl, "groove.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0});
+    SogniDownloads.init(list);
+    DownloadMove.load();
+    DownloadMove.others = false;
+    boolean offSogni = SogniDownloads.listed("SogniMusic.java"), offOther = SogniDownloads.listed("MidiDrumGen.java");
+    DownloadMove.others = true;
+    DownloadMove.save();
+    boolean onOther = SogniDownloads.listed("MidiDrumGen.java"), onPrompt = SogniDownloads.listed("sheet.prompt");
+    long made = SogniDownloads.started("Midi2Wav.java", 1000L);
+    SogniDownloads.result(made, "Succeeded: groove.wav", "saved " + wav.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(made);
+    boolean kept = !SogniDownloads.dropIfEmpty(made);
+    long nothing = SogniDownloads.started("CompareHits.java", 2000L);
+    SogniDownloads.result(nothing, "Succeeded: compared", "Hits: 12", new java.util.HashMap<String, String>());
+    SogniDownloads.done(nothing);
+    boolean dropped = SogniDownloads.dropIfEmpty(nothing) && SogniDownloads.run(nothing) == null;
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("audio", true);
+    DownloadMove.setFolder("audio", music.getAbsolutePath(), "c5-music");
+    int due = 0;
+    for (Object[] d : DownloadMove.due()) if (((SogniDownloads.Item) d[1]).name.equals("groove.wav")) due++;
+    out.append("off: Sogni ").append(offSogni).append(", other ").append(offOther).append(" | on: other ").append(onOther).append(", prompt sheet ").append(onPrompt)
+        .append(" | saved a WAV: listed ").append(kept).append(", due to move ").append(due).append(" | saved nothing: dropped ").append(dropped).append('\n');
+    // The box in the Move panel (shown with finished downloads and Move downloaded media files to ticked).
+    DownloadMove.on = false;
+    DownloadMove.others = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.others = false;
+    DownloadMove.save();
+    long shownRun = SogniDownloads.started("Midi2Wav.java", 3000L);
+    SogniDownloads.result(shownRun, "Succeeded: groove.wav", "saved " + wav.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(shownRun);
+    DownloadsScreen.tab = SogniDownloads.FINISHED;
+    DownloadsScreen.show(app);
+    idle();
+    View box = DownloadsScreen.last == null ? null : DownloadsScreen.last.getWindow().getDecorView().findViewWithTag("downloads-move-others");
+    out.append("panel box: ").append(box instanceof android.widget.CheckBox ? ((android.widget.CheckBox) box).getText() : "none").append('\n');
+    if (box instanceof android.widget.CheckBox) ((android.widget.CheckBox) box).setChecked(true);
+    DownloadMove.load();
+    boolean savedBox = DownloadMove.others;
+    if (DownloadsScreen.last != null) DownloadsScreen.last.dismiss();
+    SogniDownloads.clear(shownRun, null);
+    DownloadMove.on = false;
+    DownloadMove.others = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s236_downloads_other_programs", out.toString());
+    boolean ok = offSogni && !offOther && onOther && !onPrompt && kept && due == 1 && dropped && box instanceof android.widget.CheckBox && savedBox;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

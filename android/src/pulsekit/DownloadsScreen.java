@@ -751,6 +751,17 @@ final class DownloadsScreen {
         });
         buttons.addView(auto);
         panel.addView(buttons);
+        // Also other programs' files: their runs listed too (from now on), so Move now and Move automatically take their files.
+        CheckBox others = new CheckBox(app);
+        others.setText(DownloadMove.OTHERS);
+        others.setTag("downloads-move-others");
+        others.setChecked(DownloadMove.others);
+        others.setOnCheckedChangeListener((b, yes) -> {
+            DownloadMove.others = yes;
+            DownloadMove.save();
+            if (yes) app.setNow(DownloadMove.OTHERS_NOTE);
+        });
+        panel.addView(others);
         // What Move now is doing: the file, how far, how many of them (shown while it moves, and its result after).
         TextView status = app.text(moveStatus, 12, false);
         status.setTag("downloads-move-status");

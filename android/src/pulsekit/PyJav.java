@@ -1345,6 +1345,8 @@ final class PyJav {
         String note = this.pkReconnectNote;
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
+        // Downloads > Also other programs' files: another program's run gets an entry of its own (not a pending DB operation).
+        if (this.pkPending == null && pulsekit.SogniDownloads.other(name) && pulsekit.SogniDownloads.listed(name)) this.pkPending = OTHER_RUN + System.nanoTime();
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
         // Create again (File > Downloads): the arguments this run had.
         if (this.pkPending != null && DOWNLOAD_OF.containsKey(this.pkPending)) pulsekit.SogniDownloads.args(DOWNLOAD_OF.get(this.pkPending).longValue(), this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "");
@@ -2234,10 +2236,13 @@ final class PyJav {
         Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
         if (download != null) {
             pulsekit.SogniDownloads.done(download.longValue());
-            // Move downloaded media files to, automatically.
-            DownloadsScreen.finished(app);
+            // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
+            if (!pulsekit.SogniDownloads.dropIfEmpty(download.longValue())) DownloadsScreen.finished(app);
         }
     }
+
+    /** The entry key of another program's run listed in Downloads (Also other programs' files). */
+    static final String OTHER_RUN = "other-run\t";
 
     /**
      * The run's changed prompt sheets, one by one: where each goes (Save prompt), then stored in the
