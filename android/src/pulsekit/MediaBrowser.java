@@ -4272,10 +4272,10 @@ final class MediaBrowser {
         final SeekBar rowVolume = volume;
         p.soundDialog = () -> this.soundDialog(p, rowVolume);
         col.addView(sound, 1);
-        // Stop, Play, Pause and the position: always shown; C (capture the frame) while paused.
+        // Stop, Play, Pause (symbols only, to save room) and the position: always shown; C (capture the frame) while paused.
         LinearLayout transport = this.app.row();
         transport.setPadding(this.app.dp(8), this.app.dp(4), this.app.dp(8), 0);
-        TextView stopBtn = this.app.pill("\u25a0 Stop", false, v -> {
+        TextView stopBtn = this.app.pill("\u25a0", false, v -> {
             try {
                 p.view.pause();
                 p.view.seekTo(0);
@@ -4285,15 +4285,18 @@ final class MediaBrowser {
             p.paintTransport();
         });
         stopBtn.setTag("media-video-stop");
+        stopBtn.setContentDescription("Stop");
         // Play while it plays pauses it; Pause while paused plays on.
-        TextView playBtn = this.app.pill("\u25b6 Play", false, v -> {
+        TextView playBtn = this.app.pill("\u25b6", false, v -> {
             if (p.playing()) p.view.pause();
             else p.view.start();
             p.paintTransport();
         });
         playBtn.setTag("media-video-play");
-        TextView pauseBtn = this.app.pill("\u275a\u275a Pause", false, v -> p.pauseOrResume());
+        playBtn.setContentDescription("Play");
+        TextView pauseBtn = this.app.pill("\u275a\u275a", false, v -> p.pauseOrResume());
         pauseBtn.setTag("media-video-pause");
+        pauseBtn.setContentDescription("Pause");
         p.capture = this.app.pill("C", false, v -> this.capture(e, p, false));
         // C held: the frame captured, then ImageUpscaler with it as the input.
         p.capture.setOnLongClickListener(v -> {

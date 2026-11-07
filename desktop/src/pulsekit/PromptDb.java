@@ -2042,10 +2042,13 @@ final class PromptDb {
         final boolean prompts = this.promptsPlayer && !remember;
         final int startVolume = remember ? MediaDir.volume : prompts ? PromptVideo.volume : 80;
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
-        JButton play = new JButton("Play");
+        // Play, Pause and Stop as symbols only (to save room); their names show when pointed at.
+        JButton play = new JButton("\u25b6");
         play.setName("video-play");
-        JButton stop = new JButton("Stop");
+        play.setToolTipText("Play");
+        JButton stop = new JButton("\u25a0");
         stop.setName("video-stop");
+        stop.setToolTipText("Stop");
         JButton mute = new JButton("Mute");
         mute.setName("video-mute");
         javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, startVolume);
@@ -2074,8 +2077,9 @@ final class PromptDb {
             if (player.playing()) player.pause();
             else player.play();
         });
-        JButton pause = new JButton("Pause");
+        JButton pause = new JButton("\u275a\u275a");
         pause.setName("video-pause");
+        pause.setToolTipText("Pause");
         pause.addActionListener(e -> {
             if (player.playing()) player.pause();
             else player.play();

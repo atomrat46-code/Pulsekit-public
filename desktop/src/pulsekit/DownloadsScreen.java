@@ -436,8 +436,11 @@ final class DownloadsScreen {
             });
             m.add(it);
         }
-        // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
+        // Every file: Add to Collection and Add to playlist… after the download's own items.
         final File f = new File(item.where);
+        m.add(CollectionsWindow.addItem(app, app, MediaCollections.KIND_FILE, f.getAbsolutePath(), item.name, f.length()));
+        m.add(PlaylistWindow.addMenu(app, f.getAbsolutePath(), item.name));
+        // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
         if (MediaDir.firstFrameRef(item.name)) {
             JMenuItem it = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
             it.setName("downloads-menu:" + MediaDir.FIRST_FRAME_AS_REF);

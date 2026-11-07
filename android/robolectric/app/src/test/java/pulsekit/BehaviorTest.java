@@ -12564,6 +12564,78 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch B: Downloads' thumbnails have Add to Collection and Add to playlist… (the file goes at the
+   * end of the playlist picked); the Media browser's player has Stop, Play and Pause as symbols only.
+   */
+  @Test
+  public void s230_downloads_collect_and_symbols() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    File dl = new File(app.getCacheDir(), "b1-dl"), list = new File(app.getCacheDir(), "b1-list");
+    dl.mkdirs();
+    list.mkdirs();
+    File tune = new File(dl, "tune.mp3");
+    Files.write(tune.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0});
+    SogniDownloads.init(list);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rt);
+    SogniDownloads.Run run = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rt) run = r;
+    android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+    DownloadsScreen.menu(app, col, run, run.items.get(0));
+    idle();
+    String items = listItems(DownloadsScreen.lastMenu);
+    java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+    out.append("menu: ").append(items).append('\n');
+    PlaylistScreen.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(rows.indexOf(Playlist.ADD));
+    idle();
+    boolean asked = PlaylistScreen.lastAsk != null && PlaylistScreen.lastAsk.isShowing();
+    if (asked) org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    Playlist def = Playlist.load(app.getFilesDir(), Playlist.DEFAULT);
+    boolean listed = false;
+    for (Playlist.Item it : def.items) if (it.file.equals(tune.getAbsolutePath())) listed = true;
+    out.append("playlist asked ").append(asked).append(", in ").append(Playlist.DEFAULT).append(" ").append(listed).append('\n');
+    DownloadsScreen.menu(app, col, run, run.items.get(0));
+    idle();
+    CollectionsScreen.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(rows.indexOf(MediaCollections.ADD));
+    idle();
+    String collect = CollectionsScreen.lastAsk == null || !CollectionsScreen.lastAsk.isShowing() ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(CollectionsScreen.lastAsk).getTitle());
+    if (CollectionsScreen.lastAsk != null) CollectionsScreen.lastAsk.dismiss();
+    out.append("collection: ").append(collect).append('\n');
+    SogniDownloads.init(app.getFilesDir());
+    // The player's Stop, Play and Pause: symbols, their names said for TalkBack.
+    File media = new File(app.getCacheDir(), "b1-clips");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    View pv = MediaBrowser.lastVideo.dialog.getWindow().getDecorView();
+    StringBuilder sym = new StringBuilder();
+    for (String t : new String[] {"media-video-stop", "media-video-play", "media-video-pause"}) {
+      TextView tv = (TextView) pv.findViewWithTag(t);
+      sym.append(tv.getText()).append('=').append(tv.getContentDescription()).append(' ');
+    }
+    MediaBrowser.lastVideo.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    out.append("player: ").append(sym.toString().trim()).append('\n');
+    write("s230_downloads_collect_and_symbols", out.toString());
+    boolean ok = rows.contains(MediaCollections.ADD) && rows.contains(Playlist.ADD) && asked && listed && collect.contains(MediaCollections.ADD)
+        && "\u25a0=Stop \u25b6=Play \u275a\u275a=Pause".equals(sym.toString().trim());
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();

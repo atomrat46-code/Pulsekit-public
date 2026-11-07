@@ -368,14 +368,23 @@ final class DownloadsScreen {
         // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
         String extra = MediaDir.firstFrameRef(item.name) ? MediaDir.FIRST_FRAME_AS_REF
             : "picture".equals(item.kind()) && AppSettings.showSogni() && !AppSettings.musicOnly() ? MediaDir.PROCESS_REF : null;
-        String[] rows = MENU;
-        if (extra != null) {
-            rows = java.util.Arrays.copyOf(MENU, MENU.length + 1);
-            rows[MENU.length] = extra;
-        }
+        // Every file: Add to Collection and Add to playlist… after the download's own items.
+        java.util.List<String> all = new java.util.ArrayList<String>(java.util.Arrays.asList(MENU));
+        all.add(MediaCollections.ADD);
+        all.add(Playlist.ADD);
+        if (extra != null) all.add(extra);
+        final String[] rows = all.toArray(new String[0]);
         final String extraRow = extra;
         lastMenu = new AlertDialog.Builder(app).setTitle(item.name).setItems(rows, (d, which) -> {
-            if (which == MENU.length) {
+            if (MediaCollections.ADD.equals(rows[which]) || Playlist.ADD.equals(rows[which])) {
+                Uri u = uriFor(app, item.where);
+                File f = u == null ? fileFor(item.where) : null;
+                String address = u != null ? u.toString() : f.getAbsolutePath();
+                if (Playlist.ADD.equals(rows[which])) PlaylistScreen.addTo(app, address, item.name);
+                else CollectionsScreen.addTo(app, MediaCollections.KIND_FILE, address, item.name, size(app, u, f));
+                return;
+            }
+            if (rows[which].equals(extraRow)) {
                 if (MediaDir.FIRST_FRAME_AS_REF.equals(extraRow)) {
                     Uri u = uriFor(app, item.where);
                     File f = u == null ? fileFor(item.where) : null;
@@ -524,6 +533,21 @@ final class DownloadsScreen {
             }
         }
         return null;
+    }
+
+    /** A download's size in bytes (its file's, or its document's); 0 when it cannot be told. */
+    static long size(MainActivity app, Uri u, File f) {
+        if (f != null) return f.length();
+        try {
+            android.os.ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(u, "r");
+            try {
+                return Math.max(0, fd.getStatSize());
+            } finally {
+                fd.close();
+            }
+        } catch (Exception ex) {
+            return 0;
+        }
     }
 
     private static File fileFor(String where) {

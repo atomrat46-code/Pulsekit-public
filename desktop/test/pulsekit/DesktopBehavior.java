@@ -7714,6 +7714,46 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * Batch B (as on the phone): a Downloads file's menu has Add to Collection and Add to playlist…;
+   * a playlist picked there gets the file at its end.
+   */
+  void s214_downloads_collect() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    final File tune = new File(dl, "tune.mp3");
+    Files.write(tune.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0});
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("SogniMusic.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: tune.mp3", "Saved " + tune.getAbsolutePath(), null);
+    SogniDownloads.done(run);
+    final SogniDownloads.Run r = SogniDownloads.run(run);
+    final StringBuilder items = new StringBuilder();
+    final javax.swing.JMenuItem[] firstList = new javax.swing.JMenuItem[1];
+    final boolean[] collect = new boolean[1];
+    edt(() -> {
+      javax.swing.JPopupMenu m = DownloadsScreen.menu((Pulsekit) frame, new javax.swing.JPanel(), r, r.items.get(0));
+      for (java.awt.Component c : m.getComponents()) {
+        if (!(c instanceof javax.swing.JMenuItem)) continue;
+        items.append(items.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        if ("add-to-collection".equals(c.getName())) collect[0] = true;
+        if ("add-to-playlist".equals(c.getName())) {
+          javax.swing.JMenu pl = (javax.swing.JMenu) c;
+          for (int i = 0; i < pl.getItemCount(); i++) if (pl.getItem(i) != null && pl.getItem(i).getName() != null && pl.getItem(i).getName().startsWith("playlist-add:") && firstList[0] == null) firstList[0] = pl.getItem(i);
+        }
+      }
+    });
+    String list = firstList[0] == null ? null : firstList[0].getName().substring("playlist-add:".length());
+    if (firstList[0] != null) edt(() -> firstList[0].doClick());
+    idle();
+    boolean listed = false;
+    if (list != null) for (Playlist.Item it : Playlist.load(PromptDb.dir(), list).items) if (new File(it.file).getName().equals("tune.mp3")) listed = true;
+    out.append("menu: ").append(items).append("\nplaylist ").append(list).append(": listed ").append(listed).append(", collection item ").append(collect[0]).append('\n');
+    boolean ok = items.indexOf(MediaCollections.ADD) >= 0 && items.indexOf(Playlist.ADD) >= 0 && collect[0] && listed;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Sogni Params' Crop beside Preview (as on the phone): the picture with the crop frame on; its menu
    * has Use the crop in this row first; a 4:3 crop is asked about upscaling (Use as it is), then fills
    * the row as <name>-crop.png at its full size, the Preview closed. Greyed while no picture is picked.
