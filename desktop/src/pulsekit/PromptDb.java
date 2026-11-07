@@ -2565,6 +2565,8 @@ final class PromptDb {
         // Opened by Picture ready's Crop image: the frame from the start, and Process as a reference in its menu.
         final java.util.function.Consumer<File> process = this.previewProcess;
         final Runnable leave = this.previewLeave;
+        // Opened by Crop on a Sogni Params picture row: Use the crop in this row in its menu.
+        final java.util.function.Consumer<File> row = this.previewRow;
         if (this.previewCropNow && kind == 2) {
             cropBox[0] = new CropBox();
             app.setNow(CropBox.HINT);
@@ -2643,11 +2645,19 @@ final class PromptDb {
                     javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
                     m.setName("preview-picture-menu");
                     String[] items = cropBox[0] == null ? new String[] {CropBox.CROP}
+                        : row != null ? new String[] {CropBox.USE_IN_ROW, CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL}
                         : process != null ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
                     for (String it : items) {
                         javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it);
                         mi.setName("preview-crop:" + it);
-                        if (CropBox.PROCESS.equals(it)) {
+                        if (CropBox.USE_IN_ROW.equals(it)) {
+                            // A Params row's crop: it fills the row (asked about upscaling first when it needs it), the viewer closed.
+                            mi.addActionListener(ev -> {
+                                File made = PromptDb.this.cropFile(name, bytes, cropBox[0]);
+                                if (made == null) return;
+                                RefImages.forRow(app, made, dialog, row);
+                            });
+                        } else if (CropBox.PROCESS.equals(it)) {
                             // Picture ready's crop: into another program as a reference (the viewer closes).
                             mi.addActionListener(ev -> {
                                 File made = PromptDb.this.cropFile(name, bytes, cropBox[0]);
@@ -2806,6 +2816,8 @@ final class PromptDb {
     boolean previewCropNow;
     /** Picture ready's Crop image: what closes Picture ready when the crop goes on (Upscale). */
     Runnable previewLeave;
+    /** Crop on a Sogni Params picture row: the crop's Use the crop in this row fills it. */
+    java.util.function.Consumer<File> previewRow;
 
     /** The crop cut from the picture at its full size, as <name>-crop.png in PyJav's input folder; null (said why) when it cannot be. */
     File cropFile(String name, byte[] bytes, CropBox box) {

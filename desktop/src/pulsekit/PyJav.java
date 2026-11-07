@@ -1248,6 +1248,27 @@ final class PyJav {
         }
     }
 
+    /**
+     * Crop on a Sogni Params picture row: the picture in the Preview window with the crop frame on;
+     * its menu has Use the crop in this row (one that needs upscaling is asked first), Save as…, Upscale.
+     */
+    void cropPicture(String path, java.util.function.Consumer<File> row) {
+        File pic = new File(path);
+        PromptDb db = app.promptDb;
+        db.previewFolder = pic.getAbsoluteFile().getParentFile();
+        db.previewCropNow = true;
+        db.previewRow = row;
+        try {
+            db.preview(pic.getName(), java.nio.file.Files.readAllBytes(pic.toPath()));
+        } catch (Exception ex) {
+            app.setNow("Could not read " + pic.getName());
+        } finally {
+            db.previewFolder = null;
+            db.previewCropNow = false;
+            db.previewRow = null;
+        }
+    }
+
     static final String SELECT_DIR = "select-file-dir";
 
     /** Select file's chooser, open in the folder the last file was picked from (a subfolder too). */
@@ -3174,7 +3195,16 @@ final class PyJav {
                     preview.setEnabled(ProgramParams.isPicture(values[i]));
                     chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
                     preview.addActionListener(e -> this.previewPicture(values[index]));
-                    row.add(preview, BorderLayout.EAST);
+                    // Crop: the picture with the crop frame on; its menu has Use the crop in this row (upscale asked when needed).
+                    final JButton crop = new JButton(CropBox.CROP_ROW);
+                    crop.setName("params-crop:" + p.token);
+                    crop.setEnabled(ProgramParams.isPicture(values[i]));
+                    chosen.addPropertyChangeListener("text", e -> crop.setEnabled(ProgramParams.isPicture(values[index])));
+                    crop.addActionListener(e -> this.cropPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null)));
+                    JPanel looks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0));
+                    looks.add(preview);
+                    looks.add(crop);
+                    row.add(looks, BorderLayout.EAST);
                 }
                 if (p.join) {
                     // SogniVideo's Join with this video: the file buttons work only when it is ticked;

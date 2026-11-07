@@ -7714,6 +7714,76 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * Sogni Params' Crop beside Preview (as on the phone): the picture with the crop frame on; its menu
+   * has Use the crop in this row first; a 4:3 crop is asked about upscaling (Use as it is), then fills
+   * the row as <name>-crop.png at its full size, the Preview closed. Greyed while no picture is picked.
+   */
+  void s213_params_crop_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File me = new File(home, "me.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    idle();
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final String[] asked = new String[1];
+    final String[] label = new String[1];
+    final boolean[] previewClosed = new boolean[1];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
+    final java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      return sb.toString();
+    };
+    // The Params, then the preview: both stay open for the scenario.
+    answers.add("(keep)");
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JButton crop = (javax.swing.JButton) component(d, "params-crop:--image");
+      javax.swing.JButton crop2 = (javax.swing.JButton) component(d, "params-crop:--image2");
+      if (crop == null || crop2 == null) throw new AssertionError("no Crop button");
+      seen.append("Crop --image enabled ").append(crop.isEnabled()).append(", --image2 (none picked) ").append(crop2.isEnabled()).append('\n');
+      final JLabel chosen = (JLabel) component(d, "params-chosen:--image");
+      inspectNext = preview -> {
+        seen.append("viewer: ").append(preview.getTitle()).append('\n');
+        java.awt.Component c = component(preview, "preview-image");
+        java.awt.event.MouseEvent e = new java.awt.event.MouseEvent(c, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+        for (java.awt.event.MouseListener l : c.getMouseListeners()) l.mousePressed(e);
+        javax.swing.JPopupMenu pm = db.lastPictureMenu;
+        seen.append("crop on: ").append(items.apply(pm)).append('\n');
+        AbstractButton use = null;
+        for (java.awt.Component k : pm.getComponents()) if (k instanceof AbstractButton && ("preview-crop:" + CropBox.USE_IN_ROW).equals(k.getName())) use = (AbstractButton) k;
+        pm.setVisible(false);
+        final AbstractButton click = use;
+        SwingUtilities.invokeLater(() -> {
+          click.doClick();
+          previewClosed[0] = !preview.isDisplayable();
+          label[0] = chosen.getText();
+          ((javax.swing.JButton) find(d.getContentPane(), "Cancel")).doClick();
+        });
+      };
+      SwingUtilities.invokeLater(crop::doClick);
+    };
+    call("openParams");
+    for (int i = 0; i < 100 && label[0] == null; i++) Thread.sleep(100);
+    idle();
+    RefImages.answer = null;
+    File cropped = (File) get("lastCrop");
+    java.awt.image.BufferedImage img = cropped == null ? null : javax.imageio.ImageIO.read(cropped);
+    seen.append("asked ").append(asked[0] != null).append(", row ").append(label[0]).append(" ").append(img == null ? "none" : img.getWidth() + "x" + img.getHeight())
+        .append(", preview closed ").append(previewClosed[0]).append('\n');
+    out.append(seen);
+    boolean ok = seen.indexOf("Crop --image enabled true, --image2 (none picked) false") >= 0 && seen.indexOf("crop on: " + CropBox.USE_IN_ROW + ", ") >= 0
+        && asked[0] != null && "me-crop.png".equals(label[0]) && img != null && img.getWidth() == 512 && img.getHeight() == 384 && previewClosed[0];
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * A frame taken in a video player (C) for a Choose file picture row: small, so asked about first;
    * Use as it is fills the row and closes the player, Upscale first leaves the row and opens ImageUpscaler.
    */

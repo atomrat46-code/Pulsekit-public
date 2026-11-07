@@ -37,6 +37,12 @@ final class CropLayer extends View {
         void process(String name, byte[] png) throws Exception;
     }
 
+    /** A Sogni Params picture row's crop: Use the crop in this row (asked about upscaling first when it needs it). */
+    interface Fills {
+        /** The row filled with it, as `name` (on the screen's thread). */
+        void fill(String name, byte[] png) throws Exception;
+    }
+
     final Activity activity;
     final ImageView image;
     /** The picture's name (the viewer sets it as it goes to another picture). */
@@ -175,14 +181,16 @@ final class CropLayer extends View {
         return true;
     }
 
-    /** The crop's long press: Save as…, (Picture ready's) Process as a reference, Upscale, Cancel crop. */
+    /** The crop's long press: (a Params row's) Use the crop in this row, Save as…, (Picture ready's) Process as a reference, Upscale, Cancel crop. */
     void menu() {
         final boolean processes = this.actions instanceof Processes;
-        final String[] items = processes ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
+        final String[] items = this.actions instanceof Fills ? new String[] {CropBox.USE_IN_ROW, CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL}
+            : processes ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
         lastMenu = new AlertDialog.Builder(this.activity).setTitle(CropBox.name(this.name))
             .setItems(items, (dlg, w) -> {
                 String it = items[w];
                 if (it.equals(CropBox.SAVE)) this.saveAs();
+                else if (it.equals(CropBox.USE_IN_ROW)) this.made(png -> ((Fills) this.actions).fill(CropBox.name(this.name), png));
                 else if (it.equals(CropBox.PROCESS)) this.made(png -> ((Processes) this.actions).process(CropBox.name(this.name), png));
                 else if (it.equals(CropBox.UPSCALE)) this.made(png -> this.actions.upscale(CropBox.name(this.name), png));
                 else this.stop();

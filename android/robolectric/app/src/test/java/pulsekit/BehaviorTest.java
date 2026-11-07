@@ -12503,6 +12503,67 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Sogni Params' Crop beside Preview: the picture with the crop frame on; the crop's long press has
+   * Use the crop in this row first; a 4:3 crop is asked about upscaling (Use as it is), then fills the
+   * row as <name>-crop.png at its full size, the Preview closed. Greyed while no picture is picked.
+   */
+  @Test
+  public void s229_params_crop_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(640, 480, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File picture = new File(app.getCacheDir(), "me.png");
+    Files.write(picture.toPath(), png.toByteArray());
+    ((TextView) get("pkPyArgs")).setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.Button crop = (android.widget.Button) dv.findViewWithTag("params-crop:--image");
+    android.widget.Button crop2 = (android.widget.Button) dv.findViewWithTag("params-crop:--image2");
+    if (crop == null || crop2 == null) throw new AssertionError("no Crop button");
+    out.append("Crop --image enabled ").append(crop.isEnabled()).append(", --image2 (none picked) ").append(crop2.isEnabled()).append('\n');
+    CropLayer.last = null;
+    crop.performClick();
+    idle();
+    AlertDialog shown = PyJavParams.lastParamsPreview;
+    boolean framed = shown != null && shown.isShowing() && CropLayer.last != null && CropLayer.last.cropping();
+    out.append("preview with the frame on ").append(framed).append('\n');
+    if (!framed) throw new AssertionError(out.toString());
+    CropLayer.last.menu();
+    idle();
+    String items = listItems(CropLayer.lastMenu);
+    out.append("crop menu: ").append(items).append('\n');
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    String label = ((TextView) dv.findViewWithTag("params-chosen:--image")).getText().toString();
+    File cropped = new File(new File(app.getCacheDir(), "pyjav-in"), "me-crop.png");
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    android.graphics.BitmapFactory.decodeFile(cropped.getAbsolutePath(), o);
+    out.append("asked ").append(asked).append(", row ").append(label).append(" ").append(o.outWidth).append("x").append(o.outHeight)
+        .append(", preview closed ").append(!shown.isShowing()).append(", Params open ").append(d.isShowing()).append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    write("s229_params_crop_row", out.toString());
+    boolean ok = crop.isEnabled() && !crop2.isEnabled() && items.startsWith(CropBox.USE_IN_ROW) && asked && "me-crop.png".equals(label)
+        && o.outWidth == 512 && o.outHeight == 384 && !shown.isShowing();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();
