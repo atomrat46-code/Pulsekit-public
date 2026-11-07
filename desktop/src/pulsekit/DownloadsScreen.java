@@ -436,6 +436,42 @@ final class DownloadsScreen {
             });
             m.add(it);
         }
+        // Every file: Add to Collection and Add to playlist… after the download's own items.
+        final File f = new File(item.where);
+        m.add(CollectionsWindow.addItem(app, app, MediaCollections.KIND_FILE, f.getAbsolutePath(), item.name, f.length()));
+        m.add(PlaylistWindow.addMenu(app, f.getAbsolutePath(), item.name));
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (Mp4Media.extractable(item.name)) {
+            JMenuItem ex = new JMenuItem(Mp4Media.EXTRACT);
+            ex.setName("downloads-menu:" + Mp4Media.EXTRACT);
+            ex.addActionListener(e -> {
+                if (!f.isFile()) app.setNow(item.name + " is gone from " + item.shown);
+                else AudioExtract.run(app, f, item.name, app.pyJav.programFolder());
+            });
+            m.add(ex);
+            JMenuItem rr = new JMenuItem(VideoFit.RERENDER);
+            rr.setName("downloads-menu:" + VideoFit.RERENDER);
+            rr.addActionListener(e -> {
+                if (!f.isFile()) app.setNow(item.name + " is gone from " + item.shown);
+                else VideoRender.ask(app, app, f, item.name, app.pyJav.programFolder(), true);
+            });
+            m.add(rr);
+        }
+        // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
+        if (MediaDir.firstFrameRef(item.name)) {
+            JMenuItem it = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+            it.setName("downloads-menu:" + MediaDir.FIRST_FRAME_AS_REF);
+            it.addActionListener(e -> {
+                if (!f.isFile()) app.setNow(item.name + " is gone from " + item.shown);
+                else RefImages.firstFrameAsRef(app, f, null, () -> app.showView("downloads"));
+            });
+            m.add(it);
+        } else if ("picture".equals(item.kind()) && MediaDir.useRef(item.name, MediaDir.head(f))) {
+            JMenuItem it = new JMenuItem(MediaDir.PROCESS_REF);
+            it.setName("downloads-menu:" + MediaDir.PROCESS_REF);
+            it.addActionListener(e -> RefImages.offer(app, f, null, () -> app.showView("downloads")));
+            m.add(it);
+        }
         MenuCancel.add(m);
         return m;
     }
@@ -625,6 +661,17 @@ final class DownloadsScreen {
         });
         buttons.add(auto);
         panel.add(buttons);
+        // Also other programs' files: their runs listed too (from now on), so Move now and Move automatically take their files.
+        final javax.swing.JCheckBox others = new javax.swing.JCheckBox(DownloadMove.OTHERS, DownloadMove.others);
+        others.setName("downloads-move-others");
+        others.setToolTipText(DownloadMove.OTHERS_NOTE);
+        others.setAlignmentX(0.0f);
+        others.addActionListener(e -> {
+            DownloadMove.others = others.isSelected();
+            DownloadMove.save();
+            if (others.isSelected()) app.setNow(DownloadMove.OTHERS_NOTE);
+        });
+        panel.add(others);
         JPanel progress = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         progress.setAlignmentX(0.0f);
         progress.add(status);

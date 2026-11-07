@@ -473,6 +473,719 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: results into the AudioMixer. MidiDrumGen's Params have "Add the result to the AudioMixer";
+   * run with it, its MIDI becomes a track (played with the kit), and the log says so; with --zip it is
+   * not added. Extract audio asks whether to add the sound to the AudioMixer: Add to AudioMixer makes it
+   * a track (the .m4a read with VLC).
+   */
+  void s227_to_mixer() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    boolean inParams = false;
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) if (p.token.equals(MixerOut.FLAG)) inParams = MixerOut.LABEL.equals(p.label) && !p.takesValue;
+    out.append("Params: ").append(inParams ? MixerOut.LABEL : "not there").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String base = ((javax.swing.text.JTextComponent) get("pyExtra")).getText();
+    StringBuilder lines = new StringBuilder();
+    for (String extra : new String[] {"beat.mid --style rock --bars 2 " + MixerOut.FLAG, "--style funk --bars 2 --count 2 --zip " + MixerOut.FLAG}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(500);
+      lines.append("== ").append(extra).append('\n');
+      for (String line : textOf(log).split("\n")) {
+        if (line.contains("AudioMixer") || line.startsWith("Failed") || line.startsWith("Succeeded")) lines.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    out.append(lines);
+    AudioMix.Track beat = null;
+    for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("beat")) beat = t;
+    out.append("track: ").append(beat == null ? "none" : AudioMix.line(beat)).append(", tracks ").append(AudioMix.tracks.size()).append('\n');
+    // Extract audio, then Add to AudioMixer.
+    File dir = new File(home, "m227");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath(), clip.toPath());
+    AudioExtract.lastSaid = null;
+    answers.add(MixerOut.ADD);
+    AudioExtract.run((Pulsekit) frame, clip, clip.getName(), home);
+    for (int i = 0; i < 300 && (AudioExtract.lastSaid == null || !AudioExtract.lastSaid.contains("AudioMixer")); i++) Thread.sleep(100);
+    String added = String.valueOf(AudioExtract.lastSaid);
+    out.append("extract: ").append(added.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioMix.Track sound = null;
+    for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("walk-audio")) sound = t;
+    out.append(String.format(java.util.Locale.ROOT, "walk-audio: %s%n", sound == null ? "none" : String.format(java.util.Locale.ROOT, "%.1f s", sound.seconds)));
+    String text = out.toString();
+    boolean vlc = VlcPlayer.available();
+    boolean ok = inParams && lines.toString().contains("Added to the AudioMixer: beat") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+        && beat != null && beat.seconds > 1
+        && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: a DrumPad track's MIDI editor. A bar of 16 steps in 4/4 (12 in 3/4); a step selected on the
+   * timeline and a pad pressed puts the pad in it (pressed again, takes it out); a cell of the grid does
+   * the same; + Bar adds a bar and shows it; Quantize moves a hit off the steps onto one; each change
+   * makes the track's sound (two bars at 120 BPM: 4 s, and the last crash's ring); Export MIDI writes a drum MIDI file with the
+   * hits, tempo and time signature into the program files folder.
+   */
+  void s226_drum_editor() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    answers.add("(keep)");
+    edt(() -> AudioMixerWindow.show(app));
+    Thread.sleep(300);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    final AudioMix.Track t = AudioMix.tracks.get(0);
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-editor:DrumPad 1")).doClick());
+    Thread.sleep(300);
+    final javax.swing.JDialog ed = DrumGridWindow.last;
+    final DrumPads.Session s = DrumPads.current;
+    java.util.function.Supplier<String> state = () -> ((javax.swing.JLabel) component(ed, "editor-state")).getText();
+    int steps = 0;
+    while (component(ed, "editor-step:" + steps) != null) steps++;
+    out.append("opened: ").append(ed.getTitle()).append(", ").append(state.get()).append(", ").append(steps).append(" steps\n");
+    java.util.function.BiConsumer<Integer, String> put = (step, id) -> {
+      try {
+        edt(() -> {
+          ((javax.swing.JToggleButton) component(ed, "editor-step:" + step)).doClick();
+          javax.swing.JButton b = (javax.swing.JButton) component(ed, "editor-pad:" + id);
+          for (java.awt.event.MouseListener ml : b.getMouseListeners())
+            ml.mousePressed(new java.awt.event.MouseEvent(b, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        });
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    put.accept(0, "kick");
+    put.accept(4, "snare");
+    put.accept(8, "kick");
+    put.accept(12, "snare");
+    put.accept(2, "chh");
+    put.accept(2, "chh");
+    edt(() -> ((javax.swing.JToggleButton) component(ed, "editor-cell:chh:6")).doClick());
+    java.util.function.Function<String, String> row = id -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; component(ed, "editor-cell:" + id + ":" + i) != null; i++) sb.append(((javax.swing.JToggleButton) component(ed, "editor-cell:" + id + ":" + i)).isSelected() ? 'x' : '.');
+      return sb.toString();
+    };
+    out.append("bar 1: kick ").append(row.apply("kick")).append(", snare ").append(row.apply("snare")).append(", chh ").append(row.apply("chh")).append(" · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-add-bar")).doClick());
+    out.append("+ Bar: ").append(state.get()).append('\n');
+    put.accept(15, "crash");
+    out.append("bar 2: crash ").append(row.apply("crash")).append(", kick ").append(row.apply("kick")).append(" · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JComboBox<?>) component(ed, "editor-ts")).setSelectedItem("3/4"));
+    int steps34 = 0;
+    while (component(ed, "editor-step:" + steps34) != null) steps34++;
+    out.append("3/4: ").append(steps34).append(" steps · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JComboBox<?>) component(ed, "editor-ts")).setSelectedItem("4/4"));
+    s.take.hits.add(new DrumPads.Hit(Math.round(DrumGrid.stepFrames(s.take) * 10) + 700, Engine.track("rim"), 0.8f));
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-quantize")).doClick());
+    out.append("quantize: ").append(state.get()).append(", rim at step ").append(DrumGrid.has(s.take, Engine.track("rim"), 10) ? "11" : "?").append('\n');
+    out.append(String.format(java.util.Locale.ROOT, "track: %.2f s%n", t.seconds));
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-export")).doClick());
+    File mid = DrumGridWindow.lastExport;
+    String midText = "none";
+    int notes = 0;
+    if (mid != null && mid.isFile()) {
+      javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(mid);
+      int tempo = 0;
+      String ts = "";
+      for (javax.sound.midi.Track tr : seq.getTracks()) {
+        for (int i = 0; i < tr.size(); i++) {
+          javax.sound.midi.MidiMessage m = tr.get(i).getMessage();
+          if (m instanceof javax.sound.midi.ShortMessage) {
+            javax.sound.midi.ShortMessage sm = (javax.sound.midi.ShortMessage) m;
+            if (sm.getCommand() == javax.sound.midi.ShortMessage.NOTE_ON && sm.getData2() > 0 && sm.getChannel() == 9) notes++;
+          } else if (m instanceof javax.sound.midi.MetaMessage) {
+            javax.sound.midi.MetaMessage mm = (javax.sound.midi.MetaMessage) m;
+            byte[] b = mm.getData();
+            if (mm.getType() == 0x51) tempo = (int) Math.round(60_000_000.0 / (((b[0] & 0xff) << 16) | ((b[1] & 0xff) << 8) | (b[2] & 0xff)));
+            if (mm.getType() == 0x58) ts = b[0] + "/" + (1 << b[1]);
+          }
+        }
+      }
+      midText = mid.getName() + ": " + notes + " notes on channel 10, " + tempo + " BPM, " + ts + ", " + String.format(java.util.Locale.ROOT, "%.1f", seq.getMicrosecondLength() / 1e6) + " s";
+    }
+    out.append("export: ").append(midText).append('\n');
+    edt(() -> ed.dispose());
+    Thread.sleep(200);
+    out.append("kept: ").append(DrumPads.load(t).hits.size()).append(" hits, closed ").append(DrumPads.current == null).append('\n');
+    edt(() -> d.dispose());
+    String text = out.toString();
+    boolean ok = steps == 16 && text.contains("bar 1: kick x.......x......., snare ....x.......x..., chh ......x.........") && text.contains("+ Bar: Bar 2 of 2")
+        && text.contains("bar 2: crash ...............x, kick ................") && text.contains("3/4: 12 steps") && text.contains("quantize: Bar 2 of 2") && text.contains("1 moved")
+        && text.contains("rim at step 11") && t.seconds >= 4.0 && t.seconds < 6 && text.contains("export: DrumPad 1.mid: 7 notes on channel 10, 120 BPM, 4/4, 4.0 s")
+        && text.contains("kept: 7 hits, closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: DrumPad tracks. + New DrumPad track adds DrumPad 1 with a Drumpad button; its window has the
+   * kits (here also a stand-in "Test kit"), BPM, time signature and Metronome (a high click on the
+   * bar's first beat, lower on the others, a beat of the signature's unit apart); ● Record keeps each
+   * pad pressed with its time, ❚❚ Pause makes the track's sound from them and takes no more, ● Record
+   * goes on from there, ■ Stop writes the rest; another kit makes the sound again; the hits, kit, BPM
+   * and time signature are kept, and the track is in the mix.
+   */
+  void s225_drumpad() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    Engine.DrumSet test = Engine.DrumSet.isolated("testkit", "Test kit");
+    short[] square = new short[2205];
+    for (int i = 0; i < square.length; i++) square[i] = (short) ((i / 25) % 2 == 0 ? 20000 : -20000);
+    for (int k = 0; k < test.samples.length; k++) test.samples[k] = square;
+    app.drumSets.add(test);
+    answers.add("(keep)");
+    edt(() -> AudioMixerWindow.show(app));
+    Thread.sleep(300);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
+    final AudioMix.Track t = AudioMix.tracks.get(0);
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-drumpad:DrumPad 1")).doClick());
+    Thread.sleep(300);
+    final javax.swing.JDialog pads = DrumPadWindow.last;
+    @SuppressWarnings("unchecked")
+    javax.swing.JComboBox<String> kit = (javax.swing.JComboBox<String>) component(pads, "drumpad-kit");
+    StringBuilder kits = new StringBuilder();
+    for (int i = 0; i < kit.getItemCount(); i++) kits.append(i == 0 ? "" : ", ").append(kit.getItemAt(i));
+    StringBuilder padNames = new StringBuilder();
+    for (String id : Engine.TRACK_ID) padNames.append(component(pads, "drumpad-pad:" + id) != null ? "" : " missing " + id);
+    out.append("window: ").append(pads.getTitle()).append(", kits ").append(kits).append(", pads").append(padNames.length() == 0 ? " all 12" : padNames).append('\n');
+    edt(() -> {
+      ((javax.swing.JSpinner) component(pads, "drumpad-bpm")).setValue(100);
+      ((javax.swing.JComboBox<?>) component(pads, "drumpad-ts")).setSelectedItem("3/4");
+      ((javax.swing.JToggleButton) component(pads, "drumpad-metronome")).doClick();
+    });
+    DrumPads.Session s = DrumPads.current;
+    out.append("state: ").append(s.state()).append('\n');
+    // The metronome alone (a session of its own, no pads): clicks a beat apart, the first of the bar high.
+    DrumPads.Take mt = new DrumPads.Take();
+    mt.bpm = 100;
+    mt.ts = "3/4";
+    DrumPads.Session ms = new DrumPads.Session(t, mt, DrumPads.atRate(DrumPads.voices(null, app.voices)));
+    ms.metronome(true);
+    short[] lr = new short[44100 * 2 * 2];
+    ms.mix(lr, 44100 * 2);
+    StringBuilder onsets = new StringBuilder();
+    for (int i = 0; i < 88200; i++) if (lr[2 * i] != 0 && (i == 0 || lr[2 * i - 2] == 0 && (i < 40 || lr[2 * i - 80] == 0))) onsets.append(i).append(' ');
+    out.append("metronome onsets: ").append(onsets.toString().trim()).append(" (a beat is ").append(Math.round(mt.clickFrames())).append(" frames)\n");
+    final List<Long> pressedAt = new ArrayList<Long>();
+    java.util.function.Consumer<String> press = id -> {
+      try {
+        edt(() -> {
+          pressedAt.add(System.nanoTime());
+          javax.swing.JButton b = (javax.swing.JButton) component(pads, "drumpad-pad:" + id);
+          for (java.awt.event.MouseListener ml : b.getMouseListeners())
+            ml.mousePressed(new java.awt.event.MouseEvent(b, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        });
+        Thread.sleep(250);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    edt(() -> ((javax.swing.JButton) component(pads, "drumpad-record")).doClick());
+    out.append("record: ").append(s.lastSaid).append('\n');
+    press.accept("kick");
+    press.accept("snare");
+    press.accept("chh");
+    final long[] paused = new long[2];
+    edt(() -> {
+      paused[0] = System.nanoTime();
+      ((javax.swing.JButton) component(pads, "drumpad-pause")).doClick();
+    });
+    out.append("pause: ").append(s.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    double atPause = t.seconds;
+    press.accept("crash");
+    Thread.sleep(500);
+    int whilePaused = s.take.hits.size();
+    edt(() -> {
+      ((javax.swing.JButton) component(pads, "drumpad-record")).doClick();
+      paused[1] = System.nanoTime();
+    });
+    out.append("record again: ").append(s.lastSaid).append('\n');
+    press.accept("kick");
+    press.accept("snare");
+    edt(() -> ((javax.swing.JButton) component(pads, "drumpad-stop")).doClick());
+    out.append("stop: ").append(s.lastSaid.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    StringBuilder hits = new StringBuilder();
+    long prev = -1;
+    for (DrumPads.Hit h : s.take.hits) {
+      hits.append(Engine.TRACK_ID[h.pad]).append(' ');
+      prev = h.frame;
+    }
+    // Each gap between hits as the clock had it, less the time paused (the crash, pressed then, is not kept).
+    pressedAt.remove(3);
+    double worst = 0;
+    for (int i = 1; i < s.take.hits.size() && i < pressedAt.size(); i++) {
+      double clock = (pressedAt.get(i) - pressedAt.get(i - 1)) / 1e9 - (i == 3 ? (paused[1] - paused[0]) / 1e9 : 0);
+      double kept = (s.take.hits.get(i).frame - s.take.hits.get(i - 1).frame) / 44100.0;
+      worst = Math.max(worst, Math.abs(clock - kept));
+      out.append(String.format(java.util.Locale.ROOT, "  gap %d: clock %.2f s, kept %.2f s%n", i, clock, kept));
+    }
+    long gap = Math.round(worst * 44100);
+    AudioIo.StereoPcm before = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    out.append(String.format(java.util.Locale.ROOT, "hits: %s(%d while paused); hit times off the clock by %.2f s at most; track %.2f s (at pause %.2f s), last hit at %.2f s%n", hits, whilePaused,
+        gap / 44100.0, t.seconds, atPause, prev / 44100.0));
+    edt(() -> kit.setSelectedItem("Test kit"));
+    AudioIo.StereoPcm after = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double diff = 0;
+    for (int i = 0; i < Math.min(before.left.length, after.left.length); i++) diff += Math.abs(before.left[i] - after.left[i]);
+    out.append("another kit: ").append(s.take.kit).append(", sound changed ").append(diff > 1).append('\n');
+    edt(() -> pads.dispose());
+    Thread.sleep(200);
+    DrumPads.Take back = DrumPads.load(t);
+    out.append("kept: kit ").append(back.kit).append(", ").append(back.bpm).append(" BPM ").append(back.ts).append(", ").append(back.hits.size()).append(" hits; window closed ")
+        .append(DrumPads.current == null).append('\n');
+    float[][] m = AudioMix.mix(null);
+    double peak = 0;
+    for (float v : m[0]) peak = Math.max(peak, Math.abs(v));
+    out.append("in the mix: ").append(peak > 0.1).append('\n');
+    edt(() -> d.dispose());
+    String text = out.toString();
+    long beat = Math.round(mt.clickFrames());
+    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && text.contains("kits Original") && text.contains("Test kit") && text.contains("pads all 12")
+        && s.state().contains("Metronome 100 3/4") && onsets.toString().trim().equals("1 " + (beat + 1) + " " + (2 * beat + 1) + " " + (3 * beat + 1)) && Math.abs(lr[0]) == 0 && lr[2 * 1] != 0
+        && hits.toString().trim().equals("kick snare chh kick snare") && whilePaused == 3 && worst < 0.2 && t.seconds >= prev / 44100.0 && atPause > 0.4
+        && text.contains("another kit: Test kit, sound changed true") && back.hits.size() == 5 && "Test kit".equals(back.kit) && back.bpm == 100 && "3/4".equals(back.ts)
+        && text.contains("window closed true") && text.contains("in the mix: true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: AudioMixer's recording. + New empty track adds Track 1 (no sound); its input list has the
+   * default and the computer's inputs (here a stand-in microphone playing a tone); ● Record takes from
+   * the one picked, ❚❚ Pause writes what was taken and takes no more, ● Record goes on, ■ Stop writes
+   * the rest and closes the input; the track keeps its input when the mixer is opened again.
+   */
+  void s224_audiomixer_record() throws Exception {
+    final List<String> opened = new ArrayList<String>();
+    final int[] closed = new int[1];
+    final long[] delivered = new long[1];
+    TrackRecorder.inputs = new TrackRecorder.Inputs() {
+      public List<SoundDevices.Device> list() {
+        List<SoundDevices.Device> l = new ArrayList<SoundDevices.Device>();
+        l.add(new SoundDevices.Device(SoundDevices.IN, "Test mic", "stand-in", ""));
+        l.add(new SoundDevices.Device(SoundDevices.OUT, "Speakers", "stand-in", ""));
+        return l;
+      }
+
+      public TrackRecorder.Input open(String key) {
+        opened.add(key);
+        return new TrackRecorder.Input() {
+          long at;
+
+          public int read(short[] buf) throws Exception {
+            Thread.sleep(buf.length * 1000L / AudioMix.RATE);
+            for (int i = 0; i < buf.length; i++, at++) buf[i] = (short) (16000 * Math.sin(at * 2 * Math.PI * 440 / AudioMix.RATE));
+            delivered[0] += buf.length;
+            return buf.length;
+          }
+
+          public void close() {
+            closed[0]++;
+          }
+        };
+      }
+    };
+    edt(() -> AudioMixerWindow.show((Pulsekit) frame));
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-empty")).doClick());
+    Thread.sleep(200);
+    out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    @SuppressWarnings("unchecked")
+    javax.swing.JComboBox<String> pick = (javax.swing.JComboBox<String>) component(d, "audiomixer-input:Track 1");
+    StringBuilder names = new StringBuilder();
+    for (int i = 0; i < pick.getItemCount(); i++) names.append(i == 0 ? "" : ", ").append(pick.getItemAt(i));
+    out.append("inputs: ").append(names).append('\n');
+    edt(() -> pick.setSelectedIndex(1));
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record:Track 1")).doClick());
+    out.append("record: ").append(AudioMixerWindow.lastSaid).append('\n');
+    Thread.sleep(800);
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-pause:Track 1")).doClick());
+    out.append("pause: ").append(AudioMixerWindow.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    double atPause = t.seconds;
+    Thread.sleep(600);
+    double stillPaused = t.seconds;
+    String heard = ((javax.swing.JLabel) component(d, "audiomixer-heard:Track 1")).getText();
+    out.append("heard while paused: ").append(heard.replaceAll("-?[0-9.]+ dBFS", "<dB>").replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record:Track 1")).doClick());
+    out.append("record again: ").append(AudioMixerWindow.lastSaid).append('\n');
+    Thread.sleep(800);
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record-stop:Track 1")).doClick());
+    out.append("stop: ").append(AudioMixerWindow.lastSaid.replaceAll("[0-9]+\\.[0-9] s", "<n> s").replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double rms = 0;
+    for (float v : p.left) rms += v * v;
+    rms = Math.sqrt(rms / Math.max(1, p.left.length));
+    out.append(String.format(java.util.Locale.ROOT, "track: %.1f s at pause, %.1f s still paused, %.1f s at the end (rms %.2f); opened %s, closed %d%n", atPause, stillPaused, t.seconds, rms, opened, closed[0]));
+    edt(() -> d.dispose());
+    AudioMixerWindow.last = null;
+    AudioMix.open(AudioMixerWindow.folder());
+    AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    out.append("opened again: ").append(back == null ? "none" : back.name + ", input " + back.input + String.format(java.util.Locale.ROOT, ", %.1f s", back.seconds)).append('\n');
+    String text = out.toString();
+    boolean ok = text.contains("new: Added Track 1") && names.toString().equals(AudioMix.DEFAULT_INPUT + ", Test mic (stand-in)") && opened.equals(java.util.Arrays.asList("Test mic | stand-in"))
+        && atPause > 0.4 && Math.abs(stillPaused - atPause) < 0.01 && t.seconds > atPause + 0.4 && t.seconds < 5 && closed[0] == 1 && rms > 0.3
+        && text.contains("heard while paused: Level") && text.contains("paused at") && back != null && "Test mic | stand-in".equals(back.input) && Math.abs(back.seconds - t.seconds) < 0.01;
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: AudioMixer. File > AudioMixer opens it empty; File > Import new track… adds a mono 22 kHz
+   * WAV, the MP3 and a drum MIDI (played with the kit), each kept as a 44.1 kHz stereo WAV; the WAV at
+   * 50% and +6 dB, the MP3 muted; Mixdown writes the mix (as long as the longest heard track) as a
+   * stereo WAV into the program files folder, and with "Write AudioMixer output tracks into db" into the
+   * library too. The tracks are there again after it is reopened; PyJav's Java list opens it; New
+   * project clears it.
+   */
+  void s223_audiomixer() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    File wav = new File(home, "bass line.wav");
+    short[] pcm = new short[22050 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 110 / 22050));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    File mp3 = new File(home, "funk.mp3");
+    Files.copy(new File(dir, "funk.mp3").toPath(), mp3.toPath());
+    File mid = new File(home, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(songParts()));
+    javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
+    edt(() -> {
+      javax.swing.JButton fileTab = null;
+      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      fileTab.doClick();
+    });
+    Thread.sleep(300);
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        java.awt.Component c = component(w, "file-audiomixer");
+        if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
+      }
+      if (found[0] != null) ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
+    });
+    javax.swing.JMenuItem open = found[0];
+    out.append("File menu: ").append(open == null ? "no AudioMixer" : open.getText()).append('\n');
+    edt(() -> open.doClick());
+    for (int i = 0; i < 100 && AudioMixerWindow.last == null; i++) Thread.sleep(50);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    out.append("opened: ").append(d.getTitle()).append(", empty ").append(component(d, "audiomixer-empty") != null).append('\n');
+    javax.swing.JMenuItem imp = menuItem(d.getJMenuBar(), "audiomixer-import");
+    for (File f : new File[] {wav, mp3, mid}) {
+      AudioMixerWindow.lastSaid = null;
+      AudioMixerWindow.importNext = f;
+      edt(() -> imp.doClick());
+      for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Adding")); i++) Thread.sleep(50);
+      out.append("import ").append(f.getName()).append(": ").append(AudioMixerWindow.lastSaid).append('\n');
+    }
+    Thread.sleep(300);
+    edt(() -> {
+      ((javax.swing.JSlider) component(d, "audiomixer-volume:bass line")).setValue(50);
+      ((javax.swing.JSpinner) component(d, "audiomixer-gain:bass line")).setValue(6);
+      ((javax.swing.JCheckBox) component(d, "audiomixer-mute:funk")).doClick();
+    });
+    StringBuilder lines = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) {
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      lines.append("  ").append(AudioMix.line(t)).append(" [").append(t.file).append(", ").append(p.sr).append(" Hz]\n");
+    }
+    out.append("tracks:\n").append(lines);
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    javax.swing.JPanel[] built = new javax.swing.JPanel[1];
+    edt(() -> built[0] = page.buildDrumMidiPage());
+    javax.swing.JCheckBox toDb = (javax.swing.JCheckBox) component(built[0], "audiomixer-db");
+    out.append("setting: ").append(toDb == null ? "none" : toDb.getText() + " " + toDb.isSelected()).append('\n');
+    if (toDb != null) edt(() -> toDb.doClick());
+    AudioMixerWindow.lastSaid = null;
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-mixdown").doClick());
+    for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Mixing")); i++) Thread.sleep(50);
+    String said = String.valueOf(AudioMixerWindow.lastSaid);
+    out.append("mixdown: ").append(said.replace(home.getAbsolutePath(), "~").replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
+    File made = AudioMixerWindow.lastMixdown;
+    AudioIo.StereoPcm back = made != null && made.isFile() ? AudioMix.parseStereo(Files.readAllBytes(made.toPath())) : null;
+    double longest = 0;
+    for (AudioMix.Track t : AudioMix.heard()) longest = Math.max(longest, t.seconds);
+    out.append("mix file: ").append(back == null ? "none" : String.format(java.util.Locale.ROOT, "%d Hz stereo, %.2f s (longest heard %.2f s)", back.sr, back.left.length / (double) back.sr, longest)).append('\n');
+    boolean inDb = false;
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) if (f.name.startsWith("AudioMixer mixdown")) inDb = true;
+    out.append("in the library: ").append(inDb).append('\n');
+    int count = AudioMix.tracks.size();
+    edt(() -> d.dispose());
+    AudioMixerWindow.last = null;
+    call("showView", "py");
+    call("selectListedProgram", "Java", AudioMix.PROGRAM);
+    for (int i = 0; i < 100 && AudioMixerWindow.last == null; i++) Thread.sleep(50);
+    javax.swing.JDialog again = AudioMixerWindow.last;
+    out.append("Java list: ").append(again == null ? "nothing" : again.getTitle() + ", " + AudioMix.tracks.size() + " tracks, bass line " + (component(again, "audiomixer-track:bass line") != null)).append('\n');
+    answers.add("OK");
+    if (again != null) edt(() -> menuItem(again.getJMenuBar(), "audiomixer-clear").doClick());
+    Thread.sleep(300);
+    out.append("New project: ").append(AudioMix.tracks.size()).append(" tracks, files left ").append(AudioMix.dir.list((x, n) -> n.endsWith(".wav")).length).append('\n');
+    String text = out.toString();
+    boolean ok = open != null && text.contains("import bass line.wav: Added bass line") && text.contains("import funk.mp3: Added funk") && text.contains("import beat.mid: Added beat")
+        && lines.toString().contains("bass line · 0:02 · 50% · +6 dB") && lines.toString().contains("funk") && lines.toString().contains("muted") && !lines.toString().contains("22050 Hz")
+        && back != null && back.sr == 44100 && Math.abs(back.left.length / 44100.0 - longest) < 0.05 && inDb && count == 3 && again != null && text.contains("New project: 0 tracks, files left 0");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  private static List<javax.swing.JButton> buttons(java.awt.Component c) {
+    List<javax.swing.JButton> list = new ArrayList<javax.swing.JButton>();
+    if (c instanceof javax.swing.JButton) list.add((javax.swing.JButton) c);
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) list.addAll(buttons(k));
+    return list;
+  }
+
+  private static javax.swing.JMenuItem menuItem(javax.swing.JMenuBar bar, String name) {
+    if (bar == null) return null;
+    for (int i = 0; i < bar.getMenuCount(); i++) {
+      javax.swing.JMenu m = bar.getMenu(i);
+      if (m == null) continue;
+      for (java.awt.Component c : m.getMenuComponents()) if (c instanceof javax.swing.JMenuItem && name.equals(c.getName())) return (javax.swing.JMenuItem) c;
+    }
+    return null;
+  }
+
+  /**
+   * Batch D: JoinVideo --size: two videos in other formats (a 4:3 with sound, a wide one without) made
+   * 320×240 with bars first (VLC), then joined; without --size they cannot be joined.
+   */
+  void s222_join_one_size() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    File a = new File(home, "scene one.mp4"), wide = new File(home, "wide.mp4");
+    Files.copy(new File(dir, "clip-a.mp4").toPath(), a.toPath());
+    Files.copy(new File(dir, "clip-wide.mp4").toPath(), wide.toPath());
+    call("showView", "py");
+    call("selectListedProgram", "Java", "JoinVideo.java");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String pair = "\"" + a.getAbsolutePath() + "\" \"" + wide.getAbsolutePath() + "\"";
+    StringBuilder lines = new StringBuilder();
+    for (String extra : new String[] {pair, pair + " --size 320x240 --fit pad"}) {
+      answers.add("Close");
+      edt(() -> log.setText(""));
+      set("pyInputPath", null);
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(600);
+      lines.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
+      for (String line : textOf(log).split("\n")) {
+        if (line.startsWith("Joined") || line.startsWith("Failed") || line.startsWith("Succeeded") || line.startsWith("Made") || line.startsWith("Making") || line.startsWith("Note"))
+          lines.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    out.append(lines);
+    File merged = null;
+    try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
+      for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().matches("scene one-merged.*\\.mp4")).sorted()::iterator) merged = f.toFile();
+    }
+    String body = merged == null ? "" : new String(Files.readAllBytes(merged.toPath()), StandardCharsets.ISO_8859_1);
+    int at = body.indexOf("avc1", Math.max(0, body.indexOf("stsd")));
+    int[] got = at < 0 ? null : new int[] {(body.charAt(at + 28) << 8) | body.charAt(at + 29), (body.charAt(at + 30) << 8) | body.charAt(at + 31)};
+    out.append("joined: ").append(merged == null ? "none" : merged.getName() + " " + (got == null ? "?" : got[0] + "x" + got[1])).append('\n');
+    String text = lines.toString();
+    boolean ok = text.contains("different formats") && text.contains("Made scene one.mp4 at 320\u00d7240") && text.contains("Made wide.mp4 at 320\u00d7240")
+        && merged != null && got != null && got[0] == 320 && got[1] == 240;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D (as on the phone): ReRender in a video's Media browser menu: with VLC, the video at
+   * 720×1280 cropped (the left part kept), then at 1280×720 with bars, each beside it as
+   * <video>-WxH.mp4 with the original's sound.
+   */
+  void s221_rerender() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    File dir = new File(home, "m221");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath(), clip.toPath());
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final String[] items = new String[1];
+    StringBuilder made = new StringBuilder();
+    boolean ok = true;
+    for (String[] ask : new String[][] {{"720\u00d71280 (9:16)", VideoFit.CROP, "Top / left"}, {"1280x720", VideoFit.PAD, "Centre"}}) {
+      VideoRender.answer = ask;
+      VideoRender.lastSaid = null;
+      VideoRender.last = null;
+      final MediaDir.Entry[] video = new MediaDir.Entry[1];
+      for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+      inspectNext = d -> {
+        mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+        StringBuilder sb = new StringBuilder();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        items[0] = sb.toString();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "media-menu:rerender".equals(c.getName())) {
+          mb.lastMenu.setVisible(false);
+          ((javax.swing.JMenuItem) c).doClick();
+        }
+      };
+      answers.add("Close");
+      SwingUtilities.invokeLater(() -> mb.open(dir));
+      for (int i = 0; i < 600 && VideoRender.lastSaid == null; i++) Thread.sleep(100);
+      idle();
+      File f = VideoRender.last;
+      String body = f == null ? "" : new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1);
+      boolean sound = body.contains("soun");
+      // Its picture's size, from its H.264 entry (avc1: width and height 24 bytes after its type).
+      int at = body.indexOf("avc1", Math.max(0, body.indexOf("stsd")));
+      int[] got = at < 0 ? null : new int[] {(body.charAt(at + 28) << 8) | body.charAt(at + 29), (body.charAt(at + 30) << 8) | body.charAt(at + 31)};
+      made.append(f == null ? "none" : f.getName()).append(' ').append(got == null ? "?" : got[0] + "x" + got[1]).append(sound ? " with sound" : " silent").append(" | ")
+          .append(String.valueOf(VideoRender.lastSaid).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+      int[] want = VideoFit.parseSize(ask[0]);
+      ok &= f != null && got != null && got[0] == want[0] && got[1] == want[1] && sound;
+    }
+    VideoRender.answer = null;
+    out.append("menu has it: ").append(String.valueOf(items[0]).contains(VideoFit.RERENDER)).append('\n').append(made);
+    if (!ok || !String.valueOf(items[0]).contains(VideoFit.RERENDER)) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D (as on the phone): Extract audio in a video's Media browser menu: its sound as
+   * <video>-audio.m4a beside it (an MP4 with one sound track); a video without sound says so.
+   */
+  void s220_extract_audio() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m220");
+    dir.mkdirs();
+    File test = new File(System.getProperty("pulsekit.test.dir", "."));
+    final File clip = new File(dir, "walk.mp4"), silent = new File(dir, "wide.mp4");
+    Files.copy(new File(test, "clip-a.mp4").toPath(), clip.toPath());
+    Files.copy(new File(test, "clip-wide.mp4").toPath(), silent.toPath());
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final String[] said = new String[2];
+    final String[] items = new String[1];
+    for (final File f : new File[] {clip, silent}) {
+      final MediaDir.Entry[] video = new MediaDir.Entry[1];
+      for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals(f.getName())) video[0] = e;
+      AudioExtract.lastSaid = null;
+      inspectNext = d -> {
+        mb.menu(video[0], f, component(d, "media-card:" + f.getName()), 2, 2);
+        StringBuilder sb = new StringBuilder();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        items[0] = sb.toString();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "media-menu:extract-audio".equals(c.getName())) {
+          mb.lastMenu.setVisible(false);
+          ((javax.swing.JMenuItem) c).doClick();
+        }
+      };
+      answers.add("Close");
+      SwingUtilities.invokeLater(() -> mb.open(dir));
+      for (int i = 0; i < 100 && AudioExtract.lastSaid == null; i++) Thread.sleep(100);
+      idle();
+      said[f == clip ? 0 : 1] = String.valueOf(AudioExtract.lastSaid).replace(dir.getAbsolutePath(), "<dir>");
+    }
+    File m4a = new File(dir, "walk-audio.m4a");
+    String body = m4a.isFile() ? new String(Files.readAllBytes(m4a.toPath()), StandardCharsets.ISO_8859_1) : "";
+    boolean soundOnly = body.startsWith("ftyp", 4) && body.contains("soun") && !body.contains("vide");
+    out.append("menu has it: ").append(String.valueOf(items[0]).contains(Mp4Media.EXTRACT)).append(" | walk: ").append(said[0]).append(", sound only ").append(soundOnly)
+        .append(" | wide: ").append(said[1]).append('\n');
+    if (!String.valueOf(items[0]).contains(Mp4Media.EXTRACT) || !m4a.isFile() || !soundOnly || !said[1].contains("has no sound")) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C (as on the phone): Downloads' Move panel has Also other programs' files; ticked, another
+   * program's run is listed (with what it saved), one that saved nothing is not kept, and the Sogni
+   * programs are listed either way.
+   */
+  void s219_downloads_other_programs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    File wav = new File(dl, "groove.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0});
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("Midi2Wav.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: groove.wav", "Saved " + wav.getAbsolutePath(), null);
+    SogniDownloads.done(run);
+    final boolean[] box = new boolean[2];
+    DownloadsScreen.tab = "";
+    // The box is in the Move panel, shown with Move downloaded media files to ticked.
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.others = false;
+    DownloadMove.save();
+    // The Downloads window (another message may come first: it is passed by).
+    final java.util.function.Consumer<JDialog>[] look = new java.util.function.Consumer[1];
+    look[0] = d -> {
+      javax.swing.JCheckBox others = (javax.swing.JCheckBox) component(d, "downloads-move-others");
+      if (others == null && component(d, "downloads-empty") == null && !d.getTitle().contains("Downloads")) {
+        inspectNext = look[0];
+        return;
+      }
+      box[0] = others != null && !others.isSelected();
+      if (others != null) others.doClick();
+      box[1] = DownloadMove.others;
+    };
+    inspectNext = look[0];
+    answers.add("Close");
+    SwingUtilities.invokeLater(() -> DownloadsScreen.show((Pulsekit) frame));
+    for (int i = 0; i < 50 && !box[1]; i++) Thread.sleep(100);
+    idle();
+    boolean listedOther = SogniDownloads.listed("MidiDrumGen.java"), listedSogni = SogniDownloads.listed("SogniPedit.java");
+    long empty = SogniDownloads.started("CompareHits.java", System.currentTimeMillis());
+    SogniDownloads.result(empty, "Succeeded: compared", "Hits: 12", null);
+    SogniDownloads.done(empty);
+    boolean dropped = SogniDownloads.dropIfEmpty(empty);
+    boolean keptWav = !SogniDownloads.dropIfEmpty(run);
+    out.append("box shown, off: ").append(box[0]).append(", ticked: ").append(box[1]).append(" | listed: other ").append(listedOther).append(", Sogni ").append(listedSogni)
+        .append(" | saved nothing dropped ").append(dropped).append(", saved a WAV kept ").append(keptWav).append('\n');
+    if (!box[0] || !box[1] || !listedOther || !listedSogni || !dropped || !keptWav) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: DrumMidi_CRT --zip --zip_outdir dm%n: the MIDI it makes zipped into dm1 under the program
+   * files folder (the run's own folder goes), then dm2; without --zip_outdir, into the program files folder.
+   */
+  void s218_drummidi_zip() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File wav = new File(home, "beat.wav");
+    short[] pcm = new short[22050 * 4];
+    for (int i = 0; i < pcm.length; i++) {
+      double t = (i % 11025) / 22050.0;
+      pcm[i] = t < 0.15 ? (short) (24000 * Math.exp(-t * 30) * Math.sin(2 * Math.PI * 60 * t)) : 0;
+    }
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "DrumMidi_CRT.jar");
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    edt(() -> call("setInputFile", wav));
+    final String base = ((javax.swing.text.JTextComponent) get("pyExtra")).getText();
+    for (String extra : new String[] {" --zip --zip_outdir dm%n", " --zip --zip_outdir dm%n", " --zip"}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(base + extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(300);
+      idle();
+      for (String line : String.valueOf(log.getText()).split("\n")) {
+        if (line.startsWith("Wrote") && line.contains(".zip") || line.startsWith("Succeeded") || line.startsWith("Failed")) out.append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    File kept = new File(home, ".pulsekit");
+    String[] one = new File(kept, "dm1").list(), two = new File(kept, "dm2").list();
+    String[] top = kept.list((d, n) -> n.endsWith(".zip"));
+    out.append("dm1: ").append(one == null ? "none" : String.join(",", one)).append(", dm2: ").append(two == null ? "none" : String.join(",", two))
+        .append(", beside: ").append(top == null ? "none" : String.join(",", top)).append('\n');
+    boolean ok = one != null && one.length == 1 && one[0].endsWith(".zip") && two != null && two.length == 1 && top != null && top.length >= 1;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Wav2Mp3: one WAV as an MP3 (the length and level back, through the app's decoder, gapless),
    * then a folder of them at once (--dir, --outdir) at another bitrate, in mono.
    */
@@ -657,6 +1370,71 @@ public final class DesktopBehavior {
     } finally {
       server.stop(0);
     }
+  }
+
+  /**
+   * Batch C: SogniMusic --outdir (% codes): the track and its zip (--zip) kept in that folder under the
+   * program files folder; run%n is run1, then run2 for the next run.
+   */
+  void s217_sogni_music_outdir() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = new byte[4096];
+    for (int i = 0; i < track.length; i++) track[i] = (byte) i;
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      readAll(ex.getRequestBody());
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.equals("/v1/creative-agent/workflows/wf7")) {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/take.mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n"}) {
+        edt(() -> log.setText(""));
+        answers.add("Close");
+        answers.add("Close");
+        final String extra = "--prompt \"funk groove\" --drums_only --duration 10 --no_wav --zip --outdir " + dir + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Zipped") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("Could not")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        idle();
+        for (String line : String.valueOf(log.getText()).split("\n")) {
+          if (line.startsWith("Saved") || line.startsWith("Zipped") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~").replace(today, "<today>")).append('\n');
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+    File kept = new File(home, ".pulsekit");
+    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
+    boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
+    boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
+    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append('\n');
+    if (!dated || !one || !two) throw new AssertionError(out.toString());
   }
 
   /** The Style database / genre list search: "rock" lists every rock style. */
@@ -5205,12 +5983,20 @@ public final class DesktopBehavior {
     final javax.swing.JMenuItem process = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(1);
     out.append("second item: ").append(process.getText()).append('\n');
     answers.add("(keep)");
+    // A 4:3 frame: asked about upscaling first (Use as it is).
+    final String[] upscaleAsked = new String[1];
+    RefImages.answer = q -> {
+      upscaleAsked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
     SwingUtilities.invokeLater(() -> {
       process.doClick();
       db.lastFrameMenu.setVisible(false);
     });
     for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
     idle();
+    RefImages.answer = null;
+    out.append("upscale asked ").append(upscaleAsked[0] != null).append('\n');
     final ProcessRefDialog r = ProcessRefDialog.last;
     String[] now = sc.list();
     out.append("process: video ").append(dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName().replaceAll("\\d", "#") + ", programs " + r.programs)
@@ -7123,6 +7909,11 @@ public final class DesktopBehavior {
         + "z = vr.make_zip(out, 'Kit', ['--dir', d, '--test', '--zip', '--bpm', '80'], d, [(song, copy)], [sys.argv[5]], [sys.argv[6]], sys.argv[7], opts, 80.0)\n"
         + "print('names ' + ' '.join(sorted(zipfile.ZipFile(z[0]).namelist())))\n"
         + "print('asks %s' % vr.ask_zip())\n"
+        // --test: the test beat (here the song's WAV stands in) and its times in check/, in the zip too; --zip_nowav leaves the WAV out.
+        + "c = vr.make_zip(out, 'Kit', ['--test'], d, [(song, None)], [], [], sys.argv[7], opts, None, 0, False, None, [sys.argv[5], sys.argv[6], None])\n"
+        + "print('check ' + ' '.join(n for n in sorted(zipfile.ZipFile(c[0]).namelist()) if n.startswith('check/')))\n"
+        + "c = vr.make_zip(out, 'Kit', ['--test'], d, [(song, None)], [], [], sys.argv[7], opts, None, 0, True, None, [sys.argv[5], sys.argv[6]])\n"
+        + "print('nowav check ' + ' '.join(n for n in sorted(zipfile.ZipFile(c[0]).namelist()) if n.startswith('check/')))\n"
         // --zip_mb 1: three MIDIs with 0.6 MB WAVs that do not shrink, a zip each, each with the report and the run.
         + "import os, shutil\n"
         + "played, wavs = [], []\n"
@@ -7145,6 +7936,7 @@ public final class DesktopBehavior {
     this.out.append(said).append("\nvst_render.py --zip: ").append(plain).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("names dm/beats/song-Kit-dm.mid midi-80bpm/beats/song.mid midi/beats/song.mid vst-render-run.txt vst-test-Kit.txt wav/beats/song-Kit.wav")
         && said.contains("Zipped 5 files") && said.contains("asks None")
+        && said.contains("check check/song-Kit-dm.mid check/song-Kit.wav") && said.contains("nowav check check/song-Kit-dm.mid\n")
         && said.contains("parts 3: -part1of3.zip midi/beats/s0.mid,vst-render-run.txt,vst-test-Kit.txt,wav/beats/s0-Kit.wav | -part2of3.zip midi/beats/s1.mid,")
         && said.contains("sizes ok True") && !plain.contains("unknown switch") && label.startsWith("Zip:");
     if (!ok) throw new AssertionError(this.out.toString());
@@ -7239,13 +8031,28 @@ public final class DesktopBehavior {
         + "        return np.zeros((2, 4410)) + 0.1, 0.1, 0\n"
         + "vr.Gizmo = G\n"
         + "vr.main(['--drumgizmo', os.path.join(d, 'kit.xml'), '--dir', os.path.join(d, 'in'), '--outdir', out, '--skip_existing', '--test', '--drummidi', os.path.join(d, 'DrumMidi_CRT.jar')])\n"
-        + "print('renders %d' % G.n)\n";
+        + "print('renders %d' % G.n)\n"
+        // Every test's files in one zip; the loose report, test beat and times deleted, kit profiles kept.
+        + "import zipfile\n"
+        + "z = zipfile.ZipFile(os.path.join(out, 'vst-test-results.zip'))\n"
+        + "print('results ' + ' '.join(sorted(z.namelist())))\n"
+        + "print('times ' + z.read('vst-check-kit-times.txt').decode().splitlines()[0])\n"
+        + "print('left ' + ' '.join(sorted(f for f in os.listdir(out) if f.startswith('vst-'))))\n"
+        // The next run (another plugin) adds to the zip; a --check WAV (no times file) is neither zipped nor deleted.
+        + "open(os.path.join(out, 'vst-kit-Other.kit'), 'w').write('36 0\\n'); open(os.path.join(out, 'vst-test-Other.txt'), 'w').write('All:\\n')\n"
+        + "open(os.path.join(out, 'vst-check-Solo.wav'), 'wb').write(b'RIFF')\n"
+        + "print('again ' + ' '.join(sorted(zipfile.ZipFile(vr.results_zip([out])).namelist())))\n"
+        + "print('left2 ' + ' '.join(sorted(f for f in os.listdir(out) if f.startswith('vst-'))))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
     this.out.append(said).append('\n');
     boolean ok = said.contains("Kept s0-kit.wav (already made)") && !said.contains("Kept s1-kit.wav") && said.contains("Wrote s1-kit.wav")
         && said.contains("Kept s0-kit-dm.mid (already made)") && said.contains("renders 2")
+        && said.contains("Test beat: vst-check-") && said.contains("-times.txt\n") && said.contains("times 2.0000 36")
+        && said.contains("results vst-check-kit-times.txt vst-check-kit.wav vst-test-kit.txt") && said.contains("left vst-test-results.zip\n")
+        && said.contains("again vst-check-kit-times.txt vst-check-kit.wav vst-kit-Other.kit vst-test-Other.txt vst-test-kit.txt")
+        && said.contains("left2 vst-check-Solo.wav vst-kit-Other.kit vst-test-results.zip")
         && said.contains("Succeeded: 2 of 3 MIDI files rendered, 1 kept from before");
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -7684,6 +8491,437 @@ public final class DesktopBehavior {
    * Browse sections (as on the phone): grouped by the prompt's first two sentences, A to Z; a
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
+  /**
+   * Batch B (as on the phone): DB/Prompts' Previous / Next go through the gallery's pictures and
+   * videos; the gallery's video player has small arrows to them.
+   */
+  void s216_prompts_step_media() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath());
+    PromptDb.vault().addLibraryFile("a.png", png.toByteArray(), "Imported", 3);
+    PromptDb.vault().addLibraryFile("walk.webm", clip, "Imported", 3);
+    PromptDb.vault().addLibraryFile("b.png", png.toByteArray(), "Imported", 3);
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    answers.add("(keep)");
+    inspectNext = gallery -> {
+      StringBuilder order = new StringBuilder();
+      for (PromptVault.StoredFile f : db.galleryList) order.append(f.name).append(' ');
+      seen.append("order: ").append(order.toString().trim()).append('\n');
+      PromptVault.StoredFile at = db.galleryList.get(0);
+      StringBuilder steps = new StringBuilder(at.name);
+      PromptVault.StoredFile video = null;
+      for (int i = 0; i < 2; i++) {
+        Object[] next = db.stepPicture(at, 1);
+        if (next == null) break;
+        at = (PromptVault.StoredFile) next[0];
+        steps.append(" > ").append(at.name);
+        if (at.name.equals("walk.webm")) video = at;
+      }
+      seen.append("next: ").append(steps).append('\n');
+      if (video == null) {
+        done[0] = true;
+        return;
+      }
+      inspectNext = player -> {
+        seen.append("player ").append(player.getTitle()).append(": \u25c0 ").append(component(player, "video-prev") != null)
+            .append(", \u25b6 ").append(component(player, "video-next") != null).append('\n');
+        done[0] = true;
+      };
+      final PromptVault.StoredFile v = video;
+      SwingUtilities.invokeLater(() -> db.preview(v, (javax.swing.JButton) component(gallery, "gallery:" + v.name)));
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    // Without VLC the video has no player here (the arrows are the player's).
+    boolean player = !VlcPlayer.available() || seen.indexOf("\u25c0 true, \u25b6 true") >= 0;
+    if (seen.indexOf("next: ") < 0 || seen.indexOf("> walk.webm") < 0 || !player) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch B (as on the phone): a picture's thumbnail menu in DB/Prompts has Full screen preview; the
+   * preview window opens over the whole screen.
+   */
+  void s215_prompts_full_screen() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptDb.vault().addLibraryFile("still.png", png.toByteArray(), "Imported", 3);
+    PromptVault.StoredFile file = null;
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals("still.png")) file = f;
+    final PromptVault.StoredFile at = file;
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    answers.add("(keep)");
+    inspectNext = gallery -> {
+      javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:still.png");
+      db.menu(at, card, () -> {});
+      javax.swing.JMenuItem full = null;
+      for (java.awt.Component c : db.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "gallery-full-screen".equals(c.getName())) full = (javax.swing.JMenuItem) c;
+      db.lastFileMenu.setVisible(false);
+      seen.append("item ").append(full == null ? "none" : full.getText()).append('\n');
+      if (full == null) {
+        done[0] = true;
+        return;
+      }
+      inspectNext = preview -> {
+        java.awt.Rectangle b = preview.getBounds();
+        java.awt.Rectangle screen = preview.getGraphicsConfiguration().getBounds();
+        seen.append("preview: ").append(preview.getTitle()).append(", whole screen ").append(b.equals(screen)).append('\n');
+        done[0] = true;
+      };
+      final javax.swing.JMenuItem click = full;
+      SwingUtilities.invokeLater(click::doClick);
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("item " + MediaDir.FULL_SCREEN) < 0 || seen.indexOf("whole screen true") < 0) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch B (as on the phone): a Downloads file's menu has Add to Collection and Add to playlist…;
+   * a playlist picked there gets the file at its end.
+   */
+  void s214_downloads_collect() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dl = new File(home, "Downloads");
+    dl.mkdirs();
+    final File tune = new File(dl, "tune.mp3");
+    Files.write(tune.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0});
+    SogniDownloads.init(PromptDb.dir());
+    long run = SogniDownloads.started("SogniMusic.java", System.currentTimeMillis());
+    SogniDownloads.result(run, "Succeeded: tune.mp3", "Saved " + tune.getAbsolutePath(), null);
+    SogniDownloads.done(run);
+    final SogniDownloads.Run r = SogniDownloads.run(run);
+    final StringBuilder items = new StringBuilder();
+    final javax.swing.JMenuItem[] firstList = new javax.swing.JMenuItem[1];
+    final boolean[] collect = new boolean[1];
+    edt(() -> {
+      javax.swing.JPopupMenu m = DownloadsScreen.menu((Pulsekit) frame, new javax.swing.JPanel(), r, r.items.get(0));
+      for (java.awt.Component c : m.getComponents()) {
+        if (!(c instanceof javax.swing.JMenuItem)) continue;
+        items.append(items.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        if ("add-to-collection".equals(c.getName())) collect[0] = true;
+        if ("add-to-playlist".equals(c.getName())) {
+          javax.swing.JMenu pl = (javax.swing.JMenu) c;
+          for (int i = 0; i < pl.getItemCount(); i++) if (pl.getItem(i) != null && pl.getItem(i).getName() != null && pl.getItem(i).getName().startsWith("playlist-add:") && firstList[0] == null) firstList[0] = pl.getItem(i);
+        }
+      }
+    });
+    String list = firstList[0] == null ? null : firstList[0].getName().substring("playlist-add:".length());
+    if (firstList[0] != null) edt(() -> firstList[0].doClick());
+    idle();
+    boolean listed = false;
+    if (list != null) for (Playlist.Item it : Playlist.load(PromptDb.dir(), list).items) if (new File(it.file).getName().equals("tune.mp3")) listed = true;
+    out.append("menu: ").append(items).append("\nplaylist ").append(list).append(": listed ").append(listed).append(", collection item ").append(collect[0]).append('\n');
+    boolean ok = items.indexOf(MediaCollections.ADD) >= 0 && items.indexOf(Playlist.ADD) >= 0 && collect[0] && listed;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params' Crop beside Preview (as on the phone): the picture with the crop frame on; its menu
+   * has Use the crop in this row first; a 4:3 crop is asked about upscaling (Use as it is), then fills
+   * the row as <name>-crop.png at its full size, the Preview closed. Greyed while no picture is picked.
+   */
+  void s213_params_crop_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final File me = new File(home, "me.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", me);
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    idle();
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final PromptDb db = (PromptDb) get("promptDb");
+    final StringBuilder seen = new StringBuilder();
+    final String[] asked = new String[1];
+    final String[] label = new String[1];
+    final boolean[] previewClosed = new boolean[1];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
+    final java.util.function.Function<javax.swing.JPopupMenu, String> items = m -> {
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      return sb.toString();
+    };
+    // The Params, then the preview: both stay open for the scenario.
+    answers.add("(keep)");
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JButton crop = (javax.swing.JButton) component(d, "params-crop:--image");
+      javax.swing.JButton crop2 = (javax.swing.JButton) component(d, "params-crop:--image2");
+      if (crop == null || crop2 == null) throw new AssertionError("no Crop button");
+      seen.append("Crop --image enabled ").append(crop.isEnabled()).append(", --image2 (none picked) ").append(crop2.isEnabled()).append('\n');
+      final JLabel chosen = (JLabel) component(d, "params-chosen:--image");
+      inspectNext = preview -> {
+        seen.append("viewer: ").append(preview.getTitle()).append('\n');
+        java.awt.Component c = component(preview, "preview-image");
+        java.awt.event.MouseEvent e = new java.awt.event.MouseEvent(c, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 10, 10, 1, true, java.awt.event.MouseEvent.BUTTON3);
+        for (java.awt.event.MouseListener l : c.getMouseListeners()) l.mousePressed(e);
+        javax.swing.JPopupMenu pm = db.lastPictureMenu;
+        seen.append("crop on: ").append(items.apply(pm)).append('\n');
+        AbstractButton use = null;
+        for (java.awt.Component k : pm.getComponents()) if (k instanceof AbstractButton && ("preview-crop:" + CropBox.USE_IN_ROW).equals(k.getName())) use = (AbstractButton) k;
+        pm.setVisible(false);
+        final AbstractButton click = use;
+        SwingUtilities.invokeLater(() -> {
+          click.doClick();
+          previewClosed[0] = !preview.isDisplayable();
+          label[0] = chosen.getText();
+          ((javax.swing.JButton) find(d.getContentPane(), "Cancel")).doClick();
+        });
+      };
+      SwingUtilities.invokeLater(crop::doClick);
+    };
+    call("openParams");
+    for (int i = 0; i < 100 && label[0] == null; i++) Thread.sleep(100);
+    idle();
+    RefImages.answer = null;
+    File cropped = (File) get("lastCrop");
+    java.awt.image.BufferedImage img = cropped == null ? null : javax.imageio.ImageIO.read(cropped);
+    seen.append("asked ").append(asked[0] != null).append(", row ").append(label[0]).append(" ").append(img == null ? "none" : img.getWidth() + "x" + img.getHeight())
+        .append(", preview closed ").append(previewClosed[0]).append('\n');
+    out.append(seen);
+    boolean ok = seen.indexOf("Crop --image enabled true, --image2 (none picked) false") >= 0 && seen.indexOf("crop on: " + CropBox.USE_IN_ROW + ", ") >= 0
+        && asked[0] != null && "me-crop.png".equals(label[0]) && img != null && img.getWidth() == 512 && img.getHeight() == 384 && previewClosed[0];
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A frame taken in a video player (C) for a Choose file picture row: small, so asked about first;
+   * Use as it is fills the row and closes the player, Upscale first leaves the row and opens ImageUpscaler.
+   */
+  void s212_frame_for_picture_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m212");
+    dir.mkdirs();
+    final File shot = new File(dir, "walk-frame-3.jpg");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", shot);
+    final Pulsekit app = (Pulsekit) frame;
+    final String[] asked = new String[2];
+    final File[] row = new File[1];
+    final javax.swing.JDialog[] player = new javax.swing.JDialog[1];
+    final boolean[] closed = new boolean[2];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
+    edt(() -> {
+      player[0] = new javax.swing.JDialog(app, "player");
+      player[0].setVisible(true);
+      RefImages.forRow(app, shot, player[0], f -> row[0] = f);
+      closed[0] = !player[0].isDisplayable();
+    });
+    String first = app.pyName;
+    RefImages.answer = q -> {
+      asked[1] = q;
+      return UpscaleCheck.UPSCALE_FIRST;
+    };
+    final File[] row2 = new File[1];
+    edt(() -> {
+      player[0] = new javax.swing.JDialog(app, "player");
+      player[0].setVisible(true);
+      RefImages.forRow(app, shot, player[0], f -> row2[0] = f);
+      closed[1] = !player[0].isDisplayable();
+    });
+    idle();
+    RefImages.answer = null;
+    this.out.append("as it is: row ").append(row[0] == null ? "none" : row[0].getName()).append(", asked ").append(asked[0] != null).append(", player closed ").append(closed[0])
+        .append("\nupscale first: row ").append(row2[0] == null ? "none" : row2[0].getName()).append(", asked ").append(asked[1] != null).append(", program ").append(app.pyName)
+        .append(", input ").append(app.pyInputPath == null ? "none" : new File(app.pyInputPath).getName()).append(", player closed ").append(closed[1]).append('\n');
+    boolean ok = row[0] != null && row[0].equals(shot) && asked[0] != null && closed[0] && !"ImageUpscaler.java".equals(first)
+        && row2[0] == null && asked[1] != null && "ImageUpscaler.java".equals(app.pyName) && app.pyInputPath != null && app.pyInputPath.endsWith("walk-frame-3.jpg") && closed[1];
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * The Media browser, a video's menu: First frame as a reference image; the frame (small: asked about
+   * upscaling first) goes to ImageUpscaler with Upscale first, as its input, the browser closed.
+   */
+  void s211_first_frame_ref_media_browser() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m211");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser.frameReader = (f, side) -> {
+      try {
+        java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", jpeg);
+        return jpeg.toByteArray();
+      } catch (Exception ex) {
+        return null;
+      }
+    };
+    final String[] asked = new String[1];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.UPSCALE_FIRST;
+    };
+    final Pulsekit app = (Pulsekit) frame;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final MediaDir.Entry[] video = new MediaDir.Entry[1];
+    for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+    final String[] items = new String[1];
+    inspectNext = d -> {
+      mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[0] = sb.toString();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.FIRST_FRAME_AS_REF.equals(((javax.swing.JMenuItem) c).getText())) {
+        mb.lastMenu.setVisible(false);
+        ((javax.swing.JMenuItem) c).doClick();
+      }
+    };
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) Thread.sleep(100);
+    idle();
+    final boolean[] closed = new boolean[1];
+    edt(() -> closed[0] = mb.last == null || !mb.last.isShowing());
+    MediaBrowser.frameReader = VlcPlayer::firstFrame;
+    RefImages.answer = null;
+    this.out.append("menu: ").append(items[0]).append("\nframe ").append(RefImages.lastFrame == null ? "none" : RefImages.lastFrame.getName())
+        .append(", asked ").append(asked[0] != null).append(", program ").append(app.pyName).append(", input ").append(app.pyInputPath == null ? "none" : new File(app.pyInputPath).getName())
+        .append(", browser closed ").append(closed[0]).append('\n');
+    boolean ok = String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_AS_REF) && !String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_REF)
+        && RefImages.lastFrame != null && RefImages.lastFrame.getName().equals("walk-first-frame.jpg") && asked[0] != null
+        && "ImageUpscaler.java".equals(app.pyName) && app.pyInputPath != null && app.pyInputPath.endsWith("walk-first-frame.jpg") && closed[0];
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * Sogni Params' Choose file: a video's menu has Extract first frame as reference img; the first frame
+   * (full size, a JPEG in ~/.pulsekit/first-frames) fills the row as if picked, and the browser closes.
+   * The Media browser itself (no row) has no such item.
+   */
+  void s210_first_frame_as_reference() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m210");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser.frameReader = (f, side) -> {
+      try {
+        java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", jpeg);
+        return jpeg.toByteArray();
+      } catch (Exception ex) {
+        return null;
+      }
+    };
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaBrowser.loadLoop();
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.saveLoop();
+    final File[] picked = new File[1];
+    final String[] items = new String[2];
+    final boolean[] closed = new boolean[1];
+    final MediaDir.Entry[] video = new MediaDir.Entry[1];
+    for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+    inspectNext = d -> {
+      java.awt.Component card = component(d, "media-card:walk.mp4");
+      mb.menu(video[0], clip, card, 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[0] = sb.toString();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.FIRST_FRAME_REF.equals(((javax.swing.JMenuItem) c).getText())) {
+        mb.lastMenu.setVisible(false);
+        ((javax.swing.JMenuItem) c).doClick();
+      }
+    };
+    SwingUtilities.invokeLater(() -> mb.chooseFor("--image", f -> picked[0] = f, () -> {}));
+    for (int i = 0; i < 100 && picked[0] == null; i++) Thread.sleep(100);
+    idle();
+    edt(() -> closed[0] = mb.last == null || !mb.last.isShowing());
+    java.awt.image.BufferedImage frame = picked[0] == null ? null : javax.imageio.ImageIO.read(picked[0]);
+    // The Media browser (no row to fill): no such item.
+    inspectNext = d -> {
+      mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[1] = sb.toString();
+      mb.lastMenu.setVisible(false);
+      d.dispose();
+    };
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && items[1] == null; i++) Thread.sleep(100);
+    idle();
+    MediaBrowser.frameReader = VlcPlayer::firstFrame;
+    this.out.append("chooser menu: ").append(items[0]).append("\npicked ").append(picked[0] == null ? "none" : picked[0].getParentFile().getName() + "/" + picked[0].getName())
+        .append(frame == null ? "" : " " + frame.getWidth() + "x" + frame.getHeight()).append(", browser closed ").append(closed[0])
+        .append("\nMedia browser menu has it: ").append(String.valueOf(items[1]).contains(MediaDir.FIRST_FRAME_REF)).append('\n');
+    boolean ok = String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_REF) && picked[0] != null && picked[0].getName().equals("walk-first-frame.jpg")
+        && picked[0].getParentFile().getName().equals("first-frames") && frame != null && frame.getWidth() == 64 && closed[0]
+        && items[1] != null && !items[1].contains(MediaDir.FIRST_FRAME_REF);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * PyJav starts with the program run last (Recent's first) and its parameters, the bundled source
+   * shown, not run; a program opened already (not the default drum_midi.py) stays.
+   */
+  void s208_pyjav_opens_last_program() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    final String[] seen = new String[3];
+    edt(() -> {
+      PyJavRecent.remember(app.pyJav.pyRecentDir(), "vst_render.py", "--test --mp3 256", "print('old')\n", null);
+      app.pyName = "drum_midi.py";
+      app.pyJav.openLastProgram();
+      seen[0] = app.pyName + " | " + ((javax.swing.text.JTextComponent) get("pyExtra")).getText() + " | bundled " + app.pyEditor.getText().contains("def kit_events");
+      PyJavRecent.remember(app.pyJav.pyRecentDir(), "SogniChat.java", "", "x", null);
+      app.pyName = "MidiDrumGen.java";
+      app.pyJav.openLastProgram();
+      seen[1] = app.pyName;
+    });
+    this.out.append(seen[0]).append('\n').append(seen[1]).append('\n');
+    boolean ok = "vst_render.py | --test --mp3 256 | bundled true".equals(seen[0]) && "MidiDrumGen.java".equals(seen[1]);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /** vst_render --zip_outdir: the run's zips and the test results zip copied into the folder (made); Params labels it. */
+  void s209_vst_render_zip_outdir() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "zip-outdir");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "zs = []\n"
+        + "for n in ('vst-render-Kit-part1of2.zip', 'vst-render-Kit-part2of2.zip', 'vst-test-results.zip'):\n"
+        + "    open(os.path.join(d, n), 'wb').write(b'PK'); zs.append(os.path.join(d, n))\n"
+        + "got = vr.copy_zips(zs, os.path.join(d, 'pickup', 'today'))\n"
+        + "print('copied ' + ' '.join(sorted(os.listdir(os.path.join(d, 'pickup', 'today')))))\n"
+        + "print('none %s' % vr.copy_zips([], os.path.join(d, 'pickup')))\n"
+        // % codes: the date, and %n the first number whose folder is not there (run-1 made: run-2); none: as it is.
+        + "import time\n"
+        + "now = time.struct_time((2026, 11, 4, 12, 0, 0, 2, 308, 0))\n"
+        + "p = os.path.join(d, 'got', 'run-%n')\n"
+        + "first = vr.expand_folder(p, now); vr.copy_zips(zs[:1], first)\n"
+        + "print('codes ' + os.path.relpath(vr.expand_folder(os.path.join(d, '%ddmmyyyy', 'x%d.%m.%yy'), now), d) + ' | ' + os.path.basename(first) + ' then ' + os.path.basename(vr.expand_folder(p, now)) + ' | ' + os.path.basename(vr.expand_folder(os.path.join(d, 'plain'), now)) + ' | ' + os.path.basename(vr.expand_folder(os.path.join(d, '100%%'), now)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    String label = "", tab = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--zip_outdir")) {
+      label = q.label;
+      tab = String.valueOf(q.tab) + (q.dir ? " dir" : "");
+    }
+    this.out.append(said).append("\nParams: ").append(label).append(" (").append(tab).append(")\n");
+    boolean ok = said.contains("copied vst-render-Kit-part1of2.zip vst-render-Kit-part2of2.zip vst-test-results.zip")
+        && said.contains("Zip folder: 3 zips copied to ") && said.contains("none []") && said.contains("no zip made in this run")
+        && said.contains("codes 04112026" + File.separator + "x4.11.26 | run-1 then run-2 | plain | 100%")
+        && label.startsWith("Copy the run's zips") && tab.equals("Output dir");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   void s206_sections_grouped() throws Exception {
     final PyJav py = (PyJav) get("pyJav");
     PromptVault vault = PromptDb.vault();
@@ -7888,7 +9126,10 @@ public final class DesktopBehavior {
       call("showView", "py");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String[][] runs = {{"SogniPadd.java", "out.png --prompt \"a red kite\" --variations 3"}, {"SogniTextVideo.java", "clip.mp4 --prompt \"waves at dusk\" --variations 2"},
-        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"}};
+        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"},
+        // Output names with % codes: %n the first number not taken, %ddmmyy today; the extension added.
+        {"SogniPadd.java", "Image%n --prompt \"a red kite\""}, {"SogniPadd.java", "Image%n --prompt \"a red kite\""},
+        {"SogniPadd.java", "Kite%ddmmyy --prompt \"a red kite\""}};
       List<String> said = new ArrayList<String>();
       for (String[] r : runs) {
         bodies.clear();
@@ -7921,8 +9162,11 @@ public final class DesktopBehavior {
       ProgramParams.Param field = null;
       for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals("--variations")) field = p;
       out.append("Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append('\n');
-      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out-2.png] [Wrote out-3.png] [Variations: 3] [Succeeded: out.png] sent 3")
-          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip-2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+      String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out_Variated2.png] [Wrote out_Variated3.png] [Variations: 3] [Succeeded: out.png] sent 3")
+          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip_Variated2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+          && said.get(3).startsWith("SogniPadd.java: [Wrote Image1.png]") && said.get(4).startsWith("SogniPadd.java: [Wrote Image2.png]")
+          && said.get(5).startsWith("SogniPadd.java: [Wrote Kite" + today + ".png]")
           && said.get(2).startsWith("SogniPadd.java: [Failed: --variations is 1 to 4") && !said.get(2).contains("sent")
           && field != null && "1,2,3,4".equals(String.join(",", field.choices));
       if (!ok) throw new AssertionError(out.toString());
@@ -9003,6 +10247,100 @@ public final class DesktopBehavior {
     this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append("\nfades: closed ").append(closedFade).append(", open ").append(openFade).append('\n');
     boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)") && text.contains("\nc42 ") && text.contains("\nc51 ")
         && closedFade < -2 && openFade > -1;
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * The test beat's cymbals struck with a kick or snare (times tagged "k" / "s"): --learn-kit writes their
+   * looks apart (c42k, c51s ...), --kit tells a cymbal on a snare apart by them, and vst_render's test beat
+   * plays them (kit_events) and tags them for --learn-kit.
+   */
+  void s207_drummidi_cymbals_with_kick_snare() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymbal-with");
+    dir.mkdirs();
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    int sr = 44100;
+    double[] x = new double[sr * 56];
+    java.util.Random r = new java.util.Random(3);
+    StringBuilder times = new StringBuilder();
+    for (int k = 0; k < 3; k++) {
+      double t = 2.0 + 0.5 * k, tt = 3.5 + 0.5 * k;
+      for (int i = 0; i < sr * 0.3; i++) {
+        x[(int) (t * sr) + i] += 0.8 * Math.exp(-i / (0.08 * sr)) * Math.sin(2 * Math.PI * 60 * i / sr);
+        x[(int) (tt * sr) + i] += 0.6 * Math.exp(-i / (0.1 * sr)) * Math.sin(2 * Math.PI * 120 * i / sr);
+      }
+      times.append(String.format(java.util.Locale.ROOT, "%.4f 36\n%.4f 43\n", t, tt));
+    }
+    int[] notes = {42, 46, 51, 49};
+    double t = 13.0;
+    // Each cymbal alone 3 times, then twice with a kick and twice with a snare.
+    for (int pass = 0; pass < 2; pass++) {
+      for (int c = 0; c < 4; c++) {
+        for (int k = 0; k < (pass == 0 ? 3 : 4); k++) {
+          double prev = 0;
+          String tag = pass == 0 ? "" : k < 2 ? " k" : " s";
+          for (int i = 0; i < sr * 0.9; i++) {
+            double s = i / (double) sr, w = r.nextDouble() * 2 - 1, v;
+            if (c == 0) v = (w - prev) * Math.exp(-s / 0.02) * 0.5;
+            else if (c == 1) v = (w - prev) * Math.exp(-s / 0.35) * 0.4;
+            else if (c == 2) v = (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+            else v = (0.5 * w + 0.3 * prev) * Math.exp(-s / 0.9) * 0.5;
+            if (tag.equals(" k") && s < 0.3) v += 0.8 * Math.exp(-s / 0.08) * Math.sin(2 * Math.PI * 60 * s);
+            if (tag.equals(" s") && s < 0.3) v += Math.exp(-s / 0.06) * (0.4 * Math.sin(2 * Math.PI * 200 * s) + 0.5 * w);
+            prev = w;
+            x[(int) (t * sr) + i] += v;
+          }
+          times.append(String.format(java.util.Locale.ROOT, "%.4f %d%s\n", t, notes[c], tag));
+          t += 1.0;
+        }
+      }
+    }
+    // The hat and the ride played on in eighths, 16 each (tagged g).
+    t += 1.0;
+    for (int c : new int[] {0, 2}) {
+      for (int k = 0; k < 16; k++) {
+        double prev = 0;
+        for (int i = 0; i < sr * 0.9; i++) {
+          double s = i / (double) sr, w = r.nextDouble() * 2 - 1;
+          double v = c == 0 ? (w - prev) * Math.exp(-s / 0.02) * 0.5
+              : (0.3 * Math.sin(2 * Math.PI * 5200 * s) + 0.2 * Math.sin(2 * Math.PI * 7900 * s) + 0.15 * (w - prev)) * Math.exp(-s / 0.6);
+          prev = w;
+          x[(int) (t * sr) + i] += v;
+        }
+        times.append(String.format(java.util.Locale.ROOT, "%.4f %d g\n", t, c == 0 ? 42 : 51));
+        t += 0.25;
+      }
+      t += 1.0;
+    }
+    short[] pcm = new short[x.length];
+    for (int i = 0; i < x.length; i++) pcm[i] = (short) Math.max(-32767, Math.min(32767, Math.round(x[i] * 20000)));
+    File wav = new File(dir, "check.wav"), txt = new File(dir, "times.txt"), kit = new File(dir, "kit.kit"), mid = new File(dir, "check-dm.mid");
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, sr));
+    Files.write(txt.toPath(), times.toString().getBytes(StandardCharsets.UTF_8));
+    String said = PythonRun.runFor(java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), "--learn-kit", wav.getAbsolutePath(), txt.getAbsolutePath(), kit.getAbsolutePath()), 120, null).trim();
+    String text = kit.isFile() ? new String(Files.readAllBytes(kit.toPath()), StandardCharsets.UTF_8) : "";
+    String run = PythonRun.runFor(java.util.Arrays.asList("java", "-jar", jar.getAbsolutePath(), wav.getAbsolutePath(), mid.getAbsolutePath(), "--kit", kit.getAbsolutePath()), 120, null).trim();
+    String moved = run.replaceAll("(?s).*(Kit kit.kit: cymbals[^\n]*).*", "$1");
+    String vote = run.replaceAll("(?s).*(Kit kit.kit: ride by passage[^\n]*).*", "$1");
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, sys, tempfile\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "e = vr.kit_events()\n"
+        + "print('tags', sum(1 for x in e if x[3] == 'k'), sum(1 for x in e if x[3] == 's'), sum(1 for x in e if x[3] == '-'), 'alone', len(vr.kit_times()), 'runs', sum(1 for x in e if x[3] == 'g'))\n"
+        + "print('run velocities', sorted(set(x[2] for x in e if x[3] == 'g'))[0], sorted(set(x[2] for x in e if x[3] == 'g'))[-1], 'times', vr.kit_times_text({}).splitlines()[-1])\n"
+        + "print('velocities', sorted(set(x[2] for x in e if x[1] == 42 and x[3] == '')))\n"
+        + "print('beat notes', len(vr.midi_notes(vr.check_midi(tempfile.mkdtemp()))[1]))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath()));
+    String py = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replaceAll("(?s).*(Wrote .*)", "$1")).append('\n').append(moved).append('\n').append(vote).append('\n').append(py).append('\n');
+    boolean ok = said.contains("cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits), 51 ride (3 hits)")
+        && said.contains("cymbals on a kick or snare: 42 with kick, 42 with snare, 46 with kick, 46 with snare, 49 with kick, 49 with snare, 51 with kick, 51 with snare; cymbals played on in eighths: 42 (15 hits), 51 (15 hits)")
+        && text.contains("\nc42g ") && text.contains("\nc51g ") && text.contains("\nridecut ") && said.contains("; ride or hats cut ") && vote.startsWith("Kit kit.kit: ride by passage: ")
+        && text.contains("\nc42 ") && text.contains("\nc42k ") && text.contains("\nc51s ") && moved.contains("(on a snare)") && vote.endsWith("made the ride")
+        && py.contains("tags 8 8 16 alone 33 runs 32") && py.contains("run velocities 70 120 times 49.7500 51 g") && py.contains("velocities [70, 100, 120]") && py.contains("beat notes 109");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -10307,6 +11645,7 @@ public final class DesktopBehavior {
           if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.add(k);
         }
       });
+      // Each MIDI file's row in each panel shown (Patterns, and Fills when the set has fills).
       int trackRows = rowsSeen[0];
       String trackClock = clockSeen[0];
       // Make song from one MIDI file (its row's right click): a song named for the file, of the set.
@@ -10322,7 +11661,7 @@ public final class DesktopBehavior {
       out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
       boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
           && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
-          && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
+          && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows >= 2 && trackRows % 2 == 0
           && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00")
           && songMade[0].matches("(Funk|Metal)-turbo [1-9]\\d* SogniMusic run 1 turbo") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);

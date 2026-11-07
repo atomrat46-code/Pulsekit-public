@@ -206,6 +206,8 @@ public final class PyJavParams {
         shownLabels[i] = chosen;
         // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
         final String rowKey = p.token;
+        if (ProgramParams.previewsPicture(p)) pictureRows.add(rowKey);
+        else pictureRows.remove(rowKey);
         pick.setOnClickListener(v -> pickFile(activity, values, index, chosen, rowKey));
         row.addView(pick);
         if (p.refs) {
@@ -285,10 +287,22 @@ public final class PyJavParams {
           final android.widget.Button preview = new android.widget.Button(activity);
           preview.setText("Preview");
           preview.setTag("params-preview:" + p.token);
+          // Crop: the picture with the crop frame on; its long press has Use the crop in this row (upscale asked when needed).
+          final android.widget.Button[] crop = new android.widget.Button[1];
+          if (activity instanceof MainActivity) {
+            crop[0] = new android.widget.Button(activity);
+            crop[0].setText(CropBox.CROP_ROW);
+            crop[0].setTag("params-crop:" + p.token);
+            crop[0].setOnClickListener(v -> cropPicture((MainActivity) activity, values[index], (cropName, file) -> assign(activity, values, index, chosen, file.getAbsolutePath(), null)));
+          }
           final Runnable paintPreview = () -> {
             boolean on = ProgramParams.isPicture(values[index]);
             preview.setEnabled(on);
             preview.setAlpha(on ? 1f : 0.4f);
+            if (crop[0] != null) {
+              crop[0].setEnabled(on);
+              crop[0].setAlpha(on ? 1f : 0.4f);
+            }
           };
           paintPreview.run();
           chosen.addTextChangedListener(new android.text.TextWatcher() {
@@ -305,6 +319,7 @@ public final class PyJavParams {
           LinearLayout previewRow = new LinearLayout(activity);
           previewRow.setOrientation(LinearLayout.HORIZONTAL);
           previewRow.addView(preview);
+          if (crop[0] != null) previewRow.addView(crop[0]);
           previewRow.addView(recent);
           box.addView(spaced(activity, previewRow), new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
@@ -805,6 +820,51 @@ public final class PyJavParams {
 
   /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
   static void previewPicture(Activity activity, String path) {
+    previewPicture(activity, path, null);
+  }
+
+  /**
+   * Crop on a picture row: the picture in the Preview with the crop frame on; the crop's long press
+   * has Use the crop in this row (one that needs upscaling is asked Upscale first / Use as it is / Cancel), Save as…, Upscale.
+   */
+  static void cropPicture(MainActivity app, String path, RefBrowser.Picked row) {
+    previewPicture(app, path, row);
+  }
+
+  /** The crop's actions on a Params row: the picture's bytes, the row, the Preview closed when the row is filled. */
+  static final class RowCrop implements CropLayer.Actions, CropLayer.Fills {
+    final MainActivity app;
+    final byte[] bytes;
+    final RefBrowser.Picked row;
+    AlertDialog dialog;
+
+    RowCrop(MainActivity app, byte[] bytes, RefBrowser.Picked row) {
+      this.app = app;
+      this.bytes = bytes;
+      this.row = row;
+    }
+
+    public android.graphics.Bitmap cut(CropBox at) throws Exception {
+      return CropLayer.cutBytes(this.bytes, at);
+    }
+
+    public String save(String name, byte[] png) throws Exception {
+      String where = ArtJava.publish(this.app, name, png);
+      if (where == null) throw new java.io.IOException("Download takes no file named " + name);
+      return "Saved the crop as " + where;
+    }
+
+    public void upscale(String name, byte[] png) {
+      RefImages.upscale(this.app, name, png, this.dialog, null);
+    }
+
+    public void fill(String name, byte[] png) {
+      RefImages.forRow(this.app, name, png, this.dialog, null, this.row);
+    }
+  }
+
+  /** As above; with `row` (Crop on a picture row) the crop frame is on from the start and its crop can fill the row. */
+  static void previewPicture(Activity activity, String path, RefBrowser.Picked row) {
     // Picked from the library and gone from the temp folder since: written again first.
     try {
       InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
@@ -832,6 +892,34 @@ public final class PyJavParams {
       image.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), 0);
       image.setImageBitmap(bitmap);
       dialog.setMessage(bounds.outWidth + " \u00d7 " + bounds.outHeight);
+      if (row != null && activity instanceof MainActivity) {
+        // Crop: the frame over the picture (cut from the file at its full size).
+        byte[] bytes = null;
+        try {
+          java.io.FileInputStream in = new java.io.FileInputStream(path);
+          try {
+            java.io.ByteArrayOutputStream all = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0; ) all.write(buf, 0, n);
+            bytes = all.toByteArray();
+          } finally {
+            in.close();
+          }
+        } catch (Exception ex) {
+          bytes = null;
+        }
+        if (bytes != null) {
+          android.widget.FrameLayout holder = new android.widget.FrameLayout(activity);
+          holder.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -2));
+          RowCrop actions = new RowCrop((MainActivity) activity, bytes, row);
+          CropLayer layer = CropLayer.over(activity, holder, image, fileLabel(path), actions);
+          dialog.setView(holder);
+          lastParamsPreview = dialog.show();
+          actions.dialog = lastParamsPreview;
+          layer.start();
+          return;
+        }
+      }
       dialog.setView(image);
     }
     lastParamsPreview = dialog.show();
@@ -923,6 +1011,9 @@ public final class PyJavParams {
   /** The Params row whose system picker is open (its switch): the file picked there is its row's last. */
   static String pendingRow;
 
+  /** The rows (switches) of the Params shown that take a picture: Choose file plays a video there, C fills the row. */
+  static final java.util.Set<String> pictureRows = new java.util.HashSet<String>();
+
   /** As above, for the row `key` (its switch): it opens where that row's last file was. */
   static void pickFile(final Activity activity, final String[] values, final int index, final TextView label, final String key) {
     Runnable system = () -> {
@@ -942,7 +1033,7 @@ public final class PyJavParams {
       return;
     }
     RefBrowser.Picked put = (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null);
-    if (key != null && key.length() > 0) MediaBrowser.chooseFor((MainActivity) activity, key, put, system);
+    if (key != null && key.length() > 0) MediaBrowser.chooseFor((MainActivity) activity, key, put, system, pictureRows.contains(key));
     else MediaBrowser.choose((MainActivity) activity, put, system);
   }
 

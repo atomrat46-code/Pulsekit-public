@@ -67,6 +67,7 @@ final class MediaBrowser {
 
     /** Opens the Media browser on `dir` (the folder picked: Up stops there). */
     void open(File dir) {
+        this.pictureRow = false;
         if (dir == null || !dir.isDirectory()) {
             app.setNow((dir == null ? "That" : dir.getPath()) + " is not a directory");
             return;
@@ -97,6 +98,18 @@ final class MediaBrowser {
      * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
      */
     void chooseFor(final String key, final java.util.function.Consumer<File> picked, Runnable other) {
+        this.chooseFor(key, picked, other, false);
+    }
+
+    /**
+     * Choose file for a picture row (`picture`: a Sogni program's reference image): a video clicked plays
+     * instead, and C in its player fills the row with the frame there (asked about upscaling first when
+     * it needs it).
+     */
+    boolean pictureRow;
+
+    void chooseFor(final String key, final java.util.function.Consumer<File> picked, Runnable other, boolean picture) {
+        this.pictureRow = picture;
         loadLoop();
         java.util.function.Consumer<File> keep = f -> {
             // The folder it came from: this row's next Choose file opens there.
@@ -548,6 +561,18 @@ final class MediaBrowser {
                             picked.accept(copy);
                         } else {
                             this.openPromptFile(entry);
+                        }
+                    } else if (this.chooser != null && this.pictureRow && entry.kind == MediaDir.VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+                        // A picture row's Choose file: the video plays; C there fills the row with its frame.
+                        final java.util.function.Consumer<File> picked = this.chooser;
+                        app.promptDb.frameChooser = frame -> {
+                            dialog.dispose();
+                            picked.accept(frame);
+                        };
+                        try {
+                            this.openEntry(entry, f);
+                        } finally {
+                            app.promptDb.frameChooser = null;
                         }
                     } else if (this.chooser != null) {
                         // Choose file: this file fills the row.
@@ -1503,6 +1528,48 @@ final class MediaBrowser {
         if (this.last != null && this.last.isShowing() && this.shown != null) this.fill(this.last, this.shownRoot, this.shown);
     }
 
+    /** A video's first frame as a JPEG at most this many pixels across (VLC); the tests put their own. */
+    static java.util.function.BiFunction<File, Integer, byte[]> frameReader = VlcPlayer::firstFrame;
+
+    /** The picture Extract first frame wrote last (for the tests). */
+    static File lastFirstFrame;
+
+    /**
+     * Choose file's Extract first frame as reference img: the video's first frame (full size) written as a
+     * JPEG in ~/.pulsekit/first-frames, and that picture handed to the row as if it had been picked.
+     */
+    void firstFrameChosen(final File video) {
+        final java.util.function.Consumer<File> picked = this.chooser;
+        final JDialog dialog = this.last;
+        if (picked == null) return;
+        app.setNow("Reading the first frame of " + video.getName() + "\u2026");
+        new Thread(() -> {
+            File out = null;
+            try {
+                byte[] jpeg = frameReader.apply(video, 8192);
+                if (jpeg != null && jpeg.length > 0) {
+                    File dir = new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "first-frames");
+                    if (!dir.isDirectory()) dir.mkdirs();
+                    out = new File(dir, MediaDir.firstFrameName(video.getName(), "jpg"));
+                    Files.write(out.toPath(), jpeg);
+                }
+            } catch (Exception ex) {
+                out = null;
+            }
+            final File got = out;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                if (got == null) {
+                    app.setNow("Could not read the first frame of " + video.getName() + " (VLC plays the videos: is it installed?)");
+                    return;
+                }
+                lastFirstFrame = got;
+                if (dialog != null) dialog.dispose();
+                app.setNow("First frame of " + video.getName() + " \u00b7 " + got.getName());
+                picked.accept(got);
+            });
+        }, "pulsekit-first-frame").start();
+    }
+
     void menu(final MediaDir.Entry entry, final File f, java.awt.Component card, int x, int y) {
         // Selecting: a ticked file's menu is the selection's.
         if (this.selecting) {
@@ -1526,6 +1593,23 @@ final class MediaBrowser {
         if (job != null) {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.SOGNI_JOB;
+        }
+        // Choose file (a Params row), a video: its first frame fills the row as a picture.
+        if (this.chooser != null && entry.kind == MediaDir.VIDEO) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.FIRST_FRAME_REF;
+        } else if (this.chooser == null && MediaDir.firstFrameRef(entry.name)) {
+            // The Media browser, a video: its first frame as a reference (upscaled first when asked).
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.FIRST_FRAME_AS_REF;
+        }
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (this.chooser == null && Mp4Media.extractable(entry.name)) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = Mp4Media.EXTRACT;
+            // ReRender: the video at another size and shape (crop or bars), with VLC.
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = VideoFit.RERENDER;
         }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
@@ -1554,6 +1638,31 @@ final class MediaBrowser {
                     }
                     ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
                 });
+                menu.add(item);
+                continue;
+            }
+            if (VideoFit.RERENDER.equals(items[i])) {
+                item.setName("media-menu:rerender");
+                item.addActionListener(e -> VideoRender.ask(app, card, f, entry.name, app.pyJav.programFolder(), true));
+                menu.add(item);
+                continue;
+            }
+            if (Mp4Media.EXTRACT.equals(items[i])) {
+                item.setName("media-menu:extract-audio");
+                item.addActionListener(e -> AudioExtract.run(app, f, entry.name, app.pyJav.programFolder()));
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.FIRST_FRAME_AS_REF.equals(items[i])) {
+                final File backRoot = this.shownRoot, backDir = this.shown;
+                item.setName("media-menu:first-frame-ref");
+                item.addActionListener(e -> RefImages.firstFrameAsRef(app, f, this.last, () -> this.reopen(backRoot, backDir)));
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.FIRST_FRAME_REF.equals(items[i])) {
+                item.setName("media-menu:first-frame");
+                item.addActionListener(e -> this.firstFrameChosen(f));
                 menu.add(item);
                 continue;
             }

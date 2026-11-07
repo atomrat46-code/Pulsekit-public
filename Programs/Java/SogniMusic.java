@@ -75,6 +75,11 @@ import java.util.Map;
  * --batchdir <folder>: the drum MIDI DrumMidi_CRT makes of the track also joins a batch folder (a
  * MidiDrumGen --count --outdir or MidiBatch folder), with its row in the folder's batch.txt, so one
  * vst_render.py --dir --test run renders both and CompareHits --batch sums them (base SogniMusic).
+ *
+ * --outdir <folder>: Pulsekit keeps the run's tracks, their WAVs and the zip (--zip) in this folder
+ * (under the program files folder on a computer, under Download on the phone; made when missing).
+ * % codes as in Downloads' subfolders: music%ddmmyy is music071126, run%n the first run1, run2...
+ * not there yet.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
@@ -241,10 +246,12 @@ public final class SogniMusic {
       else if (a.equals("--test")) testing = true;
       else if (a.equals("--no_wav") || a.equals("--vst")) continue;
       else if (a.equals("--batchdir") && i + 1 < args.length) i++;
+      // PyJav's: the folder the run's tracks, WAVs and zip are kept in (% codes filled in).
+      else if (a.equals("--outdir") && i + 1 < args.length) i++;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = a;
+      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
       else {
         say("Unknown argument: " + a);
         usage();
@@ -420,7 +427,7 @@ public final class SogniMusic {
         say("Failed: " + why(api, id, wf));
         return 1;
       }
-      // Each variation (--variations): the first as named, then <name>-2, <name>-3...
+      // Each variation (--variations): the first as named, then <name>_Variated2, _Variated3...
       List<Map<String, Object>> keep = SogniApi.variationsOf(wf, audio);
       File file = null;
       for (int v = 0; v < keep.size(); v++) {
@@ -432,9 +439,11 @@ public final class SogniMusic {
         // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
         String given = SogniApi.extension(one.getName(), null);
         if (given != null && !given.equals(ext)) one = new File(one.getPath().substring(0, one.getPath().length() - given.length()) + ext);
+        // No extension typed (Song%n, say): Sogni's own.
+        if (given == null) one = new File(one.getPath() + ext);
         String stem = one.getPath().substring(0, one.getPath().length() - (SogniApi.extension(one.getName(), null) == null ? 0 : ext.length()));
         if (v > 0) {
-          stem = stem + "-" + (v + 1);
+          stem = SogniApi.variationName(stem, v);
           one = new File(stem + ext);
         }
         for (int n = 1; one.exists(); n++) one = new File(stem + "(" + n + ")" + ext);
@@ -714,7 +723,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>]");
   }
 
   /**
@@ -2924,6 +2933,103 @@ public final class SogniMusic {
         z.end();
       }
     }
+    /**
+     * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
+     * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
+     * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
+     * (pulsekit.outdir), has as its name (any extension): Image%n is Image1,
+     * then Image2. The extension, when one is typed, stays; the program adds its own otherwise.
+     */
+    public static String fillName(String name, File dir) {
+      if (name == null || name.indexOf('%') < 0) return name;
+      java.util.Calendar now = java.util.Calendar.getInstance();
+      String one = fillCodes(name, now, 1);
+      if (one.equals(fillCodes(name, now, 2))) return one;
+      for (int n = 1; n < 100000; n++) {
+        String made = fillCodes(name, now, n);
+        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+      }
+      return one;
+    }
+
+    /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
+    static boolean nameTaken(File dir, String name) {
+      File f = new File(name);
+      File in = f.isAbsolute() ? f.getParentFile() : f.getParent() == null ? dir : new File(dir, f.getParent());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+      String[] all = in == null ? null : in.list();
+      if (all == null) return false;
+      for (String one : all) {
+        String s = one.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        if (s.equals(stem) || s.startsWith(stem + "_Variated") || s.startsWith(stem + "(")) return true;
+      }
+      return false;
+    }
+
+    /** A file of that name (any extension) in one of the folders Pulsekit saves results in (pulsekit.outdir or PULSEKIT_OUTDIR, path separated). */
+    static boolean takenInOutDirs(String name) {
+      String dirs = System.getProperty("pulsekit.outdir");
+      if (dirs == null || dirs.length() == 0) dirs = System.getenv("PULSEKIT_OUTDIR");
+      if (dirs == null || dirs.length() == 0) return false;
+      for (String d : dirs.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+        if (d.length() > 0 && nameTaken(new File(d), new File(name).getName())) return true;
+      }
+      return false;
+    }
+
+    /** The % codes filled in, n as `n`. */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+      StringBuilder out = new StringBuilder();
+      for (int i = 0; i < pattern.length(); i++) {
+        char c = pattern.charAt(i);
+        if (c != '%') {
+          out.append(c);
+          continue;
+        }
+        if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+          out.append('%');
+          i++;
+          continue;
+        }
+        int j = i + 1;
+        while (j < pattern.length()) {
+          String rest = pattern.substring(j);
+          if (rest.startsWith("yyyy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+            j += 4;
+          } else if (rest.startsWith("yy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+            j += 2;
+          } else if (rest.startsWith("dd")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+            j += 2;
+          } else if (rest.startsWith("d")) {
+            out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+            j += 1;
+          } else if (rest.startsWith("mm")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+            j += 2;
+          } else if (rest.startsWith("m")) {
+            out.append(now.get(java.util.Calendar.MONTH) + 1);
+            j += 1;
+          } else if (rest.startsWith("n")) {
+            out.append(n);
+            j += 1;
+          } else {
+            break;
+          }
+        }
+        if (j == i + 1) out.append('%');
+        i = j - 1;
+      }
+      return out.toString();
+    }
+
+    /** A variation's name (--variations): the first as named, then <name>_Variated2, _Variated3... */
+    public static String variationName(String name, int v) {
+      return v == 0 ? name : name + "_Variated" + (v + 1);
+    }
+
     // --- SogniApi end ---
   }
 }

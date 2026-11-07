@@ -2292,6 +2292,45 @@ public final class PromptSheet {
       items.add(kindItem);
       runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
     }
+    // A picture or a video: its preview over the whole screen (a long press or Back closes it).
+    if (activity instanceof MainActivity && (picture || MediaDir.kind(name) == MediaDir.VIDEO)) {
+      final boolean still = picture;
+      items.add(MediaDir.FULL_SCREEN);
+      runs.add(() -> {
+        MainActivity host = (MainActivity) activity;
+        try {
+          byte[] bytes = vault.fileBytes(versionId, which);
+          // In focus: a swipe goes on to the gallery's next or previous picture or video.
+          focusId = versionId;
+          focusWhich = which;
+          if (still) FullScreen.picture(host, bytes, fullStep(host));
+          else FullScreen.video(host, RefImages.videoFile(host, name, bytes).getAbsolutePath(), 0, null, fullStep(host));
+        } catch (Exception ex) {
+          host.setNow("Could not read " + name + ": " + ex.getMessage());
+        }
+      });
+    }
+    // An MP4 video: Extract audio (its sound as <video>-audio.m4a in Download, copied as it is).
+    if (activity instanceof MainActivity && Mp4Media.extractable(name)) {
+      items.add(Mp4Media.EXTRACT);
+      runs.add(() -> AudioExtract.run((MainActivity) activity, name, null, null, vault.fileBytes(versionId, which)));
+      // ReRender: the video at another size and shape, into Download.
+      items.add(VideoFit.RERENDER);
+      runs.add(() -> VideoRender.ask((MainActivity) activity, name, null, null, vault.fileBytes(versionId, which)));
+    }
+    // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
+    if (activity instanceof MainActivity && MediaDir.firstFrameRef(name)) {
+      items.add(MediaDir.FIRST_FRAME_AS_REF);
+      runs.add(() -> {
+        MainActivity host = (MainActivity) activity;
+        try {
+          File video = RefImages.videoFile(host, name, vault.fileBytes(versionId, which));
+          RefImages.firstFrameAsRef(host, name, video.getAbsolutePath(), null, null, null);
+        } catch (Exception ex) {
+          host.setNow("Could not read " + name + ": " + ex.getMessage());
+        }
+      });
+    }
     // Export to disk: a copy in Download, to work on with another app.
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, versionId, which, name));
@@ -2934,29 +2973,64 @@ public final class PromptSheet {
     return lp;
   }
 
-  /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
-  static void stepPicture(Activity activity, int step) {
-    if (vault == null) return;
+  /** The gallery's picture or video `step` places on (1 next, -1 previous) from the one in focus, with its bytes; null at the ends. */
+  static Object[] nextMedia(int step) {
+    if (vault == null) return null;
     List<PromptVault.StoredFile> files = FileSort.sorted(galleryFiles(), FileSort.current, vault);
     int at = -1;
     for (int i = 0; i < files.size(); i++) {
       if (files.get(i).versionId == focusId && files.get(i).which == focusWhich) at = i;
     }
-    if (at < 0) return;
+    if (at < 0) return null;
     for (int i = at + step; i >= 0 && i < files.size(); i += step) {
       PromptVault.StoredFile f = files.get(i);
       byte[] bytes = vault.fileBytes(f.versionId, f.which);
-      if (previewKind(f.name, bytes) != 2) continue;
-      focusId = f.versionId;
-      focusWhich = f.which;
-      // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
-      View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
-      keepScroll = scroll == null ? -1 : scroll.getScrollY();
-      keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
-      openPreview(activity, f.name, bytes, 3);
+      int k = previewKind(f.name, bytes);
+      if (k == 2 || k == 3) return new Object[] {f, bytes};
+    }
+    return null;
+  }
+
+  /** The picture or video `step` places on (1 next, -1 previous) in the gallery's order (arrows, swipes); the first and last say so. */
+  static void stepPicture(Activity activity, int step) {
+    Object[] next = nextMedia(step);
+    if (next == null) {
+      if (vault != null) toast(activity, step > 0 ? "The last one" : "The first one");
       return;
     }
-    toast(activity, step > 0 ? "The last picture" : "The first picture");
+    PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+    focusId = f.versionId;
+    focusWhich = f.which;
+    // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
+    View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
+    keepScroll = scroll == null ? -1 : scroll.getScrollY();
+    keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
+    openPreview(activity, f.name, (byte[]) next[1], 3);
+  }
+
+  /**
+   * Full screen (Preview's or a thumbnail's), swiped: the gallery's next or previous picture or video
+   * full screen in its place (the preview behind it, when one is open, follows).
+   */
+  static FullScreen.Step fullStep(final MainActivity app) {
+    return dir -> {
+      Object[] next = nextMedia(dir);
+      if (next == null) {
+        toast(app, dir > 0 ? "The last one" : "The first one");
+        return;
+      }
+      PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+      byte[] bytes = (byte[]) next[1];
+      focusId = f.versionId;
+      focusWhich = f.which;
+      if (previewBack != 0) openPreview(app, f.name, bytes, 3);
+      try {
+        if (previewKind(f.name, bytes) == 2) FullScreen.picture(app, bytes, fullStep(app));
+        else FullScreen.video(app, RefImages.videoFile(app, f.name, bytes).getAbsolutePath(), 0, null, fullStep(app));
+      } catch (Exception ex) {
+        app.setNow("Could not read " + f.name + ": " + ex.getMessage());
+      }
+    };
   }
 
   /** The full size video held: it plays, or (playing) pauses; two fingers zoom it as a picture. */
@@ -2977,7 +3051,16 @@ public final class PromptSheet {
       if (videoPlaying()) videoPause();
       frameMenu(activity);
     };
+    // A swipe (from the gallery, not zoomed in): the previous or the next picture or video, as the arrows.
+    final Swipe swipe = new Swipe(activity);
     target.setOnTouchListener((v, event) -> {
+      int step = swipe.feed(event);
+      if (step != 0 && previewBack == 3 && previewZoom <= 1.01f) {
+        main.removeCallbacks(hold);
+        held[0] = true;
+        stepPicture(activity, step);
+        return true;
+      }
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
@@ -3024,11 +3107,85 @@ public final class PromptSheet {
   /** The full-size video's long press menu shown last (for the tests). */
   static AlertDialog lastFrameMenu;
 
-  /** The video paused: Save frame keeps the picture where it stopped as a reference file in the library. */
-  static void frameMenu(Activity activity) {
+  /**
+   * The video paused: Save frame keeps the picture where it stopped as a reference file in the library;
+   * Process current frame as a reference image (one that needs upscaling is asked first); Full screen playback.
+   */
+  static void frameMenu(final Activity activity) {
+    final java.util.List<String> rows = new java.util.ArrayList<String>();
+    rows.add("Save frame");
+    if (activity instanceof MainActivity && AppSettings.showSogni() && !AppSettings.musicOnly()) rows.add(MediaDir.FRAME_AS_REF);
+    if (activity instanceof MainActivity) rows.add(MediaDir.FULL_SCREEN_PLAY);
     lastFrameMenu = new AlertDialog.Builder(activity).setTitle(previewName)
-      .setItems(new CharSequence[] {"Save frame"}, (d, w) -> saveFrame(activity))
+      .setItems(rows.toArray(new CharSequence[0]), (d, w) -> {
+        String it = rows.get(w);
+        if (MediaDir.FRAME_AS_REF.equals(it)) frameAsRef((MainActivity) activity);
+        else if (MediaDir.FULL_SCREEN_PLAY.equals(it)) fullScreenPlay((MainActivity) activity);
+        else saveFrame(activity);
+      })
       .setNegativeButton("Cancel", null).show();
+  }
+
+  /** The video's place now (ms; 0 when it cannot be told). */
+  private static int videoAt() {
+    try {
+      return previewVideo == null ? 0 : Math.max(0, previewVideo.getCurrentPosition());
+    } catch (Exception ex) {
+      return 0;
+    }
+  }
+
+  /** Full screen playback: the video from where it is; closed, the preview goes on from where it was left. */
+  static void fullScreenPlay(MainActivity app) {
+    File file = previewFile;
+    if (file == null || !file.isFile()) {
+      toast(app, "This video can't play full screen.");
+      return;
+    }
+    if (videoPlaying()) videoPause();
+    FullScreen.video(app, file.getAbsolutePath(), videoAt(), ms -> {
+      try {
+        if (previewVideo != null && ms > 0) previewVideo.seekTo(ms);
+      } catch (Exception ignored) {
+        // closed
+      }
+    }, previewBack == 3 ? fullStep(app) : null);
+  }
+
+  /** Process current frame as a reference image: the frame where it stopped, as a PNG, offered as a reference (read off the main thread). */
+  static void frameAsRef(final MainActivity app) {
+    final File file = previewFile;
+    if (file == null || !file.isFile()) {
+      toast(app, "This video can't give a frame.");
+      return;
+    }
+    final long at = videoAt();
+    final String name = MediaDir.frameName(previewName, at);
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    new Thread(() -> {
+      byte[] png = null;
+      try {
+        android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+        try {
+          media.setDataSource(file.getAbsolutePath());
+          Bitmap frame = media.getFrameAtTime(at * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST);
+          if (frame != null) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            frame.compress(Bitmap.CompressFormat.PNG, 100, out);
+            png = out.toByteArray();
+          }
+        } finally {
+          media.release();
+        }
+      } catch (Exception ex) {
+        png = null;
+      }
+      final byte[] got = png;
+      main.post(() -> {
+        if (got == null) toast(app, "No frame at " + FileSets.mixTime((int) at));
+        else RefImages.offer(app, name, got, null, null);
+      });
+    }, "pulsekit-frame-ref").start();
   }
 
   /** The frame at the video's place, kept in the library as a reference file (<video>-1m02s345.jpg; a linked video's too). */
@@ -3099,10 +3256,17 @@ public final class PromptSheet {
         if (!pinch.isInProgress() && held != null) held.run();
       }
     });
+    // A swipe (from the gallery, not zoomed in, not cropping): the previous or the next picture or video, as the arrows.
+    final Swipe swipe = new Swipe(activity);
     View.OnTouchListener touch = (v, event) -> {
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
+      }
+      int step = swipe.feed(event);
+      if (step != 0 && previewBack == 3 && previewZoom <= 1.01f && (previewCrop == null || !previewCrop.cropping())) {
+        stepPicture(activity, step);
+        return true;
       }
       press.onTouchEvent(event);
       pinch.onTouchEvent(event);
@@ -3127,7 +3291,16 @@ public final class PromptSheet {
       box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
       box.addView(view, new android.widget.FrameLayout.LayoutParams(previewBaseW, previewBaseH));
       previewBox = box;
-      col.addView(scroller(activity, box));
+      if (previewBack == 3) {
+        // From the gallery: small arrows at the video's left and right edges show the previous and next picture or video.
+        android.widget.FrameLayout over = new android.widget.FrameLayout(activity);
+        over.addView(scroller(activity, box), new android.widget.FrameLayout.LayoutParams(-1, -2));
+        over.addView(arrow(activity, "\u25c0", "preview-prev", -1), arrowLp(activity, Gravity.START | Gravity.CENTER_VERTICAL));
+        over.addView(arrow(activity, "\u25b6", "preview-next", 1), arrowLp(activity, Gravity.END | Gravity.CENTER_VERTICAL));
+        col.addView(over, new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT));
+      } else {
+        col.addView(scroller(activity, box));
+      }
       attachVideoHold(activity, box);
       view.setVideoPath(previewFile.getAbsolutePath());
       view.setOnPreparedListener(mp -> {

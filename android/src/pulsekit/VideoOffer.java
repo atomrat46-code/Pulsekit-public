@@ -161,8 +161,9 @@ final class VideoOffer {
                     android.widget.Toast.makeText(app, shown, android.widget.Toast.LENGTH_SHORT).show();
                     if (made == null) return;
                     if (process) {
+                        // As a reference: one that needs upscaling is asked Upscale first, Use as it is or Cancel.
                         if (dialog != null) dialog.dismiss();
-                        ProcessRefDialog.open(app, name, made);
+                        RefImages.offer(app, name, made, null, null);
                         return;
                     }
                     List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();

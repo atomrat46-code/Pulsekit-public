@@ -29,6 +29,20 @@ public final class DownloadMove {
   /** Clear automatically: the downloads moved (every file of the run) taken off the list after each move. */
   public static boolean clearAuto;
   public static final String CLEAR_AUTO = "Clear automatically";
+  /**
+   * Also other programs' files: the runs of Pulsekit's other programs (MidiDrumGen, DrumMidi_CRT,
+   * Midi2Wav, vst_render...) are listed too once they end, with the files they saved, so Move now and
+   * Move automatically move their images, videos and music as well.
+   */
+  public static boolean others;
+  public static final String OTHERS = "Also other programs' files (MidiDrumGen, DrumMidi_CRT, Midi2Wav\u2026)";
+  public static final String OTHERS_NOTE = "Their runs are listed from now on; files they made before are not.";
+
+  /** Other programs' runs are listed (the box on). */
+  public static synchronized boolean othersOn() {
+    load();
+    return others;
+  }
 
   /**
    * Move automatically put off: the run's zip (--zip) is still being made, and --zip_delete deletes
@@ -160,6 +174,7 @@ public final class DownloadMove {
     on = false;
     auto = false;
     clearAuto = false;
+    others = false;
     ticked.clear();
     folder.clear();
     label.clear();
@@ -173,6 +188,7 @@ public final class DownloadMove {
         if (p[0].equals("on")) on = p.length > 1 && "1".equals(p[1]);
         else if (p[0].equals("auto")) auto = p.length > 1 && "1".equals(p[1]);
         else if (p[0].equals("clear")) clearAuto = p.length > 1 && "1".equals(p[1]);
+        else if (p[0].equals("others")) others = p.length > 1 && "1".equals(p[1]);
         else if (p.length >= 4) {
           ticked.put(p[0], "1".equals(p[1]));
           folder.put(p[0], p[2]);
@@ -191,6 +207,7 @@ public final class DownloadMove {
     StringBuilder sb = new StringBuilder();
     sb.append("on\t").append(on ? "1" : "0").append('\n').append("auto\t").append(auto ? "1" : "0").append('\n');
     sb.append("clear\t").append(clearAuto ? "1" : "0").append('\n');
+    sb.append("others\t").append(others ? "1" : "0").append('\n');
     for (String k : KINDS) {
       sb.append(k).append('\t').append(isTicked(k) ? "1" : "0").append('\t').append(clean(folder.get(k))).append('\t').append(clean(label.get(k))).append('\t').append(clean(sub.get(k))).append('\n');
     }

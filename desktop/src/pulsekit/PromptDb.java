@@ -235,6 +235,33 @@ final class PromptDb {
             m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
             // Add to Collection: a link to the DB file.
             m.add(CollectionsWindow.addItem(app, card, MediaCollections.KIND_DB, Playlist.dbAddress(file), file.name, file.size));
+            // A video: its first frame fills the row; a picture: Upscale and use as a reference image (ImageUpscaler).
+            if (MediaDir.firstFrameRef(file.name)) {
+                JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+                first.setName("refs-first-frame");
+                first.addActionListener(e -> {
+                    File copy = this.copyOut(file);
+                    if (copy == null) {
+                        app.setNow("Could not read " + file.name + " from the library");
+                        return;
+                    }
+                    RefImages.firstFrame(app, copy, frame -> {
+                        lastPicked = file.name;
+                        dialog.dispose();
+                        picked.picked(frame.getName(), frame);
+                    });
+                });
+                m.add(first);
+            } else if (previewKind(file.name, null) == 2 && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+                JMenuItem up = new JMenuItem(MediaDir.UPSCALE_AS_REF);
+                up.setName("refs-upscale-ref");
+                up.addActionListener(e -> {
+                    File copy = this.copyOut(file);
+                    if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                    else RefImages.upscale(app, copy, dialog, null);
+                });
+                m.add(up);
+            }
             this.lastCardMenu = m;
             MenuCancel.add(m);
             m.show(card, 10, 10);
@@ -1383,6 +1410,51 @@ final class PromptDb {
             });
             menu.add(strip);
         }
+        // A picture or a video: its preview over the whole screen (the window back to its size from its menu).
+        if (MediaDir.fullScreenable(file.name)) {
+            JMenuItem full = new JMenuItem(MediaDir.FULL_SCREEN);
+            full.setName("gallery-full-screen");
+            full.addActionListener(e -> {
+                this.previewFull = true;
+                try {
+                    this.preview(file, card);
+                } finally {
+                    this.previewFull = false;
+                }
+            });
+            menu.add(full);
+        }
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a in the program files folder, copied as it is).
+        if (Mp4Media.extractable(file.name)) {
+            JMenuItem extract = new JMenuItem(Mp4Media.EXTRACT);
+            extract.setName("gallery-extract-audio");
+            extract.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else AudioExtract.run(app, copy, file.name, app.pyJav.programFolder(), false);
+            });
+            menu.add(extract);
+            // ReRender: the video at another size and shape (crop or bars), into the program files folder.
+            JMenuItem rerender = new JMenuItem(VideoFit.RERENDER);
+            rerender.setName("gallery-rerender");
+            rerender.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else VideoRender.ask(app, card, copy, file.name, app.pyJav.programFolder(), false);
+            });
+            menu.add(rerender);
+        }
+        // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
+        if (MediaDir.firstFrameRef(file.name)) {
+            JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+            first.setName("gallery-first-frame-ref");
+            first.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else RefImages.firstFrameAsRef(app, copy, null, () -> app.showView("prompts"));
+            });
+            menu.add(first);
+        }
         // A picture, known by its name or, without a picture's extension, by its bytes.
         if (previewKind(file.name, this.bytesOf(file)) == 2) {
             // Upscale/Resize image: ImageUpscaler on PyJav with this picture as its input; Return comes back to Prompts.
@@ -1841,7 +1913,8 @@ final class PromptDb {
             final Runnable back = browserBack(video);
             java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
             if (w != null) w.dispose();
-            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
+            // One that needs upscaling is asked Upscale first, Use as it is or Cancel.
+            SwingUtilities.invokeLater(() -> RefImages.offer(app, shot, null, back));
         });
         m.add(process);
         // The video among the favourites, or in a group.
@@ -1898,6 +1971,9 @@ final class PromptDb {
         final File folder = video.getAbsoluteFile().getParentFile();
         return () -> app.mediaBrowser.open(folder);
     }
+
+    /** A picture row's Choose file: a video played from it hands C's frame here (null otherwise). */
+    java.util.function.Consumer<File> frameChooser;
 
     void captureFrame(String name, File video, VlcPlayer player) {
         java.awt.image.BufferedImage img = player.screen.frame;
@@ -2000,10 +2076,13 @@ final class PromptDb {
         final boolean prompts = this.promptsPlayer && !remember;
         final int startVolume = remember ? MediaDir.volume : prompts ? PromptVideo.volume : 80;
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
-        JButton play = new JButton("Play");
+        // Play, Pause and Stop as symbols only (to save room); their names show when pointed at.
+        JButton play = new JButton("\u25b6");
         play.setName("video-play");
-        JButton stop = new JButton("Stop");
+        play.setToolTipText("Play");
+        JButton stop = new JButton("\u25a0");
         stop.setName("video-stop");
+        stop.setToolTipText("Stop");
         JButton mute = new JButton("Mute");
         mute.setName("video-mute");
         javax.swing.JSlider volume = new javax.swing.JSlider(0, 100, startVolume);
@@ -2032,8 +2111,9 @@ final class PromptDb {
             if (player.playing()) player.pause();
             else player.play();
         });
-        JButton pause = new JButton("Pause");
+        JButton pause = new JButton("\u275a\u275a");
         pause.setName("video-pause");
+        pause.setToolTipText("Pause");
         pause.addActionListener(e -> {
             if (player.playing()) player.pause();
             else player.play();
@@ -2051,6 +2131,11 @@ final class PromptDb {
             }
             this.lastCapture = null;
             this.captureFrame(name, video, player);
+            // A picture row's Choose file: the frame fills the row (asked about upscaling first when it needs it).
+            if (this.frameChooser != null) {
+                if (this.lastCapture != null) RefImages.forRow(app, this.lastCapture, SwingUtilities.getWindowAncestor(capture), this.frameChooser);
+                return;
+            }
             // The frame: asked whether it goes on as a Sogni reference (Use as a reference); one to upscale
             // (smaller than the last upscaled, or not 4:7) is asked Upscale first, Use as it is or No.
             final File shot = this.lastCapture;
@@ -2110,6 +2195,18 @@ final class PromptDb {
                 if (this.hold != null) this.hold.stop();
             }
         });
+        // R: this frame straight on as a reference of a Sogni program (not on a Choose file row: C fills the row there).
+        final JButton ref = new JButton("R");
+        ref.setName("video-ref");
+        ref.setToolTipText("This frame as a reference of a Sogni program");
+        ref.setVisible(false);
+        final boolean refShown = this.frameChooser == null && AppSettings.showSogni() && !AppSettings.musicOnly();
+        ref.addActionListener(e -> {
+            this.lastCapture = null;
+            this.captureFrame(name, video, player);
+            if (this.lastCapture != null) RefImages.offer(app, this.lastCapture, SwingUtilities.getWindowAncestor(ref), browserBack(video));
+        });
+        if (this.frameChooser != null) capture.setToolTipText("This frame into the row");
         stop.addActionListener(e -> {
             player.stop();
             position.setValue(0);
@@ -2180,6 +2277,7 @@ final class PromptDb {
             long len = player.lengthMs();
             // C while paused (a frame shown), in the Media browser's player.
             capture.setVisible(remember && !on && player.screen.frame != null && player.state() != 0);
+            ref.setVisible(refShown && remember && !on && player.screen.frame != null && player.state() != 0);
             int state = player.state();
             // Loop: at its end it plays again from the start.
             if (state == VlcPlayer.ENDED && looping.isSelected()) {
@@ -2192,10 +2290,26 @@ final class PromptDb {
             if (!dragging[0]) position.setValue(state == VlcPlayer.ENDED ? 1000 : Math.round(player.position() * 1000));
         });
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        // From the gallery (the Prompts page's player): small arrows to its previous and next picture or video.
+        final PromptVault.StoredFile from = prompts ? this.previewing : null;
+        final JButton[] nextArrow = new JButton[1];
+        if (from != null) {
+            for (int s = -1; s <= 1; s += 2) {
+                final int step = s;
+                JButton arrow = new JButton(step < 0 ? "\u25c0" : "\u25b6");
+                arrow.setName(step < 0 ? "video-prev" : "video-next");
+                arrow.setToolTipText(step < 0 ? "The previous picture or video" : "The next picture or video");
+                arrow.setMargin(new java.awt.Insets(1, 4, 1, 4));
+                arrow.addActionListener(e -> this.stepMedia(from, step, dialog));
+                if (step < 0) transport.add(arrow);
+                else nextArrow[0] = arrow;
+            }
+        }
         transport.add(stop);
         transport.add(play);
         transport.add(pause);
         transport.add(capture);
+        transport.add(ref);
         // Mute and volume: in the Media browser's player at the top, shown by a click on the picture.
         final JPanel sound = remember ? new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)) : transport;
         sound.setName("video-sound");
@@ -2204,6 +2318,7 @@ final class PromptDb {
         sound.add(volume);
         sound.add(level);
         transport.add(looping);
+        if (nextArrow[0] != null) transport.add(nextArrow[0]);
         // Right click (the phone's long press): paused, then Save frame (into the library; the Prompts page's player),
         // Extract frame (into the SC folder beside the video) and the rest.
         player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -2401,6 +2516,7 @@ final class PromptDb {
         dialog.setLocationRelativeTo(app);
         this.lastVideo = dialog;
         this.lastPlayer = player;
+        if (this.previewFull) fullScreen(dialog);
         dialog.setVisible(true);
     }
 
@@ -2473,7 +2589,34 @@ final class PromptDb {
     List<PromptVault.StoredFile> galleryList;
     PromptVault.StoredFile previewing;
 
-    /** The picture `step` places on in the gallery (1 next, -1 previous) from `from`, with its bytes; null at the ends. */
+    /**
+     * The gallery's next (1) or previous (-1) picture or video from `from`, in place of `shown` (the
+     * window closed); full screen when it was. Says so at the first and the last.
+     */
+    void stepMedia(PromptVault.StoredFile from, int step, java.awt.Window shown) {
+        Object[] next = this.stepPicture(from, step);
+        if (next == null) {
+            app.setNow(step > 0 ? "The last one" : "The first one");
+            return;
+        }
+        final boolean full = shown != null && FULL.containsKey(shown);
+        if (shown != null) shown.dispose();
+        SwingUtilities.invokeLater(() -> {
+            PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+            byte[] bytes = (byte[]) next[1];
+            this.previewing = f;
+            this.previewFull = full;
+            try {
+                if (previewKind(f.name, bytes) == 3) this.videoPreview(f.name, bytes);
+                else this.zoomPreview(f.name, bytes, 2);
+            } finally {
+                this.previewing = null;
+                this.previewFull = false;
+            }
+        });
+    }
+
+    /** The picture or video `step` places on in the gallery (1 next, -1 previous) from `from`, with its bytes; null at the ends. */
     Object[] stepPicture(PromptVault.StoredFile from, int step) {
         List<PromptVault.StoredFile> list = this.galleryList;
         if (from == null || list == null) return null;
@@ -2490,7 +2633,8 @@ final class PromptDb {
             } catch (Exception ex) {
                 continue;
             }
-            if (previewKind(f.name, bytes) == 2) return new Object[] {f, bytes};
+            int k = previewKind(f.name, bytes);
+            if (k == 2 || k == 3) return new Object[] {f, bytes};
         }
         return null;
     }
@@ -2504,6 +2648,8 @@ final class PromptDb {
         // Opened by Picture ready's Crop image: the frame from the start, and Process as a reference in its menu.
         final java.util.function.Consumer<File> process = this.previewProcess;
         final Runnable leave = this.previewLeave;
+        // Opened by Crop on a Sogni Params picture row: Use the crop in this row in its menu.
+        final java.util.function.Consumer<File> row = this.previewRow;
         if (this.previewCropNow && kind == 2) {
             cropBox[0] = new CropBox();
             app.setNow(CropBox.HINT);
@@ -2582,11 +2728,19 @@ final class PromptDb {
                     javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
                     m.setName("preview-picture-menu");
                     String[] items = cropBox[0] == null ? new String[] {CropBox.CROP}
+                        : row != null ? new String[] {CropBox.USE_IN_ROW, CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL}
                         : process != null ? new String[] {CropBox.SAVE, CropBox.PROCESS, CropBox.UPSCALE, CropBox.CANCEL} : new String[] {CropBox.SAVE, CropBox.UPSCALE, CropBox.CANCEL};
                     for (String it : items) {
                         javax.swing.JMenuItem mi = new javax.swing.JMenuItem(it);
                         mi.setName("preview-crop:" + it);
-                        if (CropBox.PROCESS.equals(it)) {
+                        if (CropBox.USE_IN_ROW.equals(it)) {
+                            // A Params row's crop: it fills the row (asked about upscaling first when it needs it), the viewer closed.
+                            mi.addActionListener(ev -> {
+                                File made = PromptDb.this.cropFile(name, bytes, cropBox[0]);
+                                if (made == null) return;
+                                RefImages.forRow(app, made, dialog, row);
+                            });
+                        } else if (CropBox.PROCESS.equals(it)) {
                             // Picture ready's crop: into another program as a reference (the viewer closes).
                             mi.addActionListener(ev -> {
                                 File made = PromptDb.this.cropFile(name, bytes, cropBox[0]);
@@ -2683,25 +2837,10 @@ final class PromptDb {
         top.add(percent);
         top.add(in);
         top.add(reset);
-        // From the gallery: Previous / Next (and the arrow keys) show its other pictures.
+        // From the gallery: Previous / Next (and the arrow keys) show its other pictures and videos (full screen stays).
         final PromptVault.StoredFile from = kind == 2 ? this.previewing : null;
         if (from != null) {
-            java.util.function.IntConsumer go = step -> {
-                Object[] next = this.stepPicture(from, step);
-                if (next == null) {
-                    app.setNow(step > 0 ? "The last picture" : "The first picture");
-                    return;
-                }
-                dialog.dispose();
-                SwingUtilities.invokeLater(() -> {
-                    this.previewing = (PromptVault.StoredFile) next[0];
-                    try {
-                        this.zoomPreview(((PromptVault.StoredFile) next[0]).name, (byte[]) next[1], 2);
-                    } finally {
-                        this.previewing = null;
-                    }
-                });
-            };
+            java.util.function.IntConsumer go = step -> this.stepMedia(from, step, dialog);
             JButton prev = new JButton("\u25c0 Previous");
             prev.setName("preview-prev");
             prev.addActionListener(e -> go.accept(-1));
@@ -2735,8 +2874,12 @@ final class PromptDb {
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         this.lastPreview = dialog;
+        if (this.previewFull) fullScreen(dialog);
         dialog.setVisible(true);
     }
+
+    /** Full screen preview (a gallery thumbnail's): the preview window opens over the whole screen. */
+    boolean previewFull;
 
     /** The folder of the picture the Preview window shows next (the Media browser sets it): Save crop saves there. */
     File previewFolder;
@@ -2745,6 +2888,8 @@ final class PromptDb {
     boolean previewCropNow;
     /** Picture ready's Crop image: what closes Picture ready when the crop goes on (Upscale). */
     Runnable previewLeave;
+    /** Crop on a Sogni Params picture row: the crop's Use the crop in this row fills it. */
+    java.util.function.Consumer<File> previewRow;
 
     /** The crop cut from the picture at its full size, as <name>-crop.png in PyJav's input folder; null (said why) when it cannot be. */
     File cropFile(String name, byte[] bytes, CropBox box) {

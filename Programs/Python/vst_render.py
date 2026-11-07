@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -56,8 +56,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   ~/.pulsekit/vst/<plugin>.state) and used for this and later runs. With --effect,
                   the effect's window opens after the instrument's.
   --check         plays a short test beat (kick, snare and hats: GM notes 36, 38, 42; then the kick
-                  and each tom alone) through the
-                  plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
+                  and each tom alone; each cymbal alone, soft to hard, and with a kick and with a
+                  snare; the closed hat and the ride played on in eighths) through the plugin and writes it as vst-check-<plugin>.wav (in --outdir, else here): does the
                   plugin play with these settings? Every run does that check first, and a plugin that
                   is silent for it is skipped (with --plugin2 to --plugin4 the next one goes on): load
                   a kit with --edit. In a run, a silent render is left out (no test, no MP3 of it),
@@ -77,6 +77,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   drum family (within 30 ms, after the best shift): a report, vst-test-<plugin>.txt,
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
+                  The test beat as played is kept too: vst-check-<plugin>.wav (an MP3 with --mp3) and
+                  its notes' times, vst-check-<plugin>-times.txt (what the kit profile is learned from).
+                  Each test run then puts every report, test beat, times file and kit profile in the
+                  output folder into one zip, vst-test-results.zip (added to by each run: after runs of
+                  several plugins it holds them all) and deletes the loose reports, test beats and times
+                  files; the kit profiles stay (--compare_kits reads them).
   --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
                   (its --snare-leak): fewer false hats on the snare, some real ones lost.
   --no-kit        with --test: no kit profile. Otherwise the test beat's kick and toms (each played
@@ -117,10 +123,17 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   with --test DrumMidi's MIDI files and the report, into one zip:
                   vst-render-<plugin>-<date>-<time>.zip beside the report (in --outdir when given). The
                   plugin and Carla settings files given go in too, and the switches used (vst-render-run.txt).
+                  With --test the test beat, its times and the kit profile go in check/.
                   Without --zip, a --dir or --test run in a terminal asks at the end whether to make it.
   --zip_mb N      zips of at most N MB each (--zip implied): vst-render-...-part1of3.zip and so on, for a
                   chat or mail that takes files up to a size (30 for 30 MB). Each MIDI stays with its WAV
                   and DrumMidi's MIDI, and each zip has the report, the settings and vst-render-run.txt.
+  --zip_outdir F  then copies the run's zips (and with --test vst-test-results.zip) into folder F too,
+                  made when missing: one place to pick them up from (a cloud or chat folder). F can
+                  have % codes as Pulsekit's Downloads subfolders: after a %, dd day, mm month, yyyy
+                  or yy year (d, m: no leading 0) and n the first number whose folder is not there yet
+                  (D:\\pickup\\%ddmmyyyy, D:\\pickup\\run-%n). Filled in once: with --plugin2 to
+                  --plugin4 every plugin's zips go in the same folder.
   --zip_nowav     the zip without the WAVs (--zip implied): the MIDI files, DrumMidi's MIDI files and the
                   report are small, the WAVs are most of it (a 20 s WAV is about 3.5 MB). A thousand
                   tests fit in one zip this way; send the WAVs of the files that matter by themselves.
@@ -1372,23 +1385,54 @@ def sogni_zips(folder, only=None, recursive=False):
 
 # The test beat's second part, for the kit profile (DrumMidi --learn-kit): the kick and each tom
 # alone, KIT_HITS times, half a second apart; then the cymbals (closed hat, open hat, ride, crash)
-# alone, KIT_HITS times, a second apart (they ring longer).
+# alone, KIT_HITS times, a second apart (they ring longer), soft, mid and hard (KIT_VELOCITIES: a
+# song's hits are not all alike); then each cymbal KIT_WITH times struck with a kick and KIT_WITH
+# times with a snare (a song's rides and hats are mostly on one): the profile learns how they look then.
+# Last, the closed hat and the ride each played on in eighths, KIT_GROOVE_HITS of them, soft to hard
+# (KIT_GROOVE_VELOCITIES): as a song plays them, each hit over the ring of the one before.
 KIT_NOTES = (36, 41, 43, 45, 47, 48, 50)
 KIT_CYMBALS = (42, 46, 51, 49)
 KIT_HITS = 3
+KIT_VELOCITIES = (70, 100, 120)
+KIT_WITH = 2
+KIT_COMPANIONS = ((36, "k"), (38, "s"))
+KIT_GROOVE = (42, 51)
+KIT_GROOVE_HITS = 16
+KIT_GROOVE_VELOCITIES = (70, 120)
+
+
+def kit_events():
+    """Every note of the test beat's second part: (seconds, note, velocity, tag), at its 120 BPM. The tag
+    is "" for a drum alone, "k" or "s" for a cymbal struck with a kick or a snare, "-" for that kick
+    or snare (not learned), and "g" for a closed hat or ride played on in eighths."""
+    out = [(2.0 + 0.5 * (i * KIT_HITS + k), n, 100, "") for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
+    start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
+    out += [(start + 1.0 * (i * KIT_HITS + k), n, KIT_VELOCITIES[k % len(KIT_VELOCITIES)], "")
+            for i, n in enumerate(KIT_CYMBALS) for k in range(KIT_HITS)]
+    t = start + 1.0 * len(KIT_CYMBALS) * KIT_HITS
+    for n in KIT_CYMBALS:
+        for drum, tag in KIT_COMPANIONS:
+            for _ in range(KIT_WITH):
+                out += [(t, n, 100, tag), (t, drum, 100, "-")]
+                t += 1.0
+    lo, hi = KIT_GROOVE_VELOCITIES
+    for n in KIT_GROOVE:
+        for i in range(KIT_GROOVE_HITS):
+            out.append((t + 0.25 * i, n, int(round(lo + (hi - lo) * i / float(KIT_GROOVE_HITS - 1))), "g"))
+        t += 0.25 * KIT_GROOVE_HITS + 1.0
+    return out
 
 
 def kit_times():
     """The kick, toms and cymbals of the test beat, alone: (seconds, note), at its 120 BPM."""
-    drums = [(2.0 + 0.5 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_NOTES) for k in range(KIT_HITS)]
-    start = 2.0 + 0.5 * len(KIT_NOTES) * KIT_HITS + 0.5
-    return drums + [(start + 1.0 * (i * KIT_HITS + k), n) for i, n in enumerate(KIT_CYMBALS) for k in range(KIT_HITS)]
+    return [(t, n) for t, n, _, tag in kit_events() if tag == ""]
 
 
 def check_midi(folder):
     """A test beat as a MIDI file in the folder: a bar at 120 BPM, kicks (36) and snares (38) on the
     beats, closed hats (42) on the eighths, on the drum channel; then the kick, each tom and each
-    cymbal alone (kit_times); returns its path."""
+    cymbal alone, each cymbal with a kick and with a snare, and the closed hat and ride played on in
+    eighths (kit_events); returns its path."""
     events = []
     for k in range(8):
         tick = k * 240
@@ -1396,9 +1440,9 @@ def check_midi(folder):
         for n in notes:
             events.append((tick, 0x99, n, 100))
             events.append((tick + 120, 0x89, n, 0))
-    for t, n in kit_times():
+    for t, n, vel, _ in kit_events():
         tick = int(round(t * 960))
-        events.append((tick, 0x99, n, 100))
+        events.append((tick, 0x99, n, vel))
         events.append((tick + 120, 0x89, n, 0))
     events.sort(key=lambda e: (e[0], e[1] == 0x99))
     data, last = bytearray(), 0
@@ -1430,6 +1474,23 @@ def kit_missing(said):
     return n
 
 
+def kit_times_text(nmap):
+    """The test beat's notes DrumMidi --learn-kit learns the kit from, as the plugin plays them (--map:
+    a note played as another drum, or not at all, is left out): "seconds note" lines, then k or s for a
+    cymbal struck with a kick or a snare, g for one played on in eighths."""
+    lines = []
+    for t, n, _, tag in kit_events():
+        m = nmap.get(n, n)
+        if tag == "-" or m is None:
+            continue
+        if tag == "" and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
+            lines.append("%.4f %d\n" % (t, m))
+        elif tag and n in KIT_CYMBALS and m in KIT_CYMBALS:
+            # A cymbal struck with a kick ("k") or a snare ("s"): learned apart, as it sounds then.
+            lines.append("%.4f %d %s\n" % (t, m, tag))
+    return "".join(lines)
+
+
 def learn_kit(java, jar, audio, rate, bits, nmap, out):
     """DrumMidi --learn-kit on the test beat's render: the kit's kick and toms as the plugin plays them
     (--map: a note played as another drum, or not at all, is not learned), into `out`. Returns
@@ -1441,10 +1502,7 @@ def learn_kit(java, jar, audio, rate, bits, nmap, out):
     write_wav(wav, audio, rate, bits)
     times = os.path.join(work, "check-times.txt")
     with open(times, "w") as f:
-        for t, n in kit_times():
-            m = nmap.get(n, n)
-            if m is not None and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
-                f.write("%.4f %d\n" % (t, m))
+        f.write(kit_times_text(nmap))
     try:
         r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", "--learn-kit", wav, times, os.path.abspath(out)],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
@@ -1649,14 +1707,167 @@ def packed_size(path):
     return min(n + len(z.flush()), os.path.getsize(path) + 64)
 
 
-def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0, no_wav=False, relfn=None):
+RESULTS_ZIP = "vst-test-results.zip"
+
+
+def fill_codes(pattern, now, n):
+    """The % codes filled in (as Pulsekit's Downloads subfolders): after a %, dd (day, 04), d (4), mm
+    (month, 11), m, yyyy (2026), yy (26) and n (the number `n`) follow each other until another
+    character; %% is a %, a lone % stays."""
+    out = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c != "%":
+            out.append(c)
+            i += 1
+            continue
+        if pattern[i + 1:i + 2] == "%":
+            out.append("%")
+            i += 2
+            continue
+        j = i + 1
+        while j < len(pattern):
+            rest = pattern[j:]
+            for code, value in (("yyyy", "%04d" % now.tm_year), ("yy", "%02d" % (now.tm_year % 100)), ("dd", "%02d" % now.tm_mday),
+                                ("d", str(now.tm_mday)), ("mm", "%02d" % now.tm_mon), ("m", str(now.tm_mon)), ("n", str(n))):
+                if rest.startswith(code):
+                    out.append(value)
+                    j += len(code)
+                    break
+            else:
+                break
+        if j == i + 1:
+            out.append("%")
+        i = max(j, i + 1)
+    return "".join(out)
+
+
+def expand_folder(pattern, now=None):
+    """--zip_outdir's % codes filled in for today; %n is the first number from 1 whose folder (the path up
+    to the part %n is in) is not there yet. No % codes: the path as it is."""
+    import time
+    if not pattern or "%" not in pattern:
+        return pattern
+    now = now or time.localtime()
+    one, two = fill_codes(pattern, now, 1), fill_codes(pattern, now, 2)
+    if one == two:
+        return one
+    at = next(i for i in range(min(len(one), len(two))) if one[i] != two[i])
+    for n in range(1, 100000):
+        path = fill_codes(pattern, now, n)
+        # The folder %n numbers: up to the separator after where the number is.
+        cut = len(path)
+        for sep in ("/", "\\"):
+            k = path.find(sep, at)
+            if k >= 0:
+                cut = min(cut, k)
+        if not os.path.exists(path[:cut]):
+            return path
+    return one
+
+
+ZIP_OUTDIR_EXPANDED = [False]
+
+
+def copy_zips(zips, folder):
+    """--zip_outdir: the run's zips copied into the folder (made when missing; a zip of the same name there
+    is replaced). The copies' paths."""
+    import shutil
+    if not zips:
+        print("Zip folder: no zip made in this run, nothing copied to %s" % folder)
+        return []
+    try:
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+    except OSError as e:
+        print("Zip folder: %s could not be made (%s): the zips stay where they are" % (folder, e))
+        return []
+    out = []
+    for z in zips:
+        target = os.path.join(folder, os.path.basename(z))
+        if os.path.abspath(target) == os.path.abspath(z):
+            out.append(z)
+            continue
+        try:
+            shutil.copyfile(z, target)
+            out.append(target)
+        except OSError as e:
+            print("Zip folder: %s not copied (%s)" % (os.path.basename(z), e))
+    print("Zip folder: %d zip%s copied to %s" % (len(out), "" if len(out) == 1 else "s", folder))
+    return out
+
+
+def results_zip(dirs):
+    """--test: every test's report, test beat (its MP3, else its WAV), times and kit profile in the folders
+    (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) into one zip, RESULTS_ZIP, in the first
+    folder. The zip is added to, not made anew: what it holds stays, a file of the same name is replaced,
+    so after runs of several plugins it holds them all. Then the reports, test beats and times files are
+    deleted (they are in the zip); the kit profiles stay (--kit, --compare_kits). A test beat goes only
+    with its times file (a --check WAV has none and stays). Its path, or None when there was nothing."""
+    import zipfile
+    files, loose = [], []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            if not os.path.isfile(p) or p in files:
+                continue
+            low = f.lower()
+            report = low.startswith("vst-test-") and low.endswith(".txt")
+            kit = low.startswith("vst-kit-") and low.endswith(".kit")
+            times = low.startswith("vst-check-") and low.endswith("-times.txt")
+            beat = low.startswith("vst-check-") and low.endswith((".mp3", ".wav")) and os.path.isfile(p[:-4] + "-times.txt")
+            if beat and low.endswith(".wav") and os.path.isfile(p[:-4] + ".mp3"):
+                loose.append(p)
+                continue
+            if report or kit or times or beat:
+                files.append(p)
+                if not kit:
+                    loose.append(p)
+    if not files:
+        return None
+    path = os.path.join(dirs[0], RESULTS_ZIP)
+    work = path + ".part"
+    names = {}
+    for p in files:
+        names.setdefault(os.path.basename(p), p)
+    kept = 0
+    with zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as z:
+        if os.path.isfile(path):
+            try:
+                with zipfile.ZipFile(path) as old:
+                    for info in old.infolist():
+                        if info.filename not in names:
+                            z.writestr(info, old.read(info.filename))
+                            kept += 1
+            except (zipfile.BadZipFile, OSError) as e:
+                print("Results zip: %s could not be read (%s): made anew" % (RESULTS_ZIP, e))
+        for name, p in sorted(names.items()):
+            z.write(p, name)
+    os.replace(work, path)
+    removed = 0
+    for p in loose:
+        try:
+            os.remove(p)
+            removed += 1
+        except OSError:
+            pass
+    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles%s; %.1f MB); %d loose file%s deleted, the kit profiles kept"
+          % (path, len(names) + kept, ", %d from earlier runs" % kept if kept else "", os.path.getsize(path) / float(ZIP_MB), removed, "" if removed == 1 else "s"))
+    return path
+
+
+def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, limit_mb=0, no_wav=False, relfn=None, check=None):
     """--zip: the inputs and what was made in one zip beside the report (or, with --zip_mb, in zips of at
     most that many MB); their paths.
 
     midi/ the MIDI files played (their subfolders under --dir kept), midi-<bpm>bpm/ the copies played at
     --bpm's tempo, wav/ the renders, dm/ DrumMidi's MIDI files (--test), settings/ the settings files
     given, and at the top the report and vst-render-run.txt (the switches used). Split, each zip keeps a
-    MIDI with its WAV and DrumMidi's MIDI, and has the report, the settings and the run in it too."""
+    MIDI with its WAV and DrumMidi's MIDI, and has the report, the settings and the run in it too.
+    check/ (--test): the test beat as played, its times and the kit profile learned from it, in every zip."""
     import time
     import zipfile
     if not os.path.isdir(where):
@@ -1709,6 +1920,9 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
             shared.append((f, arc("settings", f)))
     if report and os.path.isfile(report):
         shared.append((report, arc("", report)))
+    for f in check or []:
+        if f and os.path.isfile(f) and not (no_wav and f.lower().endswith(".wav")):
+            shared.append((f, arc("check", f)))
     run = "vst_render.py " + " ".join('"%s"' % a if " " in a else a for a in argv) + "\n"
     run_name = arc("", "vst-render-run.txt")
 
@@ -1780,7 +1994,7 @@ def main(argv):
         pass
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None, "--mp3": None, "--map": None,
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
             "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
     switches = set()
@@ -1811,6 +2025,15 @@ def main(argv):
     for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
         if opts[m] and not opts[k]:
             fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
+    # --zip_outdir's % codes: filled in once for the whole run (all plugins' zips in one folder).
+    if opts["--zip_outdir"] and not ZIP_OUTDIR_EXPANDED[0]:
+        ZIP_OUTDIR_EXPANDED[0] = True
+        filled = expand_folder(opts["--zip_outdir"])
+        if filled != opts["--zip_outdir"]:
+            print("Zip folder: %s" % filled)
+            opts["--zip_outdir"] = filled
+            argv = list(argv)
+            argv[argv.index("--zip_outdir") + 1] = filled
     more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
     if more:
         if not opts["--plugin"]:
@@ -2066,6 +2289,8 @@ def main(argv):
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
     kit_file = None
     kit_said = "not learned (--no-kit, or no test beat)"
+    # --test: the test beat as played and its times, kept beside the report (and zipped in check/).
+    check_files = []
     if not opts["--wav"]:
         # The plugin's check: a test beat through it. A plugin silent for it plays nothing for the run either.
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
@@ -2144,6 +2369,17 @@ def main(argv):
                 kit_file = None
                 kit_said = "not learned (%s); the test went on without it" % said
                 print("Kit: not learned (%s); the test goes on without it" % said)
+        if test and "--check" not in switches:
+            where = opts["--outdir"] or "."
+            if not os.path.isdir(where):
+                os.makedirs(where)
+            keep = os.path.join(where, "vst-check-%s.wav" % tag)
+            write_wav(keep, check_audio, rate, bits)
+            times_keep = os.path.join(where, "vst-check-%s-times.txt" % tag)
+            with open(times_keep, "w") as f:
+                f.write(kit_times_text(nmap))
+            check_files = [keep, times_keep]
+            print("Test beat: %s (%.1f s) and its times, %s" % (os.path.basename(keep), check_audio.shape[1] / float(rate), os.path.basename(times_keep)))
         if "--check" in switches:
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
@@ -2372,6 +2608,17 @@ def main(argv):
             batch_done[k] = (m, mp3)
             converted += 1
             print("MP3 %s: %.2f MB" % (os.path.basename(mp3), os.path.getsize(mp3) / float(ZIP_MB)))
+        for k, f in enumerate(check_files):
+            if f.lower().endswith(".wav") and os.path.isfile(f):
+                mp3 = os.path.splitext(f)[0] + ".mp3"
+                why = to_mp3(opts["--java"], opts["--drummidi"], f, mp3, mp3_kbps)
+                if why:
+                    print("MP3 failed %s: %s (the WAV stays)" % (os.path.basename(f), why))
+                    continue
+                if "--keep_wav" not in switches:
+                    os.remove(f)
+                check_files[k] = mp3
+                print("MP3 %s: %.2f MB (the test beat)" % (os.path.basename(mp3), os.path.getsize(mp3) / float(ZIP_MB)))
         if converted:
             print("MP3s: %d at %d kbps, %.1f MB instead of %.1f MB of WAVs%s" % (converted, mp3_kbps, mp3_mb, wav_mb, " (the WAVs kept)" if "--keep_wav" in switches else ""))
     where = opts["--outdir"] or (folder if batch is not None else os.path.dirname(os.path.abspath(batch_done[0][1]))) if batch_done else None
@@ -2380,9 +2627,18 @@ def main(argv):
         made = make_zip(where, tag, argv, folder if batch is not None else None,
                         [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
                         [o for _, o in batch_done], dms, rep, opts, None if by_name else bpm, limit_mb, "--zip_nowav" in switches,
-                        rel if two else None)
+                        rel if two else None, check_files + ([kit_file] if kit_file and os.path.isfile(kit_file) else []))
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
+        ready = list(made)
+    else:
+        ready = []
+    if test:
+        results = results_zip([d for d in (where, opts["--outdir"] or ".") if d])
+        if results:
+            ready.append(results)
+    if opts["--zip_outdir"]:
+        copy_zips(ready, opts["--zip_outdir"])
     if batch is not None:
         made = len(batch_done) - kept
         print("Succeeded: %d of %d MIDI files rendered%s%s" % (made, len(batch), ", %d kept from before" % kept if kept else "",

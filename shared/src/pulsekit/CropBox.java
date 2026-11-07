@@ -15,6 +15,9 @@ public final class CropBox {
   /** Picture ready's crop: into another program as its Reference file 1 or 2. */
   public static final String PROCESS = "Process as a reference";
   public static final String CANCEL = "Cancel crop";
+  /** Sogni Params' Crop (beside Preview on a picture row): the crop fills the row (asked about upscaling first when it needs it). */
+  public static final String USE_IN_ROW = "Use the crop in this row";
+  public static final String CROP_ROW = "Crop";
   public static final String HINT = "Drag the frame's borders or corners (or inside it, to move it). A long press saves or upscales the crop.";
   /** The frame's colour (ARGB). */
   public static final int COLOR = 0xFFFFA726;

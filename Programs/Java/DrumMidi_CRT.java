@@ -33,6 +33,12 @@ import java.util.Set;
  * --dir <folder> runs on every WAV in the folder (--recursive: its subfolders too), each written as
  * <wav>-dm.mid beside it with the same switches: a Midi2Wav or vst_render.py batch for CompareHits --batch.
  *
+ * --zip puts the MIDI file(s) made (and the --log file) in a zip too: <output>.zip beside the MIDI, or
+ * <folder>-dm.zip in --dir's folder. --zip_mb N (--zip implied) makes zips of at most N MB each
+ * (<name>-part1of3.zip...; a file is never split). --zip_outdir <folder> writes the zips there instead
+ * (made when missing), with % codes: after a %, dd, d, mm, m, yyyy, yy and n follow each other
+ * (%ddmmyy is 071126; %n the first number from 1 whose folder is not there yet; %% is a %).
+ *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
  *
@@ -206,12 +212,20 @@ public class DrumMidi_CRT{
      */
     static final double KICK_HAT_JUMP = 0.15, SNARE_HAT_JUMP = 0.66, SNARE_LIKE = 0.65, SNARE_LIKE_BODY = 0.5;
     /**
-     * A hat peak within ECHO_FRAMES (~115 ms) of the one before that raises the hat band less than
+     * A hat peak within ECHO_FRAMES (~70 ms) of the one before that raises the hat band less than
      * ECHO_RISE and stays under ECHO_LEVEL of it is that hit's second peak (a kick's, an open hat's or a
-     * ride's: Anarchy Drums' samples have one 40-120 ms on), not a hat of its own.
+     * ride's: Anarchy Drums' samples have one 40-120 ms on), not a hat of its own. (10 frames, 115 ms,
+     * dropped 16th-note hats at 120 BPM and more, 125 ms apart: the four VST kits' songs lost 26-34% of
+     * such hats; at 6, 148 more closed hats were found and 3 more hats written that were not played.)
      */
-    static final int ECHO_FRAMES = 10;
+    static final int ECHO_FRAMES = 6;
     static final double ECHO_RISE = 0.2, ECHO_LEVEL = 0.8;
+    /**
+     * The hat band's onset threshold, as a share of BASE_DELTA (0.85 before: at 0.7 the four VST kits'
+     * songs gave 273 more closed hats right and 92 more hats written that were not played; at 0.6 the
+     * next 86 hats cost 83 more).
+     */
+    static final double HAT_DELTA = 0.7;
     /** Hats keep time at spacings up to HAT_TIME_MAX frames (0.56 s: quarter notes down to 107 BPM). */
     static final int HAT_TIME_MAX = 48;
     /** Seconds within which a ride or crash and a hat peak are the same hit. */
@@ -322,12 +336,169 @@ public class DrumMidi_CRT{
 
     public static void main(String[] args) throws Exception {
         startDirs = new String[] {System.getProperty("pulsekit.work"), System.getProperty("user.dir"), System.getProperty("java.io.tmpdir")};
+        zip = false;
+        zipMb = 0;
+        zipOutdir = null;
+        made.clear();
+        zipBase = null;
+        zipDir = null;
         try {
             run(args);
+            if (zip && !made.isEmpty()) zipMade();
         } catch (Throwable ex) {
             String m = ex.getMessage();
             finish("Failed: " + (m == null || m.length() == 0 ? ex.toString() : m));
         }
+    }
+
+    /** --zip, --zip_mb, --zip_outdir; the files made (the MIDI, the log) and the zip's name and folder. */
+    static boolean zip;
+    static double zipMb;
+    static String zipOutdir;
+    static final List<File> made = new ArrayList<File>();
+    static String zipBase;
+    static File zipDir;
+
+    /** --zip: what the run made into zips (of at most --zip_mb MB each), in --zip_outdir or beside the MIDI. */
+    static void zipMade() {
+        File dir = zipDir;
+        if (zipOutdir != null && zipOutdir.length() > 0) {
+            String path = expandFolder(zipOutdir, java.util.Calendar.getInstance());
+            File d = new File(path);
+            if (!d.isAbsolute()) d = new File(workDir(), path);
+            dir = d;
+        }
+        if (dir == null) dir = made.get(0).getAbsoluteFile().getParentFile();
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            System.out.println("Could not make the zip's folder " + dir.getPath());
+            return;
+        }
+        long limit = zipMb > 0 ? (long) (zipMb * 1024 * 1024) : Long.MAX_VALUE;
+        List<List<File>> parts = new ArrayList<List<File>>();
+        List<File> now = new ArrayList<File>();
+        long size = 0;
+        for (File f : made) {
+            if (!f.isFile()) continue;
+            if (!now.isEmpty() && size + f.length() > limit) {
+                parts.add(now);
+                now = new ArrayList<File>();
+                size = 0;
+            }
+            now.add(f);
+            size += f.length();
+        }
+        if (!now.isEmpty()) parts.add(now);
+        String base = zipBase != null ? zipBase : made.get(0).getName().replaceAll("(?i)\\.midi?$", "");
+        for (int k = 0; k < parts.size(); k++) {
+            File z = new File(dir, base + (parts.size() > 1 ? "-part" + (k + 1) + "of" + parts.size() : "") + ".zip");
+            try {
+                java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new FileOutputStream(z));
+                try {
+                    Set<String> names = new HashSet<String>();
+                    for (File f : parts.get(k)) {
+                        String n = f.getName();
+                        for (int c = 2; !names.add(n); c++) n = f.getName().replaceAll("(\\.[^.]+)?$", "-" + c + "$1");
+                        zos.putNextEntry(new java.util.zip.ZipEntry(n));
+                        zos.write(readBytes(f));
+                        zos.closeEntry();
+                    }
+                } finally {
+                    zos.close();
+                }
+                System.out.println(String.format(java.util.Locale.ROOT, "Wrote %s: %d file%s, %.1f KB (%s)", z.getName(), parts.get(k).size(), parts.get(k).size() == 1 ? "" : "s",
+                        z.length() / 1024.0, z.getAbsoluteFile().getParent()));
+            } catch (Exception ex) {
+                System.out.println("Could not write " + z.getName() + " (" + ex.getMessage() + ")");
+            }
+        }
+    }
+
+    static byte[] readBytes(File f) throws java.io.IOException {
+        FileInputStream in = new FileInputStream(f);
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /** The folder a relative --zip_outdir is under: Pulsekit's work folder, else the current one. */
+    static File workDir() {
+        String w = System.getProperty("pulsekit.work");
+        return new File(w != null && w.length() > 0 ? w : System.getProperty("user.dir", "."));
+    }
+
+    /**
+     * --zip_outdir's % codes filled in for `now`; %n is the first number from 1 whose folder (the path
+     * up to the part %n is in) is not there yet. No % codes: the path as it is.
+     */
+    static String expandFolder(String pattern, java.util.Calendar now) {
+        if (pattern.indexOf('%') < 0) return pattern;
+        String one = fillCodes(pattern, now, 1), two = fillCodes(pattern, now, 2);
+        if (one.equals(two)) return one;
+        int at = 0;
+        while (at < Math.min(one.length(), two.length()) && one.charAt(at) == two.charAt(at)) at++;
+        for (int n = 1; n < 100000; n++) {
+            String path = fillCodes(pattern, now, n);
+            int end = path.indexOf('/', at);
+            int endB = path.indexOf('\\', at);
+            if (end < 0 || (endB >= 0 && endB < end)) end = endB;
+            File head = new File(end < 0 ? path : path.substring(0, end));
+            if (!head.isAbsolute()) head = new File(workDir(), head.getPath());
+            if (!head.exists()) return path;
+        }
+        return one;
+    }
+
+    /** The % codes filled in, n as `n` (dd d mm m yyyy yy n; %% is a %; a lone % stays). */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c != '%') {
+                out.append(c);
+                continue;
+            }
+            if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+                out.append('%');
+                i++;
+                continue;
+            }
+            int j = i + 1;
+            while (j < pattern.length()) {
+                String rest = pattern.substring(j);
+                if (rest.startsWith("yyyy")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+                    j += 4;
+                } else if (rest.startsWith("yy")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+                    j += 2;
+                } else if (rest.startsWith("dd")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+                    j += 2;
+                } else if (rest.startsWith("d")) {
+                    out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+                    j += 1;
+                } else if (rest.startsWith("mm")) {
+                    out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+                    j += 2;
+                } else if (rest.startsWith("m")) {
+                    out.append(now.get(java.util.Calendar.MONTH) + 1);
+                    j += 1;
+                } else if (rest.startsWith("n")) {
+                    out.append(n);
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+            if (j == i + 1) out.append('%');
+            i = j - 1;
+        }
+        return out.toString();
     }
 
     static final String DEFAULT_LOG = "DrumMidi_CRT_log.txt";
@@ -374,6 +545,7 @@ public class DrumMidi_CRT{
                     fos.close();
                 }
                 System.out.println("Log: " + f.getAbsolutePath());
+                if (!made.contains(f.getAbsoluteFile())) made.add(f.getAbsoluteFile());
             } catch (Exception ex) {
                 System.out.println("Could not write the log " + logPath + ": " + ex.getMessage());
             }
@@ -430,6 +602,9 @@ public class DrumMidi_CRT{
             if (mid.isFile() && mid.lastModified() != before) done++;
         }
         logPath = keepLog;
+        // --zip: the folder's MIDI files (and the log) as <folder>-dm.zip in the folder (or --zip_outdir).
+        zipBase = dir.getName() + "-dm";
+        zipDir = dir;
         finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " WAV files in " + dir.getName() + " (<wav>-dm.mid beside each)");
     }
 
@@ -455,7 +630,7 @@ public class DrumMidi_CRT{
         // --learn-kit <render> <times.txt> <out.kit>: a kit's kick and toms, from vst_render's test beat.
         if (args.length > 0 && "--learn-kit".equals(args[0])) {
             if (args.length < 4) {
-                finish("Failed: --learn-kit needs the test beat's render, its notes' times (seconds and note on each line) and the .kit file to write");
+                finish("Failed: --learn-kit needs the test beat's render, its notes' times (seconds and note on each line, then k or s for a cymbal struck with a kick or snare, g for one played on in eighths) and the .kit file to write");
                 return;
             }
             KitProfile.learn(new File(args[1]), new File(args[2]), new File(args[3]));
@@ -465,6 +640,21 @@ public class DrumMidi_CRT{
         for (int i = 0; i < args.length; i++) {
             String a = args[i] == null ? "" : args[i].trim();
             if (a.length() == 0) continue;
+            // --zip, --zip_mb N, --zip_outdir <folder>: the MIDI made (and the log) also zipped.
+            if ("--zip".equals(a)) {
+                zip = true;
+                continue;
+            }
+            if ("--zip_mb".equals(a) && i + 1 < args.length) {
+                zipMb = Double.parseDouble(args[++i].trim());
+                zip = true;
+                continue;
+            }
+            if ("--zip_outdir".equals(a) && i + 1 < args.length) {
+                zipOutdir = args[++i].trim();
+                zip = true;
+                continue;
+            }
             if ("--log".equals(a)) {
                 // --log alone writes DrumMidi_CRT_log.txt.
                 String nx = i + 1 < args.length && args[i + 1] != null ? args[i + 1].trim() : "";
@@ -492,7 +682,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -718,7 +908,9 @@ public class DrumMidi_CRT{
             if (isSnare(lv, t, 1, rideRings(rideEnergy, t))) mark(busy, t, 2);
         }
         for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) if (jump(kickLevel, p.intValue()) >= KICK_JUMP) mark(busy, p.intValue(), 2);
-        List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * 0.85) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
+        // HAT_DELTA of the onset threshold: soft hats among loud ones (their mean over 16 frames each way)
+        // are found too.
+        List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * HAT_DELTA) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
         // A snare's noise (or a kick's click) reaches the hat band, so a hat under one is taken only
         // where it keeps the time of the hats around it (hats on both sides at the same spacing, or
         // two before or after it): a lone snare or a tom fill has no hats to keep time with.
@@ -873,6 +1065,7 @@ public class DrumMidi_CRT{
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
+        if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
@@ -943,6 +1136,7 @@ public class DrumMidi_CRT{
             finish("Failed: MIDI file was not written");
             return;
         }
+        made.add(written);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (writeToms ? "" : " (--no-toms: toms not written)"));
         note("MIDI Extracted to: " + written.getAbsolutePath());
@@ -1863,6 +2057,11 @@ public class DrumMidi_CRT{
     static final double CYM_ALIKE = 0.4;
     /** Another hit this near (a cymbal, a kick, a snare, a tom): the sound is not the cymbal alone, and it is not changed. */
     static final double CYM_ALONE = 0.04;
+    /** KitProfile.rideVote: the passage (seconds each way) and how many cymbals heard alone in it. */
+    static final double RIDE_VOTE_WINDOW = 2.0;
+    static final int RIDE_VOTE_SEEN = 4;
+    /** KitProfile.rideVote: a profile's ride or hats cut is used where both its values are under this. */
+    static final double RIDE_CUT_LOWER = -0.1;
     /** A test beat cymbal under this share of the loudest one is not played by the kit. */
     static final double CYM_SILENT = 0.01;
     static final int[] CYM_NOTES = {CLOSED_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE};
@@ -1902,12 +2101,21 @@ public class DrumMidi_CRT{
      * (index CYM_BANDS) and its level (index CYM_BANDS + 1); null where the audio ends or is silent.
      */
     static double[] cymFeature(double[] x, double sr, double time) {
+        return cymFeature(x, sr, time, true);
+    }
+
+    /**
+     * cymFeature, with what rang before the hit taken off or not: in a song a hat's own ring from
+     * the hat before is taken off too, which leaves its look brighter than the test beat's hats
+     * (heard a second apart); without that, a song's hats look like the learned closed hat.
+     */
+    static double[] cymFeature(double[] x, double sr, double time, boolean takeBefore) {
         int at = (int) Math.round(time * sr);
         double[][] w = {cymWindow(x, sr, at), cymWindow(x, sr, at + CYM_N / 4), cymWindow(x, sr, at + (int) (0.07 * sr)), cymWindow(x, sr, at + (int) (0.09 * sr))};
         for (double[] v : w) if (v == null) return null;
         // What rang already just before the hit (a crash's wash, an open hat): taken off, so the look
         // is the hit's own rise and fade, not the cymbals before it.
-        double[] before = cymWindow(x, sr, at - CYM_N - (int) (0.005 * sr));
+        double[] before = takeBefore ? cymWindow(x, sr, at - CYM_N - (int) (0.005 * sr)) : null;
         double[] out = new double[CYM_BANDS + 2];
         double e1 = 0, e2 = 0, mean = 0;
         for (int k = 0; k < CYM_BANDS; k++) {
@@ -1947,6 +2155,16 @@ public class DrumMidi_CRT{
         /** The learned cymbals (lines "c<note> ..."): their notes and looks (cymFeature, without the level). */
         final List<Integer> cymNotes = new ArrayList<Integer>();
         final List<double[]> cymLooks = new ArrayList<double[]>();
+        /**
+         * The learned cymbals heard with a kick ("c<note>k") or a snare ("c<note>s"), from the test beat's
+         * cymbals struck with them: a cymbal found on a kick or snare is told apart by these. Also the
+         * cymbals played on in eighths ("c<note>g"), for rideVote.
+         */
+        final List<Integer> withNotes = new ArrayList<Integer>();
+        final List<Character> withTags = new ArrayList<Character>();
+        final List<double[]> withLooks = new ArrayList<double[]>();
+        /** The ride or hats cut learned from the runs ("ridecut a b"; null when not learned): see rideVote. */
+        double[] rideCut;
 
         KitProfile(String name) {
             this.name = name;
@@ -2033,15 +2251,51 @@ public class DrumMidi_CRT{
             java.util.Map<Integer, double[]> cymSum = new java.util.TreeMap<Integer, double[]>();
             java.util.Map<Integer, Integer> cymCount = new java.util.HashMap<Integer, Integer>();
             java.util.Set<Integer> cymUnread = new java.util.LinkedHashSet<Integer>();
+            // A cymbal struck with a kick ("k" after its note) or a snare ("s"): its look then, apart.
+            java.util.Map<String, double[]> withSum = new java.util.TreeMap<String, double[]>();
+            java.util.Map<String, Integer> withCount = new java.util.HashMap<String, Integer>();
+            // Cymbals played on in eighths ("g"): each hit over the ring of the one before, as in a song. Its
+            // look is read at the note's time plus the render's offset (the cymbals alone tell it): in a
+            // run of hits the onset search would find the next one.
+            List<double[]> groove = new ArrayList<double[]>();
+            // The runs' hits read (all but the first of each): note, and its look with and without the ring
+            // before taken off, for the ride or hats cut (rideCut).
+            List<Integer> runNotes = new ArrayList<Integer>();
+            List<double[][]> runLooks = new ArrayList<double[][]>();
+            List<Double> cymShifts = new ArrayList<Double>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
                 int note = Integer.parseInt(w[1]);
+                String tag = w.length > 2 ? w[2].trim() : "";
+                if (isCymbalNote(note) && (tag.equals("k") || tag.equals("s"))) {
+                    // A cymbal struck with a kick or snare: its look at the note (both start there).
+                    double wat = Double.parseDouble(w[0]);
+                    double won = onset(audio.samples, audio.sampleRate, wat);
+                    double[] f = won < 0 ? null : cymFeature(audio.samples, audio.sampleRate, won);
+                    if (f == null) continue;
+                    String wk = note + tag;
+                    if (!withSum.containsKey(wk)) {
+                        withSum.put(wk, new double[CYM_BANDS + 2]);
+                        withCount.put(wk, Integer.valueOf(0));
+                    }
+                    double[] ws = withSum.get(wk);
+                    for (int k = 0; k < CYM_BANDS + 2; k++) ws[k] += f[k];
+                    withCount.put(wk, Integer.valueOf(withCount.get(wk).intValue() + 1));
+                    continue;
+                }
+                if (isCymbalNote(note) && tag.equals("g")) {
+                    // A cymbal played on in eighths: read after the loop, where the render's offset is known.
+                    groove.add(new double[] {Double.parseDouble(w[0]), note});
+                    continue;
+                }
+                if (tag.length() > 0) continue;
                 if (isCymbalNote(note)) {
                     // A cymbal alone: its look where its sound starts.
                     double cat = Double.parseDouble(w[0]);
                     double con = onset(audio.samples, audio.sampleRate, cat);
                     double[] f = con < 0 ? null : cymFeature(audio.samples, audio.sampleRate, con);
+                    if (con >= 0) cymShifts.add(Double.valueOf(con - cat));
                     Integer ck = Integer.valueOf(note);
                     if (f == null) {
                         if (!cymSum.containsKey(ck)) cymUnread.add(ck);
@@ -2080,6 +2334,31 @@ public class DrumMidi_CRT{
                 for (int k = 0; k <= KIT_BANDS; k++) s[k] += v[k];
                 count.put(key, Integer.valueOf(count.get(key).intValue() + 1));
             }
+            if (!groove.isEmpty()) {
+                Collections.sort(cymShifts);
+                double shift = cymShifts.isEmpty() ? 0 : cymShifts.get(cymShifts.size() / 2).doubleValue();
+                for (double[] g : groove) {
+                    // The first of a run has no ring before it: not as in a song, left out.
+                    boolean after = false;
+                    for (double[] o : groove) if (o[1] == g[1] && o[0] < g[0] && g[0] - o[0] < 0.3) after = true;
+                    if (!after) continue;
+                    double[] f = cymFeature(audio.samples, audio.sampleRate, Math.max(0, g[0] + shift));
+                    if (f == null) continue;
+                    double[] fn = cymFeature(audio.samples, audio.sampleRate, Math.max(0, g[0] + shift), false);
+                    if (fn != null) {
+                        runNotes.add(Integer.valueOf((int) g[1]));
+                        runLooks.add(new double[][] {f, fn});
+                    }
+                    String gk = (int) g[1] + "g";
+                    if (!withSum.containsKey(gk)) {
+                        withSum.put(gk, new double[CYM_BANDS + 2]);
+                        withCount.put(gk, Integer.valueOf(0));
+                    }
+                    double[] gs = withSum.get(gk);
+                    for (int k = 0; k < CYM_BANDS + 2; k++) gs[k] += f[k];
+                    withCount.put(gk, Integer.valueOf(withCount.get(gk).intValue() + 1));
+                }
+            }
             Integer kick = Integer.valueOf(KICK_NOTE);
             if (!sum.containsKey(kick)) {
                 finish("Failed: the test beat has no kick to learn (36)");
@@ -2108,6 +2387,7 @@ public class DrumMidi_CRT{
             double loudest = 0;
             for (java.util.Map.Entry<Integer, double[]> e : cymSum.entrySet()) loudest = Math.max(loudest, e.getValue()[CYM_BANDS + 1] / cymCount.get(e.getKey()).intValue());
             List<String> cymKept = new ArrayList<String>(), cymLeft = new ArrayList<String>();
+            java.util.Map<Integer, double[]> keptLooks = new java.util.HashMap<Integer, double[]>();
             if (!cymSum.isEmpty()) sb.append("# cymbals: c<note>, its ").append(CYM_BANDS).append(" band spectrum ").append(num(CYM_LO)).append("-").append(num(CYM_HI))
                 .append(" Hz, then how fast it fades (log level 70-90 ms after the hit over at it)\n");
             for (java.util.Map.Entry<Integer, double[]> e : cymSum.entrySet()) {
@@ -2125,8 +2405,60 @@ public class DrumMidi_CRT{
                 for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", cs[k] / norm));
                 sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", cs[CYM_BANDS] / c)).append('\n');
                 cymKept.add(e.getKey() + " " + cymName(e.getKey().intValue()) + (c > 1 ? " (" + c + " hits)" : ""));
+                double[] look = new double[CYM_BANDS + 1];
+                for (int k = 0; k < CYM_BANDS; k++) look[k] = Double.parseDouble(String.format(java.util.Locale.ROOT, "%.4f", cs[k] / norm));
+                look[CYM_BANDS] = Double.parseDouble(String.format(java.util.Locale.ROOT, "%.4f", cs[CYM_BANDS] / c));
+                keptLooks.put(e.getKey(), look);
             }
             for (Integer n : cymUnread) if (!cymSum.containsKey(n)) cymLeft.add(n + " " + cymName(n.intValue()) + " (no sound at its hits)");
+            // The cymbals with a kick or snare: kept for the cymbals heard alone too (a cymbal the kit does not
+            // play would be the kick or snare alone).
+            List<String> withKept = new ArrayList<String>(), grooveKept = new ArrayList<String>();
+            for (java.util.Map.Entry<String, double[]> e : withSum.entrySet()) {
+                String key = e.getKey();
+                int wn = Integer.parseInt(key.substring(0, key.length() - 1));
+                boolean heard = false;
+                for (String k2 : cymKept) if (k2.startsWith(wn + " ")) heard = true;
+                if (!heard) continue;
+                double[] ws = e.getValue();
+                int c = withCount.get(key).intValue();
+                double norm = 0;
+                for (int k = 0; k < CYM_BANDS; k++) norm += ws[k] * ws[k];
+                norm = Math.sqrt(norm);
+                if (norm <= 0) continue;
+                sb.append('c').append(key);
+                for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ws[k] / norm));
+                sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ws[CYM_BANDS] / c)).append('\n');
+                if (key.endsWith("g")) grooveKept.add(wn + " (" + c + " hits)");
+                else withKept.add(wn + (key.endsWith("k") ? " with kick" : " with snare"));
+            }
+            // The ride or hats cut: where the runs' hats and rides, heard as in a song, part on rideVote's two
+            // scores (the middle between their means), from the looks just written.
+            String cutSaid = "";
+            double[] rideLook = keptLooks.get(Integer.valueOf(RIDE_NOTE)), hatLook = keptLooks.get(Integer.valueOf(CLOSED_HAT));
+            if (rideLook != null && hatLook != null) {
+                double[] sumH = new double[2], sumR = new double[2];
+                int nH = 0, nR = 0;
+                for (int i = 0; i < runNotes.size(); i++) {
+                    double[][] fl = runLooks.get(i);
+                    double a = cymNear(fl[0], rideLook) - cymNear(fl[0], hatLook), b = cymNear(fl[0], rideLook) - cymNear(fl[1], hatLook);
+                    if (runNotes.get(i).intValue() == CLOSED_HAT) {
+                        sumH[0] += a;
+                        sumH[1] += b;
+                        nH++;
+                    } else if (runNotes.get(i).intValue() == RIDE_NOTE) {
+                        sumR[0] += a;
+                        sumR[1] += b;
+                        nR++;
+                    }
+                }
+                if (nH > 0 && nR > 0) {
+                    double c1 = (sumH[0] / nH + sumR[0] / nR) / 2, c2 = (sumH[1] / nH + sumR[1] / nR) / 2;
+                    sb.append("# ride or hats cut: where the hat and ride played on in eighths part on the ride vote's two scores\n");
+                    sb.append(String.format(java.util.Locale.ROOT, "ridecut %.4f %.4f\n", c1, c2));
+                    cutSaid = String.format(java.util.Locale.ROOT, "; ride or hats cut %.2f, %.2f", c1, c2);
+                }
+            }
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
             List<String> none = new ArrayList<String>();
             for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
@@ -2135,18 +2467,32 @@ public class DrumMidi_CRT{
                 + (late > 0.03 ? "; hits up to " + Math.round(late * 1000) + " ms after their notes" : "")
                 + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?")
                 + (cymKept.isEmpty() ? "" : "; cymbals " + String.join(", ", cymKept))
-                + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft)));
+                + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft))
+                + (withKept.isEmpty() ? "" : "; cymbals on a kick or snare: " + String.join(", ", withKept))
+                + (grooveKept.isEmpty() ? "" : "; cymbals played on in eighths: " + String.join(", ", grooveKept)) + cutSaid);
         }
 
         static KitProfile read(File f) throws Exception {
             KitProfile k = new KitProfile(f.getName());
             for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
-                if (w.length > CYM_BANDS + 1 && w[0].startsWith("c")) {
+                if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+[ksg]?")) {
                     double[] c = new double[CYM_BANDS + 1];
                     for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
-                    k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
-                    k.cymLooks.add(c);
+                    char last = w[0].charAt(w[0].length() - 1);
+                    if (last == 'k' || last == 's' || last == 'g') {
+                        // A cymbal heard with a kick or a snare, or played on in eighths.
+                        k.withNotes.add(Integer.valueOf(w[0].substring(1, w[0].length() - 1)));
+                        k.withTags.add(Character.valueOf(last));
+                        k.withLooks.add(c);
+                    } else {
+                        k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
+                        k.cymLooks.add(c);
+                    }
+                    continue;
+                }
+                if (w.length == 3 && w[0].equals("ridecut")) {
+                    k.rideCut = new double[] {Double.parseDouble(w[1]), Double.parseDouble(w[2])};
                     continue;
                 }
                 if (w.length < KIT_BANDS + 1 || w[0].startsWith("#")) continue;
@@ -2201,9 +2547,14 @@ public class DrumMidi_CRT{
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
             // Every other hit's time: a kick's, snare's or tom's sound under a cymbal makes it look darker
             // and longer (a crash, an open hat), so only cymbals heard alone are told apart again.
+            List<Hit> byTime = new ArrayList<Hit>(hits);
+            Collections.sort(byTime, new java.util.Comparator<Hit>() {
+                public int compare(Hit p, Hit q) {
+                    return Double.compare(p.time, q.time);
+                }
+            });
             List<Double> cymTimes = new ArrayList<Double>();
-            for (Hit h : hits) cymTimes.add(Double.valueOf(h.time));
-            Collections.sort(cymTimes);
+            for (Hit h : byTime) cymTimes.add(Double.valueOf(h.time));
             for (int i = 0; i < hits.size(); i++) {
                 Hit h = hits.get(i);
                 if (!isCymbalNote(h.note)) continue;
@@ -2211,31 +2562,111 @@ public class DrumMidi_CRT{
                 if (k < 0) k = -k - 1;
                 // Itself is one of the times; any other within CYM_ALONE (at the very same time too) is another drum.
                 int near = 0;
-                for (int j = Math.max(0, k - 4); j < Math.min(cymTimes.size(), k + 5); j++) if (Math.abs(cymTimes.get(j).doubleValue() - h.time) < CYM_ALONE) near++;
-                if (near > 1) continue;
+                Hit other = null;
+                for (int j = Math.max(0, k - 4); j < Math.min(cymTimes.size(), k + 5); j++) {
+                    if (Math.abs(cymTimes.get(j).doubleValue() - h.time) >= CYM_ALONE) continue;
+                    near++;
+                    if (byTime.get(j) != h) other = byTime.get(j);
+                }
+                // With one kick or one snare on it: told apart by the kit's cymbals learned with that drum (when learned).
+                char with = near == 2 && other != null ? (other.note == KICK_NOTE ? 'k' : other.note == SNARE_NOTE ? 's' : ' ') : near > 1 ? ' ' : 0;
+                if (with == ' ') continue;
+                List<Integer> kNotes = new ArrayList<Integer>();
+                List<double[]> kLooks = new ArrayList<double[]>();
+                if (with == 0) {
+                    kNotes = cymNotes;
+                    kLooks = cymLooks;
+                } else {
+                    for (int j = 0; j < withNotes.size(); j++) {
+                        if (withTags.get(j).charValue() != with) continue;
+                        kNotes.add(withNotes.get(j));
+                        kLooks.add(withLooks.get(j));
+                    }
+                    if (kNotes.size() < 2) continue;
+                }
                 double[] f = cymFeature(x, sr, h.time);
                 if (f == null) continue;
                 int best = -1;
                 double top = -9, mine = -9;
-                for (int j = 0; j < cymNotes.size(); j++) {
-                    double v = cymNear(f, cymLooks.get(j));
+                double[] bestLook = null, mineLook = null;
+                for (int j = 0; j < kNotes.size(); j++) {
+                    double v = cymNear(f, kLooks.get(j));
                     if (v > top) {
                         top = v;
-                        best = cymNotes.get(j).intValue();
+                        best = kNotes.get(j).intValue();
+                        bestLook = kLooks.get(j);
                     }
-                    if (cymNotes.get(j).intValue() == h.note) mine = v;
+                    if (kNotes.get(j).intValue() == h.note) {
+                        mine = v;
+                        mineLook = kLooks.get(j);
+                    }
                 }
                 // A kind the profile has not learned is left as it is (KVLT's ride was not heard: its rides
                 // went to its closed hat); so is one too like the nearest in this kit, or not near enough.
                 if (best < 0 || best == h.note || mine <= -9 || top < CYM_LEAST || top - mine < CYM_MARGIN) continue;
-                if (cymNear(look(h.note), look(best)) > CYM_ALIKE) continue;
+                if (cymNear(mineLook, bestLook) > CYM_ALIKE) continue;
                 hits.set(i, new Hit(h.time, best, h.strength));
-                String key = cymName(h.note) + " to " + cymName(best);
+                String key = cymName(h.note) + " to " + cymName(best) + (with == 'k' ? " (on a kick)" : with == 's' ? " (on a snare)" : "");
                 moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
             }
             StringBuilder said = new StringBuilder();
             for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());
             note("Kit " + name + ": cymbals by their learned sound: " + (said.length() == 0 ? "none changed" : said));
+        }
+
+        /**
+         * Hats played as the ride, passage by passage: a ride or hats are told apart better over a passage
+         * than hit by hit (a ride on a kick or snare looks like a hat there). The cymbal hits heard alone
+         * within RIDE_VOTE_WINDOW seconds (RIDE_VOTE_SEEN at least) vote: each its nearness to the learned
+         * ride less that to the learned closed hat, twice (the hat's nearness with and without the ring
+         * before the hit taken off: a song's hats look brighter than the test beat's with it). Where both
+         * means are over 0, the passage's hats are the ride. Only hats are made the ride: a passage
+         * voting for hats is left as it is (its rides were often right). Needs the ride and closed hat learned.
+         * (The looks played on in eighths, c42g and c51g, are not used: with them songs' hats voted for the
+         * ride, the closed hats right went from 81% to 68% in Riot and from 67% to 35% in Artillery.)
+         * The cut is 0, or the profile's ride or hats cut (the runs' hats and rides parting) where both its
+         * values are under RIDE_CUT_LOWER: a kit whose ride the spaced-out looks place too near its hats
+         * (Riot: -0.33) finds its rides there (Riot's rides right 350 to 431 of 689, closed hats 2892 to
+         * 2878); a cut over 0 is not used (Artillery's 0.41 lost most of its rides), nor one near 0
+         * (Anarchy's -0.03 made 15 hats rides for 1 ride).
+         */
+        void rideVote(List<Hit> hits, double[] x, double sr) {
+            double[] rl = look(RIDE_NOTE), hl = look(CLOSED_HAT);
+            if (rl == null || hl == null) return;
+            List<Hit> cym = new ArrayList<Hit>();
+            for (Hit h : hits) if (h.note == CLOSED_HAT || h.note == RIDE_NOTE) cym.add(h);
+            int n = cym.size();
+            boolean[] clean = new boolean[n];
+            double[] d = new double[n], d2 = new double[n];
+            for (int i = 0; i < n; i++) {
+                Hit h = cym.get(i);
+                boolean alone = true;
+                for (Hit o : hits) if (o != h && Math.abs(o.time - h.time) < CYM_ALONE) alone = false;
+                if (!alone) continue;
+                double[] f = cymFeature(x, sr, h.time), g = cymFeature(x, sr, h.time, false);
+                if (f == null || g == null) continue;
+                clean[i] = true;
+                d[i] = cymNear(f, rl) - cymNear(f, hl);
+                d2[i] = cymNear(f, rl) - cymNear(g, hl);
+            }
+            boolean lower = rideCut != null && rideCut[0] < RIDE_CUT_LOWER && rideCut[1] < RIDE_CUT_LOWER;
+            double cut1 = lower ? rideCut[0] : 0, cut2 = lower ? rideCut[1] : 0;
+            List<Hit> toRide = new ArrayList<Hit>();
+            for (int i = 0; i < n; i++) {
+                Hit h = cym.get(i);
+                if (h.note != CLOSED_HAT) continue;
+                int seen = 0;
+                double sum = 0, sum2 = 0;
+                for (int j = 0; j < n; j++) {
+                    if (!clean[j] || Math.abs(cym.get(j).time - h.time) > RIDE_VOTE_WINDOW) continue;
+                    seen++;
+                    sum += d[j];
+                    sum2 += d2[j];
+                }
+                if (seen >= RIDE_VOTE_SEEN && sum / seen > cut1 && sum2 / seen > cut2) toRide.add(h);
+            }
+            for (Hit h : toRide) hits.set(hits.indexOf(h), new Hit(h.time, RIDE_NOTE, h.strength));
+            note("Kit " + name + ": ride by passage: " + toRide.size() + " hat" + (toRide.size() == 1 ? "" : "s") + " made the ride");
         }
     }
 

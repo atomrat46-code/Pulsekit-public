@@ -107,6 +107,16 @@ final class DrumMidiSettingsPage {
             });
         music.setTag("sogni-music-db");
         body.addView(music);
+        // AudioMixer's Mixdown: into the prompt library too (kept with the mixer's own files).
+        AudioMix.open(AudioMixerScreen.folder(app));
+        View mixer = this.check(AudioMix.TO_DB,
+            "When the AudioMixer mixes down, the mix goes into the prompt library as a result file too (it is in Download either way).",
+            AudioMix.toDb, on -> {
+                AudioMix.toDb = on;
+                AudioMix.save();
+            });
+        mixer.setTag("audiomixer-db");
+        body.addView(mixer);
         TextView reset = app.action("Reset to defaults", ELEV, FG, v -> {
             MidiImportSettings.reset();
             this.save();

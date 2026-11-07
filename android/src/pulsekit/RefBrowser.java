@@ -171,6 +171,41 @@ final class RefBrowser {
         void picked(String name, java.io.File file);
     }
 
+    /**
+     * Browse DB's video item, First frame as a reference image: the first frame (a PNG in PyJav's input
+     * folder) fills the row as if picked; a picture's, Upscale and use as a reference image: ImageUpscaler
+     * with it as its input (its result goes on as a reference from Picture ready).
+     */
+    static void refItem(final MainActivity app, PromptVault vault, final PromptVault.StoredFile file, String item, final Picked picked, final android.app.Dialog browser) {
+        try {
+            byte[] bytes = vault.fileBytes(file.versionId, file.which);
+            if (MediaDir.UPSCALE_AS_REF.equals(item)) {
+                RefImages.upscale(app, file.name, bytes, browser, null);
+                return;
+            }
+            java.io.File video = RefImages.videoFile(app, file.name, bytes);
+            RefImages.firstFrame(app, file.name, video.getAbsolutePath(), null, (name, png) -> {
+                try {
+                    java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-in");
+                    if (!dir.isDirectory()) dir.mkdirs();
+                    java.io.File out = new java.io.File(dir, name);
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                    try {
+                        fos.write(png);
+                    } finally {
+                        fos.close();
+                    }
+                    if (browser != null && browser.isShowing()) browser.dismiss();
+                    picked.picked(name, out);
+                } catch (Exception ex) {
+                    app.setNow("Could not keep the first frame of " + file.name);
+                }
+            });
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.name + ": " + ex.getMessage());
+        }
+    }
+
     static void browse(final Activity activity, final String[] values, final int index, final TextView label) {
         browse(activity, values, index, label, null);
     }
@@ -372,10 +407,19 @@ final class RefBrowser {
             final String shownName = name;
             card.setOnLongClickListener(v -> {
                 final boolean fav = FileFavourites.is(file);
+                // A video: First frame as a reference image (it fills the row); a picture: Upscale and use as a reference image.
+                final String refRow = !(activity instanceof MainActivity) ? null : MediaDir.firstFrameRef(file.name) ? MediaDir.FIRST_FRAME_AS_REF
+                    : MediaDir.kind(file.name) == MediaDir.PICTURE && AppSettings.showSogni() && !AppSettings.musicOnly() ? MediaDir.UPSCALE_AS_REF : null;
+                java.util.List<CharSequence> rows = new java.util.ArrayList<CharSequence>(java.util.Arrays.asList(fav ? "Remove from favourites" : "Add to favourites",
+                    FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT, MediaDir.RENAME));
+                if (refRow != null) rows.add(refRow);
                 menu = new AlertDialog.Builder(activity)
                     .setTitle(shownName)
-                    .setItems(new CharSequence[] {fav ? "Remove from favourites" : "Add to favourites", FileGroups.ADD, MediaTags.TAGS, MediaTags.CATEGORY, Playlist.ADD, Playlist.ADD_DEFAULT,
-                        MediaDir.RENAME}, (d, w) -> {
+                    .setItems(rows.toArray(new CharSequence[0]), (d, w) -> {
+                        if (w == 7) {
+                            refItem((MainActivity) activity, vault, file, refRow, picked, dialog[0]);
+                            return;
+                        }
                         // Rename: the file's name in the DB (its prompt keeps it).
                         if (w == 6) {
                             rename(activity, vault, file, again);

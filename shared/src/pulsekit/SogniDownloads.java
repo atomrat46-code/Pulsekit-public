@@ -112,9 +112,28 @@ public final class SogniDownloads {
     if (stopped) write();
   }
 
-  /** True for the programs whose downloads are listed: the Sogni programs. */
+  /** True for the programs whose downloads are listed: the Sogni programs, and the others with Also other programs' files. */
   public static boolean listed(String program) {
+    return sogni(program) || other(program) && DownloadMove.othersOn();
+  }
+
+  /** A Sogni program. */
+  public static boolean sogni(String program) {
     return program != null && program.toLowerCase(Locale.ROOT).startsWith("sogni");
+  }
+
+  /** One of Pulsekit's other programs (not a Sogni one, not a prompt sheet). */
+  public static boolean other(String program) {
+    return program != null && program.length() > 0 && !sogni(program) && !program.toLowerCase(Locale.ROOT).endsWith(".prompt");
+  }
+
+  /** A run of another program that ended without saving a file: taken off the list (true when it was). */
+  public static synchronized boolean dropIfEmpty(long id) {
+    Run r = run(id);
+    if (r == null || sogni(r.program) || !r.items.isEmpty()) return false;
+    RUNS.remove(r);
+    write();
+    return true;
   }
 
   /** Run pressed: the run is in progress. Its id. */

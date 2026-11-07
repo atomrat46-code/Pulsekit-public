@@ -3742,11 +3742,20 @@ public class BehaviorTest {
     p.play.performClick();
     p.view.performLongClick();
     idle();
+    RefImages.lastAsk = null;
     org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(1);
+    boolean upscaleAsked = false;
     for (int i = 0; i < 50 && (ProcessRefDialog.last == null || ProcessRefDialog.last.dialog == null || !ProcessRefDialog.last.dialog.isShowing()); i++) {
       Thread.sleep(100);
       idle();
+      // A small frame: asked about upscaling first (Use as it is).
+      if (RefImages.lastAsk != null && RefImages.lastAsk.isShowing()) {
+        upscaleAsked = true;
+        RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+        idle();
+      }
     }
+    out.append("upscale asked ").append(upscaleAsked).append('\n');
     ProcessRefDialog r = ProcessRefDialog.last;
     out.append("process: video ").append(p.dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName() + ", program " + r.programBtn.getText())
         .append(", saved again ").append(p.extracted != null && !p.extracted.equals(before)).append('\n');
@@ -12126,6 +12135,24 @@ public class BehaviorTest {
    * Browse sections grouped by the prompt's first two sentences (A to Z, a group's newest first): a
    * group's long press lists its sections; a section tapped shows fully (Load there).
    */
+  /**
+   * PyJav starts with the program run last (Recent's first) and its parameters, the bundled source
+   * shown, not run; a program opened already (not the default drum_midi.py) stays.
+   */
+  @Test
+  public void s225_pyjav_opens_last_program() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PyJavRecent.remember(app.getFilesDir(), "vst_render.py", "--test --mp3 256", "print('old')\n", null);
+    app.pyName = "drum_midi.py";
+    app.pyJav.pkOpenLastProgram();
+    out.append(app.pyName).append(" | ").append(app.pyJav.pkPyArgs.getText()).append(" | bundled ").append(app.pyEditor.getText().toString().contains("def kit_events")).append('\n');
+    PyJavRecent.remember(app.getFilesDir(), "SogniChat.java", "", "x", null);
+    app.pyName = "MidiDrumGen.java";
+    app.pyJav.pkOpenLastProgram();
+    out.append(app.pyName);
+    if (!out.toString().equals("vst_render.py | --test --mp3 256 | bundled true\nMidiDrumGen.java")) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s224_sections_grouped() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -12284,6 +12311,1280 @@ public class BehaviorTest {
         .append(" | read back ").append(back).append(", sealed ").append(kept.contains("row=") && !kept.contains("m22a")).append('\n');
     write("s222_choose_file_folder_per_row", out.toString());
     boolean ok = first.equals("m22a picked one.png") && second.equals("m22b picked two.png") && again1.equals("m22a") && again2.equals("m22b") && back && kept.contains("row=") && !kept.contains("m22a");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params' Choose file: a video's long press has Extract first frame as reference img; the
+   * first frame (a PNG, full size) fills the row as if picked, and the browser closes. The Media
+   * browser (no row) has no such item.
+   */
+  @Test
+  public void s226_first_frame_as_reference() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m26");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.save(app);
+    final String[] got = new String[1];
+    final File[] gotFile = new File[1];
+    MediaBrowser m = MediaBrowser.chooseFor(app, "--image", (name, file) -> {
+      got[0] = name;
+      gotFile[0] = file;
+    }, null);
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    if (video == null) {
+      StringBuilder names = new StringBuilder();
+      for (MediaDir.Entry e : m.allEntries) names.append(e.name).append(' ');
+      throw new AssertionError("no walk.mp4 in " + m.base + ": " + names);
+    }
+    m.menu(video);
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    out.append("menu: ").append(items).append('\n');
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(MediaDir.FIRST_FRAME_REF);
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(at);
+    for (int i = 0; i < 200 && got[0] == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    if (gotFile[0] != null) android.graphics.BitmapFactory.decodeFile(gotFile[0].getAbsolutePath(), o);
+    boolean closed = m.dialog == null || !m.dialog.isShowing();
+    out.append("picked ").append(got[0]).append(" ").append(o.outWidth).append("x").append(o.outHeight).append(", browser closed ").append(closed).append(", row place ").append(MediaDir.rowPlace("--image").equals(dir.getAbsolutePath())).append('\n');
+    // The Media browser itself (no row to fill): no such item.
+    MediaBrowser plain = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; plain != null && i < 200 && (plain.loading || plain.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String plainItems = "";
+    if (plain != null) {
+      for (MediaDir.Entry e : plain.allEntries) if (e.name.equals("walk.mp4")) plain.menu(e);
+      idle();
+      plainItems = listItems(MediaBrowser.lastMenu);
+    }
+    out.append("Media browser menu has it: ").append(plainItems.contains(MediaDir.FIRST_FRAME_REF)).append('\n');
+    write("s226_first_frame_as_reference", out.toString());
+    boolean ok = at >= 0 && "walk-first-frame.png".equals(got[0]) && o.outWidth == 32 && o.outHeight == 18 && closed && !plainItems.contains(MediaDir.FIRST_FRAME_REF) && plain != null;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * The Media browser, a video's long press: First frame as a reference image; the frame (small: asked
+   * about upscaling first) goes to ImageUpscaler with Upscale first, as its input, the browser closed.
+   */
+  @Test
+  public void s227_first_frame_ref_media_browser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m27");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    m.menu(video);
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    out.append("menu: ").append(items).append('\n');
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(MediaDir.FIRST_FRAME_AS_REF);
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(at);
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean closed = m.dialog == null || !m.dialog.isShowing();
+    String input = app.pyJav.pkPyInputPath;
+    out.append("frame ").append(RefImages.lastFrameName).append(", asked ").append(asked).append(", program ").append(app.pyName)
+        .append(", input ").append(input == null ? "none" : new File(input).getName()).append(", browser closed ").append(closed).append('\n');
+    write("s227_first_frame_ref_media_browser", out.toString());
+    boolean ok = at >= 0 && !items.contains(MediaDir.FIRST_FRAME_REF) && "walk-first-frame.png".equals(RefImages.lastFrameName) && asked
+        && "ImageUpscaler.java".equals(app.pyName) && input != null && input.endsWith("walk-first-frame.png") && closed;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A picture row's Choose file: a video's tap plays it (no R there); C fills the row with the frame
+   * (small: asked first, Use as it is), the player and the browser closed. The Media browser's own player has R.
+   */
+  @Test
+  public void s228_frame_for_picture_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m28");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.save(app);
+    final String[] got = new String[1];
+    final File[] gotFile = new File[1];
+    MediaBrowser m = MediaBrowser.chooseFor(app, "--image", (name, file) -> {
+      got[0] = name;
+      gotFile[0] = file;
+    }, null, true);
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastVideo = null;
+    m.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    boolean played = v != null && v.dialog.isShowing() && got[0] == null;
+    boolean noR = played && v.dialog.getWindow().getDecorView().findViewWithTag("media-video-ref") == null;
+    RefImages.lastAsk = null;
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    if (played) {
+      View c = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-capture");
+      if (c != null && c.getVisibility() == View.VISIBLE) c.performClick();
+      else m.capture(video, v, false);
+    }
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    boolean closed = played && !v.dialog.isShowing() && !m.dialog.isShowing();
+    out.append("row player: played ").append(played).append(", no R ").append(noR).append(", asked ").append(asked).append(", row ").append(got[0])
+        .append(" (").append(gotFile[0] == null ? "no file" : gotFile[0].getParentFile().getName() + "/" + gotFile[0].getName() + " " + gotFile[0].length() + " bytes").append("), closed ").append(closed).append('\n');
+    // The Media browser's own player (no row): R is there.
+    MediaBrowser b = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastVideo = null;
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video own = MediaBrowser.lastVideo;
+    boolean hasR = own != null && own.dialog.getWindow().getDecorView().findViewWithTag("media-video-ref") != null;
+    out.append("own player: R ").append(hasR).append('\n');
+    if (own != null) own.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    write("s228_frame_for_picture_row", out.toString());
+    boolean ok = played && noR && asked && got[0] != null && got[0].startsWith("walk") && got[0].endsWith(".png") && gotFile[0] != null
+        && gotFile[0].getParentFile().getName().equals("pyjav-in") && gotFile[0].length() > 0 && closed && hasR;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Sogni Params' Crop beside Preview: the picture with the crop frame on; the crop's long press has
+   * Use the crop in this row first; a 4:3 crop is asked about upscaling (Use as it is), then fills the
+   * row as <name>-crop.png at its full size, the Preview closed. Greyed while no picture is picked.
+   */
+  @Test
+  public void s229_params_crop_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(640, 480, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    File picture = new File(app.getCacheDir(), "me.png");
+    Files.write(picture.toPath(), png.toByteArray());
+    ((TextView) get("pkPyArgs")).setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    android.widget.Button crop = (android.widget.Button) dv.findViewWithTag("params-crop:--image");
+    android.widget.Button crop2 = (android.widget.Button) dv.findViewWithTag("params-crop:--image2");
+    if (crop == null || crop2 == null) throw new AssertionError("no Crop button");
+    out.append("Crop --image enabled ").append(crop.isEnabled()).append(", --image2 (none picked) ").append(crop2.isEnabled()).append('\n');
+    CropLayer.last = null;
+    crop.performClick();
+    idle();
+    AlertDialog shown = PyJavParams.lastParamsPreview;
+    boolean framed = shown != null && shown.isShowing() && CropLayer.last != null && CropLayer.last.cropping();
+    out.append("preview with the frame on ").append(framed).append('\n');
+    if (!framed) throw new AssertionError(out.toString());
+    CropLayer.last.menu();
+    idle();
+    String items = listItems(CropLayer.lastMenu);
+    out.append("crop menu: ").append(items).append('\n');
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(CropLayer.lastMenu).clickOnItem(0);
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    String label = ((TextView) dv.findViewWithTag("params-chosen:--image")).getText().toString();
+    File cropped = new File(new File(app.getCacheDir(), "pyjav-in"), "me-crop.png");
+    android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+    o.inJustDecodeBounds = true;
+    android.graphics.BitmapFactory.decodeFile(cropped.getAbsolutePath(), o);
+    out.append("asked ").append(asked).append(", row ").append(label).append(" ").append(o.outWidth).append("x").append(o.outHeight)
+        .append(", preview closed ").append(!shown.isShowing()).append(", Params open ").append(d.isShowing()).append('\n');
+    d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    write("s229_params_crop_row", out.toString());
+    boolean ok = crop.isEnabled() && !crop2.isEnabled() && items.startsWith(CropBox.USE_IN_ROW) && asked && "me-crop.png".equals(label)
+        && o.outWidth == 512 && o.outHeight == 384 && !shown.isShowing();
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch B: Downloads' thumbnails have Add to Collection and Add to playlist… (the file goes at the
+   * end of the playlist picked); the Media browser's player has Stop, Play and Pause as symbols only.
+   */
+  @Test
+  public void s230_downloads_collect_and_symbols() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    File dl = new File(app.getCacheDir(), "b1-dl"), list = new File(app.getCacheDir(), "b1-list");
+    dl.mkdirs();
+    list.mkdirs();
+    File tune = new File(dl, "tune.mp3");
+    Files.write(tune.toPath(), new byte[] {'I', 'D', '3', 3, 0, 0, 0, 0, 0, 0});
+    SogniDownloads.init(list);
+    long rt = SogniDownloads.started("SogniMusic.java", 8000L);
+    SogniDownloads.result(rt, "Succeeded: tune.mp3", "saved " + tune.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(rt);
+    SogniDownloads.Run run = null;
+    for (SogniDownloads.Run r : SogniDownloads.tab(SogniDownloads.FINISHED)) if (r.id == rt) run = r;
+    android.widget.LinearLayout col = new android.widget.LinearLayout(app);
+    DownloadsScreen.menu(app, col, run, run.items.get(0));
+    idle();
+    String items = listItems(DownloadsScreen.lastMenu);
+    java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+    out.append("menu: ").append(items).append('\n');
+    PlaylistScreen.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(rows.indexOf(Playlist.ADD));
+    idle();
+    boolean asked = PlaylistScreen.lastAsk != null && PlaylistScreen.lastAsk.isShowing();
+    if (asked) org.robolectric.Shadows.shadowOf(PlaylistScreen.lastAsk).clickOnItem(0);
+    idle();
+    Playlist def = Playlist.load(app.getFilesDir(), Playlist.DEFAULT);
+    boolean listed = false;
+    for (Playlist.Item it : def.items) if (it.file.equals(tune.getAbsolutePath())) listed = true;
+    out.append("playlist asked ").append(asked).append(", in ").append(Playlist.DEFAULT).append(" ").append(listed).append('\n');
+    DownloadsScreen.menu(app, col, run, run.items.get(0));
+    idle();
+    CollectionsScreen.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(DownloadsScreen.lastMenu).clickOnItem(rows.indexOf(MediaCollections.ADD));
+    idle();
+    String collect = CollectionsScreen.lastAsk == null || !CollectionsScreen.lastAsk.isShowing() ? "(none)" : String.valueOf(org.robolectric.Shadows.shadowOf(CollectionsScreen.lastAsk).getTitle());
+    if (CollectionsScreen.lastAsk != null) CollectionsScreen.lastAsk.dismiss();
+    out.append("collection: ").append(collect).append('\n');
+    SogniDownloads.init(app.getFilesDir());
+    // The player's Stop, Play and Pause: symbols, their names said for TalkBack.
+    File media = new File(app.getCacheDir(), "b1-clips");
+    media.mkdirs();
+    Files.write(new File(media, "walk.mp4").toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser b = MediaBrowser.open(app, media.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    View pv = MediaBrowser.lastVideo.dialog.getWindow().getDecorView();
+    StringBuilder sym = new StringBuilder();
+    for (String t : new String[] {"media-video-stop", "media-video-play", "media-video-pause"}) {
+      TextView tv = (TextView) pv.findViewWithTag(t);
+      sym.append(tv.getText()).append('=').append(tv.getContentDescription()).append(' ');
+    }
+    MediaBrowser.lastVideo.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    out.append("player: ").append(sym.toString().trim()).append('\n');
+    write("s230_downloads_collect_and_symbols", out.toString());
+    boolean ok = rows.contains(MediaCollections.ADD) && rows.contains(Playlist.ADD) && asked && listed && collect.contains(MediaCollections.ADD)
+        && "\u25a0=Stop \u25b6=Play \u275a\u275a=Pause".equals(sym.toString().trim());
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch B, DB/Prompts: a picture's and a video's thumbnail menu has Full screen preview (the whole
+   * black screen; a long press closes it); the video held has Save frame, Process current frame as a
+   * reference image (a small frame: asked about upscaling first) and Full screen playback.
+   */
+  @Test
+  public void s231_prompts_full_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] mp4 = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    DbImport.store(app, "still.png", png.toByteArray(), false);
+    DbImport.store(app, "walk.mp4", mp4, true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    StringBuilder shownKinds = new StringBuilder();
+    boolean menusOk = true;
+    for (String n : new String[] {"still.png", "walk.mp4"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : all) if (f.name.equals(n)) at = f;
+      if (at == null) throw new AssertionError("not stored: " + n);
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = PromptSheet.lastFileMenu;
+      String items = listItems(menu);
+      java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+      int i = rows.indexOf(MediaDir.FULL_SCREEN);
+      menusOk &= i >= 0;
+      FullScreen.last = null;
+      if (i >= 0) org.robolectric.Shadows.shadowOf(menu).clickOnItem(i);
+      idle();
+      boolean shown = FullScreen.last != null && FullScreen.last.isShowing();
+      String what = FullScreen.lastImage != null ? "picture" : FullScreen.lastVideo != null ? "video" : "nothing";
+      shownKinds.append(n).append(": ").append(shown ? what : "not shown").append("; ");
+      if (FullScreen.last != null) FullScreen.last.dismiss();
+      idle();
+    }
+    out.append("thumbnails: ").append(shownKinds.toString().trim()).append('\n');
+    // The video held (its preview open): the frame menu.
+    File clip = new File(app.getCacheDir(), "b2-walk.mp4");
+    Files.write(clip.toPath(), mp4);
+    android.graphics.Bitmap frame = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, frame);
+    for (String[] f : new String[][] {{"previewFile", null}, {"previewName", "walk.mp4"}}) {
+      java.lang.reflect.Field fl = PromptSheet.class.getDeclaredField(f[0]);
+      fl.setAccessible(true);
+      fl.set(null, f[1] == null ? (Object) clip : f[1]);
+    }
+    PromptSheet.frameMenu(app);
+    idle();
+    String held = listItems(PromptSheet.lastFrameMenu);
+    java.util.List<String> heldRows = java.util.Arrays.asList(held.split(" \\| "));
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFrameMenu).clickOnItem(heldRows.indexOf(MediaDir.FRAME_AS_REF));
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.dismiss();
+    PromptSheet.frameMenu(app);
+    idle();
+    FullScreen.last = null;
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFrameMenu).clickOnItem(heldRows.indexOf(MediaDir.FULL_SCREEN_PLAY));
+    idle();
+    boolean full = FullScreen.last != null && FullScreen.last.isShowing() && FullScreen.lastVideo != null;
+    if (FullScreen.last != null) FullScreen.last.dismiss();
+    idle();
+    out.append("held: ").append(held).append(" | frame asked ").append(asked).append(", full screen ").append(full).append('\n');
+    write("s231_prompts_full_screen", out.toString());
+    boolean ok = menusOk && shownKinds.toString().contains("still.png: picture") && shownKinds.toString().contains("walk.mp4: video")
+        && heldRows.contains("Save frame") && heldRows.contains(MediaDir.FRAME_AS_REF) && heldRows.contains(MediaDir.FULL_SCREEN_PLAY) && asked && full;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: an output name's % codes (SogniApi.fillName): %n the first number no file has (in the work
+   * folder or where Pulsekit keeps results, pulsekit.outdir), %ddmmyy today, %% a %, no codes as it is;
+   * variations named <name>_Variated2...
+   */
+  @Test
+  public void s233_output_name_codes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File work = new File(app.getCacheDir(), "c1-work"), kept = new File(app.getCacheDir(), "c1-kept");
+    work.mkdirs();
+    kept.mkdirs();
+    Files.write(new File(work, "Image1.png").toPath(), new byte[] {1});
+    Files.write(new File(kept, "Image2.jpg").toPath(), new byte[] {1});
+    String was = System.getProperty("pulsekit.outdir");
+    System.setProperty("pulsekit.outdir", kept.getAbsolutePath());
+    String n = SogniApi.fillName("Image%n", work);
+    System.clearProperty("pulsekit.outdir");
+    if (was != null) System.setProperty("pulsekit.outdir", was);
+    String alone = SogniApi.fillName("Image%n", work);
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    String date = SogniApi.fillName("Kite%ddmmyy.png", work);
+    String literal = SogniApi.fillName("100%% kite", work);
+    String plain = SogniApi.fillName("kite.png", work);
+    String lone = SogniApi.fillName("50% off", work);
+    String v1 = SogniApi.variationName("kite", 0), v3 = SogniApi.variationName("kite", 2);
+    out.append("with kept: ").append(n).append(", work only: ").append(alone).append(", date: ").append(date).append(", literal: ").append(literal)
+        .append(", plain: ").append(plain).append(", lone: ").append(lone).append(", variations: ").append(v1).append(' ').append(v3).append('\n');
+    write("s233_output_name_codes", out.toString());
+    boolean ok = "Image3".equals(n) && "Image2".equals(alone) && ("Kite" + today + ".png").equals(date) && "100% kite".equals(literal) && "kite.png".equals(plain)
+        && "50% off".equals(lone) && "kite".equals(v1) && "kite_Variated3".equals(v3);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: SogniMusic --outdir on the phone: its folder under Download with the % codes filled in
+   * (run%n the first not there yet; "." and ".." left out); other programs' --outdir is not this one.
+   */
+  @Test
+  public void s234_sogni_music_outdir() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    java.util.function.Function<String, String> sub = d -> ArtJava.runSub("SogniMusic.java", java.util.Arrays.asList("--prompt", "funk", "--outdir", d, "--zip"));
+    File dl = ArtJava.downloads();
+    new File(dl, "run1").mkdirs();
+    String dated = sub.apply("music%ddmmyy"), numbered = sub.apply("run%n"), cleaned = sub.apply("../songs/./%yyyy"), plain = sub.apply("songs");
+    String other = ArtJava.runSub("MidiDrumGen.java", java.util.Arrays.asList("--outdir", "x"));
+    String none = ArtJava.runSub("SogniMusic.java", java.util.Arrays.asList("--prompt", "funk"));
+    String year = new java.text.SimpleDateFormat("yyyy", java.util.Locale.ROOT).format(new java.util.Date());
+    out.append("dated ").append(dated).append(", numbered ").append(numbered).append(", cleaned ").append(cleaned).append(", plain ").append(plain)
+        .append(", MidiDrumGen ").append(other).append(", none ").append(none).append('\n');
+    write("s234_sogni_music_outdir", out.toString().replace(today, "<today>"));
+    boolean ok = ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: DrumMidi_CRT --zip on the phone: its zips written into the work folder's pk-zips (then kept
+   * in Download), a relative --zip_outdir as Download/<folder> (% codes filled in); a whole path, --dir
+   * without a zip folder and other programs left as they are.
+   */
+  @Test
+  public void s235_drummidi_zip_phone() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File work = new File(app.getCacheDir(), "c4-work");
+    work.mkdirs();
+    String to = new File(work, ArtJava.ZIPS).getAbsolutePath();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    String[] plain = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip"});
+    String plainSub = ArtJava.zipSub;
+    String[] dated = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip_mb", "5", "--zip_outdir", "dm%ddmmyy"});
+    String datedSub = ArtJava.zipSub;
+    String[] whole = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"in.wav", "out.mid", "--zip_outdir", "/sdcard/x"});
+    String[] dir = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"--dir", "/sdcard/wavs", "--zip"});
+    String[] other = ArtJava.zipsHere("MidiDrumGen", work, new String[] {"--zip", "--outdir", "x"});
+    out.append("plain: ").append(String.join(" ", plain).replace(to, "<zips>")).append(" (").append(plainSub).append(")\n")
+        .append("dated: ").append(String.join(" ", dated).replace(to, "<zips>")).append(" (").append(String.valueOf(datedSub).replace(today, "<today>")).append(")\n")
+        .append("whole: ").append(String.join(" ", whole)).append("\ndir: ").append(String.join(" ", dir)).append("\nother: ").append(String.join(" ", other)).append('\n');
+    write("s235_drummidi_zip_phone", out.toString());
+    boolean ok = String.join(" ", plain).equals("in.wav out.mid --zip --zip_outdir " + to) && plainSub == null
+        && String.join(" ", dated).equals("in.wav out.mid --zip_mb 5 --zip_outdir " + to) && ("dm" + today).equals(datedSub)
+        && String.join(" ", whole).equals("in.wav out.mid --zip_outdir /sdcard/x") && String.join(" ", dir).equals("--dir /sdcard/wavs --zip")
+        && String.join(" ", other).equals("--zip --outdir x");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch C: Downloads > Also other programs' files: with the box on, another program's run (MidiDrumGen,
+   * DrumMidi_CRT...) is listed with what it saved, and Move now takes its music too; one that saved no
+   * file goes off the list; with the box off, only the Sogni programs are listed. The box is in the Move panel.
+   */
+  @Test
+  public void s236_downloads_other_programs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File list = new File(app.getCacheDir(), "c5-list"), dl = new File(app.getCacheDir(), "c5-dl"), music = new File(app.getCacheDir(), "c5-music");
+    list.mkdirs();
+    dl.mkdirs();
+    music.mkdirs();
+    File wav = new File(dl, "groove.wav");
+    Files.write(wav.toPath(), new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0});
+    SogniDownloads.init(list);
+    DownloadMove.load();
+    DownloadMove.others = false;
+    boolean offSogni = SogniDownloads.listed("SogniMusic.java"), offOther = SogniDownloads.listed("MidiDrumGen.java");
+    DownloadMove.others = true;
+    DownloadMove.save();
+    boolean onOther = SogniDownloads.listed("MidiDrumGen.java"), onPrompt = SogniDownloads.listed("sheet.prompt");
+    long made = SogniDownloads.started("Midi2Wav.java", 1000L);
+    SogniDownloads.result(made, "Succeeded: groove.wav", "saved " + wav.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(made);
+    boolean kept = !SogniDownloads.dropIfEmpty(made);
+    long nothing = SogniDownloads.started("CompareHits.java", 2000L);
+    SogniDownloads.result(nothing, "Succeeded: compared", "Hits: 12", new java.util.HashMap<String, String>());
+    SogniDownloads.done(nothing);
+    boolean dropped = SogniDownloads.dropIfEmpty(nothing) && SogniDownloads.run(nothing) == null;
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("audio", true);
+    DownloadMove.setFolder("audio", music.getAbsolutePath(), "c5-music");
+    int due = 0;
+    for (Object[] d : DownloadMove.due()) if (((SogniDownloads.Item) d[1]).name.equals("groove.wav")) due++;
+    out.append("off: Sogni ").append(offSogni).append(", other ").append(offOther).append(" | on: other ").append(onOther).append(", prompt sheet ").append(onPrompt)
+        .append(" | saved a WAV: listed ").append(kept).append(", due to move ").append(due).append(" | saved nothing: dropped ").append(dropped).append('\n');
+    // The box in the Move panel (shown with finished downloads and Move downloaded media files to ticked).
+    DownloadMove.on = false;
+    DownloadMove.others = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    DownloadMove.load();
+    DownloadMove.on = true;
+    DownloadMove.others = false;
+    DownloadMove.save();
+    long shownRun = SogniDownloads.started("Midi2Wav.java", 3000L);
+    SogniDownloads.result(shownRun, "Succeeded: groove.wav", "saved " + wav.getAbsolutePath(), new java.util.HashMap<String, String>());
+    SogniDownloads.done(shownRun);
+    DownloadsScreen.tab = SogniDownloads.FINISHED;
+    DownloadsScreen.show(app);
+    idle();
+    View box = DownloadsScreen.last == null ? null : DownloadsScreen.last.getWindow().getDecorView().findViewWithTag("downloads-move-others");
+    out.append("panel box: ").append(box instanceof android.widget.CheckBox ? ((android.widget.CheckBox) box).getText() : "none").append('\n');
+    if (box instanceof android.widget.CheckBox) ((android.widget.CheckBox) box).setChecked(true);
+    DownloadMove.load();
+    boolean savedBox = DownloadMove.others;
+    if (DownloadsScreen.last != null) DownloadsScreen.last.dismiss();
+    SogniDownloads.clear(shownRun, null);
+    DownloadMove.on = false;
+    DownloadMove.others = false;
+    DownloadMove.ticked.clear();
+    DownloadMove.save();
+    SogniDownloads.init(app.getFilesDir());
+    write("s236_downloads_other_programs", out.toString());
+    boolean ok = offSogni && !offOther && onOther && !onPrompt && kept && due == 1 && dropped && box instanceof android.widget.CheckBox && savedBox;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D: Extract audio, a video's item in the Media browser: its sound as <video>-audio.m4a beside it,
+   * copied out of the MP4 (an MP4 with one sound track); a video without sound says so; DB/Prompts' video has it too.
+   */
+  @Test
+  public void s237_extract_audio() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "d1");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4"), silent = new File(dir, "wide.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), clip.toPath());
+    Files.copy(new File("../../../desktop/test/clip-wide.mp4").toPath(), silent.toPath());
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String[] said = new String[2];
+    String items = "";
+    for (String n : new String[] {"walk.mp4", "wide.mp4"}) {
+      MediaDir.Entry video = null;
+      for (MediaDir.Entry e : m.allEntries) if (e.name.equals(n)) video = e;
+      m.menu(video);
+      idle();
+      items = listItems(MediaBrowser.lastMenu);
+      AudioExtract.lastSaid = null;
+      org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(Mp4Media.EXTRACT));
+      for (int i = 0; i < 300 && AudioExtract.lastSaid == null; i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      said[n.startsWith("walk") ? 0 : 1] = String.valueOf(AudioExtract.lastSaid).replace(dir.getAbsolutePath(), "<dir>");
+    }
+    File m4a = new File(dir, "walk-audio.m4a");
+    byte[] head = m4a.isFile() ? java.util.Arrays.copyOf(Files.readAllBytes(m4a.toPath()), 12) : new byte[12];
+    String box = new String(head, 4, 4, StandardCharsets.ISO_8859_1);
+    String body = m4a.isFile() ? new String(Files.readAllBytes(m4a.toPath()), StandardCharsets.ISO_8859_1) : "";
+    boolean soundOnly = body.contains("soun") && !body.contains("vide");
+    m.dialog.dismiss();
+    idle();
+    // DB/Prompts: the video's item.
+    DbImport.store(app, "clip.mp4", Files.readAllBytes(clip.toPath()), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile stored = null;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("clip.mp4")) stored = f;
+    thumb.invoke(null, app, stored.versionId, stored.which, "clip.mp4");
+    idle();
+    boolean dbItem = listItems(PromptSheet.lastFileMenu).contains(Mp4Media.EXTRACT);
+    PromptSheet.lastFileMenu.dismiss();
+    out.append("menu has it: ").append(items.contains(Mp4Media.EXTRACT)).append(" | walk: ").append(said[0]).append(" | ").append(box).append(", sound only ").append(soundOnly)
+        .append(" | wide: ").append(said[1]).append(" | DB/Prompts item: ").append(dbItem).append('\n');
+    write("s237_extract_audio", out.toString());
+    boolean ok = items.contains(Mp4Media.EXTRACT) && m4a.isFile() && "ftyp".equals(box) && soundOnly && said[1].contains("has no sound") && dbItem;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D: ReRender's plan (VideoFit): a 16:9 picture to 9:16 cropped at the left, middle or right, or
+   * given bars above and below; sizes read from "1080×1920 (9:16)" or "720x1280"; the name; the
+   * largest of some sizes. The Media browser's MP4 has ReRender…, its dialog the sizes, fit and part kept.
+   */
+  @Test
+  public void s238_rerender_plan_and_dialog() throws Exception {
+    StringBuilder out = new StringBuilder();
+    int[] left = VideoFit.plan(1920, 1080, 1080, 1920, false, 0), mid = VideoFit.plan(1920, 1080, 1080, 1920, false, 0.5), right = VideoFit.plan(1920, 1080, 1080, 1920, false, 1);
+    int[] tall = VideoFit.plan(1080, 1920, 1080, 1080, false, 0.5), bars = VideoFit.plan(1920, 1080, 1080, 1920, true, 0.5), same = VideoFit.plan(1280, 720, 1920, 1080, false, 0.5);
+    out.append("left ").append(java.util.Arrays.toString(left)).append("\nmiddle ").append(java.util.Arrays.toString(mid)).append("\nright ").append(java.util.Arrays.toString(right))
+        .append("\ntall to square ").append(java.util.Arrays.toString(tall)).append("\nbars ").append(java.util.Arrays.toString(bars)).append(" (").append(VideoFit.said(bars)).append(")")
+        .append("\nsame shape ").append(java.util.Arrays.toString(same)).append(" (").append(VideoFit.said(same)).append(")\n");
+    int[] a = VideoFit.parseSize(VideoFit.SIZES[0]), b = VideoFit.parseSize("721 x 1281"), none = VideoFit.parseSize("big");
+    java.util.List<int[]> sizes = new java.util.ArrayList<int[]>();
+    sizes.add(new int[] {720, 1280});
+    sizes.add(new int[] {1080, 1920});
+    sizes.add(new int[] {1080, 1080});
+    out.append("sizes ").append(java.util.Arrays.toString(a)).append(' ').append(java.util.Arrays.toString(b)).append(' ').append(none == null ? "none" : "?")
+        .append(" | name ").append(VideoFit.name("walk.mp4", 1080, 1920)).append(" | largest ").append(java.util.Arrays.toString(VideoFit.largest(sizes))).append('\n');
+    // The Media browser's item and the dialog.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "d2");
+    dir.mkdirs();
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), new File(dir, "walk.mp4").toPath());
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    m.menu(m.allEntries.get(0));
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    VideoRender.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(VideoFit.RERENDER));
+    idle();
+    boolean asked = VideoRender.lastAsk != null && VideoRender.lastAsk.isShowing();
+    View dv = asked ? VideoRender.lastAsk.getWindow().getDecorView() : null;
+    boolean parts = dv != null && dv.findViewWithTag("rerender-size") != null && dv.findViewWithTag("rerender-custom") != null && dv.findViewWithTag("rerender-area") != null;
+    if (asked) VideoRender.lastAsk.dismiss();
+    m.dialog.dismiss();
+    idle();
+    out.append("menu has it: ").append(items.contains(VideoFit.RERENDER)).append(", dialog ").append(asked).append(", its parts ").append(parts).append('\n');
+    write("s238_rerender_plan_and_dialog", out.toString());
+    boolean ok = java.util.Arrays.equals(left, new int[] {0, 0, 1312, 0, 0, 0, 0, 0}) && java.util.Arrays.equals(mid, new int[] {656, 0, 656, 0, 0, 0, 0, 0})
+        && java.util.Arrays.equals(right, new int[] {1312, 0, 0, 0, 0, 0, 0, 0}) && java.util.Arrays.equals(tall, new int[] {0, 420, 0, 420, 0, 0, 0, 0})
+        && java.util.Arrays.equals(bars, new int[] {0, 0, 0, 0, 0, 1166, 0, 1166}) && java.util.Arrays.equals(same, new int[8])
+        && java.util.Arrays.equals(a, new int[] {1080, 1920}) && java.util.Arrays.equals(b, new int[] {720, 1280}) && none == null
+        && "walk-1080x1920.mp4".equals(VideoFit.name("walk.mp4", 1080, 1920)) && java.util.Arrays.equals(VideoFit.largest(sizes), new int[] {1080, 1920})
+        && items.contains(VideoFit.RERENDER) && asked && parts;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D: JoinSizes with a stand-in sizer. JoinVideo --size largest --fit pad: every video (given and
+   * --video_c) made the largest one's size into a folder of its own, its name kept, --size, --fit and
+   * --area left out of the arguments. SogniVideo --join_size 640x360 --join_first: the clip and the video
+   * made that size and joined, the other first, as <clip>-merged.mp4.
+   */
+  @Test
+  public void s239_join_one_size() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File dir = new File(app.getCacheDir(), "d3");
+    dir.mkdirs();
+    final File a = new File(dir, "scene one.mp4"), wide = new File(dir, "wide.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), a.toPath());
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), wide.toPath());
+    final List<String> calls = new ArrayList<String>();
+    JoinSizes.Sizer fake = new JoinSizes.Sizer() {
+      public int[] size(File v) {
+        return v.getName().startsWith("wide") ? new int[] {321, 181} : new int[] {160, 120};
+      }
+
+      public void render(File src, File dst, int w, int h, boolean pad, double anchor) throws Exception {
+        calls.add(src.getName() + " " + w + "x" + h + (pad ? " pad" : " crop") + " " + anchor);
+        Files.copy(src.toPath(), dst.toPath());
+      }
+
+      public String keep(String name, byte[] data) {
+        return null;
+      }
+    };
+    File tmp = new File(dir, "tmp");
+    StringBuilder log = new StringBuilder();
+    List<String> args = JoinSizes.prepare(java.util.Arrays.asList(a.getAbsolutePath(), wide.getAbsolutePath(), "--size", "largest", "--fit", "pad", "--video_c", a.getAbsolutePath(), "--b_first"), tmp, fake, log);
+    StringBuilder shown = new StringBuilder();
+    for (String x : args) shown.append(x.startsWith(tmp.getAbsolutePath()) ? "<tmp>/" + new File(x).getName() : x).append(' ');
+    out.append("JoinVideo: ").append(shown.toString().trim()).append("\nrenders: ").append(calls).append('\n').append(log);
+    boolean before = args.size() == 5 && args.get(0).startsWith(tmp.getAbsolutePath()) && args.get(0).endsWith("scene one.mp4") && args.get(1).endsWith("wide.mp4")
+        && args.get(2).equals("--video_c") && args.get(4).equals("--b_first") && !args.contains("--size") && !args.contains("--fit") && calls.size() == 3
+        && calls.get(1).equals("wide.mp4 320x180 pad 0.5");
+    calls.clear();
+    StringBuilder log2 = new StringBuilder();
+    File merged = JoinSizes.joinAfter(java.util.Arrays.asList("--prompt", "x", "--join", wide.getAbsolutePath(), "--join_size", "640x360", "--join_first", "--join_area", "top"),
+        a, "scene one.mp4", new File(dir, "join"), fake, log2);
+    out.append("SogniVideo: ").append(merged.getName()).append(' ').append(merged.length() > a.length() ? "longer than the clip" : merged.length() + " bytes").append(" renders ").append(calls).append('\n').append(log2);
+    write("s239_join_one_size", out.toString());
+    boolean after = merged.getName().equals("scene one-merged.mp4") && merged.length() > a.length() && calls.size() == 2 && calls.get(0).equals("scene one.mp4 640x360 crop 0.0")
+        && log2.toString().startsWith("Joined wide.mp4 and then scene one.mp4 at 640");
+    if (!before || !after) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch E: AudioMixer. File > AudioMixer opens it empty; a mono 22 kHz WAV and a drum MIDI (played
+   * with the kit) added, each kept as a 44.1 kHz stereo WAV; the WAV at 50% and +2 dB, the MIDI soloed;
+   * Mixdown writes the mix (the soloed track's length) as a stereo WAV into Download, and with Drum Midi
+   * Settings' "Write AudioMixer output tracks into db" into the library too. PyJav's Java list opens it
+   * again with its tracks; New project clears it.
+   */
+  @Test
+  public void s240_audiomixer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    File dir = new File(app.getCacheDir(), "e1");
+    dir.mkdirs();
+    File wav = new File(dir, "bass line.wav");
+    short[] pcm = new short[22050 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 110 / 22050));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    File mid = new File(dir, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    findText(root(), "File").performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    View item = pop.getContentView().findViewWithTag("file-audiomixer");
+    out.append("File menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
+    item.performClick();
+    idle();
+    android.app.AlertDialog d = AudioMixerScreen.last;
+    View decor = d.getWindow().getDecorView();
+    out.append("opened: ").append(d.isShowing()).append(", empty ").append(decor.findViewWithTag("audiomixer-empty") != null).append('\n');
+    TextView status = (TextView) decor.findViewWithTag("audiomixer-status");
+    ViewGroup rows = (ViewGroup) decor.findViewWithTag("audiomixer-tracks");
+    for (File f : new File[] {wav, mid, new File(dir, "notes.txt")}) {
+      AudioMixerScreen.lastSaid = null;
+      AudioMixerScreen.add(app, f.getName(), f, status, null);
+      for (int i = 0; i < 400 && (AudioMixerScreen.lastSaid == null || AudioMixerScreen.lastSaid.startsWith("Adding")); i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      out.append("add ").append(f.getName()).append(": ").append(AudioMixerScreen.lastSaid).append('\n');
+    }
+    // The rows made again (as the import does after a track is added).
+    AudioMixerScreen.show(app);
+    idle();
+    d = AudioMixerScreen.last;
+    decor = d.getWindow().getDecorView();
+    ((android.widget.SeekBar) decor.findViewWithTag("audiomixer-volume:bass line")).setProgress(50);
+    decor.findViewWithTag("audiomixer-gain-up:bass line").performClick();
+    decor.findViewWithTag("audiomixer-gain-up:bass line").performClick();
+    ((android.widget.CheckBox) decor.findViewWithTag("audiomixer-solo:beat")).setChecked(true);
+    idle();
+    StringBuilder lines = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) {
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      lines.append("  ").append(AudioMix.line(t)).append(" [").append(t.file).append(", ").append(p.sr).append(" Hz]\n");
+    }
+    out.append("tracks:\n").append(lines);
+    out.append("heard: ").append(AudioMix.heard().size()).append(" (").append(AudioMix.heard().isEmpty() ? "" : AudioMix.heard().get(0).name).append(")\n");
+    call("show", "midisettings");
+    idle();
+    View box = root().findViewWithTag("audiomixer-db");
+    out.append("setting: ").append(box != null).append('\n');
+    AudioMix.toDb = true;
+    AudioMix.save();
+    status = (TextView) decor.findViewWithTag("audiomixer-status");
+    AudioMixerScreen.lastSaid = null;
+    AudioMixerScreen.lastMixdown = null;
+    AudioMixerScreen.mixdown(app, status);
+    for (int i = 0; i < 400 && (AudioMixerScreen.lastSaid == null || AudioMixerScreen.lastSaid.startsWith("Mixing")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String said = String.valueOf(AudioMixerScreen.lastSaid);
+    out.append("mixdown: ").append(said.replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
+    // (Download is MediaStore's here: the mix it was given, made again.)
+    String where = AudioMixerScreen.lastMixdown;
+    AudioIo.StereoPcm back = where != null && where.startsWith("Download/AudioMixer mixdown") ? AudioMix.parseStereo(AudioMix.mixdown(null)) : null;
+    double beat = AudioMix.heard().isEmpty() ? 0 : AudioMix.heard().get(0).seconds;
+    out.append("mix file: ").append(back == null ? "none" : String.format(java.util.Locale.ROOT, "%d Hz stereo, %.2f s (beat %.2f s)", back.sr, back.left.length / (double) back.sr, beat)).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    boolean inDb = false;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.startsWith("AudioMixer mixdown")) inDb = true;
+    out.append("in the library: ").append(inDb).append('\n');
+    int count = AudioMix.tracks.size();
+    d.dismiss();
+    idle();
+    app.programMenus.selectProgram("Java", AudioMix.PROGRAM);
+    idle();
+    android.app.AlertDialog again = AudioMixerScreen.last;
+    View again2 = again.getWindow().getDecorView();
+    out.append("Java list: ").append(again.isShowing()).append(", ").append(AudioMix.tracks.size()).append(" tracks, bass line ").append(again2.findViewWithTag("audiomixer-track:bass line") != null).append('\n');
+    again2.findViewWithTag("audiomixer-clear").performClick();
+    idle();
+    android.app.AlertDialog ask = (android.app.AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+    ask.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("New project: ").append(AudioMix.tracks.size()).append(" tracks, files left ").append(AudioMix.dir.list((x, n) -> n.endsWith(".wav")).length).append('\n');
+    again.dismiss();
+    write("s240_audiomixer", out.toString());
+    String text = out.toString(), ls = lines.toString();
+    boolean ok = item != null && text.contains("empty true") && text.contains("add bass line.wav: Added bass line") && text.contains("add beat.mid: Added beat")
+        && text.contains("add notes.txt: notes.txt is not a WAV") && ls.contains("bass line \u00b7 0:02 \u00b7 50% \u00b7 +2 dB") && ls.contains("solo") && !ls.contains("22050 Hz")
+        && text.contains("heard: 1 (beat)") && box != null && back != null && back.sr == 44100 && Math.abs(back.left.length / 44100.0 - beat) < 0.05 && inDb && count == 2
+        && text.contains("bass line true") && text.contains("New project: 0 tracks, files left 0");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: AudioMixer's recording on the phone. + New empty track adds Track 1; its input list has the
+   * default and the phone's inputs (a stand-in microphone playing a tone); ● Record without the
+   * microphone allowed asks for it; allowed, it takes from the input picked; ❚❚ Pause writes what was
+   * taken, ● Record goes on, ■ Stop writes the rest and closes the input.
+   */
+  @Test
+  public void s241_audiomixer_record() throws Exception {
+    StringBuilder out = new StringBuilder();
+    final List<String> opened = new ArrayList<String>();
+    final int[] closed = new int[1];
+    TrackRecorder.Inputs real = TrackRecorder.inputs;
+    TrackRecorder.inputs = new TrackRecorder.Inputs() {
+      public List<SoundDevices.Device> list() {
+        List<SoundDevices.Device> l = new ArrayList<SoundDevices.Device>();
+        l.add(new SoundDevices.Device(SoundDevices.IN, "Test mic", "USB", ""));
+        return l;
+      }
+
+      public TrackRecorder.Input open(String key) {
+        opened.add(key);
+        return new TrackRecorder.Input() {
+          long at;
+
+          public int read(short[] buf) throws Exception {
+            Thread.sleep(buf.length * 1000L / AudioMix.RATE);
+            for (int i = 0; i < buf.length; i++, at++) buf[i] = (short) (16000 * Math.sin(at * 2 * Math.PI * 440 / AudioMix.RATE));
+            return buf.length;
+          }
+
+          public void close() {
+            closed[0]++;
+          }
+        };
+      }
+    };
+    try {
+      AudioMixerScreen.show(app);
+      idle();
+      View decor = AudioMixerScreen.last.getWindow().getDecorView();
+      decor.findViewWithTag("audiomixer-new-empty").performClick();
+      idle();
+      out.append("new: ").append(AudioMixerScreen.lastSaid).append('\n');
+      AudioMix.Track t = AudioMix.tracks.get(0);
+      android.widget.Spinner pick = (android.widget.Spinner) decor.findViewWithTag("audiomixer-input:Track 1");
+      StringBuilder names = new StringBuilder();
+      for (int i = 0; i < pick.getCount(); i++) names.append(i == 0 ? "" : ", ").append(pick.getItemAtPosition(i));
+      out.append("inputs: ").append(names).append('\n');
+      pick.setSelection(1);
+      idle();
+      org.robolectric.shadows.ShadowApplication sa = org.robolectric.Shadows.shadowOf(app.getApplication());
+      sa.denyPermissions(android.Manifest.permission.RECORD_AUDIO);
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      idle();
+      out.append("no microphone yet: ").append(AudioMixerScreen.lastSaid).append(", recording ").append(TrackRecorder.recording() != null).append('\n');
+      sa.grantPermissions(android.Manifest.permission.RECORD_AUDIO);
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      out.append("record: ").append(AudioMixerScreen.lastSaid).append('\n');
+      Thread.sleep(800);
+      decor.findViewWithTag("audiomixer-pause:Track 1").performClick();
+      double atPause = t.seconds;
+      Thread.sleep(500);
+      double stillPaused = t.seconds;
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      out.append("record again: ").append(AudioMixerScreen.lastSaid).append('\n');
+      Thread.sleep(800);
+      decor.findViewWithTag("audiomixer-record-stop:Track 1").performClick();
+      idle();
+      out.append("stop: ").append(AudioMixerScreen.lastSaid.replaceAll("[0-9]+\\.[0-9] s", "<n> s").replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      double rms = 0;
+      for (float v : p.left) rms += v * v;
+      rms = Math.sqrt(rms / Math.max(1, p.left.length));
+      out.append(String.format(java.util.Locale.ROOT, "track: %.1f s at pause, %.1f s still paused, %.1f s at the end (rms %.2f); opened %s, closed %d%n", atPause, stillPaused, t.seconds, rms, opened, closed[0]));
+      AudioMixerScreen.last.dismiss();
+      idle();
+      write("s241_audiomixer_record", out.toString().replaceAll("[0-9]+\\.[0-9] s", "<n> s"));
+      String text = out.toString();
+      boolean ok = text.contains("new: Added Track 1") && names.toString().equals(AudioMix.DEFAULT_INPUT + ", Test mic (USB)") && text.contains("no microphone yet: Recording needs the microphone")
+          && text.contains("recording false") && opened.equals(java.util.Arrays.asList("Test mic | USB")) && "Test mic | USB".equals(t.input) && atPause > 0.4
+          && Math.abs(stillPaused - atPause) < 0.01 && t.seconds > atPause + 0.4 && t.seconds < 5 && closed[0] == 1 && rms > 0.3;
+      if (!ok) throw new AssertionError(text);
+    } finally {
+      TrackRecorder.stop();
+      TrackRecorder.inputs = real;
+    }
+  }
+
+  /**
+   * Batch E: DrumPad tracks on the phone. + New DrumPad track adds DrumPad 1 with a Drumpad button; its
+   * window has the kits, BPM − / +, time signature, Metronome, the 12 pads (sounding as a finger
+   * touches them); ● Record keeps the pads touched with their times, ❚❚ Pause makes the track's sound
+   * and takes no more, ● Record goes on, ■ Stop writes the rest; another kit makes the sound again; the
+   * hits, kit, BPM and time signature are kept.
+   */
+  @Test
+  public void s242_drumpad() throws Exception {
+    StringBuilder out = new StringBuilder();
+    Engine.DrumSet test = Engine.DrumSet.isolated("testkit", "Test kit");
+    short[] square = new short[2205];
+    for (int i = 0; i < square.length; i++) square[i] = (short) ((i / 25) % 2 == 0 ? 20000 : -20000);
+    for (int k = 0; k < test.samples.length; k++) test.samples[k] = square;
+    app.drumSets.add(test);
+    AudioMixerScreen.show(app);
+    idle();
+    View decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-new-pads").performClick();
+    idle();
+    out.append("new: ").append(AudioMixerScreen.lastSaid).append('\n');
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-drumpad:DrumPad 1").performClick();
+    idle();
+    View pads = DrumPadScreen.last.getWindow().getDecorView();
+    android.widget.Spinner kit = (android.widget.Spinner) pads.findViewWithTag("drumpad-kit");
+    StringBuilder kits = new StringBuilder();
+    for (int i = 0; i < kit.getCount(); i++) kits.append(i == 0 ? "" : ", ").append(kit.getItemAtPosition(i));
+    int found = 0;
+    for (String id : Engine.TRACK_ID) if (pads.findViewWithTag("drumpad-pad:" + id) != null) found++;
+    out.append("window: kits ").append(kits).append(", ").append(found).append(" pads\n");
+    pads.findViewWithTag("drumpad-bpm-up").performClick();
+    pads.findViewWithTag("drumpad-bpm-up").performClick();
+    ((android.widget.Spinner) pads.findViewWithTag("drumpad-ts")).setSelection(java.util.Arrays.asList(DrumPads.SIGNATURES).indexOf("6/8"));
+    pads.findViewWithTag("drumpad-metronome").performClick();
+    idle();
+    DrumPads.Session s = DrumPads.current;
+    out.append("state: ").append(s.state()).append(", ").append(((TextView) pads.findViewWithTag("drumpad-bpm")).getText()).append('\n');
+    final View padsView = pads;
+    java.util.function.Consumer<String> touch = id -> {
+      View p = padsView.findViewWithTag("drumpad-pad:" + id);
+      long now = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0);
+      android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now + 50, android.view.MotionEvent.ACTION_UP, 10, 10, 0);
+      p.dispatchTouchEvent(down);
+      p.dispatchTouchEvent(up);
+      try {
+        Thread.sleep(200);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    pads.findViewWithTag("drumpad-record").performClick();
+    out.append("record: ").append(s.lastSaid).append('\n');
+    touch.accept("kick");
+    touch.accept("snare");
+    pads.findViewWithTag("drumpad-pause").performClick();
+    idle();
+    out.append("pause: ").append(s.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    touch.accept("crash");
+    int whilePaused = s.take.hits.size();
+    pads.findViewWithTag("drumpad-record").performClick();
+    touch.accept("chh");
+    touch.accept("snare");
+    pads.findViewWithTag("drumpad-stop").performClick();
+    idle();
+    out.append("stop: ").append(s.lastSaid.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    StringBuilder hits = new StringBuilder();
+    for (DrumPads.Hit h : s.take.hits) hits.append(Engine.TRACK_ID[h.pad]).append(' ');
+    out.append("hits: ").append(hits.toString().trim()).append(" (").append(whilePaused).append(" while paused)\n");
+    AudioIo.StereoPcm before = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    kit.setSelection(java.util.Arrays.asList(kits.toString().split(", ")).indexOf("Test kit"));
+    idle();
+    AudioIo.StereoPcm after = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double diff = 0;
+    for (int i = 0; i < Math.min(before.left.length, after.left.length); i++) diff += Math.abs(before.left[i] - after.left[i]);
+    out.append("another kit: ").append(s.take.kit).append(", sound changed ").append(diff > 1).append('\n');
+    DrumPadScreen.last.dismiss();
+    idle();
+    DrumPads.Take back = DrumPads.load(t);
+    out.append("kept: kit ").append(back.kit).append(", ").append(back.bpm).append(" BPM ").append(back.ts).append(", ").append(back.hits.size()).append(" hits; closed ")
+        .append(DrumPads.current == null).append('\n');
+    AudioMixerScreen.last.dismiss();
+    idle();
+    app.drumSets.remove(test);
+    write("s242_drumpad", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && kits.toString().startsWith("Original") && kits.toString().contains("Test kit") && found == 12
+        && s.state().contains("Metronome 122 6/8") && hits.toString().trim().equals("kick snare chh snare") && whilePaused == 2 && t.seconds > 0.3
+        && text.contains("another kit: Test kit, sound changed true") && back.hits.size() == 4 && "Test kit".equals(back.kit) && back.bpm == 122 && "6/8".equals(back.ts)
+        && text.contains("closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: a DrumPad track's MIDI editor on the phone. A bar of 16 steps in 4/4 (12 in 6/8); a step
+   * tapped on the timeline and a pad touched puts the pad in it (touched again, takes it out); a cell of
+   * the grid does the same; + Bar adds a bar and shows it; Quantize moves a hit off the steps onto one;
+   * each change makes the track's sound; Export MIDI writes the drum MIDI into Download.
+   */
+  @Test
+  public void s243_drum_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AudioMixerScreen.show(app);
+    idle();
+    View decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-new-pads").performClick();
+    idle();
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-editor:DrumPad 1").performClick();
+    idle();
+    final View ed = DrumGridScreen.last.getWindow().getDecorView();
+    DrumPads.Session s = DrumPads.current;
+    java.util.function.Supplier<String> state = () -> ((TextView) ed.findViewWithTag("editor-state")).getText().toString();
+    java.util.function.Supplier<Integer> steps = () -> {
+      int n = 0;
+      while (ed.findViewWithTag("editor-step:" + n) != null) n++;
+      return n;
+    };
+    out.append("opened: ").append(state.get()).append(", ").append(steps.get()).append(" steps\n");
+    java.util.function.BiConsumer<Integer, String> put = (step, id) -> {
+      ed.findViewWithTag("editor-step:" + step).performClick();
+      View p = ed.findViewWithTag("editor-pad:" + id);
+      long now = android.os.SystemClock.uptimeMillis();
+      p.dispatchTouchEvent(android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 5, 5, 0));
+      p.dispatchTouchEvent(android.view.MotionEvent.obtain(now, now + 40, android.view.MotionEvent.ACTION_UP, 5, 5, 0));
+    };
+    java.util.function.Function<String, String> row = id -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; ed.findViewWithTag("editor-cell:" + id + ":" + i) != null; i++) sb.append("●".contentEquals(((TextView) ed.findViewWithTag("editor-cell:" + id + ":" + i)).getText()) ? 'x' : '.');
+      return sb.toString();
+    };
+    put.accept(0, "kick");
+    put.accept(8, "kick");
+    put.accept(4, "snare");
+    put.accept(2, "chh");
+    put.accept(2, "chh");
+    ed.findViewWithTag("editor-cell:chh:6").performClick();
+    idle();
+    out.append("bar 1: kick ").append(row.apply("kick")).append(", snare ").append(row.apply("snare")).append(", chh ").append(row.apply("chh")).append(" · ").append(state.get()).append('\n');
+    ed.findViewWithTag("editor-add-bar").performClick();
+    put.accept(15, "crash");
+    out.append("bar 2: crash ").append(row.apply("crash")).append(" · ").append(state.get()).append('\n');
+    ((android.widget.Spinner) ed.findViewWithTag("editor-ts")).setSelection(java.util.Arrays.asList(DrumPads.SIGNATURES).indexOf("6/8"));
+    idle();
+    out.append("6/8: ").append(steps.get()).append(" steps\n");
+    ((android.widget.Spinner) ed.findViewWithTag("editor-ts")).setSelection(0);
+    idle();
+    s.take.hits.add(new DrumPads.Hit(Math.round(DrumGrid.stepFrames(s.take) * 10) + 700, Engine.track("rim"), 0.8f));
+    ed.findViewWithTag("editor-quantize").performClick();
+    idle();
+    out.append("quantize: ").append(state.get()).append('\n');
+    out.append(String.format(java.util.Locale.ROOT, "track: %.2f s%n", t.seconds));
+    ed.findViewWithTag("editor-export").performClick();
+    idle();
+    out.append("export: ").append(DrumGridScreen.lastExport).append('\n');
+    byte[] midi = DrumGrid.toMidi(s.take);
+    short[] heard = AudioIo.renderMidiDrums(midi, app.playback.mixVoices(), 22050);
+    out.append("the MIDI played with the kit: ").append(heard != null && heard.length > 22050 * 3).append('\n');
+    DrumGridScreen.last.dismiss();
+    idle();
+    out.append("kept: ").append(DrumPads.load(t).hits.size()).append(" hits, closed ").append(DrumPads.current == null).append('\n');
+    AudioMixerScreen.last.dismiss();
+    idle();
+    write("s243_drum_editor", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("Bar 1 of 1 · step 1 · 0 hits, 16 steps") && text.contains("bar 1: kick x.......x......., snare ....x..........., chh ......x.........")
+        && text.contains("bar 2: crash ...............x · Bar 2 of 2") && text.contains("6/8: 12 steps") && text.contains("1 moved onto the steps") && t.seconds >= 4.0
+        && String.valueOf(DrumGridScreen.lastExport).contains("DrumPad 1") && text.contains("played with the kit: true") && text.contains("kept: 6 hits, closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * Batch E: results into the AudioMixer on the phone. SogniMusic's, MidiDrumGen's and DrumMidi_CRT's
+   * Params have "Add the result to the AudioMixer"; after a run with it each sound it made becomes a
+   * track (a MIDI played with the kit, but not when a WAV of it was made too), the switch taken out
+   * before the program runs; with --zip nothing is added. Extract audio asks whether to add the sound;
+   * Add to AudioMixer makes it a track.
+   */
+  @Test
+  public void s244_to_mixer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    StringBuilder params = new StringBuilder();
+    for (String prog : new String[] {"SogniMusic", "MidiDrumGen", "DrumMidi_CRT", "CutWav"}) {
+      String src = new String(Files.readAllBytes(new File("../../../Programs/Java/" + prog + ".java").toPath()), StandardCharsets.UTF_8);
+      boolean has = false;
+      for (ProgramParams.Param p : ProgramParams.parse(src)) has |= p.token.equals(MixerOut.FLAG);
+      params.append(prog).append(' ').append(has).append(", ");
+    }
+    out.append("Params: ").append(params).append('\n');
+    AudioMix.open(AudioMixerScreen.folder(app));
+    AudioMix.clear();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    final byte[] mid = Engine.encodeSongMidi(parts);
+    short[] pcm = new short[22050];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (9000 * Math.sin(i * 0.05));
+    final byte[] wav = AudioIo.encodeWav(pcm, 22050);
+    final List<List<String>> seen = new ArrayList<List<String>>();
+    java.util.function.Function<List<String>, JavaRun.Result> fake = a -> {
+      seen.add(new ArrayList<String>(a));
+      List<JavaRun.FileOut> f = new ArrayList<JavaRun.FileOut>();
+      f.add(new JavaRun.FileOut("groove.mid", mid));
+      f.add(new JavaRun.FileOut("song.mid", mid));
+      f.add(new JavaRun.FileOut("song.wav", wav));
+      f.add(new JavaRun.FileOut("notes.txt", "x".getBytes(StandardCharsets.UTF_8)));
+      return new JavaRun.Result("Succeeded: 3 files", f, 0);
+    };
+    JavaRun.Result r = MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
+    out.append("run: ").append(r.log.trim().replace("\n", " | ")).append('\n');
+    out.append("the program got: ").append(seen.get(0)).append('\n');
+    StringBuilder names = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) names.append(t.name).append(' ');
+    out.append("tracks: ").append(names.toString().trim()).append('\n');
+    JavaRun.Result zip = MixerOut.around("SogniMusic.java", java.util.Arrays.asList("--zip", MixerOut.FLAG), fake);
+    JavaRun.Result off = MixerOut.around("CutWav.java", java.util.Arrays.asList(MixerOut.FLAG), fake);
+    out.append("zip: ").append(zip.log.contains("Not added to the AudioMixer: the run made a zip")).append(", another program: ").append(seen.get(2).contains(MixerOut.FLAG))
+        .append(", tracks ").append(AudioMix.tracks.size()).append('\n');
+    // Extract audio: the question after it.
+    File dir = new File(app.getCacheDir(), "e5");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), clip.toPath());
+    AudioExtract.asked = null;
+    AudioExtract.lastSaid = null;
+    AudioExtract.run(app, clip.getName(), clip.getAbsolutePath(), null, null);
+    for (int i = 0; i < 300 && AudioExtract.asked == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.app.AlertDialog q = AudioExtract.asked;
+    String message = q == null ? "none" : String.valueOf(org.robolectric.Shadows.shadowOf(q).getMessage());
+    out.append("asked: ").append(message).append('\n');
+    if (q != null) q.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    int before = AudioMix.tracks.size();
+    AudioExtract.offer(app, "take-audio.wav", wav);
+    idle();
+    AudioExtract.lastSaid = null;
+    AudioExtract.asked.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 300 && AudioExtract.lastSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("Not now: ").append(before).append(" tracks; Add to AudioMixer: ").append(String.valueOf(AudioExtract.lastSaid).replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioMix.clear();
+    write("s244_to_mixer", out.toString());
+    String text = out.toString();
+    boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
+        && names.toString().trim().equals("groove song") && r.log.contains("Added to the AudioMixer: groove") && r.log.contains("Added to the AudioMixer: song")
+        && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
+        && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
+  private static void swipeLeft(View v) {
+    long t = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent down = android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, 400, 100, 0);
+    android.view.MotionEvent move = android.view.MotionEvent.obtain(t, t + 100, android.view.MotionEvent.ACTION_MOVE, 200, 105, 0);
+    android.view.MotionEvent up = android.view.MotionEvent.obtain(t, t + 200, android.view.MotionEvent.ACTION_UP, 20, 110, 0);
+    v.dispatchTouchEvent(down);
+    v.dispatchTouchEvent(move);
+    v.dispatchTouchEvent(up);
+  }
+
+  /**
+   * Batch B, DB/Prompts: the full size preview's arrows go through the gallery's pictures and videos
+   * (a video has them too); a swipe works as them, on the picture and full screen.
+   */
+  @Test
+  public void s232_prompts_swipe_media() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "a.png", png.toByteArray(), true);
+    DbImport.store(app, "walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, true);
+    DbImport.store(app, "b.png", png.toByteArray(), true);
+    call("show", "prompts");
+    idle();
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Field resultsOpen = sheet.getDeclaredField("resultsOpen");
+    java.lang.reflect.Field hostF = sheet.getDeclaredField("host");
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    java.lang.reflect.Field vaultF = sheet.getDeclaredField("vault");
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field name = sheet.getDeclaredField("previewName");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    java.lang.reflect.Field box = sheet.getDeclaredField("previewBox");
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {resultsOpen, hostF, rebuild, vaultF, focusId, focusWhich, name, back, box, open}) o.setAccessible(true);
+    vaultF.set(null, PromptVault.open(app.getFilesDir()));
+    resultsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> order = FileSort.sorted(vault.resultFiles(), FileSort.current);
+    PromptVault.StoredFile first = order.get(0);
+    StringBuilder listed = new StringBuilder();
+    for (PromptVault.StoredFile f : order) listed.append(f.name).append(' ');
+    out.append("order: ").append(listed.toString().trim()).append('\n');
+    focusId.set(null, first.versionId);
+    focusWhich.set(null, first.which);
+    open.invoke(null, app, first.name, vault.fileBytes(first.versionId, first.which), 3);
+    idle();
+    StringBuilder seen = new StringBuilder(String.valueOf(name.get(null)));
+    boolean videoArrows = false;
+    for (int i = 0; i < 2; i++) {
+      ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
+      idle();
+      seen.append(" > ").append(name.get(null));
+      if ("walk.mp4".equals(name.get(null))) videoArrows = ((View) hostF.get(null)).findViewWithTag("preview-prev") != null && ((View) hostF.get(null)).findViewWithTag("preview-next") != null;
+    }
+    out.append("arrows: ").append(seen).append(", the video's arrows ").append(videoArrows).append('\n');
+    // A swipe on the picture: the next one.
+    PromptVault.StoredFile pic = null;
+    for (PromptVault.StoredFile f : order) if (pic == null && f.name.endsWith(".png")) pic = f;
+    focusId.set(null, pic.versionId);
+    focusWhich.set(null, pic.which);
+    open.invoke(null, app, pic.name, vault.fileBytes(pic.versionId, pic.which), 3);
+    idle();
+    String before = String.valueOf(name.get(null));
+    swipeLeft((View) box.get(null));
+    idle();
+    String after = String.valueOf(name.get(null));
+    out.append("swipe on ").append(before).append(": ").append(after).append('\n');
+    // Full screen, swiped: the next one full screen in its place.
+    focusId.set(null, pic.versionId);
+    focusWhich.set(null, pic.which);
+    FullScreen.picture(app, vault.fileBytes(pic.versionId, pic.which), PromptSheet.fullStep(app));
+    idle();
+    android.app.Dialog was = FullScreen.last;
+    swipeLeft(FullScreen.lastImage);
+    idle();
+    boolean fullStepped = FullScreen.last != null && FullScreen.last != was && FullScreen.last.isShowing() && !was.isShowing();
+    if (FullScreen.last != null) FullScreen.last.dismiss();
+    idle();
+    out.append("full screen swiped: next shown ").append(fullStepped).append('\n');
+    back.set(null, 0);
+    resultsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    write("s232_prompts_swipe_media", out.toString());
+    boolean ok = seen.indexOf("walk.mp4") >= 0 && videoArrows && !before.equals(after) && fullStepped;
     if (!ok) throw new AssertionError(out.toString());
   }
 

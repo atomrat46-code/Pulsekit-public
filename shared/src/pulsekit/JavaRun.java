@@ -625,7 +625,10 @@ public final class JavaRun {
           PictureCopies.clean(made);
         }
       }
-      return runJava(n, source, bytes, argv);
+      // JoinVideo --size, SogniVideo --join_size: the app re-renders the videos to one size (JoinSizes).
+      final String nn = n;
+      // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: the results into the AudioMixer (MixerOut).
+      return MixerOut.around(n, argv, m -> JoinSizes.around(nn, m, a -> runJava(nn, source, bytes, a)));
     }
     if (isNode(low)) return runNode(n, source == null ? "" : source, argv);
     return runPython(n, source == null ? "" : source, argv);
@@ -1077,6 +1080,9 @@ public final class JavaRun {
   private static Result exec(File dir, List<String> cmd, String skipName, String header, long waitMs) throws Exception {
     ProcessBuilder pb = new ProcessBuilder(cmd);
     pb.directory(dir);
+    // Where Pulsekit keeps the run's files: an output name's %n counts the files there too (SogniApi.fillName).
+    String outDirs = System.getProperty("pulsekit.outdir");
+    if (outDirs != null && outDirs.length() > 0) pb.environment().put("PULSEKIT_OUTDIR", outDirs);
     pb.redirectErrorStream(true);
     Process proc = pb.start();
     ByteArrayOutputStream bos = new ByteArrayOutputStream();

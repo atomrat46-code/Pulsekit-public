@@ -397,6 +397,21 @@ final class PyJav {
         this.pkShowRunning(item.name);
     }
 
+    /** The program shown when PyJav starts: the one run last, with its parameters (not run). */
+    String pkLastOpened;
+
+    /**
+     * PyJav starts with the program run last (Recent's first) and its parameters, not run, unless a
+     * program was opened already (a file given to the app).
+     */
+    void pkOpenLastProgram() {
+        if (!"drum_midi.py".equals(app.pyName)) return;
+        this.pkPyRecentItems = pulsekit.PyJavRecent.load(app.getFilesDir());
+        if (this.pkPyRecentItems == null || this.pkPyRecentItems.isEmpty()) return;
+        this.pkApplyRecent(1);
+        this.pkLastOpened = app.pyName;
+    }
+
     /** Recent: the run picked (a tap on a program, or one of its runs) is loaded and run. */
     /** Select program: the program and its parameters are loaded; Run starts it. */
     public void pkLoadRecent(int index) {
@@ -426,6 +441,8 @@ final class PyJav {
         slot = slot + 1;
         this.pkPyRecent.setOnItemSelectedListener(pulsekit.PyJavUi.recent(app));
         this.pkRefreshRecent(0);
+        // The program run last (Recent's first) is open when PyJav starts, once the pane is built.
+        app.pyPane.post(this::pkOpenLastProgram);
         // The hint keeps its full text for filling in a program's args (pkHintText); it shows it
         // without the "Extra args:" line, which the Arguments box below shows itself.
         this.pkPyHint = new android.widget.TextView(app) {
@@ -814,7 +831,7 @@ final class PyJav {
                 for (int i = 0; i < parts.size(); i++) {
                     pulsekit.ZipPack.write(tmp, parts.get(i), null);
                     String name = z.partName(i, parts.size());
-                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()));
+                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()), z.sub);
                     text.append(text.length() == 0 ? "" : "\n").append(where == null ? "Could not save " + name
                         : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
                 }
@@ -1328,6 +1345,8 @@ final class PyJav {
         String note = this.pkReconnectNote;
         this.pkReconnectNote = null;
         if (note == null) this.pkReconnects = 0;
+        // Downloads > Also other programs' files: another program's run gets an entry of its own (not a pending DB operation).
+        if (this.pkPending == null && pulsekit.SogniDownloads.other(name) && pulsekit.SogniDownloads.listed(name)) this.pkPending = OTHER_RUN + System.nanoTime();
         if (this.pkPending != null && pulsekit.SogniDownloads.listed(name)) DOWNLOAD_OF.put(this.pkPending, reuse != null ? reuse : Long.valueOf(pulsekit.SogniDownloads.started(name, System.currentTimeMillis())));
         // Create again (File > Downloads): the arguments this run had.
         if (this.pkPending != null && DOWNLOAD_OF.containsKey(this.pkPending)) pulsekit.SogniDownloads.args(DOWNLOAD_OF.get(this.pkPending).longValue(), this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : "");
@@ -1335,6 +1354,12 @@ final class PyJav {
         // Kept running (a notification) until the run is over: switching apps does not lose it.
         pulsekit.RunKeeper.start(app, name);
         this.pkShowWorkflow(null);
+        // Where the run's files are kept (Download): an output name's %n counts the files there too.
+        try {
+            System.setProperty("pulsekit.outdir", android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+        } catch (Throwable ignored) {
+            // no shared storage
+        }
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         this.pkLastLive = live;
         this.pkEndedAt = 0;
@@ -1767,7 +1792,12 @@ final class PyJav {
         final pulsekit.JavaRun.Result made = result;
         final String madeLog = log;
         // SogniMusic --zip: what the run makes is gathered for one zip (written when its last step is over).
-        if (ok && pulsekit.RunZip.wanted(program, argv)) this.pkZipAdd(pulsekit.RunZip.start(madeLog, argv), program, "", made, madeLog);
+        if (ok && pulsekit.RunZip.wanted(program, argv)) {
+            pulsekit.RunZip z = pulsekit.RunZip.start(madeLog, argv);
+            // --outdir: the zip goes into the run's folder under Download too.
+            z.sub = ArtJava.runSub(program, argv) != null ? ArtJava.lastSub : null;
+            this.pkZipAdd(z, program, "", made, madeLog);
+        }
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
         // One track kept as no WAV (--no_wav): its zip now.
@@ -1876,7 +1906,8 @@ final class PyJav {
                     return;
                 }
                 try {
-                    String at = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()));
+                    // Beside the track (SogniMusic --outdir: in its folder).
+                    String at = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()), ArtJava.runSub(program, musicArgv) != null ? ArtJava.lastSub : null);
                     this.pkAddLogLine(at == null ? "Could not save " + wav.getName() : "saved " + at);
                 } catch (Exception ex) {
                     this.pkAddLogLine("Could not save " + wav.getName());
@@ -2205,10 +2236,13 @@ final class PyJav {
         Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
         if (download != null) {
             pulsekit.SogniDownloads.done(download.longValue());
-            // Move downloaded media files to, automatically.
-            DownloadsScreen.finished(app);
+            // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
+            if (!pulsekit.SogniDownloads.dropIfEmpty(download.longValue())) DownloadsScreen.finished(app);
         }
     }
+
+    /** The entry key of another program's run listed in Downloads (Also other programs' files). */
+    static final String OTHER_RUN = "other-run\t";
 
     /**
      * The run's changed prompt sheets, one by one: where each goes (Save prompt), then stored in the

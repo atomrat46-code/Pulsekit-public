@@ -720,6 +720,10 @@ public final class Pulsekit extends UiKit {
             logs.setName("file-logs");
             logs.addActionListener(e -> LogsScreen.show(this));
             // The outputs, inputs, MIDI devices and drivers; Pulsekit's output and drum MIDI output.
+            // AudioMixer: tracks mixed into one (also in PyJav's Java list).
+            JMenuItem mixer = new JMenuItem(AudioMix.TITLE);
+            mixer.setName("file-audiomixer");
+            mixer.addActionListener(e -> AudioMixerWindow.show(this));
             JMenuItem sound = new JMenuItem("Sound devices");
             sound.setName("file-sound-devices");
             sound.addActionListener(e -> SoundDevicesScreen.show(this));
@@ -755,6 +759,7 @@ public final class Pulsekit extends UiKit {
             menu.add(saveCodeAs);
             menu.add(downloads);
             menu.add(logs);
+            menu.add(mixer);
             menu.add(sound);
             menu.add(backup);
             menu.add(playlists);

@@ -365,7 +365,49 @@ final class DownloadsScreen {
     static AlertDialog lastClearAll;
 
     static void menu(final MainActivity app, final LinearLayout col, final SogniDownloads.Run r, final SogniDownloads.Item item) {
-        lastMenu = new AlertDialog.Builder(app).setTitle(item.name).setItems(MENU, (d, which) -> {
+        // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
+        String extra = MediaDir.firstFrameRef(item.name) ? MediaDir.FIRST_FRAME_AS_REF
+            : "picture".equals(item.kind()) && AppSettings.showSogni() && !AppSettings.musicOnly() ? MediaDir.PROCESS_REF : null;
+        // Every file: Add to Collection and Add to playlist… after the download's own items.
+        java.util.List<String> all = new java.util.ArrayList<String>(java.util.Arrays.asList(MENU));
+        all.add(MediaCollections.ADD);
+        all.add(Playlist.ADD);
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (Mp4Media.extractable(item.name)) {
+            all.add(Mp4Media.EXTRACT);
+            all.add(VideoFit.RERENDER);
+        }
+        if (extra != null) all.add(extra);
+        final String[] rows = all.toArray(new String[0]);
+        final String extraRow = extra;
+        lastMenu = new AlertDialog.Builder(app).setTitle(item.name).setItems(rows, (d, which) -> {
+            if (MediaCollections.ADD.equals(rows[which]) || Playlist.ADD.equals(rows[which])) {
+                Uri u = uriFor(app, item.where);
+                File f = u == null ? fileFor(item.where) : null;
+                String address = u != null ? u.toString() : f.getAbsolutePath();
+                if (Playlist.ADD.equals(rows[which])) PlaylistScreen.addTo(app, address, item.name);
+                else CollectionsScreen.addTo(app, MediaCollections.KIND_FILE, address, item.name, size(app, u, f));
+                return;
+            }
+            if (Mp4Media.EXTRACT.equals(rows[which]) || VideoFit.RERENDER.equals(rows[which])) {
+                Uri u = uriFor(app, item.where);
+                File f = u == null ? fileFor(item.where) : null;
+                if (Mp4Media.EXTRACT.equals(rows[which])) AudioExtract.run(app, item.name, f == null ? null : f.getAbsolutePath(), u, null);
+                else VideoRender.ask(app, item.name, f == null ? null : f.getAbsolutePath(), u, null);
+                return;
+            }
+            if (rows[which].equals(extraRow)) {
+                if (MediaDir.FIRST_FRAME_AS_REF.equals(extraRow)) {
+                    Uri u = uriFor(app, item.where);
+                    File f = u == null ? fileFor(item.where) : null;
+                    RefImages.firstFrameAsRef(app, item.name, f == null ? null : f.getAbsolutePath(), u, null, null);
+                } else {
+                    byte[] png = bytes(app, item);
+                    if (png == null) app.setNow("Could not read " + item.name);
+                    else RefImages.offer(app, item.name, png, null, null);
+                }
+                return;
+            }
             if (which == 6) createAgain(app, r);
             else if (which == 7) app.setNow(favourite(app, r));
             else if (which == 0) preview(app, item);
@@ -503,6 +545,21 @@ final class DownloadsScreen {
             }
         }
         return null;
+    }
+
+    /** A download's size in bytes (its file's, or its document's); 0 when it cannot be told. */
+    static long size(MainActivity app, Uri u, File f) {
+        if (f != null) return f.length();
+        try {
+            android.os.ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(u, "r");
+            try {
+                return Math.max(0, fd.getStatSize());
+            } finally {
+                fd.close();
+            }
+        } catch (Exception ex) {
+            return 0;
+        }
     }
 
     private static File fileFor(String where) {
@@ -706,6 +763,17 @@ final class DownloadsScreen {
         });
         buttons.addView(auto);
         panel.addView(buttons);
+        // Also other programs' files: their runs listed too (from now on), so Move now and Move automatically take their files.
+        CheckBox others = new CheckBox(app);
+        others.setText(DownloadMove.OTHERS);
+        others.setTag("downloads-move-others");
+        others.setChecked(DownloadMove.others);
+        others.setOnCheckedChangeListener((b, yes) -> {
+            DownloadMove.others = yes;
+            DownloadMove.save();
+            if (yes) app.setNow(DownloadMove.OTHERS_NOTE);
+        });
+        panel.addView(others);
         // What Move now is doing: the file, how far, how many of them (shown while it moves, and its result after).
         TextView status = app.text(moveStatus, 12, false);
         status.setTag("downloads-move-status");

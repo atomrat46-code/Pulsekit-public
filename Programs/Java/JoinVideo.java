@@ -3,7 +3,7 @@
  * with --b_first), then videos c to f when given.
  *
  *   java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4]
- *       [output.mp4] [--b_first] [--addtodb] [--list <listfile>]
+ *       [output.mp4] [--b_first] [--addtodb] [--list <listfile>] [--size WxH|largest] [--fit crop|pad] [--area centre|top|bottom]
  *
  * --video_c..f  More videos, after a and b, in order.
  * output.mp4  Default: <video a>-merged.mp4 in the work folder (Downloads on the phone); a name in
@@ -12,6 +12,10 @@
  * --addtodb   PyJav also keeps the joined video in the prompt library, as a result file.
  * --list      A text file listing the videos to join, in order (one a line; any number of them):
  *             BatchRun --join gives its clips this way. Videos given as well follow them.
+ * --size      WxH or largest (the largest video's size): Pulsekit makes every video that size first
+ *             (it re-renders them; the program cannot), so videos of other sizes or shapes join.
+ * --fit       crop (to fill, the default) or pad (black bars), for --size.
+ * --area      centre, top or bottom (left or right on a wide picture): the part kept when cropping.
  *
  * The two pictures must be in the same format (codec, size and codec setup), as two Sogni clips
  * from the same model are; otherwise it says why. Sound is joined when both have it in the same
@@ -44,7 +48,7 @@ public final class JoinVideo {
 
   static void usage() {
     System.out.println("Usage: java JoinVideo <video_a.mp4> <video_b.mp4> [--video_c c.mp4] [--video_d d.mp4] [--video_e e.mp4] [--video_f f.mp4] "
-        + "[output.mp4] [--b_first] [--addtodb] [--list <listfile>]");
+        + "[output.mp4] [--b_first] [--addtodb] [--list <listfile>] [--size WxH|largest] [--fit crop|pad] [--area centre|top|bottom]");
   }
 
   static int run(String[] args) {
@@ -73,6 +77,11 @@ public final class JoinVideo {
         listed = readList(new File(args[++i].trim()));
         if (listed == null) return 2;
       } else if (a.equals("--b_first")) bFirst = true;
+      else if ((a.equals("--size") || a.equals("--fit") || a.equals("--area")) && i + 1 < args.length) {
+        // Pulsekit makes the videos one size before the run and leaves these out; here they came alone.
+        if (a.equals("--size")) System.out.println("Note: --size is made by Pulsekit (it re-renders the videos); joining them as they are");
+        i++;
+      }
       else if (a.equals("--addtodb")) addToDb = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
@@ -248,6 +257,55 @@ public final class JoinVideo {
       long timescale;
       Track video;
       Track audio;
+    }
+
+    /**
+     * The sound of an MP4 video as an audio-only MP4 (.m4a), copied without re-encoding; the
+     * picture is left out. Throws when the video has no sound.
+     */
+    static void audioOnly(File video, File dest) throws IOException {
+      Movie m = read(video, 0);
+      if (m.audio == null) throw new JoinException(video.getName() + " has no sound");
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(m.audio);
+      write(dest, m, tracks, new long[] {0, 0}, new File[] {video});
+    }
+
+    /**
+     * `picture`'s picture with `sound`'s sound (both MP4s, copied as they are): ReRender's video, made
+     * without sound, gets the original's back. No sound in `sound`: the picture alone.
+     */
+    static void withSound(File picture, File sound, File dest) throws IOException {
+      withSound(picture, sound, dest, 0, 0);
+    }
+
+    /**
+     * As above, the picture's size written as w×h in its track and sample entry (an encoder that
+     * scales may leave the source's there; players that read it would show it wrongly). 0: as it is.
+     */
+    static void withSound(File picture, File sound, File dest, int w, int h) throws IOException {
+      Movie p = read(picture, 0);
+      if (p.video == null) throw new JoinException(picture.getName() + " has no picture");
+      if (w > 0 && h > 0) {
+        byte[] tkhd = p.video.tkhd.clone();
+        put32(tkhd, tkhd.length - 8, (long) w << 16);
+        put32(tkhd, tkhd.length - 4, (long) h << 16);
+        p.video.tkhd = tkhd;
+        byte[] stsd = p.video.stsd.clone();
+        // The first sample entry's width and height: after the box header, version, count, its own header and 24 bytes.
+        if (stsd.length >= 52) {
+          stsd[48] = (byte) (w >> 8);
+          stsd[49] = (byte) w;
+          stsd[50] = (byte) (h >> 8);
+          stsd[51] = (byte) h;
+        }
+        p.video.stsd = stsd;
+      }
+      Movie s = read(sound, 1);
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(p.video);
+      if (s.audio != null) tracks.add(s.audio);
+      write(dest, p, tracks, new long[] {0, 0}, new File[] {picture, sound});
     }
 
     /** Writes `first` then `second` into `dest`; returns a note (sound left out...) or "". */

@@ -871,6 +871,40 @@ public final class MediaDir {
   /** A made file's item when Sogni tools are shown and it carries a Sogni job id: the id (and its workflow), with Copy. */
   public static final String SOGNI_JOB = "Sogni job id";
 
+  /**
+   * A video's item (the Media browser, Downloads, DB/Prompts, Browse DB): its first frame as a reference
+   * of a Sogni program (asked about upscaling first when it needs it); in Browse DB it fills the row.
+   */
+  public static final String FIRST_FRAME_AS_REF = "First frame as a reference image";
+  /** Browse DB, a picture's item: ImageUpscaler with it as its input (its result goes on as a reference). */
+  public static final String UPSCALE_AS_REF = "Upscale and use as a reference image";
+
+  /** Whether a file offers FIRST_FRAME_AS_REF: a video, with the Sogni tools shown. */
+  public static boolean firstFrameRef(String name) {
+    return kind(name) == VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly();
+  }
+
+  /** DB/Prompts: a picture's or video's thumbnail opens its preview over the whole screen. */
+  public static final String FULL_SCREEN = "Full screen preview";
+  /** DB/Prompts' video, held: the frame where it stopped as a reference (asked about upscaling first when it needs it), and full screen. */
+  public static final String FRAME_AS_REF = "Process current frame as a reference image";
+  public static final String FULL_SCREEN_PLAY = "Full screen playback";
+
+  /** A picture or a video: Full screen preview is offered for it. */
+  public static boolean fullScreenable(String name) {
+    int k = kind(name);
+    return k == PICTURE || k == VIDEO;
+  }
+
+  /** Choose file (a Params row), a video's item: its first frame, as a picture, fills the row. */
+  public static final String FIRST_FRAME_REF = "Extract first frame as reference img";
+
+  /** The picture a video's first frame is written to: "<video's name without its extension>-first-frame.<ext>". */
+  public static String firstFrameName(String video, String ext) {
+    String stem = video == null ? "video" : video.replace('/', '_').replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    return (stem.isEmpty() ? "video" : stem) + "-first-frame." + ext;
+  }
+
   /** The Sogni job id a picture, video or sound file carries, when Sogni tools are shown; else null. */
   public static String sogniJob(File f, String name) {
     int k = kind(name);

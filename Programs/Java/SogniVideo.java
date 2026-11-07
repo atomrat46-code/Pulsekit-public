@@ -59,6 +59,9 @@ import java.util.Map;
  * other video, saved beside it as <clip name>-merged.mp4 (no re-encoding: the two pictures must be
  * in the same format, as two Sogni clips from the same model are). --join_first puts the other video
  * first (an earlier scene, then the clip that continues it). The clip is kept as it is.
+ * --join_size WxH|largest (with --join_fit crop|pad, --join_area centre|top|bottom): the two are of
+ * other sizes or shapes; Pulsekit makes both that size after the run (largest: the larger one's) and
+ * joins them, so this program leaves the join to it.
  */
 public final class SogniVideo {
   public static void main(String[] args) throws Exception {
@@ -156,6 +159,7 @@ public final class SogniVideo {
     String joinPath = null;
     String loraText = null;
     boolean joinFirst = false;
+    String joinSized = null;
     double duration = 5;
     double maxCost = 0;
     boolean confirm = false;
@@ -185,6 +189,11 @@ public final class SogniVideo {
       else if (a.equals("--join") && i + 1 < args.length) joinPath = args[++i].trim();
       else if (a.equals("--loras") && i + 1 < args.length) loraText = args[++i].trim();
       else if (a.equals("--join_first")) joinFirst = true;
+      // Pulsekit's: the join made at one size after the run (it re-renders the two).
+      else if ((a.equals("--join_size") || a.equals("--join_fit") || a.equals("--join_area")) && i + 1 < args.length) {
+        if (a.equals("--join_size")) joinSized = args[i + 1].trim();
+        i++;
+      }
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--variations") && i + 1 < args.length) {
         if (!SogniApi.setVariations(args[++i])) return 2;
@@ -196,7 +205,7 @@ public final class SogniVideo {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = a;
+      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
       else {
         say("Unknown argument: " + a);
         usage();
@@ -345,7 +354,7 @@ public final class SogniVideo {
         say("Failed: " + why(api, id, wf));
         return 1;
       }
-      // Each variation (--variations): the first as named, then <name>-2, <name>-3...
+      // Each variation (--variations): the first as named, then <name>_Variated2, _Variated3...
       List<Map<String, Object>> keep = SogniApi.variationsOf(wf, clips);
       String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, id);
       String ext = SogniApi.mediaExtension(SogniApi.str(keep.get(0).get("url")), SogniApi.mimeOf(keep.get(0)), ".mp4");
@@ -353,7 +362,7 @@ public final class SogniVideo {
       for (int v = 0; v < keep.size(); v++) {
         String url = SogniApi.str(keep.get(v).get("url"));
         String extV = SogniApi.mediaExtension(url, SogniApi.mimeOf(keep.get(v)), ".mp4");
-        String nameV = v == 0 ? name : name + "-" + (v + 1);
+        String nameV = SogniApi.variationName(name, v);
         byte[] data = api.download(url);
         File saved = saveData(nameV + extV, data);
         if (saved == null) {
@@ -367,7 +376,8 @@ public final class SogniVideo {
         }
       }
       if (keep.size() > 1) say("Variations: " + keep.size());
-      if (joinFile != null) joinWith(file, joinFile, name, ext, joinFirst);
+      if (joinFile != null && joinSized != null) say("Join: Pulsekit makes " + file.getName() + " and " + joinFile.getName() + " one size (" + joinSized + ") and joins them after the run");
+      else if (joinFile != null) joinWith(file, joinFile, name, ext, joinFirst);
       if (!"completed".equals(status)) say("Note: workflow " + status);
       // --delete_from_sogni: the render deleted on Sogni now that it is saved here.
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
@@ -425,7 +435,7 @@ public final class SogniVideo {
 
   static void usage() {
     say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
-        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--key_file credentials.txt] "
+        + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--join_size WxH|largest] [--join_fit crop|pad] [--join_area centre|top|bottom] [--key_file credentials.txt] "
         + "[--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
   }
 
@@ -2569,6 +2579,103 @@ public final class SogniVideo {
         z.end();
       }
     }
+    /**
+     * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
+     * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
+     * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
+     * (pulsekit.outdir), has as its name (any extension): Image%n is Image1,
+     * then Image2. The extension, when one is typed, stays; the program adds its own otherwise.
+     */
+    public static String fillName(String name, File dir) {
+      if (name == null || name.indexOf('%') < 0) return name;
+      java.util.Calendar now = java.util.Calendar.getInstance();
+      String one = fillCodes(name, now, 1);
+      if (one.equals(fillCodes(name, now, 2))) return one;
+      for (int n = 1; n < 100000; n++) {
+        String made = fillCodes(name, now, n);
+        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+      }
+      return one;
+    }
+
+    /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
+    static boolean nameTaken(File dir, String name) {
+      File f = new File(name);
+      File in = f.isAbsolute() ? f.getParentFile() : f.getParent() == null ? dir : new File(dir, f.getParent());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+      String[] all = in == null ? null : in.list();
+      if (all == null) return false;
+      for (String one : all) {
+        String s = one.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        if (s.equals(stem) || s.startsWith(stem + "_Variated") || s.startsWith(stem + "(")) return true;
+      }
+      return false;
+    }
+
+    /** A file of that name (any extension) in one of the folders Pulsekit saves results in (pulsekit.outdir or PULSEKIT_OUTDIR, path separated). */
+    static boolean takenInOutDirs(String name) {
+      String dirs = System.getProperty("pulsekit.outdir");
+      if (dirs == null || dirs.length() == 0) dirs = System.getenv("PULSEKIT_OUTDIR");
+      if (dirs == null || dirs.length() == 0) return false;
+      for (String d : dirs.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+        if (d.length() > 0 && nameTaken(new File(d), new File(name).getName())) return true;
+      }
+      return false;
+    }
+
+    /** The % codes filled in, n as `n`. */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+      StringBuilder out = new StringBuilder();
+      for (int i = 0; i < pattern.length(); i++) {
+        char c = pattern.charAt(i);
+        if (c != '%') {
+          out.append(c);
+          continue;
+        }
+        if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+          out.append('%');
+          i++;
+          continue;
+        }
+        int j = i + 1;
+        while (j < pattern.length()) {
+          String rest = pattern.substring(j);
+          if (rest.startsWith("yyyy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+            j += 4;
+          } else if (rest.startsWith("yy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+            j += 2;
+          } else if (rest.startsWith("dd")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+            j += 2;
+          } else if (rest.startsWith("d")) {
+            out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+            j += 1;
+          } else if (rest.startsWith("mm")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+            j += 2;
+          } else if (rest.startsWith("m")) {
+            out.append(now.get(java.util.Calendar.MONTH) + 1);
+            j += 1;
+          } else if (rest.startsWith("n")) {
+            out.append(n);
+            j += 1;
+          } else {
+            break;
+          }
+        }
+        if (j == i + 1) out.append('%');
+        i = j - 1;
+      }
+      return out.toString();
+    }
+
+    /** A variation's name (--variations): the first as named, then <name>_Variated2, _Variated3... */
+    public static String variationName(String name, int v) {
+      return v == 0 ? name : name + "_Variated" + (v + 1);
+    }
+
     // --- SogniApi end ---
   }
 
@@ -2630,6 +2737,55 @@ public final class SogniVideo {
       long timescale;
       Track video;
       Track audio;
+    }
+
+    /**
+     * The sound of an MP4 video as an audio-only MP4 (.m4a), copied without re-encoding; the
+     * picture is left out. Throws when the video has no sound.
+     */
+    static void audioOnly(File video, File dest) throws IOException {
+      Movie m = read(video, 0);
+      if (m.audio == null) throw new JoinException(video.getName() + " has no sound");
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(m.audio);
+      write(dest, m, tracks, new long[] {0, 0}, new File[] {video});
+    }
+
+    /**
+     * `picture`'s picture with `sound`'s sound (both MP4s, copied as they are): ReRender's video, made
+     * without sound, gets the original's back. No sound in `sound`: the picture alone.
+     */
+    static void withSound(File picture, File sound, File dest) throws IOException {
+      withSound(picture, sound, dest, 0, 0);
+    }
+
+    /**
+     * As above, the picture's size written as w×h in its track and sample entry (an encoder that
+     * scales may leave the source's there; players that read it would show it wrongly). 0: as it is.
+     */
+    static void withSound(File picture, File sound, File dest, int w, int h) throws IOException {
+      Movie p = read(picture, 0);
+      if (p.video == null) throw new JoinException(picture.getName() + " has no picture");
+      if (w > 0 && h > 0) {
+        byte[] tkhd = p.video.tkhd.clone();
+        put32(tkhd, tkhd.length - 8, (long) w << 16);
+        put32(tkhd, tkhd.length - 4, (long) h << 16);
+        p.video.tkhd = tkhd;
+        byte[] stsd = p.video.stsd.clone();
+        // The first sample entry's width and height: after the box header, version, count, its own header and 24 bytes.
+        if (stsd.length >= 52) {
+          stsd[48] = (byte) (w >> 8);
+          stsd[49] = (byte) w;
+          stsd[50] = (byte) (h >> 8);
+          stsd[51] = (byte) h;
+        }
+        p.video.stsd = stsd;
+      }
+      Movie s = read(sound, 1);
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(p.video);
+      if (s.audio != null) tracks.add(s.audio);
+      write(dest, p, tracks, new long[] {0, 0}, new File[] {picture, sound});
     }
 
     /** Writes `first` then `second` into `dest`; returns a note (sound left out...) or "". */

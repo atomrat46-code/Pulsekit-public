@@ -201,6 +201,8 @@ public final class ProgramParams {
       save.label = "Save this run into DB (the program, all its params, input and result files)";
       out.add(save);
     }
+    // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
+    if ((drumMidi || drumGen || sogniMusic) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
     return out;
   }
 
@@ -338,6 +340,16 @@ public final class ProgramParams {
       p.hint = DrumMidiArgs.HINTS[i];
       p.suggested = DrumMidiArgs.SUGGESTED[i];
     }
+    // DrumMidi_CRT's zips: the MIDI made (and the log) also in a zip, in parts of at most N MB, in a folder of its own.
+    if (drumMidi && p.flag && p.token.equals("--zip") && !p.takesValue) p.label = "Zip the output: the MIDI (and the log) in a zip too";
+    if (drumMidi && p.flag && p.token.equals("--zip_mb")) {
+      p.label = "Zips of at most this many MB each (zip implied)";
+      p.hint = "empty: one zip; e.g. 5 makes part1of3, part2of3...";
+    }
+    if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
+      p.label = "Zip folder (made when missing)";
+      p.hint = "empty: beside the MIDI (Download / the program files folder); % codes: dm%ddmmyy, zips%n";
+    }
     if (p.label == null || p.label.length() == 0) {
       String s = p.token.replaceAll("^-+", "").replace('_', ' ').replace('-', ' ');
       if (!p.flag && p.ext != null) p.label = p.token;
@@ -388,7 +400,7 @@ public final class ProgramParams {
     if (!p.flag && p.output && chat) {
       // SogniChat's output is a base name for everything it saves, not one file.
       p.label = "Output name";
-      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy";
     }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
@@ -642,6 +654,11 @@ public final class ProgramParams {
   }
 
   private static void knownSogniMusic(Param p) {
+    if (p.flag && p.takesValue && p.token.equals("--outdir")) {
+      p.label = "Output folder: the tracks, WAVs and zip go here";
+      p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
+    }
+    if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
@@ -842,6 +859,10 @@ public final class ProgramParams {
       p.hint = "30 for a 30 MB chat limit; empty: one zip";
     } else if (p.token.equals("--zip_nowav")) {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
+    } else if (p.token.equals("--zip_outdir")) {
+      p.dir = true;
+      p.label = "Copy the run's zips (and the test results zip) into this folder too";
+      p.hint = "empty: the zips stay beside the WAVs; % codes: %ddmmyyyy, run-%n (the next free number)";
     }
   }
 
@@ -940,6 +961,23 @@ public final class ProgramParams {
       p.hint = "after the videos before it";
     }
     if (p.flag && p.token.equals("--b_first")) p.label = "Video b first (then video a; c to f follow)";
+    // One size: Pulsekit makes every video that size first (VLC on a computer, the phone's encoder).
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.SIZE)) {
+      p.label = "Make them one size first (videos of other sizes or shapes)";
+      p.hint = "empty: joined as they are (one format only); largest: the largest video's size";
+      p.choices = new String[] {JoinSizes.LARGEST, "1080x1920", "720x1280", "1920x1080", "1280x720", "1080x1080"};
+      p.choiceValues = p.choices;
+    }
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.FIT)) {
+      p.label = "One size: crop to fill, or fit with black bars (pad)";
+      p.choices = new String[] {"crop", "pad"};
+      p.choiceValues = p.choices;
+    }
+    if (p.flag && p.takesValue && p.token.equals(JoinSizes.AREA)) {
+      p.label = "One size, cropping: the part kept";
+      p.choices = new String[] {"centre", "top", "bottom"};
+      p.choiceValues = p.choices;
+    }
     if (p.flag && p.token.equals("--addtodb")) p.label = "Add the joined video to the prompt library (DB)";
     if (p.flag && p.takesValue && p.token.equals("--list")) {
       p.ext = "txt";
@@ -994,7 +1032,7 @@ public final class ProgramParams {
   private static void knownPedit(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-pedit-<first words>.png";
+      p.hint = "optional; sogni-pedit-<first words>.png; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1034,7 +1072,7 @@ public final class ProgramParams {
   private static void knownPadd(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-padd-<first words>.png";
+      p.hint = "optional; sogni-padd-<first words>.png; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1061,7 +1099,7 @@ public final class ProgramParams {
   private static void knownTextVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-textvideo-<first words>.mp4";
+      p.hint = "optional; sogni-textvideo-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
@@ -1094,7 +1132,7 @@ public final class ProgramParams {
   private static void knownVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-video-<first words>.mp4";
+      p.hint = "optional; sogni-video-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
@@ -1106,6 +1144,23 @@ public final class ProgramParams {
       if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
       if (p.token.equals("--join_first")) p.label = "Joined video first (then the new clip)";
       return;
+    }
+    // Join with this video at one size: Pulsekit makes the two that size after the run and joins them.
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_SIZE)) {
+      p.label = "Join at one size (the clip and the video of other sizes or shapes)";
+      p.hint = "empty: joined as they are (one format only); largest: the larger one's size";
+      p.choices = new String[] {JoinSizes.LARGEST, "1080x1920", "720x1280", "1920x1080", "1280x720", "1080x1080"};
+      p.choiceValues = p.choices;
+    }
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_FIT)) {
+      p.label = "Join at one size: crop to fill, or fit with black bars (pad)";
+      p.choices = new String[] {"crop", "pad"};
+      p.choiceValues = p.choices;
+    }
+    if (p.takesValue && p.token.equals(JoinSizes.JOIN_AREA)) {
+      p.label = "Join at one size, cropping: the part kept";
+      p.choices = new String[] {"centre", "top", "bottom"};
+      p.choiceValues = p.choices;
     }
     if (p.token.equals("--prompt")) p.hint = "what happens: the motion, the camera, the sound";
     if (p.token.equals("--image")) {

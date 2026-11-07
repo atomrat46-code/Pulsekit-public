@@ -18,6 +18,9 @@ public final class RunZip {
   public static final String DELETE = "--zip_delete";
 
   public final String name;
+  /** SogniMusic --outdir: the folder the zip is saved in (the desktop's), or under Download (the phone's); null: the usual place. */
+  public File dir;
+  public String sub;
   /** The run gave --zip_delete. */
   public boolean deleteAfter;
   final List<ZipPack.Source> sources = new ArrayList<ZipPack.Source>();

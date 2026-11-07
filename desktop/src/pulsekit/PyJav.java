@@ -36,6 +36,19 @@ final class PyJav {
 
     PyJav(Pulsekit app) {
         this.app = app;
+        // JoinVideo --size, SogniVideo --join_size: VLC makes the videos one size first.
+        JoinSizes.sizer = VideoRender.sizer();
+        AudioMix.mp3 = Mp3Decode::parseStereo;
+        AudioMix.aac = AudioMixerWindow::decodeAac;
+        TrackRecorder.inputs = AudioMixerWindow.inputs();
+        // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: their results become mixer tracks.
+        MixerOut.folder = AudioMixerWindow.folder();
+        MixerOut.kit = () -> {
+            if (app.playback == null) return null;
+            app.playback.fillMissingVoices();
+            return app.playback.mixVoices();
+        };
+        MixerOut.changed = () -> javax.swing.SwingUtilities.invokeLater(AudioMixerWindow::refresh);
     }
 
     /** The arguments: one line for the program, wrapped over a few on screen (many VST paths do not fit one). */
@@ -296,7 +309,25 @@ final class PyJav {
         editorBox.setMinimumSize(new Dimension(50, 60));
         outputBox.setMinimumSize(new Dimension(50, 60));
         jPanel.add((Component)this.pySplit, "Center");
+        // The program run last (Recent's first) is open when PyJav starts, once the window is built.
+        SwingUtilities.invokeLater(this::openLastProgram);
         return jPanel;
+    }
+
+    /** The program shown when PyJav starts: the one run last, with its parameters (not run). */
+    String lastOpened;
+
+    /**
+     * PyJav starts with the program run last (Recent's first) and its parameters, not run, unless a
+     * program was opened already (a file given to the app).
+     */
+    void openLastProgram() {
+        if (!"drum_midi.py".equals(app.pyName)) return;
+        this.reloadPyRecent(0);
+        if (this.pyRecentItems == null || this.pyRecentItems.isEmpty()) return;
+        PyJavRecent.Item last = this.pyRecentItems.get(0);
+        this.applyPyRecent(last);
+        this.lastOpened = last.name;
     }
 
     /** Code above, Output below: the divider between them is dragged. */
@@ -770,7 +801,7 @@ final class PyJav {
         // File > Downloads: the Sogni run is in progress until its result is in.
         SogniDownloads.init(PromptDb.dir());
         final long download = this.reconnectDownload != 0 ? this.reconnectDownload
-            : pending != null && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
+            : (pending != null || SogniDownloads.other(name)) && SogniDownloads.listed(name) ? SogniDownloads.started(name, System.currentTimeMillis()) : 0;
         this.reconnectDownload = 0;
         // Create again (File > Downloads): the arguments this run had.
         if (download != 0) SogniDownloads.args(download, filled);
@@ -839,6 +870,12 @@ final class PyJav {
             }
             if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final long runStarted = System.currentTimeMillis();
+            // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
+            String outdirArg = ProgramFolder.outdirArg(name, argv);
+            this.runOutDir = outdirArg == null ? null : ProgramFolder.outdir(outdirArg, this.programFolder());
+            if (this.runOutDir != null && !this.runOutDir.isDirectory()) this.runOutDir.mkdirs();
+            // Where the run's files are kept: an output name's %n counts the files there too.
+            System.setProperty("pulsekit.outdir", (this.runOutDir != null ? this.runOutDir : this.programFolder()).getAbsolutePath());
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
@@ -926,8 +963,9 @@ final class PyJav {
                         continue;
                     } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) {
                         // Audio, a prompt sheet, a picture or a video a program wrote in its work folder (SogniMusic's
-                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android.
-                        File saved = this.saveProgramFile(f.name, f.bytes);
+                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android
+                        // (SogniMusic --outdir: in its folder).
+                        File saved = this.saveProgramFile(f.name, f.bytes, this.runOutDir);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) {
                             audios++;
@@ -1004,8 +1042,8 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
-                    // Move downloaded media files to, automatically.
-                    DownloadsScreen.finished(app);
+                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
+                    if (!SogniDownloads.dropIfEmpty(download)) DownloadsScreen.finished(app);
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
@@ -1026,6 +1064,7 @@ final class PyJav {
                 // SogniMusic --zip: what the run made (and its WAV) gathered for one zip, written when its last step is over.
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
                     RunZip z = RunZip.start(result.log, argv);
+                    z.dir = this.runOutDir;
                     this.zipAdd(z, name, "", result);
                     // The tracks saved in Downloads are the zip's: --zip_delete deletes them too.
                     for (File copy : savedAudio.values()) z.addCopy(copy.getPath());
@@ -1227,6 +1266,27 @@ final class PyJav {
             db.previewCropNow = false;
             db.previewLeave = null;
             db.previewProcess = null;
+        }
+    }
+
+    /**
+     * Crop on a Sogni Params picture row: the picture in the Preview window with the crop frame on;
+     * its menu has Use the crop in this row (one that needs upscaling is asked first), Save as…, Upscale.
+     */
+    void cropPicture(String path, java.util.function.Consumer<File> row) {
+        File pic = new File(path);
+        PromptDb db = app.promptDb;
+        db.previewFolder = pic.getAbsoluteFile().getParentFile();
+        db.previewCropNow = true;
+        db.previewRow = row;
+        try {
+            db.preview(pic.getName(), java.nio.file.Files.readAllBytes(pic.toPath()));
+        } catch (Exception ex) {
+            app.setNow("Could not read " + pic.getName());
+        } finally {
+            db.previewFolder = null;
+            db.previewCropNow = false;
+            db.previewRow = null;
         }
     }
 
@@ -1851,7 +1911,7 @@ final class PyJav {
                     for (int i = 0; i < parts.size(); i++) {
                         ZipPack.write(tmp, parts.get(i), null);
                         String name = z.partName(i, parts.size());
-                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()));
+                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()), z.dir);
                         text.append(text.length() == 0 ? "" : "\n").append(saved == null ? "Could not save " + name
                             : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + saved.getPath());
                     }
@@ -2599,9 +2659,17 @@ final class PyJav {
         return dir;
     }
 
+    /** SogniMusic --outdir: the folder the run going on (or ended last) keeps its files in; null: the program files folder. */
+    volatile File runOutDir;
+
     File saveProgramFile(String name, byte[] data) {
+        return this.saveProgramFile(name, data, null);
+    }
+
+    /** As above, into `into` (null: the program files folder). */
+    File saveProgramFile(String name, byte[] data, File into) {
         try {
-            File dir = this.programFolder();
+            File dir = into != null ? into : this.programFolder();
             if (!dir.isDirectory()) dir.mkdirs();
             String safe = name.replace('\\', '_').replace('/', '_');
             int dot = safe.lastIndexOf('.');
@@ -3048,7 +3116,7 @@ final class PyJav {
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     this.assignFile(ps, values, index, fileLabels, chooser.getSelectedFile().getAbsolutePath(), null);
-                }));
+                }, ProgramParams.previewsPicture(p)));
                 if (p.newChat) {
                     // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
                     JButton fresh = new JButton("New chat");
@@ -3156,7 +3224,16 @@ final class PyJav {
                     preview.setEnabled(ProgramParams.isPicture(values[i]));
                     chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
                     preview.addActionListener(e -> this.previewPicture(values[index]));
-                    row.add(preview, BorderLayout.EAST);
+                    // Crop: the picture with the crop frame on; its menu has Use the crop in this row (upscale asked when needed).
+                    final JButton crop = new JButton(CropBox.CROP_ROW);
+                    crop.setName("params-crop:" + p.token);
+                    crop.setEnabled(ProgramParams.isPicture(values[i]));
+                    chosen.addPropertyChangeListener("text", e -> crop.setEnabled(ProgramParams.isPicture(values[index])));
+                    crop.addActionListener(e -> this.cropPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null)));
+                    JPanel looks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0));
+                    looks.add(preview);
+                    looks.add(crop);
+                    row.add(looks, BorderLayout.EAST);
                 }
                 if (p.join) {
                     // SogniVideo's Join with this video: the file buttons work only when it is ticked;
