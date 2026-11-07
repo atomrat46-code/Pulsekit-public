@@ -473,6 +473,86 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: AudioMixer's recording. + New empty track adds Track 1 (no sound); its input list has the
+   * default and the computer's inputs (here a stand-in microphone playing a tone); ● Record takes from
+   * the one picked, ❚❚ Pause writes what was taken and takes no more, ● Record goes on, ■ Stop writes
+   * the rest and closes the input; the track keeps its input when the mixer is opened again.
+   */
+  void s224_audiomixer_record() throws Exception {
+    final List<String> opened = new ArrayList<String>();
+    final int[] closed = new int[1];
+    final long[] delivered = new long[1];
+    TrackRecorder.inputs = new TrackRecorder.Inputs() {
+      public List<SoundDevices.Device> list() {
+        List<SoundDevices.Device> l = new ArrayList<SoundDevices.Device>();
+        l.add(new SoundDevices.Device(SoundDevices.IN, "Test mic", "stand-in", ""));
+        l.add(new SoundDevices.Device(SoundDevices.OUT, "Speakers", "stand-in", ""));
+        return l;
+      }
+
+      public TrackRecorder.Input open(String key) {
+        opened.add(key);
+        return new TrackRecorder.Input() {
+          long at;
+
+          public int read(short[] buf) throws Exception {
+            Thread.sleep(buf.length * 1000L / AudioMix.RATE);
+            for (int i = 0; i < buf.length; i++, at++) buf[i] = (short) (16000 * Math.sin(at * 2 * Math.PI * 440 / AudioMix.RATE));
+            delivered[0] += buf.length;
+            return buf.length;
+          }
+
+          public void close() {
+            closed[0]++;
+          }
+        };
+      }
+    };
+    edt(() -> AudioMixerWindow.show((Pulsekit) frame));
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-empty")).doClick());
+    Thread.sleep(200);
+    out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    @SuppressWarnings("unchecked")
+    javax.swing.JComboBox<String> pick = (javax.swing.JComboBox<String>) component(d, "audiomixer-input:Track 1");
+    StringBuilder names = new StringBuilder();
+    for (int i = 0; i < pick.getItemCount(); i++) names.append(i == 0 ? "" : ", ").append(pick.getItemAt(i));
+    out.append("inputs: ").append(names).append('\n');
+    edt(() -> pick.setSelectedIndex(1));
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record:Track 1")).doClick());
+    out.append("record: ").append(AudioMixerWindow.lastSaid).append('\n');
+    Thread.sleep(800);
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-pause:Track 1")).doClick());
+    out.append("pause: ").append(AudioMixerWindow.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    double atPause = t.seconds;
+    Thread.sleep(600);
+    double stillPaused = t.seconds;
+    String heard = ((javax.swing.JLabel) component(d, "audiomixer-heard:Track 1")).getText();
+    out.append("heard while paused: ").append(heard.replaceAll("-?[0-9.]+ dBFS", "<dB>").replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record:Track 1")).doClick());
+    out.append("record again: ").append(AudioMixerWindow.lastSaid).append('\n');
+    Thread.sleep(800);
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-record-stop:Track 1")).doClick());
+    out.append("stop: ").append(AudioMixerWindow.lastSaid.replaceAll("[0-9]+\\.[0-9] s", "<n> s").replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double rms = 0;
+    for (float v : p.left) rms += v * v;
+    rms = Math.sqrt(rms / Math.max(1, p.left.length));
+    out.append(String.format(java.util.Locale.ROOT, "track: %.1f s at pause, %.1f s still paused, %.1f s at the end (rms %.2f); opened %s, closed %d%n", atPause, stillPaused, t.seconds, rms, opened, closed[0]));
+    edt(() -> d.dispose());
+    AudioMixerWindow.last = null;
+    AudioMix.open(AudioMixerWindow.folder());
+    AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    out.append("opened again: ").append(back == null ? "none" : back.name + ", input " + back.input + String.format(java.util.Locale.ROOT, ", %.1f s", back.seconds)).append('\n');
+    String text = out.toString();
+    boolean ok = text.contains("new: Added Track 1") && names.toString().equals(AudioMix.DEFAULT_INPUT + ", Test mic (stand-in)") && opened.equals(java.util.Arrays.asList("Test mic | stand-in"))
+        && atPause > 0.4 && Math.abs(stillPaused - atPause) < 0.01 && t.seconds > atPause + 0.4 && t.seconds < 5 && closed[0] == 1 && rms > 0.3
+        && text.contains("heard while paused: Level") && text.contains("paused at") && back != null && "Test mic | stand-in".equals(back.input) && Math.abs(back.seconds - t.seconds) < 0.01;
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * Batch E: AudioMixer. File > AudioMixer opens it empty; File > Import new track… adds a mono 22 kHz
    * WAV, the MP3 and a drum MIDI (played with the kit), each kept as a 44.1 kHz stereo WAV; the WAV at
    * 50% and +6 dB, the MP3 muted; Mixdown writes the mix (as long as the longest heard track) as a

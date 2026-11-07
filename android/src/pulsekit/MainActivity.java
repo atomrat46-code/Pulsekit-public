@@ -344,6 +344,7 @@ public class MainActivity extends UiKit {
         // JoinVideo --size, SogniVideo --join_size: the phone's encoder makes the videos one size first.
         JoinSizes.sizer = VideoRender.sizer(this);
         AudioMix.mp3 = AudioMixerScreen::decodeMp3;
+        TrackRecorder.inputs = AudioMixerScreen.inputs(this);
         this.handler.postDelayed(this.dbWatch, 400);
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());

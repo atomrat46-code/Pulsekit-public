@@ -13,7 +13,8 @@ import java.io.File;
 
 /**
  * AudioMixer (File > AudioMixer, or PyJav's Java list): the tracks, each with its volume (0 to 150%),
- * gain (− and + by 1 dB), Mute, Solo, ▶ (it alone) and ✕ (taken out); Import new track… (the Media
+ * gain (− and + by 1 dB), Mute, Solo, ▶ (it alone) and ✕ (taken out), and its input with ● Record,
+ * ❚❚ Pause and ■ Stop (TrackRecorder); + New empty track; Import new track… (the Media
  * browser: a WAV, an MP3, or a drum MIDI played with the kit), ▶ Play mix, ■ Stop, Mixdown (the mix
  * as a WAV in Download, and in the prompt library with Drum Midi Settings' "Write AudioMixer output
  * tracks into db") and New project. The tracks stay in the app's audiomixer folder until cleared.
@@ -57,14 +58,19 @@ final class AudioMixerScreen {
         TextView stop = app.pill("■", false, v -> stop());
         stop.setTag("audiomixer-stop");
         stop.setContentDescription("Stop");
+        TextView empty = app.pill("+ " + AudioMix.NEW_EMPTY, false, v -> newEmpty(status, fill[0]));
+        empty.setTag("audiomixer-new-empty");
         buttons.addView(imp);
-        buttons.addView(play, margin(app));
-        buttons.addView(stop, margin(app));
+        buttons.addView(empty, margin(app));
+        LinearLayout transport = app.row();
+        transport.addView(play);
+        transport.addView(stop, margin(app));
         LinearLayout more = app.row();
         TextView mix = app.pill(AudioMix.MIXDOWN, true, v -> mixdown(app, status));
         mix.setTag("audiomixer-mixdown");
         TextView clear = app.pill("New project", false, v -> {
             stop();
+            TrackRecorder.stop();
             if (AudioMix.tracks.isEmpty()) return;
             new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?")
                 .setPositiveButton("Clear", (d, w) -> {
@@ -76,6 +82,7 @@ final class AudioMixerScreen {
         more.addView(mix);
         more.addView(clear, margin(app));
         col.addView(buttons);
+        col.addView(transport);
         col.addView(more);
         col.addView(status);
         col.addView(rows);
@@ -84,7 +91,10 @@ final class AudioMixerScreen {
         fill[0].run();
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app).setTitle(AudioMix.TITLE).setView(scroll).setPositiveButton("Close", null).create();
-        last.setOnDismissListener(d -> stop());
+        last.setOnDismissListener(d -> {
+            stop();
+            TrackRecorder.stop();
+        });
         last.show();
     }
 
@@ -166,6 +176,7 @@ final class AudioMixerScreen {
         one.setTag("audiomixer-play:" + t.name);
         TextView out = app.pill("✕", false, v -> {
             stop();
+            if (TrackRecorder.recording() == t) TrackRecorder.stop();
             AudioMix.remove(t);
             fill[0].run();
         });
@@ -177,7 +188,121 @@ final class AudioMixerScreen {
         r.addView(one, margin(app));
         r.addView(out, margin(app));
         box.addView(r);
+        box.addView(recordRow(app, t, name, status));
         return box;
+    }
+
+    /** The track's input and ● Record, ❚❚ Pause, ■ Stop, with what the input hears. */
+    static LinearLayout recordRow(final MainActivity app, final AudioMix.Track t, final TextView name, final TextView status) {
+        LinearLayout col = app.col();
+        LinearLayout r = app.row();
+        final String[][] in = TrackRecorder.choices();
+        final android.widget.Spinner pick = new android.widget.Spinner(app);
+        pick.setTag("audiomixer-input:" + t.name);
+        android.widget.ArrayAdapter<String> names = new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_item, in[0]);
+        names.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        pick.setAdapter(names);
+        pick.setSelection(Math.max(0, java.util.Arrays.asList(in[1]).indexOf(t.input)));
+        pick.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> a, android.view.View v, int i, long id) {
+                if (in[1][i].equals(t.input)) return;
+                t.input = in[1][i];
+                AudioMix.save();
+            }
+
+            public void onNothingSelected(android.widget.AdapterView<?> a) {}
+        });
+        final TextView heard = app.text(" ", 12, false);
+        heard.setTag("audiomixer-heard:" + t.name);
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        TextView rec = app.pill(TrackRecorder.RECORD, false, v -> {
+            if (android.os.Build.VERSION.SDK_INT >= 23 && app.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                say(status, ASK_MIC);
+                app.requestPermissions(new String[] {android.Manifest.permission.RECORD_AUDIO}, InputTestScreen.MIC_PERMISSION);
+                return;
+            }
+            stop();
+            say(status, TrackRecorder.record(t, text -> main.post(() -> {
+                heard.setText(text);
+                name.setText(AudioMix.line(t));
+            })));
+        });
+        rec.setTag("audiomixer-record:" + t.name);
+        TextView pause = app.pill(TrackRecorder.PAUSE, false, v -> {
+            if (TrackRecorder.recording() != t) return;
+            say(status, TrackRecorder.pause());
+            name.setText(AudioMix.line(t));
+        });
+        pause.setTag("audiomixer-pause:" + t.name);
+        TextView stopRec = app.pill(TrackRecorder.STOP, false, v -> {
+            stop();
+            if (TrackRecorder.recording() != t) return;
+            say(status, TrackRecorder.stop());
+            heard.setText(" ");
+            name.setText(AudioMix.line(t));
+        });
+        stopRec.setTag("audiomixer-record-stop:" + t.name);
+        r.addView(rec);
+        r.addView(pause, margin(app));
+        r.addView(stopRec, margin(app));
+        col.addView(pick);
+        col.addView(r);
+        col.addView(heard);
+        return col;
+    }
+
+    static final String ASK_MIC = "Recording needs the microphone: allow it, then tap " + TrackRecorder.RECORD + " again";
+
+    /** New empty track: a track with no sound, for ● Record. */
+    static void newEmpty(TextView status, Runnable fill) {
+        try {
+            AudioMix.Track t = AudioMix.addEmpty();
+            say(status, "Added " + t.name + ": pick its input, then " + TrackRecorder.RECORD);
+        } catch (Exception ex) {
+            say(status, "Could not add a track: " + ex.getMessage());
+        }
+        if (fill != null) fill.run();
+    }
+
+    /** The phone's audio inputs for TrackRecorder (AudioRecord at 44.1 kHz mono, the picked device preferred). */
+    static TrackRecorder.Inputs inputs(final MainActivity app) {
+        return new TrackRecorder.Inputs() {
+            public java.util.List<SoundDevices.Device> list() {
+                return SoundDevices.of(SoundOut.list(app), SoundDevices.IN);
+            }
+
+            public TrackRecorder.Input open(String key) throws Exception {
+                int min = android.media.AudioRecord.getMinBufferSize(AudioMix.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                final android.media.AudioRecord rec = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.MIC, AudioMix.RATE, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 8192) * 2);
+                if (rec.getState() != android.media.AudioRecord.STATE_INITIALIZED) {
+                    rec.release();
+                    throw new IllegalStateException("the microphone could not be opened");
+                }
+                if (key != null && !key.isEmpty()) {
+                    for (SoundDevices.Device d : list()) {
+                        if (!d.key().equals(key)) continue;
+                        android.media.AudioDeviceInfo info = InputTestScreen.input(app, d);
+                        if (info != null) rec.setPreferredDevice(info);
+                    }
+                }
+                rec.startRecording();
+                return new TrackRecorder.Input() {
+                    public int read(short[] buf) {
+                        return rec.read(buf, 0, buf.length);
+                    }
+
+                    public void close() {
+                        try {
+                            rec.stop();
+                        } catch (Throwable ignored) {
+                            // not started
+                        }
+                        rec.release();
+                    }
+                };
+            }
+        };
     }
 
     /** `file` (named `name`) added as a track, off the main thread; the rows made again. */

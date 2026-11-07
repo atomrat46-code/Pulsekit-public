@@ -23,7 +23,8 @@ import javax.swing.SwingUtilities;
 
 /**
  * AudioMixer (File > AudioMixer, or PyJav's Java list): the tracks, each with its volume (0 to 150%),
- * gain (dB), Mute, Solo, ▶ (it alone) and ✕ (taken out); ▶ Play mix and ■ Stop under them. File menu:
+ * gain (dB), Mute, Solo, ▶ (it alone) and ✕ (taken out), and its input with ● Record, ❚❚ Pause and
+ * ■ Stop (TrackRecorder); + New empty track, ▶ Play mix and ■ Stop under them. File menu:
  * Import new track… (a WAV, an MP3, or a drum MIDI played with the kit), Mixdown (the mix as a WAV in
  * the program files folder, and in the prompt library with Drum Midi Settings' "Write AudioMixer
  * output tracks into db"), New project. The tracks stay in ~/.pulsekit/audiomixer until cleared.
@@ -76,6 +77,9 @@ final class AudioMixerWindow {
         JMenuItem imp = new JMenuItem(AudioMix.IMPORT);
         imp.setName("audiomixer-import");
         imp.addActionListener(e -> importTrack(app, d, status, fill[0]));
+        JMenuItem empty = new JMenuItem(AudioMix.NEW_EMPTY);
+        empty.setName("audiomixer-new-empty-item");
+        empty.addActionListener(e -> newEmpty(status, fill[0]));
         JMenuItem mix = new JMenuItem(AudioMix.MIXDOWN);
         mix.setName("audiomixer-mixdown");
         mix.addActionListener(e -> mixdown(app, status));
@@ -83,6 +87,7 @@ final class AudioMixerWindow {
         clear.setName("audiomixer-clear");
         clear.addActionListener(e -> {
             stop();
+            TrackRecorder.stop();
             if (!AudioMix.tracks.isEmpty() && javax.swing.JOptionPane.showConfirmDialog(d, "Take every track out of the AudioMixer?", AudioMix.CLEAR,
                 javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
             AudioMix.clear();
@@ -91,12 +96,16 @@ final class AudioMixerWindow {
         JMenuItem close = new JMenuItem("Close");
         close.addActionListener(e -> d.dispose());
         file.add(imp);
+        file.add(empty);
         file.add(mix);
         file.addSeparator();
         file.add(clear);
         file.add(close);
         bar.add(file);
         d.setJMenuBar(bar);
+        JButton newEmpty = new JButton("+ " + AudioMix.NEW_EMPTY);
+        newEmpty.setName("audiomixer-new-empty");
+        newEmpty.addActionListener(e -> newEmpty(status, fill[0]));
         JButton play = new JButton("▶ Play mix");
         play.setName("audiomixer-play");
         play.addActionListener(e -> playMix(status));
@@ -104,6 +113,7 @@ final class AudioMixerWindow {
         stopBtn.setName("audiomixer-stop");
         stopBtn.addActionListener(e -> stop());
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        transport.add(newEmpty);
         transport.add(play);
         transport.add(stopBtn);
         transport.add(status);
@@ -119,6 +129,7 @@ final class AudioMixerWindow {
             @Override
             public void windowClosed(java.awt.event.WindowEvent e) {
                 stop();
+                TrackRecorder.stop();
             }
         });
         d.pack();
@@ -128,8 +139,11 @@ final class AudioMixerWindow {
 
     /** One track's row: its name and length, volume, gain, Mute, Solo, ▶ and ✕. */
     static JPanel row(final Pulsekit app, final AudioMix.Track t, final JLabel status, final Runnable[] fill) {
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        box.setName("audiomixer-track:" + t.name);
+        box.setAlignmentX(0.0f);
         JPanel r = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        r.setName("audiomixer-track:" + t.name);
         r.setAlignmentX(0.0f);
         final JLabel name = new JLabel(AudioMix.line(t));
         name.setPreferredSize(new java.awt.Dimension(260, name.getPreferredSize().height));
@@ -192,10 +206,62 @@ final class AudioMixerWindow {
         out.setToolTipText("Take this track out");
         out.addActionListener(e -> {
             stop();
+            if (TrackRecorder.recording() == t) TrackRecorder.stop();
             AudioMix.remove(t);
             fill[0].run();
         });
         r.add(out);
+        box.add(r);
+        box.add(recordRow(t, name, status));
+        return box;
+    }
+
+    /** The track's input and ● Record, ❚❚ Pause, ■ Stop, with what the input hears. */
+    static JPanel recordRow(final AudioMix.Track t, final JLabel name, final JLabel status) {
+        JPanel r = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        r.setAlignmentX(0.0f);
+        r.add(new JLabel("Input"));
+        final String[][] in = TrackRecorder.choices();
+        final javax.swing.JComboBox<String> pick = new javax.swing.JComboBox<String>(in[0]);
+        pick.setName("audiomixer-input:" + t.name);
+        int at = java.util.Arrays.asList(in[1]).indexOf(t.input);
+        pick.setSelectedIndex(Math.max(0, at));
+        pick.addActionListener(e -> {
+            t.input = in[1][Math.max(0, pick.getSelectedIndex())];
+            AudioMix.save();
+        });
+        r.add(pick);
+        final JLabel heard = new JLabel(" ");
+        heard.setName("audiomixer-heard:" + t.name);
+        JButton rec = new JButton(TrackRecorder.RECORD);
+        rec.setName("audiomixer-record:" + t.name);
+        rec.addActionListener(e -> {
+            stop();
+            say(status, TrackRecorder.record(t, text -> SwingUtilities.invokeLater(() -> {
+                heard.setText(text);
+                name.setText(AudioMix.line(t));
+            })));
+        });
+        JButton pause = new JButton(TrackRecorder.PAUSE);
+        pause.setName("audiomixer-pause:" + t.name);
+        pause.addActionListener(e -> {
+            if (TrackRecorder.recording() != t) return;
+            say(status, TrackRecorder.pause());
+            name.setText(AudioMix.line(t));
+        });
+        JButton stopRec = new JButton(TrackRecorder.STOP);
+        stopRec.setName("audiomixer-record-stop:" + t.name);
+        stopRec.addActionListener(e -> {
+            stop();
+            if (TrackRecorder.recording() != t) return;
+            say(status, TrackRecorder.stop());
+            heard.setText(" ");
+            name.setText(AudioMix.line(t));
+        });
+        r.add(rec);
+        r.add(pause);
+        r.add(stopRec);
+        r.add(heard);
         return r;
     }
 
@@ -267,6 +333,17 @@ final class AudioMixerWindow {
         }, "pulsekit-mixdown").start();
     }
 
+    /** New empty track: a track with no sound, for ● Record. */
+    static void newEmpty(JLabel status, Runnable fill) {
+        try {
+            AudioMix.Track t = AudioMix.addEmpty();
+            say(status, "Added " + t.name + ": pick its input, then " + TrackRecorder.RECORD);
+        } catch (Exception ex) {
+            say(status, "Could not add a track: " + ex.getMessage());
+        }
+        if (fill != null) fill.run();
+    }
+
     static void playMix(final JLabel status) {
         new Thread(() -> {
             try {
@@ -308,6 +385,50 @@ final class AudioMixerWindow {
                 // closed
             }
         }
+    }
+
+    /** The computer's audio inputs for TrackRecorder (javax.sound: a TargetDataLine, 44.1 kHz mono). */
+    static TrackRecorder.Inputs inputs() {
+        return new TrackRecorder.Inputs() {
+            public java.util.List<SoundDevices.Device> list() {
+                return SoundDevices.of(SoundOut.list(), SoundDevices.IN);
+            }
+
+            public TrackRecorder.Input open(String key) throws Exception {
+                javax.sound.sampled.AudioFormat f = new javax.sound.sampled.AudioFormat(AudioMix.RATE, 16, 1, true, false);
+                javax.sound.sampled.DataLine.Info info = new javax.sound.sampled.DataLine.Info(javax.sound.sampled.TargetDataLine.class, f);
+                javax.sound.sampled.TargetDataLine line = null;
+                if (key != null && !key.isEmpty()) {
+                    for (SoundDevices.Device d : list()) {
+                        if (!d.key().equals(key)) continue;
+                        javax.sound.sampled.Mixer.Info mi = SoundOut.find(d.name);
+                        if (mi == null) throw new IllegalStateException(d.name + " is not connected");
+                        line = (javax.sound.sampled.TargetDataLine) javax.sound.sampled.AudioSystem.getMixer(mi).getLine(info);
+                    }
+                    if (line == null) throw new IllegalStateException("the input is not connected");
+                } else {
+                    line = (javax.sound.sampled.TargetDataLine) javax.sound.sampled.AudioSystem.getLine(info);
+                }
+                line.open(f);
+                line.start();
+                final javax.sound.sampled.TargetDataLine open = line;
+                return new TrackRecorder.Input() {
+                    byte[] raw = new byte[0];
+
+                    public int read(short[] buf) {
+                        if (raw.length != buf.length * 2) raw = new byte[buf.length * 2];
+                        int n = open.read(raw, 0, raw.length) / 2;
+                        for (int i = 0; i < n; i++) buf[i] = (short) ((raw[2 * i] & 0xff) | (raw[2 * i + 1] << 8));
+                        return n;
+                    }
+
+                    public void close() {
+                        open.stop();
+                        open.close();
+                    }
+                };
+            }
+        };
     }
 
     static void say(JLabel status, String s) {

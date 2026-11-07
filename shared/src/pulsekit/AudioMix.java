@@ -23,6 +23,9 @@ public final class AudioMix {
   public static final String IMPORT = "Import new track…";
   public static final String MIXDOWN = "Mixdown";
   public static final String CLEAR = "New project (clear the tracks)";
+  public static final String NEW_EMPTY = "New empty track";
+  /** A track's input when none is picked: the system's (the phone's microphone). */
+  public static final String DEFAULT_INPUT = "Default input";
   public static final String TO_DB = "Write AudioMixer output tracks into db";
   public static final int RATE = 44100;
   public static final int MAX_VOLUME = 150;
@@ -40,6 +43,8 @@ public final class AudioMix {
     public boolean solo;
     /** Its length in seconds (read when it is added). */
     public double seconds;
+    /** The audio input its Record uses (a Sound devices key); empty: the default input. */
+    public String input = "";
 
     /** What it is multiplied by: the volume and the gain together (0 when muted). */
     public double factor() {
@@ -82,6 +87,7 @@ public final class AudioMix {
         t.mute = "1".equals(p[4]);
         t.solo = "1".equals(p[5]);
         t.seconds = p.length > 6 ? parseDouble(p[6]) : 0;
+        t.input = p.length > 7 ? p[7] : "";
         tracks.add(t);
       }
     } catch (Exception ignored) {
@@ -95,7 +101,7 @@ public final class AudioMix {
     StringBuilder sb = new StringBuilder();
     for (Track t : tracks) {
       sb.append(clean(t.name)).append('\t').append(t.file).append('\t').append(t.volume).append('\t').append(t.gain).append('\t').append(t.mute ? 1 : 0).append('\t')
-          .append(t.solo ? 1 : 0).append('\t').append(String.format(Locale.ROOT, "%.3f", t.seconds)).append('\n');
+          .append(t.solo ? 1 : 0).append('\t').append(String.format(Locale.ROOT, "%.3f", t.seconds)).append('\t').append(clean(t.input)).append('\n');
     }
     try {
       write(new File(dir, LIST), sb.toString().getBytes(StandardCharsets.UTF_8));
@@ -128,6 +134,41 @@ public final class AudioMix {
     tracks.add(t);
     save();
     return t;
+  }
+
+  /** New empty track: "Track 1" (the first number not taken), no sound yet, for Record. */
+  public static synchronized Track addEmpty() throws Exception {
+    int n = 1;
+    for (boolean taken = true; taken; n++) {
+      taken = false;
+      for (Track o : tracks) taken |= o.name.equals("Track " + n);
+      if (!taken) break;
+    }
+    Track t = new Track();
+    t.name = "Track " + n;
+    File f = new File(dir, "Track_" + n + ".wav");
+    for (int k = 2; f.exists(); k++) f = new File(dir, "Track_" + n + "-" + k + ".wav");
+    write(f, encodeStereo(new float[0], new float[0], RATE));
+    t.file = f.getName();
+    tracks.add(t);
+    save();
+    return t;
+  }
+
+  /** The track's sound replaced by `l`/`r` (at RATE), or added after its end (`append`); its length read again. */
+  public static synchronized void setSound(Track t, float[] l, float[] r, boolean append) throws Exception {
+    File f = new File(dir, t.file);
+    if (append && f.isFile()) {
+      AudioIo.StereoPcm old = parseStereo(read(f));
+      float[] nl = java.util.Arrays.copyOf(old.left, old.left.length + l.length), nr = java.util.Arrays.copyOf(old.right, old.right.length + r.length);
+      System.arraycopy(l, 0, nl, old.left.length, l.length);
+      System.arraycopy(r, 0, nr, old.right.length, r.length);
+      l = nl;
+      r = nr;
+    }
+    write(f, encodeStereo(l, r, RATE));
+    t.seconds = l.length / (double) RATE;
+    save();
   }
 
   /** A track taken out (its WAV deleted). */

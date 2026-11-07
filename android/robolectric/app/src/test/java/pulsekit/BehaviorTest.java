@@ -13148,6 +13148,94 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * Batch E: AudioMixer's recording on the phone. + New empty track adds Track 1; its input list has the
+   * default and the phone's inputs (a stand-in microphone playing a tone); ● Record without the
+   * microphone allowed asks for it; allowed, it takes from the input picked; ❚❚ Pause writes what was
+   * taken, ● Record goes on, ■ Stop writes the rest and closes the input.
+   */
+  @Test
+  public void s241_audiomixer_record() throws Exception {
+    StringBuilder out = new StringBuilder();
+    final List<String> opened = new ArrayList<String>();
+    final int[] closed = new int[1];
+    TrackRecorder.Inputs real = TrackRecorder.inputs;
+    TrackRecorder.inputs = new TrackRecorder.Inputs() {
+      public List<SoundDevices.Device> list() {
+        List<SoundDevices.Device> l = new ArrayList<SoundDevices.Device>();
+        l.add(new SoundDevices.Device(SoundDevices.IN, "Test mic", "USB", ""));
+        return l;
+      }
+
+      public TrackRecorder.Input open(String key) {
+        opened.add(key);
+        return new TrackRecorder.Input() {
+          long at;
+
+          public int read(short[] buf) throws Exception {
+            Thread.sleep(buf.length * 1000L / AudioMix.RATE);
+            for (int i = 0; i < buf.length; i++, at++) buf[i] = (short) (16000 * Math.sin(at * 2 * Math.PI * 440 / AudioMix.RATE));
+            return buf.length;
+          }
+
+          public void close() {
+            closed[0]++;
+          }
+        };
+      }
+    };
+    try {
+      AudioMixerScreen.show(app);
+      idle();
+      View decor = AudioMixerScreen.last.getWindow().getDecorView();
+      decor.findViewWithTag("audiomixer-new-empty").performClick();
+      idle();
+      out.append("new: ").append(AudioMixerScreen.lastSaid).append('\n');
+      AudioMix.Track t = AudioMix.tracks.get(0);
+      android.widget.Spinner pick = (android.widget.Spinner) decor.findViewWithTag("audiomixer-input:Track 1");
+      StringBuilder names = new StringBuilder();
+      for (int i = 0; i < pick.getCount(); i++) names.append(i == 0 ? "" : ", ").append(pick.getItemAtPosition(i));
+      out.append("inputs: ").append(names).append('\n');
+      pick.setSelection(1);
+      idle();
+      org.robolectric.shadows.ShadowApplication sa = org.robolectric.Shadows.shadowOf(app.getApplication());
+      sa.denyPermissions(android.Manifest.permission.RECORD_AUDIO);
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      idle();
+      out.append("no microphone yet: ").append(AudioMixerScreen.lastSaid).append(", recording ").append(TrackRecorder.recording() != null).append('\n');
+      sa.grantPermissions(android.Manifest.permission.RECORD_AUDIO);
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      out.append("record: ").append(AudioMixerScreen.lastSaid).append('\n');
+      Thread.sleep(800);
+      decor.findViewWithTag("audiomixer-pause:Track 1").performClick();
+      double atPause = t.seconds;
+      Thread.sleep(500);
+      double stillPaused = t.seconds;
+      decor.findViewWithTag("audiomixer-record:Track 1").performClick();
+      out.append("record again: ").append(AudioMixerScreen.lastSaid).append('\n');
+      Thread.sleep(800);
+      decor.findViewWithTag("audiomixer-record-stop:Track 1").performClick();
+      idle();
+      out.append("stop: ").append(AudioMixerScreen.lastSaid.replaceAll("[0-9]+\\.[0-9] s", "<n> s").replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      double rms = 0;
+      for (float v : p.left) rms += v * v;
+      rms = Math.sqrt(rms / Math.max(1, p.left.length));
+      out.append(String.format(java.util.Locale.ROOT, "track: %.1f s at pause, %.1f s still paused, %.1f s at the end (rms %.2f); opened %s, closed %d%n", atPause, stillPaused, t.seconds, rms, opened, closed[0]));
+      AudioMixerScreen.last.dismiss();
+      idle();
+      write("s241_audiomixer_record", out.toString().replaceAll("[0-9]+\\.[0-9] s", "<n> s"));
+      String text = out.toString();
+      boolean ok = text.contains("new: Added Track 1") && names.toString().equals(AudioMix.DEFAULT_INPUT + ", Test mic (USB)") && text.contains("no microphone yet: Recording needs the microphone")
+          && text.contains("recording false") && opened.equals(java.util.Arrays.asList("Test mic | USB")) && "Test mic | USB".equals(t.input) && atPause > 0.4
+          && Math.abs(stillPaused - atPause) < 0.01 && t.seconds > atPause + 0.4 && t.seconds < 5 && closed[0] == 1 && rms > 0.3;
+      if (!ok) throw new AssertionError(text);
+    } finally {
+      TrackRecorder.stop();
+      TrackRecorder.inputs = real;
+    }
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();
