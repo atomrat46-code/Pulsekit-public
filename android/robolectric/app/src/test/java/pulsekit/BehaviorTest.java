@@ -13236,6 +13236,101 @@ public class BehaviorTest {
     }
   }
 
+  /**
+   * Batch E: DrumPad tracks on the phone. + New DrumPad track adds DrumPad 1 with a Drumpad button; its
+   * window has the kits, BPM − / +, time signature, Metronome, the 12 pads (sounding as a finger
+   * touches them); ● Record keeps the pads touched with their times, ❚❚ Pause makes the track's sound
+   * and takes no more, ● Record goes on, ■ Stop writes the rest; another kit makes the sound again; the
+   * hits, kit, BPM and time signature are kept.
+   */
+  @Test
+  public void s242_drumpad() throws Exception {
+    StringBuilder out = new StringBuilder();
+    Engine.DrumSet test = Engine.DrumSet.isolated("testkit", "Test kit");
+    short[] square = new short[2205];
+    for (int i = 0; i < square.length; i++) square[i] = (short) ((i / 25) % 2 == 0 ? 20000 : -20000);
+    for (int k = 0; k < test.samples.length; k++) test.samples[k] = square;
+    app.drumSets.add(test);
+    AudioMixerScreen.show(app);
+    idle();
+    View decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-new-pads").performClick();
+    idle();
+    out.append("new: ").append(AudioMixerScreen.lastSaid).append('\n');
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-drumpad:DrumPad 1").performClick();
+    idle();
+    View pads = DrumPadScreen.last.getWindow().getDecorView();
+    android.widget.Spinner kit = (android.widget.Spinner) pads.findViewWithTag("drumpad-kit");
+    StringBuilder kits = new StringBuilder();
+    for (int i = 0; i < kit.getCount(); i++) kits.append(i == 0 ? "" : ", ").append(kit.getItemAtPosition(i));
+    int found = 0;
+    for (String id : Engine.TRACK_ID) if (pads.findViewWithTag("drumpad-pad:" + id) != null) found++;
+    out.append("window: kits ").append(kits).append(", ").append(found).append(" pads\n");
+    pads.findViewWithTag("drumpad-bpm-up").performClick();
+    pads.findViewWithTag("drumpad-bpm-up").performClick();
+    ((android.widget.Spinner) pads.findViewWithTag("drumpad-ts")).setSelection(java.util.Arrays.asList(DrumPads.SIGNATURES).indexOf("6/8"));
+    pads.findViewWithTag("drumpad-metronome").performClick();
+    idle();
+    DrumPads.Session s = DrumPads.current;
+    out.append("state: ").append(s.state()).append(", ").append(((TextView) pads.findViewWithTag("drumpad-bpm")).getText()).append('\n');
+    final View padsView = pads;
+    java.util.function.Consumer<String> touch = id -> {
+      View p = padsView.findViewWithTag("drumpad-pad:" + id);
+      long now = android.os.SystemClock.uptimeMillis();
+      android.view.MotionEvent down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0);
+      android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now + 50, android.view.MotionEvent.ACTION_UP, 10, 10, 0);
+      p.dispatchTouchEvent(down);
+      p.dispatchTouchEvent(up);
+      try {
+        Thread.sleep(200);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    pads.findViewWithTag("drumpad-record").performClick();
+    out.append("record: ").append(s.lastSaid).append('\n');
+    touch.accept("kick");
+    touch.accept("snare");
+    pads.findViewWithTag("drumpad-pause").performClick();
+    idle();
+    out.append("pause: ").append(s.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    touch.accept("crash");
+    int whilePaused = s.take.hits.size();
+    pads.findViewWithTag("drumpad-record").performClick();
+    touch.accept("chh");
+    touch.accept("snare");
+    pads.findViewWithTag("drumpad-stop").performClick();
+    idle();
+    out.append("stop: ").append(s.lastSaid.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    StringBuilder hits = new StringBuilder();
+    for (DrumPads.Hit h : s.take.hits) hits.append(Engine.TRACK_ID[h.pad]).append(' ');
+    out.append("hits: ").append(hits.toString().trim()).append(" (").append(whilePaused).append(" while paused)\n");
+    AudioIo.StereoPcm before = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    kit.setSelection(java.util.Arrays.asList(kits.toString().split(", ")).indexOf("Test kit"));
+    idle();
+    AudioIo.StereoPcm after = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double diff = 0;
+    for (int i = 0; i < Math.min(before.left.length, after.left.length); i++) diff += Math.abs(before.left[i] - after.left[i]);
+    out.append("another kit: ").append(s.take.kit).append(", sound changed ").append(diff > 1).append('\n');
+    DrumPadScreen.last.dismiss();
+    idle();
+    DrumPads.Take back = DrumPads.load(t);
+    out.append("kept: kit ").append(back.kit).append(", ").append(back.bpm).append(" BPM ").append(back.ts).append(", ").append(back.hits.size()).append(" hits; closed ")
+        .append(DrumPads.current == null).append('\n');
+    AudioMixerScreen.last.dismiss();
+    idle();
+    app.drumSets.remove(test);
+    write("s242_drumpad", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && kits.toString().startsWith("Original") && kits.toString().contains("Test kit") && found == 12
+        && s.state().contains("Metronome 122 6/8") && hits.toString().trim().equals("kick snare chh snare") && whilePaused == 2 && t.seconds > 0.3
+        && text.contains("another kit: Test kit, sound changed true") && back.hits.size() == 4 && "Test kit".equals(back.kit) && back.bpm == 122 && "6/8".equals(back.ts)
+        && text.contains("closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

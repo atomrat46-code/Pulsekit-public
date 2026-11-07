@@ -24,7 +24,8 @@ import javax.swing.SwingUtilities;
 /**
  * AudioMixer (File > AudioMixer, or PyJav's Java list): the tracks, each with its volume (0 to 150%),
  * gain (dB), Mute, Solo, ▶ (it alone) and ✕ (taken out), and its input with ● Record, ❚❚ Pause and
- * ■ Stop (TrackRecorder); + New empty track, ▶ Play mix and ■ Stop under them. File menu:
+ * ■ Stop (TrackRecorder), or a DrumPad track's Drumpad button (DrumPadWindow); + New empty track,
+ * + New DrumPad track, ▶ Play mix and ■ Stop under them. File menu:
  * Import new track… (a WAV, an MP3, or a drum MIDI played with the kit), Mixdown (the mix as a WAV in
  * the program files folder, and in the prompt library with Drum Midi Settings' "Write AudioMixer
  * output tracks into db"), New project. The tracks stay in ~/.pulsekit/audiomixer until cleared.
@@ -80,6 +81,9 @@ final class AudioMixerWindow {
         JMenuItem empty = new JMenuItem(AudioMix.NEW_EMPTY);
         empty.setName("audiomixer-new-empty-item");
         empty.addActionListener(e -> newEmpty(status, fill[0]));
+        JMenuItem padsItem = new JMenuItem(DrumPads.NEW);
+        padsItem.setName("audiomixer-new-pads-item");
+        padsItem.addActionListener(e -> newPads(status, fill[0]));
         JMenuItem mix = new JMenuItem(AudioMix.MIXDOWN);
         mix.setName("audiomixer-mixdown");
         mix.addActionListener(e -> mixdown(app, status));
@@ -88,6 +92,7 @@ final class AudioMixerWindow {
         clear.addActionListener(e -> {
             stop();
             TrackRecorder.stop();
+            if (DrumPadWindow.last != null) DrumPadWindow.last.dispose();
             if (!AudioMix.tracks.isEmpty() && javax.swing.JOptionPane.showConfirmDialog(d, "Take every track out of the AudioMixer?", AudioMix.CLEAR,
                 javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
             AudioMix.clear();
@@ -97,6 +102,7 @@ final class AudioMixerWindow {
         close.addActionListener(e -> d.dispose());
         file.add(imp);
         file.add(empty);
+        file.add(padsItem);
         file.add(mix);
         file.addSeparator();
         file.add(clear);
@@ -106,6 +112,9 @@ final class AudioMixerWindow {
         JButton newEmpty = new JButton("+ " + AudioMix.NEW_EMPTY);
         newEmpty.setName("audiomixer-new-empty");
         newEmpty.addActionListener(e -> newEmpty(status, fill[0]));
+        JButton newPads = new JButton("+ " + DrumPads.NEW);
+        newPads.setName("audiomixer-new-pads");
+        newPads.addActionListener(e -> newPads(status, fill[0]));
         JButton play = new JButton("▶ Play mix");
         play.setName("audiomixer-play");
         play.addActionListener(e -> playMix(status));
@@ -114,6 +123,7 @@ final class AudioMixerWindow {
         stopBtn.addActionListener(e -> stop());
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         transport.add(newEmpty);
+        transport.add(newPads);
         transport.add(play);
         transport.add(stopBtn);
         transport.add(status);
@@ -130,6 +140,7 @@ final class AudioMixerWindow {
             public void windowClosed(java.awt.event.WindowEvent e) {
                 stop();
                 TrackRecorder.stop();
+                if (DrumPadWindow.last != null) DrumPadWindow.last.dispose();
             }
         });
         d.pack();
@@ -207,13 +218,29 @@ final class AudioMixerWindow {
         out.addActionListener(e -> {
             stop();
             if (TrackRecorder.recording() == t) TrackRecorder.stop();
+            if (DrumPads.current != null && DrumPads.current.track == t && DrumPadWindow.last != null) DrumPadWindow.last.dispose();
             AudioMix.remove(t);
             fill[0].run();
         });
         r.add(out);
         box.add(r);
-        box.add(recordRow(t, name, status));
+        box.add(t.pads ? padsRow(app, t, name) : recordRow(t, name, status));
         return box;
+    }
+
+    /** A DrumPad track's Drumpad button (its pads, kit, metronome and recording). */
+    static JPanel padsRow(final Pulsekit app, final AudioMix.Track t, final JLabel name) {
+        JPanel r = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        r.setAlignmentX(0.0f);
+        JButton pads = new JButton(DrumPads.BUTTON);
+        pads.setName("audiomixer-drumpad:" + t.name);
+        pads.addActionListener(e -> {
+            stop();
+            TrackRecorder.stop();
+            DrumPadWindow.show(app, last, t, () -> name.setText(AudioMix.line(t)));
+        });
+        r.add(pads);
+        return r;
     }
 
     /** The track's input and ● Record, ❚❚ Pause, ■ Stop, with what the input hears. */
@@ -338,6 +365,17 @@ final class AudioMixerWindow {
         try {
             AudioMix.Track t = AudioMix.addEmpty();
             say(status, "Added " + t.name + ": pick its input, then " + TrackRecorder.RECORD);
+        } catch (Exception ex) {
+            say(status, "Could not add a track: " + ex.getMessage());
+        }
+        if (fill != null) fill.run();
+    }
+
+    /** New DrumPad track: a track for the Drumpad window's hits. */
+    static void newPads(JLabel status, Runnable fill) {
+        try {
+            AudioMix.Track t = AudioMix.addPads();
+            say(status, "Added " + t.name + ": open its " + DrumPads.BUTTON);
         } catch (Exception ex) {
             say(status, "Could not add a track: " + ex.getMessage());
         }

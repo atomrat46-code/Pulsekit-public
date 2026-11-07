@@ -45,6 +45,8 @@ public final class AudioMix {
     public double seconds;
     /** The audio input its Record uses (a Sound devices key); empty: the default input. */
     public String input = "";
+    /** A DrumPad track (its hits in <file>.pads, played with the Drumpad window). */
+    public boolean pads;
 
     /** What it is multiplied by: the volume and the gain together (0 when muted). */
     public double factor() {
@@ -88,6 +90,7 @@ public final class AudioMix {
         t.solo = "1".equals(p[5]);
         t.seconds = p.length > 6 ? parseDouble(p[6]) : 0;
         t.input = p.length > 7 ? p[7] : "";
+        t.pads = p.length > 8 && "pads".equals(p[8]);
         tracks.add(t);
       }
     } catch (Exception ignored) {
@@ -101,7 +104,7 @@ public final class AudioMix {
     StringBuilder sb = new StringBuilder();
     for (Track t : tracks) {
       sb.append(clean(t.name)).append('\t').append(t.file).append('\t').append(t.volume).append('\t').append(t.gain).append('\t').append(t.mute ? 1 : 0).append('\t')
-          .append(t.solo ? 1 : 0).append('\t').append(String.format(Locale.ROOT, "%.3f", t.seconds)).append('\t').append(clean(t.input)).append('\n');
+          .append(t.solo ? 1 : 0).append('\t').append(String.format(Locale.ROOT, "%.3f", t.seconds)).append('\t').append(clean(t.input)).append('\t').append(t.pads ? "pads" : "").append('\n');
     }
     try {
       write(new File(dir, LIST), sb.toString().getBytes(StandardCharsets.UTF_8));
@@ -138,16 +141,26 @@ public final class AudioMix {
 
   /** New empty track: "Track 1" (the first number not taken), no sound yet, for Record. */
   public static synchronized Track addEmpty() throws Exception {
+    return addEmpty("Track", false);
+  }
+
+  /** New DrumPad track: "DrumPad 1" (the first number not taken), no hits yet, for the Drumpad window. */
+  public static synchronized Track addPads() throws Exception {
+    return addEmpty("DrumPad", true);
+  }
+
+  static Track addEmpty(String word, boolean pads) throws Exception {
     int n = 1;
     for (boolean taken = true; taken; n++) {
       taken = false;
-      for (Track o : tracks) taken |= o.name.equals("Track " + n);
+      for (Track o : tracks) taken |= o.name.equals(word + " " + n);
       if (!taken) break;
     }
     Track t = new Track();
-    t.name = "Track " + n;
-    File f = new File(dir, "Track_" + n + ".wav");
-    for (int k = 2; f.exists(); k++) f = new File(dir, "Track_" + n + "-" + k + ".wav");
+    t.name = word + " " + n;
+    t.pads = pads;
+    File f = new File(dir, word + "_" + n + ".wav");
+    for (int k = 2; f.exists(); k++) f = new File(dir, word + "_" + n + "-" + k + ".wav");
     write(f, encodeStereo(new float[0], new float[0], RATE));
     t.file = f.getName();
     tracks.add(t);
@@ -174,7 +187,10 @@ public final class AudioMix {
   /** A track taken out (its WAV deleted). */
   public static synchronized void remove(Track t) {
     tracks.remove(t);
-    if (dir != null) new File(dir, t.file).delete();
+    if (dir != null) {
+      new File(dir, t.file).delete();
+      new File(dir, t.file.replaceAll("\\.wav$", "") + ".pads").delete();
+    }
     save();
   }
 

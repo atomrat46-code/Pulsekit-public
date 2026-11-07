@@ -473,6 +473,139 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: DrumPad tracks. + New DrumPad track adds DrumPad 1 with a Drumpad button; its window has the
+   * kits (here also a stand-in "Test kit"), BPM, time signature and Metronome (a high click on the
+   * bar's first beat, lower on the others, a beat of the signature's unit apart); ● Record keeps each
+   * pad pressed with its time, ❚❚ Pause makes the track's sound from them and takes no more, ● Record
+   * goes on from there, ■ Stop writes the rest; another kit makes the sound again; the hits, kit, BPM
+   * and time signature are kept, and the track is in the mix.
+   */
+  void s225_drumpad() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    Engine.DrumSet test = Engine.DrumSet.isolated("testkit", "Test kit");
+    short[] square = new short[2205];
+    for (int i = 0; i < square.length; i++) square[i] = (short) ((i / 25) % 2 == 0 ? 20000 : -20000);
+    for (int k = 0; k < test.samples.length; k++) test.samples[k] = square;
+    app.drumSets.add(test);
+    answers.add("(keep)");
+    edt(() -> AudioMixerWindow.show(app));
+    Thread.sleep(300);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
+    final AudioMix.Track t = AudioMix.tracks.get(0);
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-drumpad:DrumPad 1")).doClick());
+    Thread.sleep(300);
+    final javax.swing.JDialog pads = DrumPadWindow.last;
+    @SuppressWarnings("unchecked")
+    javax.swing.JComboBox<String> kit = (javax.swing.JComboBox<String>) component(pads, "drumpad-kit");
+    StringBuilder kits = new StringBuilder();
+    for (int i = 0; i < kit.getItemCount(); i++) kits.append(i == 0 ? "" : ", ").append(kit.getItemAt(i));
+    StringBuilder padNames = new StringBuilder();
+    for (String id : Engine.TRACK_ID) padNames.append(component(pads, "drumpad-pad:" + id) != null ? "" : " missing " + id);
+    out.append("window: ").append(pads.getTitle()).append(", kits ").append(kits).append(", pads").append(padNames.length() == 0 ? " all 12" : padNames).append('\n');
+    edt(() -> {
+      ((javax.swing.JSpinner) component(pads, "drumpad-bpm")).setValue(100);
+      ((javax.swing.JComboBox<?>) component(pads, "drumpad-ts")).setSelectedItem("3/4");
+      ((javax.swing.JToggleButton) component(pads, "drumpad-metronome")).doClick();
+    });
+    DrumPads.Session s = DrumPads.current;
+    out.append("state: ").append(s.state()).append('\n');
+    // The metronome alone (a session of its own, no pads): clicks a beat apart, the first of the bar high.
+    DrumPads.Take mt = new DrumPads.Take();
+    mt.bpm = 100;
+    mt.ts = "3/4";
+    DrumPads.Session ms = new DrumPads.Session(t, mt, DrumPads.atRate(DrumPads.voices(null, app.voices)));
+    ms.metronome(true);
+    short[] lr = new short[44100 * 2 * 2];
+    ms.mix(lr, 44100 * 2);
+    StringBuilder onsets = new StringBuilder();
+    for (int i = 0; i < 88200; i++) if (lr[2 * i] != 0 && (i == 0 || lr[2 * i - 2] == 0 && (i < 40 || lr[2 * i - 80] == 0))) onsets.append(i).append(' ');
+    out.append("metronome onsets: ").append(onsets.toString().trim()).append(" (a beat is ").append(Math.round(mt.clickFrames())).append(" frames)\n");
+    final List<Long> pressedAt = new ArrayList<Long>();
+    java.util.function.Consumer<String> press = id -> {
+      try {
+        edt(() -> {
+          pressedAt.add(System.nanoTime());
+          javax.swing.JButton b = (javax.swing.JButton) component(pads, "drumpad-pad:" + id);
+          for (java.awt.event.MouseListener ml : b.getMouseListeners())
+            ml.mousePressed(new java.awt.event.MouseEvent(b, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        });
+        Thread.sleep(250);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    edt(() -> ((javax.swing.JButton) component(pads, "drumpad-record")).doClick());
+    out.append("record: ").append(s.lastSaid).append('\n');
+    press.accept("kick");
+    press.accept("snare");
+    press.accept("chh");
+    final long[] paused = new long[2];
+    edt(() -> {
+      paused[0] = System.nanoTime();
+      ((javax.swing.JButton) component(pads, "drumpad-pause")).doClick();
+    });
+    out.append("pause: ").append(s.lastSaid.replaceAll("[0-9.]+ s", "<n> s")).append('\n');
+    double atPause = t.seconds;
+    press.accept("crash");
+    Thread.sleep(500);
+    int whilePaused = s.take.hits.size();
+    edt(() -> {
+      ((javax.swing.JButton) component(pads, "drumpad-record")).doClick();
+      paused[1] = System.nanoTime();
+    });
+    out.append("record again: ").append(s.lastSaid).append('\n');
+    press.accept("kick");
+    press.accept("snare");
+    edt(() -> ((javax.swing.JButton) component(pads, "drumpad-stop")).doClick());
+    out.append("stop: ").append(s.lastSaid.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    StringBuilder hits = new StringBuilder();
+    long prev = -1;
+    for (DrumPads.Hit h : s.take.hits) {
+      hits.append(Engine.TRACK_ID[h.pad]).append(' ');
+      prev = h.frame;
+    }
+    // Each gap between hits as the clock had it, less the time paused (the crash, pressed then, is not kept).
+    pressedAt.remove(3);
+    double worst = 0;
+    for (int i = 1; i < s.take.hits.size() && i < pressedAt.size(); i++) {
+      double clock = (pressedAt.get(i) - pressedAt.get(i - 1)) / 1e9 - (i == 3 ? (paused[1] - paused[0]) / 1e9 : 0);
+      double kept = (s.take.hits.get(i).frame - s.take.hits.get(i - 1).frame) / 44100.0;
+      worst = Math.max(worst, Math.abs(clock - kept));
+      out.append(String.format(java.util.Locale.ROOT, "  gap %d: clock %.2f s, kept %.2f s%n", i, clock, kept));
+    }
+    long gap = Math.round(worst * 44100);
+    AudioIo.StereoPcm before = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    out.append(String.format(java.util.Locale.ROOT, "hits: %s(%d while paused); hit times off the clock by %.2f s at most; track %.2f s (at pause %.2f s), last hit at %.2f s%n", hits, whilePaused,
+        gap / 44100.0, t.seconds, atPause, prev / 44100.0));
+    edt(() -> kit.setSelectedItem("Test kit"));
+    AudioIo.StereoPcm after = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+    double diff = 0;
+    for (int i = 0; i < Math.min(before.left.length, after.left.length); i++) diff += Math.abs(before.left[i] - after.left[i]);
+    out.append("another kit: ").append(s.take.kit).append(", sound changed ").append(diff > 1).append('\n');
+    edt(() -> pads.dispose());
+    Thread.sleep(200);
+    DrumPads.Take back = DrumPads.load(t);
+    out.append("kept: kit ").append(back.kit).append(", ").append(back.bpm).append(" BPM ").append(back.ts).append(", ").append(back.hits.size()).append(" hits; window closed ")
+        .append(DrumPads.current == null).append('\n');
+    float[][] m = AudioMix.mix(null);
+    double peak = 0;
+    for (float v : m[0]) peak = Math.max(peak, Math.abs(v));
+    out.append("in the mix: ").append(peak > 0.1).append('\n');
+    edt(() -> d.dispose());
+    String text = out.toString();
+    long beat = Math.round(mt.clickFrames());
+    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && text.contains("kits Original") && text.contains("Test kit") && text.contains("pads all 12")
+        && s.state().contains("Metronome 100 3/4") && onsets.toString().trim().equals("1 " + (beat + 1) + " " + (2 * beat + 1) + " " + (3 * beat + 1)) && Math.abs(lr[0]) == 0 && lr[2 * 1] != 0
+        && hits.toString().trim().equals("kick snare chh kick snare") && whilePaused == 3 && worst < 0.2 && t.seconds >= prev / 44100.0 && atPause > 0.4
+        && text.contains("another kit: Test kit, sound changed true") && back.hits.size() == 5 && "Test kit".equals(back.kit) && back.bpm == 100 && "3/4".equals(back.ts)
+        && text.contains("window closed true") && text.contains("in the mix: true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * Batch E: AudioMixer's recording. + New empty track adds Track 1 (no sound); its input list has the
    * default and the computer's inputs (here a stand-in microphone playing a tone); ● Record takes from
    * the one picked, ❚❚ Pause writes what was taken and takes no more, ● Record goes on, ■ Stop writes

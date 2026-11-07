@@ -14,7 +14,8 @@ import java.io.File;
 /**
  * AudioMixer (File > AudioMixer, or PyJav's Java list): the tracks, each with its volume (0 to 150%),
  * gain (− and + by 1 dB), Mute, Solo, ▶ (it alone) and ✕ (taken out), and its input with ● Record,
- * ❚❚ Pause and ■ Stop (TrackRecorder); + New empty track; Import new track… (the Media
+ * ❚❚ Pause and ■ Stop (TrackRecorder), or a DrumPad track's Drumpad button (DrumPadScreen); + New
+ * empty track; + New DrumPad track; Import new track… (the Media
  * browser: a WAV, an MP3, or a drum MIDI played with the kit), ▶ Play mix, ■ Stop, Mixdown (the mix
  * as a WAV in Download, and in the prompt library with Drum Midi Settings' "Write AudioMixer output
  * tracks into db") and New project. The tracks stay in the app's audiomixer folder until cleared.
@@ -62,15 +63,20 @@ final class AudioMixerScreen {
         empty.setTag("audiomixer-new-empty");
         buttons.addView(imp);
         buttons.addView(empty, margin(app));
+        TextView newPads = app.pill("+ " + DrumPads.NEW, false, v -> newPads(status, fill[0]));
+        newPads.setTag("audiomixer-new-pads");
         LinearLayout transport = app.row();
         transport.addView(play);
         transport.addView(stop, margin(app));
+        LinearLayout padsRow = app.row();
+        padsRow.addView(newPads);
         LinearLayout more = app.row();
         TextView mix = app.pill(AudioMix.MIXDOWN, true, v -> mixdown(app, status));
         mix.setTag("audiomixer-mixdown");
         TextView clear = app.pill("New project", false, v -> {
             stop();
             TrackRecorder.stop();
+            if (DrumPadScreen.last != null && DrumPadScreen.last.isShowing()) DrumPadScreen.last.dismiss();
             if (AudioMix.tracks.isEmpty()) return;
             new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?")
                 .setPositiveButton("Clear", (d, w) -> {
@@ -82,6 +88,7 @@ final class AudioMixerScreen {
         more.addView(mix);
         more.addView(clear, margin(app));
         col.addView(buttons);
+        col.addView(padsRow);
         col.addView(transport);
         col.addView(more);
         col.addView(status);
@@ -177,6 +184,7 @@ final class AudioMixerScreen {
         TextView out = app.pill("✕", false, v -> {
             stop();
             if (TrackRecorder.recording() == t) TrackRecorder.stop();
+            if (DrumPads.current != null && DrumPads.current.track == t && DrumPadScreen.last != null) DrumPadScreen.last.dismiss();
             AudioMix.remove(t);
             fill[0].run();
         });
@@ -188,7 +196,19 @@ final class AudioMixerScreen {
         r.addView(one, margin(app));
         r.addView(out, margin(app));
         box.addView(r);
-        box.addView(recordRow(app, t, name, status));
+        if (t.pads) {
+            TextView pads = app.pill(DrumPads.BUTTON, true, v -> {
+                stop();
+                TrackRecorder.stop();
+                DrumPadScreen.show(app, t, () -> name.setText(AudioMix.line(t)));
+            });
+            pads.setTag("audiomixer-drumpad:" + t.name);
+            LinearLayout pr = app.row();
+            pr.addView(pads);
+            box.addView(pr);
+        } else {
+            box.addView(recordRow(app, t, name, status));
+        }
         return box;
     }
 
@@ -252,6 +272,17 @@ final class AudioMixerScreen {
     }
 
     static final String ASK_MIC = "Recording needs the microphone: allow it, then tap " + TrackRecorder.RECORD + " again";
+
+    /** New DrumPad track: a track for the Drumpad window's hits. */
+    static void newPads(TextView status, Runnable fill) {
+        try {
+            AudioMix.Track t = AudioMix.addPads();
+            say(status, "Added " + t.name + ": open its " + DrumPads.BUTTON);
+        } catch (Exception ex) {
+            say(status, "Could not add a track: " + ex.getMessage());
+        }
+        if (fill != null) fill.run();
+    }
 
     /** New empty track: a track with no sound, for ● Record. */
     static void newEmpty(TextView status, Runnable fill) {
