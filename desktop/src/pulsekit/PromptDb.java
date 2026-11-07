@@ -1410,6 +1410,20 @@ final class PromptDb {
             });
             menu.add(strip);
         }
+        // A picture or a video: its preview over the whole screen (the window back to its size from its menu).
+        if (MediaDir.fullScreenable(file.name)) {
+            JMenuItem full = new JMenuItem(MediaDir.FULL_SCREEN);
+            full.setName("gallery-full-screen");
+            full.addActionListener(e -> {
+                this.previewFull = true;
+                try {
+                    this.preview(file, card);
+                } finally {
+                    this.previewFull = false;
+                }
+            });
+            menu.add(full);
+        }
         // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
         if (MediaDir.firstFrameRef(file.name)) {
             JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
@@ -2466,6 +2480,7 @@ final class PromptDb {
         dialog.setLocationRelativeTo(app);
         this.lastVideo = dialog;
         this.lastPlayer = player;
+        if (this.previewFull) fullScreen(dialog);
         dialog.setVisible(true);
     }
 
@@ -2810,8 +2825,12 @@ final class PromptDb {
         dialog.pack();
         dialog.setLocationRelativeTo(app);
         this.lastPreview = dialog;
+        if (this.previewFull) fullScreen(dialog);
         dialog.setVisible(true);
     }
+
+    /** Full screen preview (a gallery thumbnail's): the preview window opens over the whole screen. */
+    boolean previewFull;
 
     /** The folder of the picture the Preview window shows next (the Media browser sets it): Save crop saves there. */
     File previewFolder;

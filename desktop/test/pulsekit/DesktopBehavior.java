@@ -7714,6 +7714,48 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * Batch B (as on the phone): a picture's thumbnail menu in DB/Prompts has Full screen preview; the
+   * preview window opens over the whole screen.
+   */
+  void s215_prompts_full_screen() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    PromptDb.vault().addLibraryFile("still.png", png.toByteArray(), "Imported", 3);
+    PromptVault.StoredFile file = null;
+    for (PromptVault.StoredFile f : PromptDb.stored(true)) if (f.name.equals("still.png")) file = f;
+    final PromptVault.StoredFile at = file;
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    answers.add("(keep)");
+    inspectNext = gallery -> {
+      javax.swing.JButton card = (javax.swing.JButton) component(gallery, "gallery:still.png");
+      db.menu(at, card, () -> {});
+      javax.swing.JMenuItem full = null;
+      for (java.awt.Component c : db.lastFileMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "gallery-full-screen".equals(c.getName())) full = (javax.swing.JMenuItem) c;
+      db.lastFileMenu.setVisible(false);
+      seen.append("item ").append(full == null ? "none" : full.getText()).append('\n');
+      if (full == null) {
+        done[0] = true;
+        return;
+      }
+      inspectNext = preview -> {
+        java.awt.Rectangle b = preview.getBounds();
+        java.awt.Rectangle screen = preview.getGraphicsConfiguration().getBounds();
+        seen.append("preview: ").append(preview.getTitle()).append(", whole screen ").append(b.equals(screen)).append('\n');
+        done[0] = true;
+      };
+      final javax.swing.JMenuItem click = full;
+      SwingUtilities.invokeLater(click::doClick);
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    if (seen.indexOf("item " + MediaDir.FULL_SCREEN) < 0 || seen.indexOf("whole screen true") < 0) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Batch B (as on the phone): a Downloads file's menu has Add to Collection and Add to playlist…;
    * a playlist picked there gets the file at its end.
    */

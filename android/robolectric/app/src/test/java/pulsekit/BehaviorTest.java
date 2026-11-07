@@ -12636,6 +12636,88 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch B, DB/Prompts: a picture's and a video's thumbnail menu has Full screen preview (the whole
+   * black screen; a long press closes it); the video held has Save frame, Process current frame as a
+   * reference image (a small frame: asked about upscaling first) and Full screen playback.
+   */
+  @Test
+  public void s231_prompts_full_screen() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    byte[] mp4 = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'};
+    DbImport.store(app, "still.png", png.toByteArray(), false);
+    DbImport.store(app, "walk.mp4", mp4, true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> all = new java.util.ArrayList<PromptVault.StoredFile>(vault.referenceFiles());
+    all.addAll(vault.resultFiles());
+    StringBuilder shownKinds = new StringBuilder();
+    boolean menusOk = true;
+    for (String n : new String[] {"still.png", "walk.mp4"}) {
+      PromptVault.StoredFile at = null;
+      for (PromptVault.StoredFile f : all) if (f.name.equals(n)) at = f;
+      if (at == null) throw new AssertionError("not stored: " + n);
+      thumb.invoke(null, app, at.versionId, at.which, n);
+      idle();
+      AlertDialog menu = PromptSheet.lastFileMenu;
+      String items = listItems(menu);
+      java.util.List<String> rows = java.util.Arrays.asList(items.split(" \\| "));
+      int i = rows.indexOf(MediaDir.FULL_SCREEN);
+      menusOk &= i >= 0;
+      FullScreen.last = null;
+      if (i >= 0) org.robolectric.Shadows.shadowOf(menu).clickOnItem(i);
+      idle();
+      boolean shown = FullScreen.last != null && FullScreen.last.isShowing();
+      String what = FullScreen.lastImage != null ? "picture" : FullScreen.lastVideo != null ? "video" : "nothing";
+      shownKinds.append(n).append(": ").append(shown ? what : "not shown").append("; ");
+      if (FullScreen.last != null) FullScreen.last.dismiss();
+      idle();
+    }
+    out.append("thumbnails: ").append(shownKinds.toString().trim()).append('\n');
+    // The video held (its preview open): the frame menu.
+    File clip = new File(app.getCacheDir(), "b2-walk.mp4");
+    Files.write(clip.toPath(), mp4);
+    android.graphics.Bitmap frame = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, frame);
+    for (String[] f : new String[][] {{"previewFile", null}, {"previewName", "walk.mp4"}}) {
+      java.lang.reflect.Field fl = PromptSheet.class.getDeclaredField(f[0]);
+      fl.setAccessible(true);
+      fl.set(null, f[1] == null ? (Object) clip : f[1]);
+    }
+    PromptSheet.frameMenu(app);
+    idle();
+    String held = listItems(PromptSheet.lastFrameMenu);
+    java.util.List<String> heldRows = java.util.Arrays.asList(held.split(" \\| "));
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFrameMenu).clickOnItem(heldRows.indexOf(MediaDir.FRAME_AS_REF));
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.dismiss();
+    PromptSheet.frameMenu(app);
+    idle();
+    FullScreen.last = null;
+    org.robolectric.Shadows.shadowOf(PromptSheet.lastFrameMenu).clickOnItem(heldRows.indexOf(MediaDir.FULL_SCREEN_PLAY));
+    idle();
+    boolean full = FullScreen.last != null && FullScreen.last.isShowing() && FullScreen.lastVideo != null;
+    if (FullScreen.last != null) FullScreen.last.dismiss();
+    idle();
+    out.append("held: ").append(held).append(" | frame asked ").append(asked).append(", full screen ").append(full).append('\n');
+    write("s231_prompts_full_screen", out.toString());
+    boolean ok = menusOk && shownKinds.toString().contains("still.png: picture") && shownKinds.toString().contains("walk.mp4: video")
+        && heldRows.contains("Save frame") && heldRows.contains(MediaDir.FRAME_AS_REF) && heldRows.contains(MediaDir.FULL_SCREEN_PLAY) && asked && full;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();

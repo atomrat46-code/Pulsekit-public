@@ -884,6 +884,18 @@ public final class MediaDir {
     return kind(name) == VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly();
   }
 
+  /** DB/Prompts: a picture's or video's thumbnail opens its preview over the whole screen. */
+  public static final String FULL_SCREEN = "Full screen preview";
+  /** DB/Prompts' video, held: the frame where it stopped as a reference (asked about upscaling first when it needs it), and full screen. */
+  public static final String FRAME_AS_REF = "Process current frame as a reference image";
+  public static final String FULL_SCREEN_PLAY = "Full screen playback";
+
+  /** A picture or a video: Full screen preview is offered for it. */
+  public static boolean fullScreenable(String name) {
+    int k = kind(name);
+    return k == PICTURE || k == VIDEO;
+  }
+
   /** Choose file (a Params row), a video's item: its first frame, as a picture, fills the row. */
   public static final String FIRST_FRAME_REF = "Extract first frame as reference img";
 

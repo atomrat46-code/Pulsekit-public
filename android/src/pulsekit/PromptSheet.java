@@ -2292,6 +2292,21 @@ public final class PromptSheet {
       items.add(kindItem);
       runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
     }
+    // A picture or a video: its preview over the whole screen (a long press or Back closes it).
+    if (activity instanceof MainActivity && (picture || MediaDir.kind(name) == MediaDir.VIDEO)) {
+      final boolean still = picture;
+      items.add(MediaDir.FULL_SCREEN);
+      runs.add(() -> {
+        MainActivity host = (MainActivity) activity;
+        try {
+          byte[] bytes = vault.fileBytes(versionId, which);
+          if (still) FullScreen.picture(host, bytes);
+          else FullScreen.video(host, RefImages.videoFile(host, name, bytes).getAbsolutePath(), 0, null);
+        } catch (Exception ex) {
+          host.setNow("Could not read " + name + ": " + ex.getMessage());
+        }
+      });
+    }
     // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
     if (activity instanceof MainActivity && MediaDir.firstFrameRef(name)) {
       items.add(MediaDir.FIRST_FRAME_AS_REF);
@@ -3037,11 +3052,85 @@ public final class PromptSheet {
   /** The full-size video's long press menu shown last (for the tests). */
   static AlertDialog lastFrameMenu;
 
-  /** The video paused: Save frame keeps the picture where it stopped as a reference file in the library. */
-  static void frameMenu(Activity activity) {
+  /**
+   * The video paused: Save frame keeps the picture where it stopped as a reference file in the library;
+   * Process current frame as a reference image (one that needs upscaling is asked first); Full screen playback.
+   */
+  static void frameMenu(final Activity activity) {
+    final java.util.List<String> rows = new java.util.ArrayList<String>();
+    rows.add("Save frame");
+    if (activity instanceof MainActivity && AppSettings.showSogni() && !AppSettings.musicOnly()) rows.add(MediaDir.FRAME_AS_REF);
+    if (activity instanceof MainActivity) rows.add(MediaDir.FULL_SCREEN_PLAY);
     lastFrameMenu = new AlertDialog.Builder(activity).setTitle(previewName)
-      .setItems(new CharSequence[] {"Save frame"}, (d, w) -> saveFrame(activity))
+      .setItems(rows.toArray(new CharSequence[0]), (d, w) -> {
+        String it = rows.get(w);
+        if (MediaDir.FRAME_AS_REF.equals(it)) frameAsRef((MainActivity) activity);
+        else if (MediaDir.FULL_SCREEN_PLAY.equals(it)) fullScreenPlay((MainActivity) activity);
+        else saveFrame(activity);
+      })
       .setNegativeButton("Cancel", null).show();
+  }
+
+  /** The video's place now (ms; 0 when it cannot be told). */
+  private static int videoAt() {
+    try {
+      return previewVideo == null ? 0 : Math.max(0, previewVideo.getCurrentPosition());
+    } catch (Exception ex) {
+      return 0;
+    }
+  }
+
+  /** Full screen playback: the video from where it is; closed, the preview goes on from where it was left. */
+  static void fullScreenPlay(MainActivity app) {
+    File file = previewFile;
+    if (file == null || !file.isFile()) {
+      toast(app, "This video can't play full screen.");
+      return;
+    }
+    if (videoPlaying()) videoPause();
+    FullScreen.video(app, file.getAbsolutePath(), videoAt(), ms -> {
+      try {
+        if (previewVideo != null && ms > 0) previewVideo.seekTo(ms);
+      } catch (Exception ignored) {
+        // closed
+      }
+    });
+  }
+
+  /** Process current frame as a reference image: the frame where it stopped, as a PNG, offered as a reference (read off the main thread). */
+  static void frameAsRef(final MainActivity app) {
+    final File file = previewFile;
+    if (file == null || !file.isFile()) {
+      toast(app, "This video can't give a frame.");
+      return;
+    }
+    final long at = videoAt();
+    final String name = MediaDir.frameName(previewName, at);
+    final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    new Thread(() -> {
+      byte[] png = null;
+      try {
+        android.media.MediaMetadataRetriever media = new android.media.MediaMetadataRetriever();
+        try {
+          media.setDataSource(file.getAbsolutePath());
+          Bitmap frame = media.getFrameAtTime(at * 1000L, android.media.MediaMetadataRetriever.OPTION_CLOSEST);
+          if (frame != null) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            frame.compress(Bitmap.CompressFormat.PNG, 100, out);
+            png = out.toByteArray();
+          }
+        } finally {
+          media.release();
+        }
+      } catch (Exception ex) {
+        png = null;
+      }
+      final byte[] got = png;
+      main.post(() -> {
+        if (got == null) toast(app, "No frame at " + FileSets.mixTime((int) at));
+        else RefImages.offer(app, name, got, null, null);
+      });
+    }, "pulsekit-frame-ref").start();
   }
 
   /** The frame at the video's place, kept in the library as a reference file (<video>-1m02s345.jpg; a linked video's too). */
