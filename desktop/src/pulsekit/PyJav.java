@@ -38,6 +38,7 @@ final class PyJav {
         this.app = app;
         // JoinVideo --size, SogniVideo --join_size: VLC makes the videos one size first.
         JoinSizes.sizer = VideoRender.sizer();
+        AudioMix.mp3 = Mp3Decode::parseStereo;
     }
 
     /** The arguments: one line for the program, wrapped over a few on screen (many VST paths do not fit one). */

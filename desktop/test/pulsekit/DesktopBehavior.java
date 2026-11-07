@@ -473,6 +473,120 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: AudioMixer. File > AudioMixer opens it empty; File > Import new track… adds a mono 22 kHz
+   * WAV, the MP3 and a drum MIDI (played with the kit), each kept as a 44.1 kHz stereo WAV; the WAV at
+   * 50% and +6 dB, the MP3 muted; Mixdown writes the mix (as long as the longest heard track) as a
+   * stereo WAV into the program files folder, and with "Write AudioMixer output tracks into db" into the
+   * library too. The tracks are there again after it is reopened; PyJav's Java list opens it; New
+   * project clears it.
+   */
+  void s223_audiomixer() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(System.getProperty("pulsekit.test.dir", "."));
+    File wav = new File(home, "bass line.wav");
+    short[] pcm = new short[22050 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 110 / 22050));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    File mp3 = new File(home, "funk.mp3");
+    Files.copy(new File(dir, "funk.mp3").toPath(), mp3.toPath());
+    File mid = new File(home, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(songParts()));
+    javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
+    edt(() -> {
+      javax.swing.JButton fileTab = null;
+      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      fileTab.doClick();
+    });
+    Thread.sleep(300);
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        java.awt.Component c = component(w, "file-audiomixer");
+        if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
+      }
+      if (found[0] != null) ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
+    });
+    javax.swing.JMenuItem open = found[0];
+    out.append("File menu: ").append(open == null ? "no AudioMixer" : open.getText()).append('\n');
+    edt(() -> open.doClick());
+    for (int i = 0; i < 100 && AudioMixerWindow.last == null; i++) Thread.sleep(50);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    out.append("opened: ").append(d.getTitle()).append(", empty ").append(component(d, "audiomixer-empty") != null).append('\n');
+    javax.swing.JMenuItem imp = menuItem(d.getJMenuBar(), "audiomixer-import");
+    for (File f : new File[] {wav, mp3, mid}) {
+      AudioMixerWindow.lastSaid = null;
+      AudioMixerWindow.importNext = f;
+      edt(() -> imp.doClick());
+      for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Adding")); i++) Thread.sleep(50);
+      out.append("import ").append(f.getName()).append(": ").append(AudioMixerWindow.lastSaid).append('\n');
+    }
+    Thread.sleep(300);
+    edt(() -> {
+      ((javax.swing.JSlider) component(d, "audiomixer-volume:bass line")).setValue(50);
+      ((javax.swing.JSpinner) component(d, "audiomixer-gain:bass line")).setValue(6);
+      ((javax.swing.JCheckBox) component(d, "audiomixer-mute:funk")).doClick();
+    });
+    StringBuilder lines = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) {
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      lines.append("  ").append(AudioMix.line(t)).append(" [").append(t.file).append(", ").append(p.sr).append(" Hz]\n");
+    }
+    out.append("tracks:\n").append(lines);
+    DrumMidiSettingsPage page = (DrumMidiSettingsPage) get("drumMidiSettings");
+    javax.swing.JPanel[] built = new javax.swing.JPanel[1];
+    edt(() -> built[0] = page.buildDrumMidiPage());
+    javax.swing.JCheckBox toDb = (javax.swing.JCheckBox) component(built[0], "audiomixer-db");
+    out.append("setting: ").append(toDb == null ? "none" : toDb.getText() + " " + toDb.isSelected()).append('\n');
+    if (toDb != null) edt(() -> toDb.doClick());
+    AudioMixerWindow.lastSaid = null;
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-mixdown").doClick());
+    for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Mixing")); i++) Thread.sleep(50);
+    String said = String.valueOf(AudioMixerWindow.lastSaid);
+    out.append("mixdown: ").append(said.replace(home.getAbsolutePath(), "~").replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
+    File made = AudioMixerWindow.lastMixdown;
+    AudioIo.StereoPcm back = made != null && made.isFile() ? AudioMix.parseStereo(Files.readAllBytes(made.toPath())) : null;
+    double longest = 0;
+    for (AudioMix.Track t : AudioMix.heard()) longest = Math.max(longest, t.seconds);
+    out.append("mix file: ").append(back == null ? "none" : String.format(java.util.Locale.ROOT, "%d Hz stereo, %.2f s (longest heard %.2f s)", back.sr, back.left.length / (double) back.sr, longest)).append('\n');
+    boolean inDb = false;
+    for (PromptVault.StoredFile f : PromptDb.vault().resultFiles()) if (f.name.startsWith("AudioMixer mixdown")) inDb = true;
+    out.append("in the library: ").append(inDb).append('\n');
+    int count = AudioMix.tracks.size();
+    edt(() -> d.dispose());
+    AudioMixerWindow.last = null;
+    call("showView", "py");
+    call("selectListedProgram", "Java", AudioMix.PROGRAM);
+    for (int i = 0; i < 100 && AudioMixerWindow.last == null; i++) Thread.sleep(50);
+    javax.swing.JDialog again = AudioMixerWindow.last;
+    out.append("Java list: ").append(again == null ? "nothing" : again.getTitle() + ", " + AudioMix.tracks.size() + " tracks, bass line " + (component(again, "audiomixer-track:bass line") != null)).append('\n');
+    answers.add("OK");
+    if (again != null) edt(() -> menuItem(again.getJMenuBar(), "audiomixer-clear").doClick());
+    Thread.sleep(300);
+    out.append("New project: ").append(AudioMix.tracks.size()).append(" tracks, files left ").append(AudioMix.dir.list((x, n) -> n.endsWith(".wav")).length).append('\n');
+    String text = out.toString();
+    boolean ok = open != null && text.contains("import bass line.wav: Added bass line") && text.contains("import funk.mp3: Added funk") && text.contains("import beat.mid: Added beat")
+        && lines.toString().contains("bass line · 0:02 · 50% · +6 dB") && lines.toString().contains("funk") && lines.toString().contains("muted") && !lines.toString().contains("22050 Hz")
+        && back != null && back.sr == 44100 && Math.abs(back.left.length / 44100.0 - longest) < 0.05 && inDb && count == 3 && again != null && text.contains("New project: 0 tracks, files left 0");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  private static List<javax.swing.JButton> buttons(java.awt.Component c) {
+    List<javax.swing.JButton> list = new ArrayList<javax.swing.JButton>();
+    if (c instanceof javax.swing.JButton) list.add((javax.swing.JButton) c);
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) list.addAll(buttons(k));
+    return list;
+  }
+
+  private static javax.swing.JMenuItem menuItem(javax.swing.JMenuBar bar, String name) {
+    if (bar == null) return null;
+    for (int i = 0; i < bar.getMenuCount(); i++) {
+      javax.swing.JMenu m = bar.getMenu(i);
+      if (m == null) continue;
+      for (java.awt.Component c : m.getMenuComponents()) if (c instanceof javax.swing.JMenuItem && name.equals(c.getName())) return (javax.swing.JMenuItem) c;
+    }
+    return null;
+  }
+
+  /**
    * Batch D: JoinVideo --size: two videos in other formats (a 4:3 with sound, a wide one without) made
    * 320×240 with bars first (VLC), then joined; without --size they cannot be joined.
    */

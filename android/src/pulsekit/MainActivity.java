@@ -343,6 +343,7 @@ public class MainActivity extends UiKit {
         ArtJava.pinWorkDir(this);
         // JoinVideo --size, SogniVideo --join_size: the phone's encoder makes the videos one size first.
         JoinSizes.sizer = VideoRender.sizer(this);
+        AudioMix.mp3 = AudioMixerScreen::decodeMp3;
         this.handler.postDelayed(this.dbWatch, 400);
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());
@@ -1300,6 +1301,11 @@ public class MainActivity extends UiKit {
         logs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         logs.setTextColor(FG);
         logs.setTag("file-logs");
+        // AudioMixer: tracks mixed into one (also in PyJav's Java list).
+        android.widget.TextView mixer = this.text(AudioMix.TITLE, 14, true);
+        mixer.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        mixer.setTextColor(FG);
+        mixer.setTag("file-audiomixer");
         // The outputs, inputs, MIDI and USB devices; Pulsekit's output and drum MIDI output.
         android.widget.TextView sound = this.text("Sound devices", 14, true);
         sound.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1334,6 +1340,7 @@ public class MainActivity extends UiKit {
         menu.addView(importResult);
         menu.addView(downloads);
         menu.addView(logs);
+        menu.addView(mixer);
         menu.addView(sound);
         menu.addView(backup);
         menu.addView(playlists);
@@ -1393,6 +1400,10 @@ public class MainActivity extends UiKit {
         sound.setOnClickListener(v -> {
             pop.dismiss();
             SoundDevicesScreen.show(this);
+        });
+        mixer.setOnClickListener(v -> {
+            pop.dismiss();
+            AudioMixerScreen.show(this);
         });
         backup.setOnClickListener(v -> {
             pop.dismiss();

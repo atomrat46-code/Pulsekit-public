@@ -13039,6 +13039,115 @@ public class BehaviorTest {
     if (!before || !after) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch E: AudioMixer. File > AudioMixer opens it empty; a mono 22 kHz WAV and a drum MIDI (played
+   * with the kit) added, each kept as a 44.1 kHz stereo WAV; the WAV at 50% and +2 dB, the MIDI soloed;
+   * Mixdown writes the mix (the soloed track's length) as a stereo WAV into Download, and with Drum Midi
+   * Settings' "Write AudioMixer output tracks into db" into the library too. PyJav's Java list opens it
+   * again with its tracks; New project clears it.
+   */
+  @Test
+  public void s240_audiomixer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    File dir = new File(app.getCacheDir(), "e1");
+    dir.mkdirs();
+    File wav = new File(dir, "bass line.wav");
+    short[] pcm = new short[22050 * 2];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 110 / 22050));
+    Files.write(wav.toPath(), AudioIo.encodeWav(pcm, 22050));
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    File mid = new File(dir, "beat.mid");
+    Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
+    findText(root(), "File").performClick();
+    idle();
+    android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+    View item = pop.getContentView().findViewWithTag("file-audiomixer");
+    out.append("File menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
+    item.performClick();
+    idle();
+    android.app.AlertDialog d = AudioMixerScreen.last;
+    View decor = d.getWindow().getDecorView();
+    out.append("opened: ").append(d.isShowing()).append(", empty ").append(decor.findViewWithTag("audiomixer-empty") != null).append('\n');
+    TextView status = (TextView) decor.findViewWithTag("audiomixer-status");
+    ViewGroup rows = (ViewGroup) decor.findViewWithTag("audiomixer-tracks");
+    for (File f : new File[] {wav, mid, new File(dir, "notes.txt")}) {
+      AudioMixerScreen.lastSaid = null;
+      AudioMixerScreen.add(app, f.getName(), f, status, null);
+      for (int i = 0; i < 400 && (AudioMixerScreen.lastSaid == null || AudioMixerScreen.lastSaid.startsWith("Adding")); i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      out.append("add ").append(f.getName()).append(": ").append(AudioMixerScreen.lastSaid).append('\n');
+    }
+    // The rows made again (as the import does after a track is added).
+    AudioMixerScreen.show(app);
+    idle();
+    d = AudioMixerScreen.last;
+    decor = d.getWindow().getDecorView();
+    ((android.widget.SeekBar) decor.findViewWithTag("audiomixer-volume:bass line")).setProgress(50);
+    decor.findViewWithTag("audiomixer-gain-up:bass line").performClick();
+    decor.findViewWithTag("audiomixer-gain-up:bass line").performClick();
+    ((android.widget.CheckBox) decor.findViewWithTag("audiomixer-solo:beat")).setChecked(true);
+    idle();
+    StringBuilder lines = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) {
+      AudioIo.StereoPcm p = AudioMix.parseStereo(Files.readAllBytes(new File(AudioMix.dir, t.file).toPath()));
+      lines.append("  ").append(AudioMix.line(t)).append(" [").append(t.file).append(", ").append(p.sr).append(" Hz]\n");
+    }
+    out.append("tracks:\n").append(lines);
+    out.append("heard: ").append(AudioMix.heard().size()).append(" (").append(AudioMix.heard().isEmpty() ? "" : AudioMix.heard().get(0).name).append(")\n");
+    call("show", "midisettings");
+    idle();
+    View box = root().findViewWithTag("audiomixer-db");
+    out.append("setting: ").append(box != null).append('\n');
+    AudioMix.toDb = true;
+    AudioMix.save();
+    status = (TextView) decor.findViewWithTag("audiomixer-status");
+    AudioMixerScreen.lastSaid = null;
+    AudioMixerScreen.lastMixdown = null;
+    AudioMixerScreen.mixdown(app, status);
+    for (int i = 0; i < 400 && (AudioMixerScreen.lastSaid == null || AudioMixerScreen.lastSaid.startsWith("Mixing")); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String said = String.valueOf(AudioMixerScreen.lastSaid);
+    out.append("mixdown: ").append(said.replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
+    // (Download is MediaStore's here: the mix it was given, made again.)
+    String where = AudioMixerScreen.lastMixdown;
+    AudioIo.StereoPcm back = where != null && where.startsWith("Download/AudioMixer mixdown") ? AudioMix.parseStereo(AudioMix.mixdown(null)) : null;
+    double beat = AudioMix.heard().isEmpty() ? 0 : AudioMix.heard().get(0).seconds;
+    out.append("mix file: ").append(back == null ? "none" : String.format(java.util.Locale.ROOT, "%d Hz stereo, %.2f s (beat %.2f s)", back.sr, back.left.length / (double) back.sr, beat)).append('\n');
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    boolean inDb = false;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.startsWith("AudioMixer mixdown")) inDb = true;
+    out.append("in the library: ").append(inDb).append('\n');
+    int count = AudioMix.tracks.size();
+    d.dismiss();
+    idle();
+    app.programMenus.selectProgram("Java", AudioMix.PROGRAM);
+    idle();
+    android.app.AlertDialog again = AudioMixerScreen.last;
+    View again2 = again.getWindow().getDecorView();
+    out.append("Java list: ").append(again.isShowing()).append(", ").append(AudioMix.tracks.size()).append(" tracks, bass line ").append(again2.findViewWithTag("audiomixer-track:bass line") != null).append('\n');
+    again2.findViewWithTag("audiomixer-clear").performClick();
+    idle();
+    android.app.AlertDialog ask = (android.app.AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+    ask.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("New project: ").append(AudioMix.tracks.size()).append(" tracks, files left ").append(AudioMix.dir.list((x, n) -> n.endsWith(".wav")).length).append('\n');
+    again.dismiss();
+    write("s240_audiomixer", out.toString());
+    String text = out.toString(), ls = lines.toString();
+    boolean ok = item != null && text.contains("empty true") && text.contains("add bass line.wav: Added bass line") && text.contains("add beat.mid: Added beat")
+        && text.contains("add notes.txt: notes.txt is not a WAV") && ls.contains("bass line \u00b7 0:02 \u00b7 50% \u00b7 +2 dB") && ls.contains("solo") && !ls.contains("22050 Hz")
+        && text.contains("heard: 1 (beat)") && box != null && back != null && back.sr == 44100 && Math.abs(back.left.length / 44100.0 - beat) < 0.05 && inDb && count == 2
+        && text.contains("bass line true") && text.contains("New project: 0 tracks, files left 0");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

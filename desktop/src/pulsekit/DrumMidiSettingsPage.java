@@ -326,6 +326,15 @@ final class DrumMidiSettingsPage {
                 this.saveDbSettings();
             });
         music.setName("sogni-music-db");
+        // AudioMixer's Mixdown: into the prompt library too (kept with the mixer's own files).
+        AudioMix.open(AudioMixerWindow.folder());
+        JCheckBox mixer = this.drumMidiCheck(col, AudioMix.TO_DB,
+            "When the AudioMixer mixes down, the mix goes into the prompt library as a result file too (it is in the program files folder either way).",
+            AudioMix.toDb, on -> {
+                AudioMix.toDb = on;
+                AudioMix.save();
+            });
+        mixer.setName("audiomixer-db");
         col.add(Box.createVerticalStrut(16));
         JButton reset = app.outline("Reset to defaults", false);
         reset.setAlignmentX(0.0f);

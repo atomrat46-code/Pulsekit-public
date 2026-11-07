@@ -82,6 +82,11 @@ final class ProgramMenus {
 
     /** Java or Python: this file becomes the program Run executes. */
     void selectListedProgram(String kind, String name) {
+        // AudioMixer in the Java list: Pulsekit's own window, not a program run.
+        if (AudioMix.PROGRAM.equals(name)) {
+            AudioMixerWindow.show(app);
+            return;
+        }
         // Another program: Return (back to the Media browser after ImageUpscaler) goes.
         app.pyJav.setReturn(null);
         try {
