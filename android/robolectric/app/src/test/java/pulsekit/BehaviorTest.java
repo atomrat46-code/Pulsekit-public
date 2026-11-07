@@ -13410,6 +13410,89 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * Batch E: results into the AudioMixer on the phone. SogniMusic's, MidiDrumGen's and DrumMidi_CRT's
+   * Params have "Add the result to the AudioMixer"; after a run with it each sound it made becomes a
+   * track (a MIDI played with the kit, but not when a WAV of it was made too), the switch taken out
+   * before the program runs; with --zip nothing is added. Extract audio asks whether to add the sound;
+   * Add to AudioMixer makes it a track.
+   */
+  @Test
+  public void s244_to_mixer() throws Exception {
+    StringBuilder out = new StringBuilder();
+    StringBuilder params = new StringBuilder();
+    for (String prog : new String[] {"SogniMusic", "MidiDrumGen", "DrumMidi_CRT", "CutWav"}) {
+      String src = new String(Files.readAllBytes(new File("../../../Programs/Java/" + prog + ".java").toPath()), StandardCharsets.UTF_8);
+      boolean has = false;
+      for (ProgramParams.Param p : ProgramParams.parse(src)) has |= p.token.equals(MixerOut.FLAG);
+      params.append(prog).append(' ').append(has).append(", ");
+    }
+    out.append("Params: ").append(params).append('\n');
+    AudioMix.open(AudioMixerScreen.folder(app));
+    AudioMix.clear();
+    List<Engine.Part> parts = new ArrayList<>();
+    parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
+    final byte[] mid = Engine.encodeSongMidi(parts);
+    short[] pcm = new short[22050];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (9000 * Math.sin(i * 0.05));
+    final byte[] wav = AudioIo.encodeWav(pcm, 22050);
+    final List<List<String>> seen = new ArrayList<List<String>>();
+    java.util.function.Function<List<String>, JavaRun.Result> fake = a -> {
+      seen.add(new ArrayList<String>(a));
+      List<JavaRun.FileOut> f = new ArrayList<JavaRun.FileOut>();
+      f.add(new JavaRun.FileOut("groove.mid", mid));
+      f.add(new JavaRun.FileOut("song.mid", mid));
+      f.add(new JavaRun.FileOut("song.wav", wav));
+      f.add(new JavaRun.FileOut("notes.txt", "x".getBytes(StandardCharsets.UTF_8)));
+      return new JavaRun.Result("Succeeded: 3 files", f, 0);
+    };
+    JavaRun.Result r = MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
+    out.append("run: ").append(r.log.trim().replace("\n", " | ")).append('\n');
+    out.append("the program got: ").append(seen.get(0)).append('\n');
+    StringBuilder names = new StringBuilder();
+    for (AudioMix.Track t : AudioMix.tracks) names.append(t.name).append(' ');
+    out.append("tracks: ").append(names.toString().trim()).append('\n');
+    JavaRun.Result zip = MixerOut.around("SogniMusic.java", java.util.Arrays.asList("--zip", MixerOut.FLAG), fake);
+    JavaRun.Result off = MixerOut.around("CutWav.java", java.util.Arrays.asList(MixerOut.FLAG), fake);
+    out.append("zip: ").append(zip.log.contains("Not added to the AudioMixer: the run made a zip")).append(", another program: ").append(seen.get(2).contains(MixerOut.FLAG))
+        .append(", tracks ").append(AudioMix.tracks.size()).append('\n');
+    // Extract audio: the question after it.
+    File dir = new File(app.getCacheDir(), "e5");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), clip.toPath());
+    AudioExtract.asked = null;
+    AudioExtract.lastSaid = null;
+    AudioExtract.run(app, clip.getName(), clip.getAbsolutePath(), null, null);
+    for (int i = 0; i < 300 && AudioExtract.asked == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    android.app.AlertDialog q = AudioExtract.asked;
+    String message = q == null ? "none" : String.valueOf(org.robolectric.Shadows.shadowOf(q).getMessage());
+    out.append("asked: ").append(message).append('\n');
+    if (q != null) q.getButton(android.content.DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    int before = AudioMix.tracks.size();
+    AudioExtract.offer(app, "take-audio.wav", wav);
+    idle();
+    AudioExtract.lastSaid = null;
+    AudioExtract.asked.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 300 && AudioExtract.lastSaid == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("Not now: ").append(before).append(" tracks; Add to AudioMixer: ").append(String.valueOf(AudioExtract.lastSaid).replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioMix.clear();
+    write("s244_to_mixer", out.toString());
+    String text = out.toString();
+    boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
+        && names.toString().trim().equals("groove song") && r.log.contains("Added to the AudioMixer: groove") && r.log.contains("Added to the AudioMixer: song")
+        && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
+        && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

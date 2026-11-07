@@ -627,7 +627,8 @@ public final class JavaRun {
       }
       // JoinVideo --size, SogniVideo --join_size: the app re-renders the videos to one size (JoinSizes).
       final String nn = n;
-      return JoinSizes.around(n, argv, a -> runJava(nn, source, bytes, a));
+      // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: the results into the AudioMixer (MixerOut).
+      return MixerOut.around(n, argv, m -> JoinSizes.around(nn, m, a -> runJava(nn, source, bytes, a)));
     }
     if (isNode(low)) return runNode(n, source == null ? "" : source, argv);
     return runPython(n, source == null ? "" : source, argv);

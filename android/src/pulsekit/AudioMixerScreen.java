@@ -28,6 +28,8 @@ final class AudioMixerScreen {
     static volatile String lastMixdown;
     static volatile String lastSaid;
     static AudioTrack playing;
+    /** The open screen's rows made again (tracks added from elsewhere). */
+    static Runnable refill;
 
     static File folder(MainActivity app) {
         return new File(app.getFilesDir(), "audiomixer");
@@ -97,6 +99,7 @@ final class AudioMixerScreen {
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
         fill[0].run();
+        refill = fill[0];
         if (last != null && last.isShowing()) last.dismiss();
         last = new AlertDialog.Builder(app).setTitle(AudioMix.TITLE).setView(scroll).setPositiveButton("Close", null).create();
         last.setOnDismissListener(d -> {
@@ -348,7 +351,7 @@ final class AudioMixerScreen {
     /** `file` (named `name`) added as a track, off the main thread; the rows made again. */
     static void add(final MainActivity app, final String name, final File file, final TextView status, final Runnable fill) {
         if (!AudioMix.importable(name)) {
-            say(status, name + " is not a WAV, an MP3 or a MIDI file");
+            say(status, name + " is not a WAV, an MP3, an M4A or a MIDI file");
             return;
         }
         say(status, "Adding " + name + "…");
@@ -399,6 +402,11 @@ final class AudioMixerScreen {
                 app.setNow(shown);
             });
         }, "pulsekit-mixdown").start();
+    }
+
+    /** The open screen shows the tracks again (a run added some). */
+    static void refresh() {
+        if (last != null && last.isShowing() && refill != null) refill.run();
     }
 
     static void playMix(final MainActivity app, final TextView status) {

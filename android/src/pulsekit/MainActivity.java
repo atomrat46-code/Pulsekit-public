@@ -344,7 +344,16 @@ public class MainActivity extends UiKit {
         // JoinVideo --size, SogniVideo --join_size: the phone's encoder makes the videos one size first.
         JoinSizes.sizer = VideoRender.sizer(this);
         AudioMix.mp3 = AudioMixerScreen::decodeMp3;
+        AudioMix.aac = AudioMixerScreen::decodeMp3;
         TrackRecorder.inputs = AudioMixerScreen.inputs(this);
+        // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: their results become mixer tracks.
+        MixerOut.folder = AudioMixerScreen.folder(this);
+        MixerOut.kit = () -> {
+            if (this.playback == null) return null;
+            this.playback.fillMissingVoices();
+            return this.playback.mixVoices();
+        };
+        MixerOut.changed = () -> this.handler.post(AudioMixerScreen::refresh);
         this.handler.postDelayed(this.dbWatch, 400);
         // Runs a stopped app left unfinished are not pending any more.
         int left = PendingOps.start(this.getFilesDir());

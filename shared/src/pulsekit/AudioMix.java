@@ -66,6 +66,8 @@ public final class AudioMix {
   }
 
   public static volatile Mp3 mp3;
+  /** How the app reads AAC (an .m4a, such as Extract audio's: VLC on a computer, the phone's own). */
+  public static volatile Mp3 aac;
 
   /** The mixer's folder (made when missing), its tracks and its setting read. */
   public static synchronized void open(File folder) {
@@ -116,7 +118,7 @@ public final class AudioMix {
 
   /** A file of these kinds can be a track. */
   public static boolean importable(String name) {
-    return name != null && name.toLowerCase(Locale.ROOT).matches(".+\\.(wav|wave|mp3|mid|midi)");
+    return name != null && name.toLowerCase(Locale.ROOT).matches(".+\\.(wav|wave|mp3|mid|midi|m4a|aac)");
   }
 
   /**
@@ -202,6 +204,11 @@ public final class AudioMix {
   /** The file's sound, in stereo. */
   static AudioIo.StereoPcm decode(String name, byte[] bytes, short[][] kit) throws Exception {
     String low = name.toLowerCase(Locale.ROOT);
+    if (low.endsWith(".m4a") || low.endsWith(".aac")) {
+      Mp3 m = aac;
+      if (m == null) throw new IllegalArgumentException("AAC (.m4a) cannot be read here");
+      return m.decode(bytes);
+    }
     if (low.endsWith(".mp3")) {
       Mp3 m = mp3;
       if (m == null) throw new IllegalArgumentException("MP3 cannot be read here");

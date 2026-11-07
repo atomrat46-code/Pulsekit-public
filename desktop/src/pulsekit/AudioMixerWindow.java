@@ -41,6 +41,8 @@ final class AudioMixerWindow {
     static File importNext;
 
     static javax.sound.sampled.Clip playing;
+    /** The open window's rows made again (tracks added from elsewhere). */
+    static Runnable refill;
 
     static File folder() {
         return new File(PromptDb.dir(), "audiomixer");
@@ -136,6 +138,7 @@ final class AudioMixerWindow {
         body.add(transport, BorderLayout.SOUTH);
         d.setContentPane(body);
         fill[0].run();
+        refill = fill[0];
         d.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosed(java.awt.event.WindowEvent e) {
@@ -309,7 +312,7 @@ final class AudioMixerWindow {
         importNext = null;
         if (f == null) {
             JFileChooser c = new JFileChooser(MediaBrowser.downloads());
-            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, MIDI", "wav", "wave", "mp3", "mid", "midi"));
+            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, M4A, MIDI", "wav", "wave", "mp3", "m4a", "aac", "mid", "midi"));
             if (c.showOpenDialog(d) != JFileChooser.APPROVE_OPTION) return;
             f = c.getSelectedFile();
         }
@@ -319,7 +322,7 @@ final class AudioMixerWindow {
     /** `f` added as a track (off the Swing thread); the rows made again. */
     static void add(final Pulsekit app, final File f, final JLabel status, final Runnable fill) {
         if (!AudioMix.importable(f.getName())) {
-            say(status, f.getName() + " is not a WAV, an MP3 or a MIDI file");
+            say(status, f.getName() + " is not a WAV, an MP3, an M4A or a MIDI file");
             return;
         }
         say(status, "Adding " + f.getName() + "…");
@@ -391,6 +394,11 @@ final class AudioMixerWindow {
             say(status, "Could not add a track: " + ex.getMessage());
         }
         if (fill != null) fill.run();
+    }
+
+    /** The open window shows the tracks again (a run added some). */
+    static void refresh() {
+        if (last != null && last.isDisplayable() && refill != null) refill.run();
     }
 
     static void playMix(final JLabel status) {
@@ -478,6 +486,24 @@ final class AudioMixerWindow {
                 };
             }
         };
+    }
+
+    /** An AAC (.m4a) read with VLC: made a 44.1 kHz stereo WAV first. */
+    static AudioIo.StereoPcm decodeAac(byte[] aac) throws Exception {
+        File dir = java.nio.file.Files.createTempDirectory("pulsekit-aac").toFile();
+        File in = new File(dir, "in.m4a"), out = new File(dir, "out.wav");
+        try {
+            java.nio.file.Files.write(in.toPath(), aac);
+            String failed = VlcPlayer.transcode(in, "#transcode{vcodec=none,acodec=s16l,channels=2,samplerate=" + AudioMix.RATE + "}:std{access=file,mux=wav,dst='"
+                + out.getAbsolutePath().replace("'", "\\'") + "'}", null, 600000, null, ":no-sout-video");
+            if (failed != null) throw new java.io.IOException(failed);
+            if (!out.isFile() || out.length() <= 44) throw new java.io.IOException("VLC made no sound of it");
+            return AudioMix.parseStereo(java.nio.file.Files.readAllBytes(out.toPath()));
+        } finally {
+            in.delete();
+            out.delete();
+            dir.delete();
+        }
     }
 
     static void say(JLabel status, String s) {

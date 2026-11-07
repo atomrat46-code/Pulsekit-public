@@ -473,6 +473,59 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: results into the AudioMixer. MidiDrumGen's Params have "Add the result to the AudioMixer";
+   * run with it, its MIDI becomes a track (played with the kit), and the log says so; with --zip it is
+   * not added. Extract audio asks whether to add the sound to the AudioMixer: Add to AudioMixer makes it
+   * a track (the .m4a read with VLC).
+   */
+  void s227_to_mixer() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    call("showView", "py");
+    call("selectListedProgram", "Java", "MidiDrumGen.java");
+    boolean inParams = false;
+    for (ProgramParams.Param p : ProgramParams.parse((String) call("programText"))) if (p.token.equals(MixerOut.FLAG)) inParams = MixerOut.LABEL.equals(p.label) && !p.takesValue;
+    out.append("Params: ").append(inParams ? MixerOut.LABEL : "not there").append('\n');
+    javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+    String base = ((javax.swing.text.JTextComponent) get("pyExtra")).getText();
+    StringBuilder lines = new StringBuilder();
+    for (String extra : new String[] {"beat.mid --style rock --bars 2 " + MixerOut.FLAG, "--style funk --bars 2 --count 2 --zip " + MixerOut.FLAG}) {
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && !(textOf(log).contains("Succeeded") || textOf(log).contains("Failed")); i++) Thread.sleep(50);
+      Thread.sleep(500);
+      lines.append("== ").append(extra).append('\n');
+      for (String line : textOf(log).split("\n")) {
+        if (line.contains("AudioMixer") || line.startsWith("Failed") || line.startsWith("Succeeded")) lines.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
+      }
+    }
+    out.append(lines);
+    AudioMix.Track beat = null;
+    for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("beat")) beat = t;
+    out.append("track: ").append(beat == null ? "none" : AudioMix.line(beat)).append(", tracks ").append(AudioMix.tracks.size()).append('\n');
+    // Extract audio, then Add to AudioMixer.
+    File dir = new File(home, "m227");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath(), clip.toPath());
+    AudioExtract.lastSaid = null;
+    answers.add(MixerOut.ADD);
+    AudioExtract.run((Pulsekit) frame, clip, clip.getName(), home);
+    for (int i = 0; i < 300 && (AudioExtract.lastSaid == null || !AudioExtract.lastSaid.contains("AudioMixer")); i++) Thread.sleep(100);
+    String added = String.valueOf(AudioExtract.lastSaid);
+    out.append("extract: ").append(added.replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    AudioMix.Track sound = null;
+    for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("walk-audio")) sound = t;
+    out.append(String.format(java.util.Locale.ROOT, "walk-audio: %s%n", sound == null ? "none" : String.format(java.util.Locale.ROOT, "%.1f s", sound.seconds)));
+    String text = out.toString();
+    boolean vlc = VlcPlayer.available();
+    boolean ok = inParams && lines.toString().contains("Added to the AudioMixer: beat") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+        && beat != null && beat.seconds > 1
+        && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * Batch E: a DrumPad track's MIDI editor. A bar of 16 steps in 4/4 (12 in 3/4); a step selected on the
    * timeline and a pad pressed puts the pad in it (pressed again, takes it out); a cell of the grid does
    * the same; + Bar adds a bar and shows it; Quantize moves a hit off the steps onto one; each change

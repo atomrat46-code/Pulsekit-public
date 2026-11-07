@@ -201,6 +201,8 @@ public final class ProgramParams {
       save.label = "Save this run into DB (the program, all its params, input and result files)";
       out.add(save);
     }
+    // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
+    if ((drumMidi || drumGen || sogniMusic) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
     return out;
   }
 
