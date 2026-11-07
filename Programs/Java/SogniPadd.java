@@ -160,7 +160,7 @@ public final class SogniPadd {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = a;
+      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
       else {
         say("Unknown argument: " + a);
         usage();
@@ -265,7 +265,7 @@ public final class SogniPadd {
         say("Failed: " + why(api, id, wf));
         return 1;
       }
-      // Each variation (--variations): the first as named, then <name>-2, <name>-3...
+      // Each variation (--variations): the first as named, then <name>_Variated2, _Variated3...
       List<Map<String, Object>> keep = SogniApi.variationsOf(wf, made);
       String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : paddName(prompt, id);
       String ext = SogniApi.mediaExtension(SogniApi.str(keep.get(0).get("url")), SogniApi.mimeOf(keep.get(0)), ".png");
@@ -273,7 +273,7 @@ public final class SogniPadd {
       for (int v = 0; v < keep.size(); v++) {
         String url = SogniApi.str(keep.get(v).get("url"));
         String extV = SogniApi.mediaExtension(url, SogniApi.mimeOf(keep.get(v)), ".png");
-        String nameV = v == 0 ? name : name + "-" + (v + 1);
+        String nameV = SogniApi.variationName(name, v);
         byte[] data = api.download(url);
         File saved = saveData(nameV + extV, data);
         if (saved == null) {
@@ -2398,6 +2398,103 @@ public final class SogniPadd {
         z.end();
       }
     }
+    /**
+     * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
+     * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
+     * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
+     * (pulsekit.outdir), has as its name (any extension): Image%n is Image1,
+     * then Image2. The extension, when one is typed, stays; the program adds its own otherwise.
+     */
+    public static String fillName(String name, File dir) {
+      if (name == null || name.indexOf('%') < 0) return name;
+      java.util.Calendar now = java.util.Calendar.getInstance();
+      String one = fillCodes(name, now, 1);
+      if (one.equals(fillCodes(name, now, 2))) return one;
+      for (int n = 1; n < 100000; n++) {
+        String made = fillCodes(name, now, n);
+        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+      }
+      return one;
+    }
+
+    /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
+    static boolean nameTaken(File dir, String name) {
+      File f = new File(name);
+      File in = f.isAbsolute() ? f.getParentFile() : f.getParent() == null ? dir : new File(dir, f.getParent());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+      String[] all = in == null ? null : in.list();
+      if (all == null) return false;
+      for (String one : all) {
+        String s = one.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        if (s.equals(stem) || s.startsWith(stem + "_Variated") || s.startsWith(stem + "(")) return true;
+      }
+      return false;
+    }
+
+    /** A file of that name (any extension) in one of the folders Pulsekit saves results in (pulsekit.outdir or PULSEKIT_OUTDIR, path separated). */
+    static boolean takenInOutDirs(String name) {
+      String dirs = System.getProperty("pulsekit.outdir");
+      if (dirs == null || dirs.length() == 0) dirs = System.getenv("PULSEKIT_OUTDIR");
+      if (dirs == null || dirs.length() == 0) return false;
+      for (String d : dirs.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+        if (d.length() > 0 && nameTaken(new File(d), new File(name).getName())) return true;
+      }
+      return false;
+    }
+
+    /** The % codes filled in, n as `n`. */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+      StringBuilder out = new StringBuilder();
+      for (int i = 0; i < pattern.length(); i++) {
+        char c = pattern.charAt(i);
+        if (c != '%') {
+          out.append(c);
+          continue;
+        }
+        if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+          out.append('%');
+          i++;
+          continue;
+        }
+        int j = i + 1;
+        while (j < pattern.length()) {
+          String rest = pattern.substring(j);
+          if (rest.startsWith("yyyy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+            j += 4;
+          } else if (rest.startsWith("yy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+            j += 2;
+          } else if (rest.startsWith("dd")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+            j += 2;
+          } else if (rest.startsWith("d")) {
+            out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+            j += 1;
+          } else if (rest.startsWith("mm")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+            j += 2;
+          } else if (rest.startsWith("m")) {
+            out.append(now.get(java.util.Calendar.MONTH) + 1);
+            j += 1;
+          } else if (rest.startsWith("n")) {
+            out.append(n);
+            j += 1;
+          } else {
+            break;
+          }
+        }
+        if (j == i + 1) out.append('%');
+        i = j - 1;
+      }
+      return out.toString();
+    }
+
+    /** A variation's name (--variations): the first as named, then <name>_Variated2, _Variated3... */
+    public static String variationName(String name, int v) {
+      return v == 0 ? name : name + "_Variated" + (v + 1);
+    }
+
     // --- SogniApi end ---
   }
 }

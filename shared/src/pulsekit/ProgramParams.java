@@ -388,7 +388,7 @@ public final class ProgramParams {
     if (!p.flag && p.output && chat) {
       // SogniChat's output is a base name for everything it saves, not one file.
       p.label = "Output name";
-      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy";
     }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
@@ -642,6 +642,7 @@ public final class ProgramParams {
   }
 
   private static void knownSogniMusic(Param p) {
+    if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
@@ -998,7 +999,7 @@ public final class ProgramParams {
   private static void knownPedit(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-pedit-<first words>.png";
+      p.hint = "optional; sogni-pedit-<first words>.png; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1038,7 +1039,7 @@ public final class ProgramParams {
   private static void knownPadd(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-padd-<first words>.png";
+      p.hint = "optional; sogni-padd-<first words>.png; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1065,7 +1066,7 @@ public final class ProgramParams {
   private static void knownTextVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-textvideo-<first words>.mp4";
+      p.hint = "optional; sogni-textvideo-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
@@ -1098,7 +1099,7 @@ public final class ProgramParams {
   private static void knownVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-video-<first words>.mp4";
+      p.hint = "optional; sogni-video-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";

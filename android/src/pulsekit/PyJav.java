@@ -1352,6 +1352,12 @@ final class PyJav {
         // Kept running (a notification) until the run is over: switching apps does not lose it.
         pulsekit.RunKeeper.start(app, name);
         this.pkShowWorkflow(null);
+        // Where the run's files are kept (Download): an output name's %n counts the files there too.
+        try {
+            System.setProperty("pulsekit.outdir", android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).getAbsolutePath());
+        } catch (Throwable ignored) {
+            // no shared storage
+        }
         pulsekit.JavaRun.Live live = pulsekit.JavaRun.start(name, src, app.pkPyBytes, argv, pulsekit.PyJavUi.listener(app, this.pkPending, argv, this.pkSaveRun, src));
         this.pkLastLive = live;
         this.pkEndedAt = 0;

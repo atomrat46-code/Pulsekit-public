@@ -1077,6 +1077,9 @@ public final class JavaRun {
   private static Result exec(File dir, List<String> cmd, String skipName, String header, long waitMs) throws Exception {
     ProcessBuilder pb = new ProcessBuilder(cmd);
     pb.directory(dir);
+    // Where Pulsekit keeps the run's files: an output name's %n counts the files there too (SogniApi.fillName).
+    String outDirs = System.getProperty("pulsekit.outdir");
+    if (outDirs != null && outDirs.length() > 0) pb.environment().put("PULSEKIT_OUTDIR", outDirs);
     pb.redirectErrorStream(true);
     Process proc = pb.start();
     ByteArrayOutputStream bos = new ByteArrayOutputStream();

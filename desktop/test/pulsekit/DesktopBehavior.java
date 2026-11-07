@@ -8348,7 +8348,10 @@ public final class DesktopBehavior {
       call("showView", "py");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
       String[][] runs = {{"SogniPadd.java", "out.png --prompt \"a red kite\" --variations 3"}, {"SogniTextVideo.java", "clip.mp4 --prompt \"waves at dusk\" --variations 2"},
-        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"}};
+        {"SogniPadd.java", "--prompt \"a red kite\" --variations 9"},
+        // Output names with % codes: %n the first number not taken, %ddmmyy today; the extension added.
+        {"SogniPadd.java", "Image%n --prompt \"a red kite\""}, {"SogniPadd.java", "Image%n --prompt \"a red kite\""},
+        {"SogniPadd.java", "Kite%ddmmyy --prompt \"a red kite\""}};
       List<String> said = new ArrayList<String>();
       for (String[] r : runs) {
         bodies.clear();
@@ -8381,8 +8384,11 @@ public final class DesktopBehavior {
       ProgramParams.Param field = null;
       for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals("--variations")) field = p;
       out.append("Params: ").append(field == null ? "none" : field.label + " " + String.join(",", field.choices)).append('\n');
-      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out-2.png] [Wrote out-3.png] [Variations: 3] [Succeeded: out.png] sent 3")
-          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip-2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+      String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+      boolean ok = said.get(0).equals("SogniPadd.java: [Wrote out.png] [Wrote out_Variated2.png] [Wrote out_Variated3.png] [Variations: 3] [Succeeded: out.png] sent 3")
+          && said.get(1).equals("SogniTextVideo.java: [Wrote clip.mp4] [Wrote clip_Variated2.mp4] [Variations: 2] [Succeeded: clip.mp4] sent 2")
+          && said.get(3).startsWith("SogniPadd.java: [Wrote Image1.png]") && said.get(4).startsWith("SogniPadd.java: [Wrote Image2.png]")
+          && said.get(5).startsWith("SogniPadd.java: [Wrote Kite" + today + ".png]")
           && said.get(2).startsWith("SogniPadd.java: [Failed: --variations is 1 to 4") && !said.get(2).contains("sent")
           && field != null && "1,2,3,4".equals(String.join(",", field.choices));
       if (!ok) throw new AssertionError(out.toString());

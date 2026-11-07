@@ -12718,6 +12718,39 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch C: an output name's % codes (SogniApi.fillName): %n the first number no file has (in the work
+   * folder or where Pulsekit keeps results, pulsekit.outdir), %ddmmyy today, %% a %, no codes as it is;
+   * variations named <name>_Variated2...
+   */
+  @Test
+  public void s233_output_name_codes() throws Exception {
+    StringBuilder out = new StringBuilder();
+    File work = new File(app.getCacheDir(), "c1-work"), kept = new File(app.getCacheDir(), "c1-kept");
+    work.mkdirs();
+    kept.mkdirs();
+    Files.write(new File(work, "Image1.png").toPath(), new byte[] {1});
+    Files.write(new File(kept, "Image2.jpg").toPath(), new byte[] {1});
+    String was = System.getProperty("pulsekit.outdir");
+    System.setProperty("pulsekit.outdir", kept.getAbsolutePath());
+    String n = SogniApi.fillName("Image%n", work);
+    System.clearProperty("pulsekit.outdir");
+    if (was != null) System.setProperty("pulsekit.outdir", was);
+    String alone = SogniApi.fillName("Image%n", work);
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    String date = SogniApi.fillName("Kite%ddmmyy.png", work);
+    String literal = SogniApi.fillName("100%% kite", work);
+    String plain = SogniApi.fillName("kite.png", work);
+    String lone = SogniApi.fillName("50% off", work);
+    String v1 = SogniApi.variationName("kite", 0), v3 = SogniApi.variationName("kite", 2);
+    out.append("with kept: ").append(n).append(", work only: ").append(alone).append(", date: ").append(date).append(", literal: ").append(literal)
+        .append(", plain: ").append(plain).append(", lone: ").append(lone).append(", variations: ").append(v1).append(' ').append(v3).append('\n');
+    write("s233_output_name_codes", out.toString());
+    boolean ok = "Image3".equals(n) && "Image2".equals(alone) && ("Kite" + today + ".png").equals(date) && "100% kite".equals(literal) && "kite.png".equals(plain)
+        && "50% off".equals(lone) && "kite".equals(v1) && "kite_Variated3".equals(v3);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

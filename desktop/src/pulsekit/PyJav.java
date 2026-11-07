@@ -857,6 +857,8 @@ final class PyJav {
             }
             if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final long runStarted = System.currentTimeMillis();
+            // Where the run's files are kept: an output name's %n counts the files there too.
+            System.setProperty("pulsekit.outdir", this.programFolder().getAbsolutePath());
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
