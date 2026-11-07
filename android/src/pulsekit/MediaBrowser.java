@@ -2708,6 +2708,14 @@ final class MediaBrowser {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.FIRST_FRAME_AS_REF;
         }
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (this.chooser == null && Mp4Media.extractable(e.name)) {
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = Mp4Media.EXTRACT;
+            // ReRender: the video at another size and shape (crop or bars), on the phone's encoder.
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = VideoFit.RERENDER;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(e));
@@ -2738,6 +2746,8 @@ final class MediaBrowser {
                 else if (MediaDir.FIRST_FRAME_AS_REF.equals(items[which]))
                     RefImages.firstFrameAsRef(this.app, e.name, this.onDisk(e) ? e.id : null, this.onDisk(e) ? null : this.uri(e), this.dialog, this.returner());
                 else if (MediaCollections.ADD.equals(items[which])) CollectionsScreen.addTo(this.app, MediaCollections.KIND_FILE, this.playlistAddress(e), e.name, e.size);
+                else if (Mp4Media.EXTRACT.equals(items[which])) AudioExtract.run(this.app, e.name, this.onDisk(e) ? e.id : null, this.onDisk(e) ? null : this.uri(e), null);
+                else if (VideoFit.RERENDER.equals(items[which])) VideoRender.ask(this.app, e.name, this.onDisk(e) ? e.id : null, this.onDisk(e) ? null : this.uri(e), null);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })
             .setNegativeButton("Cancel", null)

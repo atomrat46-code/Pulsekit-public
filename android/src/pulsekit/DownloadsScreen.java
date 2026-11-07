@@ -372,6 +372,11 @@ final class DownloadsScreen {
         java.util.List<String> all = new java.util.ArrayList<String>(java.util.Arrays.asList(MENU));
         all.add(MediaCollections.ADD);
         all.add(Playlist.ADD);
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (Mp4Media.extractable(item.name)) {
+            all.add(Mp4Media.EXTRACT);
+            all.add(VideoFit.RERENDER);
+        }
         if (extra != null) all.add(extra);
         final String[] rows = all.toArray(new String[0]);
         final String extraRow = extra;
@@ -382,6 +387,13 @@ final class DownloadsScreen {
                 String address = u != null ? u.toString() : f.getAbsolutePath();
                 if (Playlist.ADD.equals(rows[which])) PlaylistScreen.addTo(app, address, item.name);
                 else CollectionsScreen.addTo(app, MediaCollections.KIND_FILE, address, item.name, size(app, u, f));
+                return;
+            }
+            if (Mp4Media.EXTRACT.equals(rows[which]) || VideoFit.RERENDER.equals(rows[which])) {
+                Uri u = uriFor(app, item.where);
+                File f = u == null ? fileFor(item.where) : null;
+                if (Mp4Media.EXTRACT.equals(rows[which])) AudioExtract.run(app, item.name, f == null ? null : f.getAbsolutePath(), u, null);
+                else VideoRender.ask(app, item.name, f == null ? null : f.getAbsolutePath(), u, null);
                 return;
             }
             if (rows[which].equals(extraRow)) {

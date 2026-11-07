@@ -1424,6 +1424,26 @@ final class PromptDb {
             });
             menu.add(full);
         }
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a in the program files folder, copied as it is).
+        if (Mp4Media.extractable(file.name)) {
+            JMenuItem extract = new JMenuItem(Mp4Media.EXTRACT);
+            extract.setName("gallery-extract-audio");
+            extract.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else AudioExtract.run(app, copy, file.name, app.pyJav.programFolder(), false);
+            });
+            menu.add(extract);
+            // ReRender: the video at another size and shape (crop or bars), into the program files folder.
+            JMenuItem rerender = new JMenuItem(VideoFit.RERENDER);
+            rerender.setName("gallery-rerender");
+            rerender.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else VideoRender.ask(app, card, copy, file.name, app.pyJav.programFolder(), false);
+            });
+            menu.add(rerender);
+        }
         // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
         if (MediaDir.firstFrameRef(file.name)) {
             JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);

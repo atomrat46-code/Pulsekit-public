@@ -12872,6 +12872,124 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch D: Extract audio, a video's item in the Media browser: its sound as <video>-audio.m4a beside it,
+   * copied out of the MP4 (an MP4 with one sound track); a video without sound says so; DB/Prompts' video has it too.
+   */
+  @Test
+  public void s237_extract_audio() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "d1");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4"), silent = new File(dir, "wide.mp4");
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), clip.toPath());
+    Files.copy(new File("../../../desktop/test/clip-wide.mp4").toPath(), silent.toPath());
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    String[] said = new String[2];
+    String items = "";
+    for (String n : new String[] {"walk.mp4", "wide.mp4"}) {
+      MediaDir.Entry video = null;
+      for (MediaDir.Entry e : m.allEntries) if (e.name.equals(n)) video = e;
+      m.menu(video);
+      idle();
+      items = listItems(MediaBrowser.lastMenu);
+      AudioExtract.lastSaid = null;
+      org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(Mp4Media.EXTRACT));
+      for (int i = 0; i < 300 && AudioExtract.lastSaid == null; i++) {
+        Thread.sleep(20);
+        idle();
+      }
+      said[n.startsWith("walk") ? 0 : 1] = String.valueOf(AudioExtract.lastSaid).replace(dir.getAbsolutePath(), "<dir>");
+    }
+    File m4a = new File(dir, "walk-audio.m4a");
+    byte[] head = m4a.isFile() ? java.util.Arrays.copyOf(Files.readAllBytes(m4a.toPath()), 12) : new byte[12];
+    String box = new String(head, 4, 4, StandardCharsets.ISO_8859_1);
+    String body = m4a.isFile() ? new String(Files.readAllBytes(m4a.toPath()), StandardCharsets.ISO_8859_1) : "";
+    boolean soundOnly = body.contains("soun") && !body.contains("vide");
+    m.dialog.dismiss();
+    idle();
+    // DB/Prompts: the video's item.
+    DbImport.store(app, "clip.mp4", Files.readAllBytes(clip.toPath()), true);
+    PromptSheet.create(app);
+    idle();
+    java.lang.reflect.Method thumb = PromptSheet.class.getDeclaredMethod("thumbMenu", android.app.Activity.class, long.class, int.class, String.class);
+    thumb.setAccessible(true);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    PromptVault.StoredFile stored = null;
+    for (PromptVault.StoredFile f : vault.resultFiles()) if (f.name.equals("clip.mp4")) stored = f;
+    thumb.invoke(null, app, stored.versionId, stored.which, "clip.mp4");
+    idle();
+    boolean dbItem = listItems(PromptSheet.lastFileMenu).contains(Mp4Media.EXTRACT);
+    PromptSheet.lastFileMenu.dismiss();
+    out.append("menu has it: ").append(items.contains(Mp4Media.EXTRACT)).append(" | walk: ").append(said[0]).append(" | ").append(box).append(", sound only ").append(soundOnly)
+        .append(" | wide: ").append(said[1]).append(" | DB/Prompts item: ").append(dbItem).append('\n');
+    write("s237_extract_audio", out.toString());
+    boolean ok = items.contains(Mp4Media.EXTRACT) && m4a.isFile() && "ftyp".equals(box) && soundOnly && said[1].contains("has no sound") && dbItem;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D: ReRender's plan (VideoFit): a 16:9 picture to 9:16 cropped at the left, middle or right, or
+   * given bars above and below; sizes read from "1080×1920 (9:16)" or "720x1280"; the name; the
+   * largest of some sizes. The Media browser's MP4 has ReRender…, its dialog the sizes, fit and part kept.
+   */
+  @Test
+  public void s238_rerender_plan_and_dialog() throws Exception {
+    StringBuilder out = new StringBuilder();
+    int[] left = VideoFit.plan(1920, 1080, 1080, 1920, false, 0), mid = VideoFit.plan(1920, 1080, 1080, 1920, false, 0.5), right = VideoFit.plan(1920, 1080, 1080, 1920, false, 1);
+    int[] tall = VideoFit.plan(1080, 1920, 1080, 1080, false, 0.5), bars = VideoFit.plan(1920, 1080, 1080, 1920, true, 0.5), same = VideoFit.plan(1280, 720, 1920, 1080, false, 0.5);
+    out.append("left ").append(java.util.Arrays.toString(left)).append("\nmiddle ").append(java.util.Arrays.toString(mid)).append("\nright ").append(java.util.Arrays.toString(right))
+        .append("\ntall to square ").append(java.util.Arrays.toString(tall)).append("\nbars ").append(java.util.Arrays.toString(bars)).append(" (").append(VideoFit.said(bars)).append(")")
+        .append("\nsame shape ").append(java.util.Arrays.toString(same)).append(" (").append(VideoFit.said(same)).append(")\n");
+    int[] a = VideoFit.parseSize(VideoFit.SIZES[0]), b = VideoFit.parseSize("721 x 1281"), none = VideoFit.parseSize("big");
+    java.util.List<int[]> sizes = new java.util.ArrayList<int[]>();
+    sizes.add(new int[] {720, 1280});
+    sizes.add(new int[] {1080, 1920});
+    sizes.add(new int[] {1080, 1080});
+    out.append("sizes ").append(java.util.Arrays.toString(a)).append(' ').append(java.util.Arrays.toString(b)).append(' ').append(none == null ? "none" : "?")
+        .append(" | name ").append(VideoFit.name("walk.mp4", 1080, 1920)).append(" | largest ").append(java.util.Arrays.toString(VideoFit.largest(sizes))).append('\n');
+    // The Media browser's item and the dialog.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "d2");
+    dir.mkdirs();
+    Files.copy(new File("../../../desktop/test/clip-a.mp4").toPath(), new File(dir, "walk.mp4").toPath());
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    m.menu(m.allEntries.get(0));
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    VideoRender.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(java.util.Arrays.asList(items.split(" \\| ")).indexOf(VideoFit.RERENDER));
+    idle();
+    boolean asked = VideoRender.lastAsk != null && VideoRender.lastAsk.isShowing();
+    View dv = asked ? VideoRender.lastAsk.getWindow().getDecorView() : null;
+    boolean parts = dv != null && dv.findViewWithTag("rerender-size") != null && dv.findViewWithTag("rerender-custom") != null && dv.findViewWithTag("rerender-area") != null;
+    if (asked) VideoRender.lastAsk.dismiss();
+    m.dialog.dismiss();
+    idle();
+    out.append("menu has it: ").append(items.contains(VideoFit.RERENDER)).append(", dialog ").append(asked).append(", its parts ").append(parts).append('\n');
+    write("s238_rerender_plan_and_dialog", out.toString());
+    boolean ok = java.util.Arrays.equals(left, new int[] {0, 0, 1312, 0, 0, 0, 0, 0}) && java.util.Arrays.equals(mid, new int[] {656, 0, 656, 0, 0, 0, 0, 0})
+        && java.util.Arrays.equals(right, new int[] {1312, 0, 0, 0, 0, 0, 0, 0}) && java.util.Arrays.equals(tall, new int[] {0, 420, 0, 420, 0, 0, 0, 0})
+        && java.util.Arrays.equals(bars, new int[] {0, 0, 0, 0, 0, 1166, 0, 1166}) && java.util.Arrays.equals(same, new int[8])
+        && java.util.Arrays.equals(a, new int[] {1080, 1920}) && java.util.Arrays.equals(b, new int[] {720, 1280}) && none == null
+        && "walk-1080x1920.mp4".equals(VideoFit.name("walk.mp4", 1080, 1920)) && java.util.Arrays.equals(VideoFit.largest(sizes), new int[] {1080, 1920})
+        && items.contains(VideoFit.RERENDER) && asked && parts;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

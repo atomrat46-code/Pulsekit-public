@@ -2729,6 +2729,55 @@ public final class SogniVideo {
       Track audio;
     }
 
+    /**
+     * The sound of an MP4 video as an audio-only MP4 (.m4a), copied without re-encoding; the
+     * picture is left out. Throws when the video has no sound.
+     */
+    static void audioOnly(File video, File dest) throws IOException {
+      Movie m = read(video, 0);
+      if (m.audio == null) throw new JoinException(video.getName() + " has no sound");
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(m.audio);
+      write(dest, m, tracks, new long[] {0, 0}, new File[] {video});
+    }
+
+    /**
+     * `picture`'s picture with `sound`'s sound (both MP4s, copied as they are): ReRender's video, made
+     * without sound, gets the original's back. No sound in `sound`: the picture alone.
+     */
+    static void withSound(File picture, File sound, File dest) throws IOException {
+      withSound(picture, sound, dest, 0, 0);
+    }
+
+    /**
+     * As above, the picture's size written as w×h in its track and sample entry (an encoder that
+     * scales may leave the source's there; players that read it would show it wrongly). 0: as it is.
+     */
+    static void withSound(File picture, File sound, File dest, int w, int h) throws IOException {
+      Movie p = read(picture, 0);
+      if (p.video == null) throw new JoinException(picture.getName() + " has no picture");
+      if (w > 0 && h > 0) {
+        byte[] tkhd = p.video.tkhd.clone();
+        put32(tkhd, tkhd.length - 8, (long) w << 16);
+        put32(tkhd, tkhd.length - 4, (long) h << 16);
+        p.video.tkhd = tkhd;
+        byte[] stsd = p.video.stsd.clone();
+        // The first sample entry's width and height: after the box header, version, count, its own header and 24 bytes.
+        if (stsd.length >= 52) {
+          stsd[48] = (byte) (w >> 8);
+          stsd[49] = (byte) w;
+          stsd[50] = (byte) (h >> 8);
+          stsd[51] = (byte) h;
+        }
+        p.video.stsd = stsd;
+      }
+      Movie s = read(sound, 1);
+      List<Track> tracks = new ArrayList<Track>();
+      tracks.add(p.video);
+      if (s.audio != null) tracks.add(s.audio);
+      write(dest, p, tracks, new long[] {0, 0}, new File[] {picture, sound});
+    }
+
     /** Writes `first` then `second` into `dest`; returns a note (sound left out...) or "". */
     static String join(File first, File second, File dest) throws IOException {
       List<File> both = new ArrayList<File>();

@@ -2310,6 +2310,14 @@ public final class PromptSheet {
         }
       });
     }
+    // An MP4 video: Extract audio (its sound as <video>-audio.m4a in Download, copied as it is).
+    if (activity instanceof MainActivity && Mp4Media.extractable(name)) {
+      items.add(Mp4Media.EXTRACT);
+      runs.add(() -> AudioExtract.run((MainActivity) activity, name, null, null, vault.fileBytes(versionId, which)));
+      // ReRender: the video at another size and shape, into Download.
+      items.add(VideoFit.RERENDER);
+      runs.add(() -> VideoRender.ask((MainActivity) activity, name, null, null, vault.fileBytes(versionId, which)));
+    }
     // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
     if (activity instanceof MainActivity && MediaDir.firstFrameRef(name)) {
       items.add(MediaDir.FIRST_FRAME_AS_REF);

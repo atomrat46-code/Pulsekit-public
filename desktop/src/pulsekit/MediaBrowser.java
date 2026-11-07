@@ -1603,6 +1603,14 @@ final class MediaBrowser {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.FIRST_FRAME_AS_REF;
         }
+        // An MP4 video: Extract audio (its sound as <video>-audio.m4a, copied as it is).
+        if (this.chooser == null && Mp4Media.extractable(entry.name)) {
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = Mp4Media.EXTRACT;
+            // ReRender: the video at another size and shape (crop or bars), with VLC.
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = VideoFit.RERENDER;
+        }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
         final boolean fav = FileFavourites.isKey(MediaDir.groupKey(entry));
@@ -1630,6 +1638,18 @@ final class MediaBrowser {
                     }
                     ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
                 });
+                menu.add(item);
+                continue;
+            }
+            if (VideoFit.RERENDER.equals(items[i])) {
+                item.setName("media-menu:rerender");
+                item.addActionListener(e -> VideoRender.ask(app, card, f, entry.name, app.pyJav.programFolder(), true));
+                menu.add(item);
+                continue;
+            }
+            if (Mp4Media.EXTRACT.equals(items[i])) {
+                item.setName("media-menu:extract-audio");
+                item.addActionListener(e -> AudioExtract.run(app, f, entry.name, app.pyJav.programFolder()));
                 menu.add(item);
                 continue;
             }

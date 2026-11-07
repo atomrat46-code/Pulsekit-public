@@ -520,6 +520,55 @@ final class VlcPlayer implements MediaPlayer {
         return got == null ? null : got.jpeg;
     }
 
+    /**
+     * ReRender: the video made again by VLC through `sout` (a #transcode{...}:std{...} chain), nothing
+     * shown or heard; `progress` (may be null) gets 0..1 as it goes. Null when it ended, else why not.
+     * Waits at most `limitMs`; `stop` (may be null) stops it early when it turns true.
+     */
+    static String transcode(File video, String sout, java.util.function.DoubleConsumer progress, long limitMs, java.util.function.BooleanSupplier stop, String... options) {
+        if (!available()) return why();
+        Pointer media = lib.libvlc_media_new_path(instance, video.getAbsolutePath());
+        if (media == null) return "VLC could not open " + video.getName();
+        lib.libvlc_media_add_option(media, ":sout=" + sout);
+        lib.libvlc_media_add_option(media, ":no-sout-all");
+        for (String o : options) lib.libvlc_media_add_option(media, o);
+        Pointer player = lib.libvlc_media_player_new_from_media(media);
+        lib.libvlc_media_release(media);
+        if (player == null) return "VLC could not read " + video.getName();
+        try {
+            lib.libvlc_media_player_play(player);
+            long until = System.currentTimeMillis() + limitMs;
+            boolean started = false;
+            while (System.currentTimeMillis() < until) {
+                if (stop != null && stop.getAsBoolean()) return "Stopped";
+                int state = lib.libvlc_media_player_get_state(player);
+                if (state == ERROR) return "VLC could not make it again (its encoder or the video's format)";
+                if (state == ENDED) {
+                    // The muxer is given a moment to write the last sound and close the file.
+                    try {
+                        Thread.sleep(400);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return null;
+                }
+                if (state == 3) started = true;
+                if (progress != null && started) progress.accept(Math.max(0, Math.min(1, lib.libvlc_media_player_get_position(player))));
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return "Stopped";
+                }
+            }
+            return "VLC took too long";
+        } finally {
+            lib.libvlc_media_player_stop(player);
+            lib.libvlc_media_player_release(player);
+        }
+    }
+
+
     /** A video's first frame (a JPEG), its own size and its length. */
     static final class Probe {
         byte[] jpeg;

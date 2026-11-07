@@ -473,6 +473,104 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch D (as on the phone): ReRender in a video's Media browser menu: with VLC, the video at
+   * 720×1280 cropped (the left part kept), then at 1280×720 with bars, each beside it as
+   * <video>-WxH.mp4 with the original's sound.
+   */
+  void s221_rerender() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    File dir = new File(home, "m221");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip-a.mp4").toPath(), clip.toPath());
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final String[] items = new String[1];
+    StringBuilder made = new StringBuilder();
+    boolean ok = true;
+    for (String[] ask : new String[][] {{"720\u00d71280 (9:16)", VideoFit.CROP, "Top / left"}, {"1280x720", VideoFit.PAD, "Centre"}}) {
+      VideoRender.answer = ask;
+      VideoRender.lastSaid = null;
+      VideoRender.last = null;
+      final MediaDir.Entry[] video = new MediaDir.Entry[1];
+      for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+      inspectNext = d -> {
+        mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+        StringBuilder sb = new StringBuilder();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        items[0] = sb.toString();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "media-menu:rerender".equals(c.getName())) {
+          mb.lastMenu.setVisible(false);
+          ((javax.swing.JMenuItem) c).doClick();
+        }
+      };
+      answers.add("Close");
+      SwingUtilities.invokeLater(() -> mb.open(dir));
+      for (int i = 0; i < 600 && VideoRender.lastSaid == null; i++) Thread.sleep(100);
+      idle();
+      File f = VideoRender.last;
+      String body = f == null ? "" : new String(Files.readAllBytes(f.toPath()), StandardCharsets.ISO_8859_1);
+      boolean sound = body.contains("soun");
+      // Its picture's size, from its H.264 entry (avc1: width and height 24 bytes after its type).
+      int at = body.indexOf("avc1", Math.max(0, body.indexOf("stsd")));
+      int[] got = at < 0 ? null : new int[] {(body.charAt(at + 28) << 8) | body.charAt(at + 29), (body.charAt(at + 30) << 8) | body.charAt(at + 31)};
+      made.append(f == null ? "none" : f.getName()).append(' ').append(got == null ? "?" : got[0] + "x" + got[1]).append(sound ? " with sound" : " silent").append(" | ")
+          .append(String.valueOf(VideoRender.lastSaid).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+      int[] want = VideoFit.parseSize(ask[0]);
+      ok &= f != null && got != null && got[0] == want[0] && got[1] == want[1] && sound;
+    }
+    VideoRender.answer = null;
+    out.append("menu has it: ").append(String.valueOf(items[0]).contains(VideoFit.RERENDER)).append('\n').append(made);
+    if (!ok || !String.valueOf(items[0]).contains(VideoFit.RERENDER)) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch D (as on the phone): Extract audio in a video's Media browser menu: its sound as
+   * <video>-audio.m4a beside it (an MP4 with one sound track); a video without sound says so.
+   */
+  void s220_extract_audio() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m220");
+    dir.mkdirs();
+    File test = new File(System.getProperty("pulsekit.test.dir", "."));
+    final File clip = new File(dir, "walk.mp4"), silent = new File(dir, "wide.mp4");
+    Files.copy(new File(test, "clip-a.mp4").toPath(), clip.toPath());
+    Files.copy(new File(test, "clip-wide.mp4").toPath(), silent.toPath());
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final String[] said = new String[2];
+    final String[] items = new String[1];
+    for (final File f : new File[] {clip, silent}) {
+      final MediaDir.Entry[] video = new MediaDir.Entry[1];
+      for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals(f.getName())) video[0] = e;
+      AudioExtract.lastSaid = null;
+      inspectNext = d -> {
+        mb.menu(video[0], f, component(d, "media-card:" + f.getName()), 2, 2);
+        StringBuilder sb = new StringBuilder();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+        items[0] = sb.toString();
+        for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && "media-menu:extract-audio".equals(c.getName())) {
+          mb.lastMenu.setVisible(false);
+          ((javax.swing.JMenuItem) c).doClick();
+        }
+      };
+      answers.add("Close");
+      SwingUtilities.invokeLater(() -> mb.open(dir));
+      for (int i = 0; i < 100 && AudioExtract.lastSaid == null; i++) Thread.sleep(100);
+      idle();
+      said[f == clip ? 0 : 1] = String.valueOf(AudioExtract.lastSaid).replace(dir.getAbsolutePath(), "<dir>");
+    }
+    File m4a = new File(dir, "walk-audio.m4a");
+    String body = m4a.isFile() ? new String(Files.readAllBytes(m4a.toPath()), StandardCharsets.ISO_8859_1) : "";
+    boolean soundOnly = body.startsWith("ftyp", 4) && body.contains("soun") && !body.contains("vide");
+    out.append("menu has it: ").append(String.valueOf(items[0]).contains(Mp4Media.EXTRACT)).append(" | walk: ").append(said[0]).append(", sound only ").append(soundOnly)
+        .append(" | wide: ").append(said[1]).append('\n');
+    if (!String.valueOf(items[0]).contains(Mp4Media.EXTRACT) || !m4a.isFile() || !soundOnly || !said[1].contains("has no sound")) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Batch C (as on the phone): Downloads' Move panel has Also other programs' files; ticked, another
    * program's run is listed (with what it saved), one that saved nothing is not kept, and the Sogni
    * programs are listed either way.
