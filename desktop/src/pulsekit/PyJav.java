@@ -857,8 +857,12 @@ final class PyJav {
             }
             if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final long runStarted = System.currentTimeMillis();
+            // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
+            String outdirArg = ProgramFolder.outdirArg(name, argv);
+            this.runOutDir = outdirArg == null ? null : ProgramFolder.outdir(outdirArg, this.programFolder());
+            if (this.runOutDir != null && !this.runOutDir.isDirectory()) this.runOutDir.mkdirs();
             // Where the run's files are kept: an output name's %n counts the files there too.
-            System.setProperty("pulsekit.outdir", this.programFolder().getAbsolutePath());
+            System.setProperty("pulsekit.outdir", (this.runOutDir != null ? this.runOutDir : this.programFolder()).getAbsolutePath());
             final PythonRun.Result result = promptProg
                 ? asPython(JavaRun.run(name, runSrc, bytes, runArgv))
                 : javaProg
@@ -946,8 +950,9 @@ final class PyJav {
                         continue;
                     } else if (lower.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac|prompt|png|jpe?g|webp|gif|mp4|webm|mov|glb)$")) {
                         // Audio, a prompt sheet, a picture or a video a program wrote in its work folder (SogniMusic's
-                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android.
-                        File saved = this.saveProgramFile(f.name, f.bytes);
+                        // track and --saveprompt, SogniChat's tool results): kept in Downloads, as on Android
+                        // (SogniMusic --outdir: in its folder).
+                        File saved = this.saveProgramFile(f.name, f.bytes, this.runOutDir);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) {
                             audios++;
@@ -1046,6 +1051,7 @@ final class PyJav {
                 // SogniMusic --zip: what the run made (and its WAV) gathered for one zip, written when its last step is over.
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
                     RunZip z = RunZip.start(result.log, argv);
+                    z.dir = this.runOutDir;
                     this.zipAdd(z, name, "", result);
                     // The tracks saved in Downloads are the zip's: --zip_delete deletes them too.
                     for (File copy : savedAudio.values()) z.addCopy(copy.getPath());
@@ -1892,7 +1898,7 @@ final class PyJav {
                     for (int i = 0; i < parts.size(); i++) {
                         ZipPack.write(tmp, parts.get(i), null);
                         String name = z.partName(i, parts.size());
-                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()));
+                        File saved = this.saveProgramFile(name, Files.readAllBytes(tmp.toPath()), z.dir);
                         text.append(text.length() == 0 ? "" : "\n").append(saved == null ? "Could not save " + name
                             : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + saved.getPath());
                     }
@@ -2640,9 +2646,17 @@ final class PyJav {
         return dir;
     }
 
+    /** SogniMusic --outdir: the folder the run going on (or ended last) keeps its files in; null: the program files folder. */
+    volatile File runOutDir;
+
     File saveProgramFile(String name, byte[] data) {
+        return this.saveProgramFile(name, data, null);
+    }
+
+    /** As above, into `into` (null: the program files folder). */
+    File saveProgramFile(String name, byte[] data, File into) {
         try {
-            File dir = this.programFolder();
+            File dir = into != null ? into : this.programFolder();
             if (!dir.isDirectory()) dir.mkdirs();
             String safe = name.replace('\\', '_').replace('/', '_');
             int dot = safe.lastIndexOf('.');

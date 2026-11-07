@@ -12751,6 +12751,28 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch C: SogniMusic --outdir on the phone: its folder under Download with the % codes filled in
+   * (run%n the first not there yet; "." and ".." left out); other programs' --outdir is not this one.
+   */
+  @Test
+  public void s234_sogni_music_outdir() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    java.util.function.Function<String, String> sub = d -> ArtJava.runSub("SogniMusic.java", java.util.Arrays.asList("--prompt", "funk", "--outdir", d, "--zip"));
+    File dl = ArtJava.downloads();
+    new File(dl, "run1").mkdirs();
+    String dated = sub.apply("music%ddmmyy"), numbered = sub.apply("run%n"), cleaned = sub.apply("../songs/./%yyyy"), plain = sub.apply("songs");
+    String other = ArtJava.runSub("MidiDrumGen.java", java.util.Arrays.asList("--outdir", "x"));
+    String none = ArtJava.runSub("SogniMusic.java", java.util.Arrays.asList("--prompt", "funk"));
+    String year = new java.text.SimpleDateFormat("yyyy", java.util.Locale.ROOT).format(new java.util.Date());
+    out.append("dated ").append(dated).append(", numbered ").append(numbered).append(", cleaned ").append(cleaned).append(", plain ").append(plain)
+        .append(", MidiDrumGen ").append(other).append(", none ").append(none).append('\n');
+    write("s234_sogni_music_outdir", out.toString().replace(today, "<today>"));
+    boolean ok = ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

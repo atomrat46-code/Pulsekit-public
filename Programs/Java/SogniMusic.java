@@ -75,6 +75,11 @@ import java.util.Map;
  * --batchdir <folder>: the drum MIDI DrumMidi_CRT makes of the track also joins a batch folder (a
  * MidiDrumGen --count --outdir or MidiBatch folder), with its row in the folder's batch.txt, so one
  * vst_render.py --dir --test run renders both and CompareHits --batch sums them (base SogniMusic).
+ *
+ * --outdir <folder>: Pulsekit keeps the run's tracks, their WAVs and the zip (--zip) in this folder
+ * (under the program files folder on a computer, under Download on the phone; made when missing).
+ * % codes as in Downloads' subfolders: music%ddmmyy is music071126, run%n the first run1, run2...
+ * not there yet.
  */
 public final class SogniMusic {
   public static void main(String[] args) throws Exception {
@@ -241,6 +246,8 @@ public final class SogniMusic {
       else if (a.equals("--test")) testing = true;
       else if (a.equals("--no_wav") || a.equals("--vst")) continue;
       else if (a.equals("--batchdir") && i + 1 < args.length) i++;
+      // PyJav's: the folder the run's tracks, WAVs and zip are kept in (% codes filled in).
+      else if (a.equals("--outdir") && i + 1 < args.length) i++;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -716,7 +723,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>]");
   }
 
   /**

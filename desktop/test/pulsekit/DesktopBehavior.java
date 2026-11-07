@@ -659,6 +659,71 @@ public final class DesktopBehavior {
     }
   }
 
+  /**
+   * Batch C: SogniMusic --outdir (% codes): the track and its zip (--zip) kept in that folder under the
+   * program files folder; run%n is run1, then run2 for the next run.
+   */
+  void s217_sogni_music_outdir() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = new byte[4096];
+    for (int i = 0; i < track.length; i++) track[i] = (byte) i;
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      readAll(ex.getRequestBody());
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\ndata: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.equals("/v1/creative-agent/workflows/wf7")) {
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/take.mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf7\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n"}) {
+        edt(() -> log.setText(""));
+        answers.add("Close");
+        answers.add("Close");
+        final String extra = "--prompt \"funk groove\" --drums_only --duration 10 --no_wav --zip --outdir " + dir + " --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+        edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Zipped") || String.valueOf(log.getText()).contains("Failed") || String.valueOf(log.getText()).contains("Could not")); i++) Thread.sleep(50);
+        Thread.sleep(300);
+        idle();
+        for (String line : String.valueOf(log.getText()).split("\n")) {
+          if (line.startsWith("Saved") || line.startsWith("Zipped") || line.startsWith("Failed") || line.startsWith("Could not")) out.append(line.replace(home.getAbsolutePath(), "~").replace(today, "<today>")).append('\n');
+        }
+      }
+    } finally {
+      server.stop(0);
+    }
+    File kept = new File(home, ".pulsekit");
+    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
+    boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
+    boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
+    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append('\n');
+    if (!dated || !one || !two) throw new AssertionError(out.toString());
+  }
+
   /** The Style database / genre list search: "rock" lists every rock style. */
   void s32_style_search() throws Exception {
     final String[] names = StyleDb.names();

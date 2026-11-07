@@ -831,7 +831,7 @@ final class PyJav {
                 for (int i = 0; i < parts.size(); i++) {
                     pulsekit.ZipPack.write(tmp, parts.get(i), null);
                     String name = z.partName(i, parts.size());
-                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()));
+                    String where = ArtJava.publish(app, name, java.nio.file.Files.readAllBytes(tmp.toPath()), z.sub);
                     text.append(text.length() == 0 ? "" : "\n").append(where == null ? "Could not save " + name
                         : "Zipped " + parts.get(i).size() + " files (" + (tmp.length() / (1024 * 1024)) + " MB): saved " + where);
                 }
@@ -1790,7 +1790,12 @@ final class PyJav {
         final pulsekit.JavaRun.Result made = result;
         final String madeLog = log;
         // SogniMusic --zip: what the run makes is gathered for one zip (written when its last step is over).
-        if (ok && pulsekit.RunZip.wanted(program, argv)) this.pkZipAdd(pulsekit.RunZip.start(madeLog, argv), program, "", made, madeLog);
+        if (ok && pulsekit.RunZip.wanted(program, argv)) {
+            pulsekit.RunZip z = pulsekit.RunZip.start(madeLog, argv);
+            // --outdir: the zip goes into the run's folder under Download too.
+            z.sub = ArtJava.runSub(program, argv) != null ? ArtJava.lastSub : null;
+            this.pkZipAdd(z, program, "", made, madeLog);
+        }
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
         // One track kept as no WAV (--no_wav): its zip now.
@@ -1899,7 +1904,8 @@ final class PyJav {
                     return;
                 }
                 try {
-                    String at = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()));
+                    // Beside the track (SogniMusic --outdir: in its folder).
+                    String at = ArtJava.publish(app, wav.getName(), java.nio.file.Files.readAllBytes(wav.toPath()), ArtJava.runSub(program, musicArgv) != null ? ArtJava.lastSub : null);
                     this.pkAddLogLine(at == null ? "Could not save " + wav.getName() : "saved " + at);
                 } catch (Exception ex) {
                     this.pkAddLogLine("Could not save " + wav.getName());

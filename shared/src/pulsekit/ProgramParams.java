@@ -642,6 +642,10 @@ public final class ProgramParams {
   }
 
   private static void knownSogniMusic(Param p) {
+    if (p.flag && p.takesValue && p.token.equals("--outdir")) {
+      p.label = "Output folder: the tracks, WAVs and zip go here";
+      p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
+    }
     if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;

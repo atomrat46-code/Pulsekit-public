@@ -175,6 +175,10 @@ public final class ArtJava {
       return fail(head + "\n" + main + " has no public static void main(String[]).");
     }
     final String[] args = placeInputs(work, argv);
+    // SogniMusic --outdir: the run's files kept in Download/<that folder> (% codes filled in).
+    String sub = runSub(main.replaceAll(".*\\.", "") + ".java", argv);
+    lastSub = sub;
+    if (sub != null) System.setProperty("pulsekit.outdir", new File(downloads(), sub).getAbsolutePath());
     final int[] code = new int[] {0};
     final StringBuilder err = new StringBuilder();
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -244,7 +248,7 @@ public final class ArtJava {
         // A prompt sheet (--saveprompt) is written to disk after the run, once PyJav knows where it
         // goes (and not at all when it is the same as one in the library already: PromptSave).
         if (PromptSave.isSheetFile(out)) continue;
-        String saved = publish(ctx, fn, body);
+        String saved = publish(ctx, fn, body, sub);
         if (saved != null) ps.println("saved " + saved);
       }
     }
@@ -774,6 +778,47 @@ public final class ArtJava {
    * Copy a program output file to the program files folder chosen in Drum Midi Settings, else to
    * Download. Android opens relative paths on "/", which is read-only.
    */
+  /** SogniMusic --outdir of the run that went last: its folder under Download (% codes filled in), or null. */
+  static volatile String lastSub;
+
+  /** The public Download folder. */
+  static File downloads() {
+    return android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+  }
+
+  /** A run's --outdir under Download (SogniMusic's), its % codes filled in; null when it has none. */
+  static String runSub(String program, List<String> argv) {
+    String pattern = ProgramFolder.outdirArg(program, argv);
+    if (pattern == null) return null;
+    String sub = ProgramFolder.subdir(pattern, downloads()).replaceAll("(^|/)\\.\\.?(?=/|$)", "").replaceAll("/+", "/").replaceAll("^/|/$", "");
+    return sub.length() == 0 ? null : sub;
+  }
+
+  /** As publish(), into Download/`sub` when it is given (the chosen program files folder, when one is, takes it as it is). */
+  static String publish(Context ctx, String name, byte[] data, String sub) {
+    if (sub == null || sub.length() == 0) return publish(ctx, name, data);
+    String chosen = ProgramFolder.get() != null ? toFolder(ctx, name.replace('\\', '_').replace('/', '_'), data) : null;
+    if (chosen != null) return chosen;
+    if (android.os.Build.VERSION.SDK_INT >= 29) {
+      String safe = name.replace('\\', '_').replace('/', '_');
+      for (String given : new String[] {safe, stamped(safe, ""), stamped(safe, "-" + (System.nanoTime() % 1000))}) {
+        String saved = toDownloads(ctx, given, data, sub);
+        if (saved != null) return saved;
+      }
+      return publish(ctx, name, data);
+    }
+    // Before Android 10: the folder itself.
+    try {
+      File dir = new File(downloads(), sub);
+      dir.mkdirs();
+      File out = new File(dir, name.replace('\\', '_').replace('/', '_'));
+      write(out, data);
+      return "Download/" + sub + "/" + out.getName();
+    } catch (Throwable ex) {
+      return publish(ctx, name, data);
+    }
+  }
+
   static String publish(Context ctx, String name, byte[] data) {
     if (ctx == null || name == null || data == null) return null;
     String safe = name.replace('\\', '_').replace('/', '_');
@@ -819,12 +864,18 @@ public final class ArtJava {
 
   /** Writes the file into Download as `safe` (or Download's own "safe (n)"); null when Download takes no file of that name. */
   private static String toDownloads(Context ctx, String safe, byte[] data) {
+    return toDownloads(ctx, safe, data, null);
+  }
+
+  /** As above, into Download/`sub` (null: Download itself). */
+  private static String toDownloads(Context ctx, String safe, byte[] data, String sub) {
+    String folder = sub == null || sub.length() == 0 ? "" : "/" + sub;
     android.net.Uri uri = null;
     try {
       android.content.ContentValues v = new android.content.ContentValues();
       v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, safe);
       v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeOf(safe));
-      v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+      v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + folder);
       uri = ctx.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
       if (uri == null) return null;
       java.io.OutputStream os = ctx.getContentResolver().openOutputStream(uri);
@@ -834,8 +885,8 @@ public final class ArtJava {
       } finally {
         os.close();
       }
-      SAVED.put("Download/" + safe, uri.toString());
-      return "Download/" + safe;
+      SAVED.put("Download" + folder + "/" + safe, uri.toString());
+      return "Download" + folder + "/" + safe;
     } catch (Throwable ex) {
       if (uri != null) {
         try {
