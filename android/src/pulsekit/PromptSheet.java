@@ -2300,8 +2300,11 @@ public final class PromptSheet {
         MainActivity host = (MainActivity) activity;
         try {
           byte[] bytes = vault.fileBytes(versionId, which);
-          if (still) FullScreen.picture(host, bytes);
-          else FullScreen.video(host, RefImages.videoFile(host, name, bytes).getAbsolutePath(), 0, null);
+          // In focus: a swipe goes on to the gallery's next or previous picture or video.
+          focusId = versionId;
+          focusWhich = which;
+          if (still) FullScreen.picture(host, bytes, fullStep(host));
+          else FullScreen.video(host, RefImages.videoFile(host, name, bytes).getAbsolutePath(), 0, null, fullStep(host));
         } catch (Exception ex) {
           host.setNow("Could not read " + name + ": " + ex.getMessage());
         }
@@ -2962,29 +2965,64 @@ public final class PromptSheet {
     return lp;
   }
 
-  /** The picture `step` places on (1 next, -1 previous) in the gallery's order; the first and last say so. */
-  static void stepPicture(Activity activity, int step) {
-    if (vault == null) return;
+  /** The gallery's picture or video `step` places on (1 next, -1 previous) from the one in focus, with its bytes; null at the ends. */
+  static Object[] nextMedia(int step) {
+    if (vault == null) return null;
     List<PromptVault.StoredFile> files = FileSort.sorted(galleryFiles(), FileSort.current, vault);
     int at = -1;
     for (int i = 0; i < files.size(); i++) {
       if (files.get(i).versionId == focusId && files.get(i).which == focusWhich) at = i;
     }
-    if (at < 0) return;
+    if (at < 0) return null;
     for (int i = at + step; i >= 0 && i < files.size(); i += step) {
       PromptVault.StoredFile f = files.get(i);
       byte[] bytes = vault.fileBytes(f.versionId, f.which);
-      if (previewKind(f.name, bytes) != 2) continue;
-      focusId = f.versionId;
-      focusWhich = f.which;
-      // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
-      View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
-      keepScroll = scroll == null ? -1 : scroll.getScrollY();
-      keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
-      openPreview(activity, f.name, bytes, 3);
+      int k = previewKind(f.name, bytes);
+      if (k == 2 || k == 3) return new Object[] {f, bytes};
+    }
+    return null;
+  }
+
+  /** The picture or video `step` places on (1 next, -1 previous) in the gallery's order (arrows, swipes); the first and last say so. */
+  static void stepPicture(Activity activity, int step) {
+    Object[] next = nextMedia(step);
+    if (next == null) {
+      if (vault != null) toast(activity, step > 0 ? "The last one" : "The first one");
       return;
     }
-    toast(activity, step > 0 ? "The last picture" : "The first picture");
+    PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+    focusId = f.versionId;
+    focusWhich = f.which;
+    // The page and the picture stay where they were scrolled (up and down, and sideways when zoomed).
+    View scroll = host != null && host.getChildCount() > 0 ? host.getChildAt(0) : null;
+    keepScroll = scroll == null ? -1 : scroll.getScrollY();
+    keepPanX = previewPan == null ? -1 : previewPan.getScrollX();
+    openPreview(activity, f.name, (byte[]) next[1], 3);
+  }
+
+  /**
+   * Full screen (Preview's or a thumbnail's), swiped: the gallery's next or previous picture or video
+   * full screen in its place (the preview behind it, when one is open, follows).
+   */
+  static FullScreen.Step fullStep(final MainActivity app) {
+    return dir -> {
+      Object[] next = nextMedia(dir);
+      if (next == null) {
+        toast(app, dir > 0 ? "The last one" : "The first one");
+        return;
+      }
+      PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+      byte[] bytes = (byte[]) next[1];
+      focusId = f.versionId;
+      focusWhich = f.which;
+      if (previewBack != 0) openPreview(app, f.name, bytes, 3);
+      try {
+        if (previewKind(f.name, bytes) == 2) FullScreen.picture(app, bytes, fullStep(app));
+        else FullScreen.video(app, RefImages.videoFile(app, f.name, bytes).getAbsolutePath(), 0, null, fullStep(app));
+      } catch (Exception ex) {
+        app.setNow("Could not read " + f.name + ": " + ex.getMessage());
+      }
+    };
   }
 
   /** The full size video held: it plays, or (playing) pauses; two fingers zoom it as a picture. */
@@ -3005,7 +3043,16 @@ public final class PromptSheet {
       if (videoPlaying()) videoPause();
       frameMenu(activity);
     };
+    // A swipe (from the gallery, not zoomed in): the previous or the next picture or video, as the arrows.
+    final Swipe swipe = new Swipe(activity);
     target.setOnTouchListener((v, event) -> {
+      int step = swipe.feed(event);
+      if (step != 0 && previewBack == 3 && previewZoom <= 1.01f) {
+        main.removeCallbacks(hold);
+        held[0] = true;
+        stepPicture(activity, step);
+        return true;
+      }
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
@@ -3094,7 +3141,7 @@ public final class PromptSheet {
       } catch (Exception ignored) {
         // closed
       }
-    });
+    }, previewBack == 3 ? fullStep(app) : null);
   }
 
   /** Process current frame as a reference image: the frame where it stopped, as a PNG, offered as a reference (read off the main thread). */
@@ -3201,10 +3248,17 @@ public final class PromptSheet {
         if (!pinch.isInProgress() && held != null) held.run();
       }
     });
+    // A swipe (from the gallery, not zoomed in, not cropping): the previous or the next picture or video, as the arrows.
+    final Swipe swipe = new Swipe(activity);
     View.OnTouchListener touch = (v, event) -> {
       if (event.getPointerCount() > 1 && v.getParent() != null) {
         v.getParent().requestDisallowInterceptTouchEvent(true);
         if (v.getParent().getParent() != null) v.getParent().getParent().requestDisallowInterceptTouchEvent(true);
+      }
+      int step = swipe.feed(event);
+      if (step != 0 && previewBack == 3 && previewZoom <= 1.01f && (previewCrop == null || !previewCrop.cropping())) {
+        stepPicture(activity, step);
+        return true;
       }
       press.onTouchEvent(event);
       pinch.onTouchEvent(event);
@@ -3229,7 +3283,16 @@ public final class PromptSheet {
       box.size(Math.round(previewBaseW * previewZoom), Math.round(previewBaseH * previewZoom));
       box.addView(view, new android.widget.FrameLayout.LayoutParams(previewBaseW, previewBaseH));
       previewBox = box;
-      col.addView(scroller(activity, box));
+      if (previewBack == 3) {
+        // From the gallery: small arrows at the video's left and right edges show the previous and next picture or video.
+        android.widget.FrameLayout over = new android.widget.FrameLayout(activity);
+        over.addView(scroller(activity, box), new android.widget.FrameLayout.LayoutParams(-1, -2));
+        over.addView(arrow(activity, "\u25c0", "preview-prev", -1), arrowLp(activity, Gravity.START | Gravity.CENTER_VERTICAL));
+        over.addView(arrow(activity, "\u25b6", "preview-next", 1), arrowLp(activity, Gravity.END | Gravity.CENTER_VERTICAL));
+        col.addView(over, new LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT));
+      } else {
+        col.addView(scroller(activity, box));
+      }
       attachVideoHold(activity, box);
       view.setVideoPath(previewFile.getAbsolutePath());
       view.setOnPreparedListener(mp -> {

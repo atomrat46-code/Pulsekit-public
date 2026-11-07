@@ -2270,6 +2270,21 @@ final class PromptDb {
             if (!dragging[0]) position.setValue(state == VlcPlayer.ENDED ? 1000 : Math.round(player.position() * 1000));
         });
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        // From the gallery (the Prompts page's player): small arrows to its previous and next picture or video.
+        final PromptVault.StoredFile from = prompts ? this.previewing : null;
+        final JButton[] nextArrow = new JButton[1];
+        if (from != null) {
+            for (int s = -1; s <= 1; s += 2) {
+                final int step = s;
+                JButton arrow = new JButton(step < 0 ? "\u25c0" : "\u25b6");
+                arrow.setName(step < 0 ? "video-prev" : "video-next");
+                arrow.setToolTipText(step < 0 ? "The previous picture or video" : "The next picture or video");
+                arrow.setMargin(new java.awt.Insets(1, 4, 1, 4));
+                arrow.addActionListener(e -> this.stepMedia(from, step, dialog));
+                if (step < 0) transport.add(arrow);
+                else nextArrow[0] = arrow;
+            }
+        }
         transport.add(stop);
         transport.add(play);
         transport.add(pause);
@@ -2283,6 +2298,7 @@ final class PromptDb {
         sound.add(volume);
         sound.add(level);
         transport.add(looping);
+        if (nextArrow[0] != null) transport.add(nextArrow[0]);
         // Right click (the phone's long press): paused, then Save frame (into the library; the Prompts page's player),
         // Extract frame (into the SC folder beside the video) and the rest.
         player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -2553,7 +2569,34 @@ final class PromptDb {
     List<PromptVault.StoredFile> galleryList;
     PromptVault.StoredFile previewing;
 
-    /** The picture `step` places on in the gallery (1 next, -1 previous) from `from`, with its bytes; null at the ends. */
+    /**
+     * The gallery's next (1) or previous (-1) picture or video from `from`, in place of `shown` (the
+     * window closed); full screen when it was. Says so at the first and the last.
+     */
+    void stepMedia(PromptVault.StoredFile from, int step, java.awt.Window shown) {
+        Object[] next = this.stepPicture(from, step);
+        if (next == null) {
+            app.setNow(step > 0 ? "The last one" : "The first one");
+            return;
+        }
+        final boolean full = shown != null && FULL.containsKey(shown);
+        if (shown != null) shown.dispose();
+        SwingUtilities.invokeLater(() -> {
+            PromptVault.StoredFile f = (PromptVault.StoredFile) next[0];
+            byte[] bytes = (byte[]) next[1];
+            this.previewing = f;
+            this.previewFull = full;
+            try {
+                if (previewKind(f.name, bytes) == 3) this.videoPreview(f.name, bytes);
+                else this.zoomPreview(f.name, bytes, 2);
+            } finally {
+                this.previewing = null;
+                this.previewFull = false;
+            }
+        });
+    }
+
+    /** The picture or video `step` places on in the gallery (1 next, -1 previous) from `from`, with its bytes; null at the ends. */
     Object[] stepPicture(PromptVault.StoredFile from, int step) {
         List<PromptVault.StoredFile> list = this.galleryList;
         if (from == null || list == null) return null;
@@ -2570,7 +2613,8 @@ final class PromptDb {
             } catch (Exception ex) {
                 continue;
             }
-            if (previewKind(f.name, bytes) == 2) return new Object[] {f, bytes};
+            int k = previewKind(f.name, bytes);
+            if (k == 2 || k == 3) return new Object[] {f, bytes};
         }
         return null;
     }
@@ -2773,25 +2817,10 @@ final class PromptDb {
         top.add(percent);
         top.add(in);
         top.add(reset);
-        // From the gallery: Previous / Next (and the arrow keys) show its other pictures.
+        // From the gallery: Previous / Next (and the arrow keys) show its other pictures and videos (full screen stays).
         final PromptVault.StoredFile from = kind == 2 ? this.previewing : null;
         if (from != null) {
-            java.util.function.IntConsumer go = step -> {
-                Object[] next = this.stepPicture(from, step);
-                if (next == null) {
-                    app.setNow(step > 0 ? "The last picture" : "The first picture");
-                    return;
-                }
-                dialog.dispose();
-                SwingUtilities.invokeLater(() -> {
-                    this.previewing = (PromptVault.StoredFile) next[0];
-                    try {
-                        this.zoomPreview(((PromptVault.StoredFile) next[0]).name, (byte[]) next[1], 2);
-                    } finally {
-                        this.previewing = null;
-                    }
-                });
-            };
+            java.util.function.IntConsumer go = step -> this.stepMedia(from, step, dialog);
             JButton prev = new JButton("\u25c0 Previous");
             prev.setName("preview-prev");
             prev.addActionListener(e -> go.accept(-1));

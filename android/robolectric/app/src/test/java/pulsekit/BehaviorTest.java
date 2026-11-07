@@ -12718,6 +12718,101 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
+  private static void swipeLeft(View v) {
+    long t = android.os.SystemClock.uptimeMillis();
+    android.view.MotionEvent down = android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, 400, 100, 0);
+    android.view.MotionEvent move = android.view.MotionEvent.obtain(t, t + 100, android.view.MotionEvent.ACTION_MOVE, 200, 105, 0);
+    android.view.MotionEvent up = android.view.MotionEvent.obtain(t, t + 200, android.view.MotionEvent.ACTION_UP, 20, 110, 0);
+    v.dispatchTouchEvent(down);
+    v.dispatchTouchEvent(move);
+    v.dispatchTouchEvent(up);
+  }
+
+  /**
+   * Batch B, DB/Prompts: the full size preview's arrows go through the gallery's pictures and videos
+   * (a video has them too); a swipe works as them, on the picture and full screen.
+   */
+  @Test
+  public void s232_prompts_swipe_media() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(64, 48, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    DbImport.store(app, "a.png", png.toByteArray(), true);
+    DbImport.store(app, "walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, true);
+    DbImport.store(app, "b.png", png.toByteArray(), true);
+    call("show", "prompts");
+    idle();
+    Class<?> sheet = PromptSheet.class;
+    java.lang.reflect.Field resultsOpen = sheet.getDeclaredField("resultsOpen");
+    java.lang.reflect.Field hostF = sheet.getDeclaredField("host");
+    java.lang.reflect.Method rebuild = sheet.getDeclaredMethod("rebuild", android.app.Activity.class);
+    java.lang.reflect.Field vaultF = sheet.getDeclaredField("vault");
+    java.lang.reflect.Field focusId = sheet.getDeclaredField("focusId");
+    java.lang.reflect.Field focusWhich = sheet.getDeclaredField("focusWhich");
+    java.lang.reflect.Field name = sheet.getDeclaredField("previewName");
+    java.lang.reflect.Field back = sheet.getDeclaredField("previewBack");
+    java.lang.reflect.Field box = sheet.getDeclaredField("previewBox");
+    java.lang.reflect.Method open = sheet.getDeclaredMethod("openPreview", android.app.Activity.class, String.class, byte[].class, int.class);
+    for (java.lang.reflect.AccessibleObject o : new java.lang.reflect.AccessibleObject[] {resultsOpen, hostF, rebuild, vaultF, focusId, focusWhich, name, back, box, open}) o.setAccessible(true);
+    vaultF.set(null, PromptVault.open(app.getFilesDir()));
+    resultsOpen.set(null, true);
+    rebuild.invoke(null, app);
+    idle();
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    java.util.List<PromptVault.StoredFile> order = FileSort.sorted(vault.resultFiles(), FileSort.current);
+    PromptVault.StoredFile first = order.get(0);
+    StringBuilder listed = new StringBuilder();
+    for (PromptVault.StoredFile f : order) listed.append(f.name).append(' ');
+    out.append("order: ").append(listed.toString().trim()).append('\n');
+    focusId.set(null, first.versionId);
+    focusWhich.set(null, first.which);
+    open.invoke(null, app, first.name, vault.fileBytes(first.versionId, first.which), 3);
+    idle();
+    StringBuilder seen = new StringBuilder(String.valueOf(name.get(null)));
+    boolean videoArrows = false;
+    for (int i = 0; i < 2; i++) {
+      ((View) hostF.get(null)).findViewWithTag("preview-next").performClick();
+      idle();
+      seen.append(" > ").append(name.get(null));
+      if ("walk.mp4".equals(name.get(null))) videoArrows = ((View) hostF.get(null)).findViewWithTag("preview-prev") != null && ((View) hostF.get(null)).findViewWithTag("preview-next") != null;
+    }
+    out.append("arrows: ").append(seen).append(", the video's arrows ").append(videoArrows).append('\n');
+    // A swipe on the picture: the next one.
+    PromptVault.StoredFile pic = null;
+    for (PromptVault.StoredFile f : order) if (pic == null && f.name.endsWith(".png")) pic = f;
+    focusId.set(null, pic.versionId);
+    focusWhich.set(null, pic.which);
+    open.invoke(null, app, pic.name, vault.fileBytes(pic.versionId, pic.which), 3);
+    idle();
+    String before = String.valueOf(name.get(null));
+    swipeLeft((View) box.get(null));
+    idle();
+    String after = String.valueOf(name.get(null));
+    out.append("swipe on ").append(before).append(": ").append(after).append('\n');
+    // Full screen, swiped: the next one full screen in its place.
+    focusId.set(null, pic.versionId);
+    focusWhich.set(null, pic.which);
+    FullScreen.picture(app, vault.fileBytes(pic.versionId, pic.which), PromptSheet.fullStep(app));
+    idle();
+    android.app.Dialog was = FullScreen.last;
+    swipeLeft(FullScreen.lastImage);
+    idle();
+    boolean fullStepped = FullScreen.last != null && FullScreen.last != was && FullScreen.last.isShowing() && !was.isShowing();
+    if (FullScreen.last != null) FullScreen.last.dismiss();
+    idle();
+    out.append("full screen swiped: next shown ").append(fullStepped).append('\n');
+    back.set(null, 0);
+    resultsOpen.set(null, false);
+    rebuild.invoke(null, app);
+    idle();
+    write("s232_prompts_swipe_media", out.toString());
+    boolean ok = seen.indexOf("walk.mp4") >= 0 && videoArrows && !before.equals(after) && fullStepped;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();

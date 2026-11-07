@@ -7714,6 +7714,57 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * Batch B (as on the phone): DB/Prompts' Previous / Next go through the gallery's pictures and
+   * videos; the gallery's video player has small arrows to them.
+   */
+  void s216_prompts_step_media() throws Exception {
+    final PromptDb db = (PromptDb) get("promptDb");
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 48, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+    byte[] clip = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath());
+    PromptDb.vault().addLibraryFile("a.png", png.toByteArray(), "Imported", 3);
+    PromptDb.vault().addLibraryFile("walk.webm", clip, "Imported", 3);
+    PromptDb.vault().addLibraryFile("b.png", png.toByteArray(), "Imported", 3);
+    final StringBuilder seen = new StringBuilder();
+    final boolean[] done = {false};
+    answers.add("(keep)");
+    inspectNext = gallery -> {
+      StringBuilder order = new StringBuilder();
+      for (PromptVault.StoredFile f : db.galleryList) order.append(f.name).append(' ');
+      seen.append("order: ").append(order.toString().trim()).append('\n');
+      PromptVault.StoredFile at = db.galleryList.get(0);
+      StringBuilder steps = new StringBuilder(at.name);
+      PromptVault.StoredFile video = null;
+      for (int i = 0; i < 2; i++) {
+        Object[] next = db.stepPicture(at, 1);
+        if (next == null) break;
+        at = (PromptVault.StoredFile) next[0];
+        steps.append(" > ").append(at.name);
+        if (at.name.equals("walk.webm")) video = at;
+      }
+      seen.append("next: ").append(steps).append('\n');
+      if (video == null) {
+        done[0] = true;
+        return;
+      }
+      inspectNext = player -> {
+        seen.append("player ").append(player.getTitle()).append(": \u25c0 ").append(component(player, "video-prev") != null)
+            .append(", \u25b6 ").append(component(player, "video-next") != null).append('\n');
+        done[0] = true;
+      };
+      final PromptVault.StoredFile v = video;
+      SwingUtilities.invokeLater(() -> db.preview(v, (javax.swing.JButton) component(gallery, "gallery:" + v.name)));
+    };
+    SwingUtilities.invokeLater(() -> db.gallery(true));
+    for (int i = 0; i < 150 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    // Without VLC the video has no player here (the arrows are the player's).
+    boolean player = !VlcPlayer.available() || seen.indexOf("\u25c0 true, \u25b6 true") >= 0;
+    if (seen.indexOf("next: ") < 0 || seen.indexOf("> walk.webm") < 0 || !player) throw new AssertionError(out.toString());
+  }
+
+  /**
    * Batch B (as on the phone): a picture's thumbnail menu in DB/Prompts has Full screen preview; the
    * preview window opens over the whole screen.
    */

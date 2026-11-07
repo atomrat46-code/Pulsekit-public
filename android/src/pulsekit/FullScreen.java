@@ -13,7 +13,8 @@ import android.widget.VideoView;
 /**
  * DB/Prompts' Full screen preview and Full screen playback: a picture or a video on the whole black
  * screen (turned sideways, a wide one fills it). A tap plays or pauses the video; a long press (or
- * Back) closes it, the video's place handed back.
+ * Back) closes it, the video's place handed back. A swipe (when it has a Step) shows the previous or
+ * next picture or video full screen in its place.
  */
 final class FullScreen {
     private FullScreen() {}
@@ -23,13 +24,24 @@ final class FullScreen {
         void at(int ms);
     }
 
+    /** What a swipe does: the previous (-1) or next (1) one, full screen in this one's place. */
+    interface Step {
+        void go(int dir);
+    }
+
     /** The full screen shown last (for the tests). */
     static Dialog last;
     static VideoView lastVideo;
     static ImageView lastImage;
 
-    /** The video at `path` from `ms`; `left` (may be null) gets where it was when it closes. */
-    static void video(final MainActivity app, String path, final int ms, final Left left) {
+    static void video(MainActivity app, String path, int ms, Left left) {
+        video(app, path, ms, left, null);
+    }
+
+    /** The video at `path` from `ms`; `left` (may be null) gets where it was when it closes; `step` (may be null): what a swipe does. */
+    static void video(final MainActivity app, String path, final int ms, final Left left, final Step step) {
+        final boolean[] stepped = new boolean[1];
+        final Swipe swipe = new Swipe(app);
         final Dialog d = new Dialog(app, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         final VideoView big = new VideoView(app);
         big.setTag("full-screen-video");
@@ -59,7 +71,16 @@ final class FullScreen {
                 d.dismiss();
             }
         });
-        View.OnTouchListener touch = (v, ev) -> gestures.onTouchEvent(ev);
+        View.OnTouchListener touch = (v, ev) -> {
+            int dir = step == null ? 0 : swipe.feed(ev);
+            if (dir != 0) {
+                stepped[0] = true;
+                d.dismiss();
+                step.go(dir);
+                return true;
+            }
+            return gestures.onTouchEvent(ev);
+        };
         big.setOnTouchListener(touch);
         frame.setOnTouchListener(touch);
         d.setOnDismissListener(x -> {
@@ -72,7 +93,8 @@ final class FullScreen {
             big.stopPlayback();
             MediaBrowser.portraitAgain(app);
             MediaBrowser.screenOn(d.getWindow(), false);
-            if (left != null) left.at(at);
+            // Swiped on: the next one shows instead (this place is not handed back).
+            if (left != null && !stepped[0]) left.at(at);
         });
         big.setVideoPath(path);
         last = d;
@@ -83,8 +105,12 @@ final class FullScreen {
         MediaBrowser.screenOn(d.getWindow(), true);
     }
 
-    /** The picture (its bytes) fitted to the whole screen; a tap or a long press closes it. */
-    static void picture(final MainActivity app, byte[] bytes) {
+    static void picture(MainActivity app, byte[] bytes) {
+        picture(app, bytes, null);
+    }
+
+    /** The picture (its bytes) fitted to the whole screen; a tap or a long press closes it; `step` (may be null): what a swipe does. */
+    static void picture(final MainActivity app, byte[] bytes, final Step step) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
@@ -107,6 +133,36 @@ final class FullScreen {
             d.dismiss();
             return true;
         });
+        if (step != null) {
+            // A swipe: the previous or the next one; a tap or a long press still closes it.
+            final Swipe swipe = new Swipe(app);
+            final GestureDetector gestures = new GestureDetector(app, new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onDown(MotionEvent e) {
+                    return true;
+                }
+
+                @Override
+                public boolean onSingleTapUp(MotionEvent e) {
+                    d.dismiss();
+                    return true;
+                }
+
+                @Override
+                public void onLongPress(MotionEvent e) {
+                    d.dismiss();
+                }
+            });
+            image.setOnTouchListener((v, ev) -> {
+                int dir = swipe.feed(ev);
+                if (dir != 0) {
+                    d.dismiss();
+                    step.go(dir);
+                    return true;
+                }
+                return gestures.onTouchEvent(ev);
+            });
+        }
         d.setContentView(image);
         d.setOnDismissListener(x -> MediaBrowser.portraitAgain(app));
         last = d;
