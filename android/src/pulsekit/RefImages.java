@@ -36,6 +36,45 @@ final class RefImages {
             .setNegativeButton("Cancel", null).show();
     }
 
+    /**
+     * Choose file on a picture row (Sogni Params): a frame of a video (C in its player) fills the row
+     * (written into PyJav's input folder); one that needs upscaling is asked Upscale first (ImageUpscaler,
+     * the row left as it is), Use as it is or Cancel. `player` and `browser` close when the row is filled.
+     */
+    static void forRow(final MainActivity app, final String name, final byte[] png, final android.app.Dialog player, final android.app.Dialog browser,
+                       final RefBrowser.Picked row) {
+        final Runnable fill = () -> {
+            try {
+                File dir = new File(app.getCacheDir(), "pyjav-in");
+                if (!dir.isDirectory()) dir.mkdirs();
+                File out = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+                try {
+                    fos.write(png);
+                } finally {
+                    fos.close();
+                }
+                if (player != null && player.isShowing()) player.dismiss();
+                if (browser != null && browser.isShowing()) browser.dismiss();
+                row.picked(name, out);
+            } catch (Exception ex) {
+                app.setNow("Could not keep " + name + ": " + ex.getMessage());
+            }
+        };
+        String q = UpscaleCheck.refQuestion(app.getFilesDir(), name, png);
+        if (q == null) {
+            fill.run();
+            return;
+        }
+        lastAsk = new AlertDialog.Builder(app).setTitle("Reference image").setMessage(q)
+            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> {
+                if (browser != null && browser.isShowing()) browser.dismiss();
+                upscale(app, name, png, player, null);
+            })
+            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> fill.run())
+            .setNegativeButton("Cancel", null).show();
+    }
+
     /** ImageUpscaler on PyJav with the picture (written into PyJav's input folder) as its input, its Params open. */
     static void upscale(MainActivity app, String name, byte[] png, android.app.Dialog close, Runnable back) {
         if (close != null && close.isShowing()) close.dismiss();

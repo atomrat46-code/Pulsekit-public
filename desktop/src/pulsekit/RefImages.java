@@ -89,6 +89,31 @@ final class RefImages {
         }, "pulsekit-first-frame").start();
     }
 
+    /**
+     * Choose file on a picture row (Sogni Params): a frame of a video (C in its player) fills the row;
+     * one that needs upscaling is asked Upscale first (ImageUpscaler, the row left as it is), Use as it is
+     * or Cancel. `close`: the player (and the browser) closed when the row is filled.
+     */
+    static void forRow(Pulsekit app, File frame, java.awt.Window close, java.util.function.Consumer<File> row) {
+        lastPicture = frame;
+        String q = UpscaleCheck.refQuestion(PromptDb.dir(), frame.getName(), MediaDir.head(frame));
+        lastQuestion = q;
+        if (q != null) {
+            Object[] options = {UpscaleCheck.UPSCALE_FIRST, UpscaleCheck.AS_IT_IS, "Cancel"};
+            String said = answer != null ? answer.apply(q) : null;
+            int ans = said != null ? java.util.Arrays.asList(options).indexOf(said)
+                : JOptionPane.showOptionDialog(close != null ? close : app, q, "Reference image", JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans == 0) {
+                upscale(app, frame, close, null);
+                return;
+            }
+            if (ans != 1) return;
+        }
+        if (close != null) close.dispose();
+        row.accept(frame);
+    }
+
     /** First frame as a reference image: the video's first frame, then offer(). */
     static void firstFrameAsRef(Pulsekit app, File video, java.awt.Window close, Runnable back) {
         firstFrame(app, video, frame -> offer(app, frame, close, back));

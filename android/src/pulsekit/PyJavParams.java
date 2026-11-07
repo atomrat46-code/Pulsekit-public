@@ -206,6 +206,8 @@ public final class PyJavParams {
         shownLabels[i] = chosen;
         // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
         final String rowKey = p.token;
+        if (ProgramParams.previewsPicture(p)) pictureRows.add(rowKey);
+        else pictureRows.remove(rowKey);
         pick.setOnClickListener(v -> pickFile(activity, values, index, chosen, rowKey));
         row.addView(pick);
         if (p.refs) {
@@ -923,6 +925,9 @@ public final class PyJavParams {
   /** The Params row whose system picker is open (its switch): the file picked there is its row's last. */
   static String pendingRow;
 
+  /** The rows (switches) of the Params shown that take a picture: Choose file plays a video there, C fills the row. */
+  static final java.util.Set<String> pictureRows = new java.util.HashSet<String>();
+
   /** As above, for the row `key` (its switch): it opens where that row's last file was. */
   static void pickFile(final Activity activity, final String[] values, final int index, final TextView label, final String key) {
     Runnable system = () -> {
@@ -942,7 +947,7 @@ public final class PyJavParams {
       return;
     }
     RefBrowser.Picked put = (name, file) -> assign(activity, values, index, label, file.getAbsolutePath(), null);
-    if (key != null && key.length() > 0) MediaBrowser.chooseFor((MainActivity) activity, key, put, system);
+    if (key != null && key.length() > 0) MediaBrowser.chooseFor((MainActivity) activity, key, put, system, pictureRows.contains(key));
     else MediaBrowser.choose((MainActivity) activity, put, system);
   }
 

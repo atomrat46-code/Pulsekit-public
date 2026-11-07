@@ -113,6 +113,7 @@ final class MediaBrowser {
 
     /** Opens the Media browser on `dir`: a granted folder's content:// address, or a path. */
     static MediaBrowser open(MainActivity app, String dir) {
+        rowPictures = false;
         MediaBrowser b = make(app, dir, true);
         if (b == null) return null;
         last = b;
@@ -209,6 +210,7 @@ final class MediaBrowser {
      * folder and handed to `picked`. "Other…" opens the system's picker (`other`).
      */
     static MediaBrowser choose(MainActivity app, RefBrowser.Picked picked, Runnable other) {
+        rowPictures = false;
         load(app);
         // The tab used last (a favourite, say), else the Recent MB folder.
         return chooseTab(app, MediaDir.openTab(MediaDir.lastRoot.length() > 0), picked, other);
@@ -219,6 +221,23 @@ final class MediaBrowser {
      * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
      */
     static MediaBrowser chooseFor(final MainActivity app, final String key, final RefBrowser.Picked picked, Runnable other) {
+        return chooseFor(app, key, picked, other, false);
+    }
+
+    /**
+     * Choose file for a picture row (`picture`: a Sogni program's reference image): a video tapped plays
+     * instead, and C in its player fills the row with the frame there (asked about upscaling first when
+     * it needs it).
+     */
+    static boolean rowPictures;
+
+    static MediaBrowser chooseFor(final MainActivity app, final String key, final RefBrowser.Picked picked, Runnable other, boolean picture) {
+        MediaBrowser b = chooseRow(app, key, picked, other);
+        rowPictures = picture;
+        return b;
+    }
+
+    private static MediaBrowser chooseRow(final MainActivity app, final String key, final RefBrowser.Picked picked, Runnable other) {
         load(app);
         RefBrowser.Picked keep = (name, file) -> {
             // The folder it came from: this row's next Choose file opens there.
@@ -694,6 +713,9 @@ final class MediaBrowser {
 
     /** The picture Extract first frame wrote last (for the tests). */
     static File lastFirstFrame;
+
+    /** A picture row's Choose file: a video played from it hands C's frame here (null otherwise). */
+    RefBrowser.Picked frameRow;
 
     /**
      * Choose file's Extract first frame as reference img: the video's first frame (full size) written as a
@@ -2467,7 +2489,11 @@ final class MediaBrowser {
                     return;
                 }
                 if (e.folder) this.openFolder(e);
-                else if (this.chooser != null) this.chosen(e);
+                else if (this.chooser != null && rowPictures && e.kind == MediaDir.VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+                    // A picture row's Choose file: the video plays; C there fills the row with its frame.
+                    this.frameRow = this.chooser;
+                    this.video(e);
+                } else if (this.chooser != null) this.chosen(e);
                 else this.openEntry(e);
             });
             // A long press on a file: Add to DB (reference or result file), Add to default playlist,
@@ -3943,6 +3969,10 @@ final class MediaBrowser {
         /** Mute and volume (shown by a tap), C, and the position bar. */
         View sound;
         TextView capture;
+        /** R: this frame as a reference of a Sogni program (shown with C while paused). */
+        TextView ref;
+        /** R pressed: the frame C's capture reads goes on as a reference. */
+        boolean refNext;
         SeekBar position;
         /** The last frame C saved, for the tests. */
         String captured;
@@ -3995,6 +4025,7 @@ final class MediaBrowser {
                 // not ready, or closing
             }
             if (capture != null) capture.setVisibility(!on && media != null ? View.VISIBLE : View.GONE);
+            if (ref != null) ref.setVisibility(!on && media != null ? View.VISIBLE : View.GONE);
             if (position != null && len > 0 && !dragging) position.setProgress((int) Math.min(1000, (long) at * 1000 / len));
         }
 
@@ -4272,7 +4303,21 @@ final class MediaBrowser {
         p.capture.setTag("media-video-capture");
         p.capture.setContentDescription("Capture this frame into the SC folder");
         p.capture.setVisibility(View.GONE);
-        for (TextView t : new TextView[] {stopBtn, playBtn, pauseBtn, p.capture}) {
+        // R: this frame straight on as a reference of a Sogni program (not on a Choose file row: C fills the row there).
+        TextView[] shownRow = new TextView[] {stopBtn, playBtn, pauseBtn, p.capture};
+        if (this.frameRow == null && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+            p.ref = this.app.pill("R", false, v -> {
+                p.refNext = true;
+                this.capture(e, p, false);
+            });
+            p.ref.setTag("media-video-ref");
+            p.ref.setContentDescription("This frame as a reference of a Sogni program");
+            p.ref.setVisibility(View.GONE);
+            shownRow = new TextView[] {stopBtn, playBtn, pauseBtn, p.capture, p.ref};
+        } else if (this.frameRow != null) {
+            p.capture.setContentDescription("This frame into the row");
+        }
+        for (TextView t : shownRow) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             lp.rightMargin = this.app.dp(6);
             transport.addView(t, lp);
@@ -4609,7 +4654,19 @@ final class MediaBrowser {
                 this.app.setNow(shown);
                 android.widget.Toast.makeText(this.app, shown, android.widget.Toast.LENGTH_SHORT).show();
                 // The frame: asked whether it goes on as a Sogni reference (one to upscale: Upscale first, Use as it is, No).
-                if (!upscale && saved[0] != null && MediaDir.useRef(savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0], p.dialog, where);
+                if (upscale || saved[0] == null) return;
+                if (this.frameRow != null) {
+                    // A picture row's Choose file: the frame fills the row (asked about upscaling first when it needs it).
+                    RefImages.forRow(this.app, savedName[0], saved[0], p.dialog, this.dialog, this.frameRow);
+                    return;
+                }
+                if (p.refNext) {
+                    // R: straight on as a reference (asked about upscaling first when it needs it).
+                    p.refNext = false;
+                    RefImages.offer(this.app, savedName[0], saved[0], p.dialog, this.returner());
+                    return;
+                }
+                if (MediaDir.useRef(savedName[0], saved[0])) this.askProcessRef(savedName[0], saved[0], p.dialog, where);
             });
         }, "pulsekit-capture").start();
     }

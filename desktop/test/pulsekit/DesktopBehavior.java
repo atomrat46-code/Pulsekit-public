@@ -5205,12 +5205,20 @@ public final class DesktopBehavior {
     final javax.swing.JMenuItem process = (javax.swing.JMenuItem) db.lastFrameMenu.getComponent(1);
     out.append("second item: ").append(process.getText()).append('\n');
     answers.add("(keep)");
+    // A 4:3 frame: asked about upscaling first (Use as it is).
+    final String[] upscaleAsked = new String[1];
+    RefImages.answer = q -> {
+      upscaleAsked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
     SwingUtilities.invokeLater(() -> {
       process.doClick();
       db.lastFrameMenu.setVisible(false);
     });
     for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
     idle();
+    RefImages.answer = null;
+    out.append("upscale asked ").append(upscaleAsked[0] != null).append('\n');
     final ProcessRefDialog r = ProcessRefDialog.last;
     String[] now = sc.list();
     out.append("process: video ").append(dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName().replaceAll("\\d", "#") + ", programs " + r.programs)
@@ -7705,6 +7713,53 @@ public final class DesktopBehavior {
    * Browse sections (as on the phone): grouped by the prompt's first two sentences, A to Z; a
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
+  /**
+   * A frame taken in a video player (C) for a Choose file picture row: small, so asked about first;
+   * Use as it is fills the row and closes the player, Upscale first leaves the row and opens ImageUpscaler.
+   */
+  void s212_frame_for_picture_row() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m212");
+    dir.mkdirs();
+    final File shot = new File(dir, "walk-frame-3.jpg");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", shot);
+    final Pulsekit app = (Pulsekit) frame;
+    final String[] asked = new String[2];
+    final File[] row = new File[1];
+    final javax.swing.JDialog[] player = new javax.swing.JDialog[1];
+    final boolean[] closed = new boolean[2];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.AS_IT_IS;
+    };
+    edt(() -> {
+      player[0] = new javax.swing.JDialog(app, "player");
+      player[0].setVisible(true);
+      RefImages.forRow(app, shot, player[0], f -> row[0] = f);
+      closed[0] = !player[0].isDisplayable();
+    });
+    String first = app.pyName;
+    RefImages.answer = q -> {
+      asked[1] = q;
+      return UpscaleCheck.UPSCALE_FIRST;
+    };
+    final File[] row2 = new File[1];
+    edt(() -> {
+      player[0] = new javax.swing.JDialog(app, "player");
+      player[0].setVisible(true);
+      RefImages.forRow(app, shot, player[0], f -> row2[0] = f);
+      closed[1] = !player[0].isDisplayable();
+    });
+    idle();
+    RefImages.answer = null;
+    this.out.append("as it is: row ").append(row[0] == null ? "none" : row[0].getName()).append(", asked ").append(asked[0] != null).append(", player closed ").append(closed[0])
+        .append("\nupscale first: row ").append(row2[0] == null ? "none" : row2[0].getName()).append(", asked ").append(asked[1] != null).append(", program ").append(app.pyName)
+        .append(", input ").append(app.pyInputPath == null ? "none" : new File(app.pyInputPath).getName()).append(", player closed ").append(closed[1]).append('\n');
+    boolean ok = row[0] != null && row[0].equals(shot) && asked[0] != null && closed[0] && !"ImageUpscaler.java".equals(first)
+        && row2[0] == null && asked[1] != null && "ImageUpscaler.java".equals(app.pyName) && app.pyInputPath != null && app.pyInputPath.endsWith("walk-frame-3.jpg") && closed[1];
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /**
    * The Media browser, a video's menu: First frame as a reference image; the frame (small: asked about
    * upscaling first) goes to ImageUpscaler with Upscale first, as its input, the browser closed.

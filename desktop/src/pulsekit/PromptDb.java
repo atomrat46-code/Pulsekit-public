@@ -1879,7 +1879,8 @@ final class PromptDb {
             final Runnable back = browserBack(video);
             java.awt.Window w = SwingUtilities.getWindowAncestor(player.screen);
             if (w != null) w.dispose();
-            SwingUtilities.invokeLater(() -> ProcessRefDialog.open(app, shot, back));
+            // One that needs upscaling is asked Upscale first, Use as it is or Cancel.
+            SwingUtilities.invokeLater(() -> RefImages.offer(app, shot, null, back));
         });
         m.add(process);
         // The video among the favourites, or in a group.
@@ -1936,6 +1937,9 @@ final class PromptDb {
         final File folder = video.getAbsoluteFile().getParentFile();
         return () -> app.mediaBrowser.open(folder);
     }
+
+    /** A picture row's Choose file: a video played from it hands C's frame here (null otherwise). */
+    java.util.function.Consumer<File> frameChooser;
 
     void captureFrame(String name, File video, VlcPlayer player) {
         java.awt.image.BufferedImage img = player.screen.frame;
@@ -2089,6 +2093,11 @@ final class PromptDb {
             }
             this.lastCapture = null;
             this.captureFrame(name, video, player);
+            // A picture row's Choose file: the frame fills the row (asked about upscaling first when it needs it).
+            if (this.frameChooser != null) {
+                if (this.lastCapture != null) RefImages.forRow(app, this.lastCapture, SwingUtilities.getWindowAncestor(capture), this.frameChooser);
+                return;
+            }
             // The frame: asked whether it goes on as a Sogni reference (Use as a reference); one to upscale
             // (smaller than the last upscaled, or not 4:7) is asked Upscale first, Use as it is or No.
             final File shot = this.lastCapture;
@@ -2148,6 +2157,18 @@ final class PromptDb {
                 if (this.hold != null) this.hold.stop();
             }
         });
+        // R: this frame straight on as a reference of a Sogni program (not on a Choose file row: C fills the row there).
+        final JButton ref = new JButton("R");
+        ref.setName("video-ref");
+        ref.setToolTipText("This frame as a reference of a Sogni program");
+        ref.setVisible(false);
+        final boolean refShown = this.frameChooser == null && AppSettings.showSogni() && !AppSettings.musicOnly();
+        ref.addActionListener(e -> {
+            this.lastCapture = null;
+            this.captureFrame(name, video, player);
+            if (this.lastCapture != null) RefImages.offer(app, this.lastCapture, SwingUtilities.getWindowAncestor(ref), browserBack(video));
+        });
+        if (this.frameChooser != null) capture.setToolTipText("This frame into the row");
         stop.addActionListener(e -> {
             player.stop();
             position.setValue(0);
@@ -2218,6 +2239,7 @@ final class PromptDb {
             long len = player.lengthMs();
             // C while paused (a frame shown), in the Media browser's player.
             capture.setVisible(remember && !on && player.screen.frame != null && player.state() != 0);
+            ref.setVisible(refShown && remember && !on && player.screen.frame != null && player.state() != 0);
             int state = player.state();
             // Loop: at its end it plays again from the start.
             if (state == VlcPlayer.ENDED && looping.isSelected()) {
@@ -2234,6 +2256,7 @@ final class PromptDb {
         transport.add(play);
         transport.add(pause);
         transport.add(capture);
+        transport.add(ref);
         // Mute and volume: in the Media browser's player at the top, shown by a click on the picture.
         final JPanel sound = remember ? new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)) : transport;
         sound.setName("video-sound");

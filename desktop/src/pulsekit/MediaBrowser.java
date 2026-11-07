@@ -67,6 +67,7 @@ final class MediaBrowser {
 
     /** Opens the Media browser on `dir` (the folder picked: Up stops there). */
     void open(File dir) {
+        this.pictureRow = false;
         if (dir == null || !dir.isDirectory()) {
             app.setNow((dir == null ? "That" : dir.getPath()) + " is not a directory");
             return;
@@ -97,6 +98,18 @@ final class MediaBrowser {
      * last (each row its own folder: Reference image 1 and 2 apart), else as Choose file does.
      */
     void chooseFor(final String key, final java.util.function.Consumer<File> picked, Runnable other) {
+        this.chooseFor(key, picked, other, false);
+    }
+
+    /**
+     * Choose file for a picture row (`picture`: a Sogni program's reference image): a video clicked plays
+     * instead, and C in its player fills the row with the frame there (asked about upscaling first when
+     * it needs it).
+     */
+    boolean pictureRow;
+
+    void chooseFor(final String key, final java.util.function.Consumer<File> picked, Runnable other, boolean picture) {
+        this.pictureRow = picture;
         loadLoop();
         java.util.function.Consumer<File> keep = f -> {
             // The folder it came from: this row's next Choose file opens there.
@@ -548,6 +561,18 @@ final class MediaBrowser {
                             picked.accept(copy);
                         } else {
                             this.openPromptFile(entry);
+                        }
+                    } else if (this.chooser != null && this.pictureRow && entry.kind == MediaDir.VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+                        // A picture row's Choose file: the video plays; C there fills the row with its frame.
+                        final java.util.function.Consumer<File> picked = this.chooser;
+                        app.promptDb.frameChooser = frame -> {
+                            dialog.dispose();
+                            picked.accept(frame);
+                        };
+                        try {
+                            this.openEntry(entry, f);
+                        } finally {
+                            app.promptDb.frameChooser = null;
                         }
                     } else if (this.chooser != null) {
                         // Choose file: this file fills the row.

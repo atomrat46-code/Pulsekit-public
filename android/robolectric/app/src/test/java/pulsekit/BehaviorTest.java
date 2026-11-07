@@ -3742,11 +3742,20 @@ public class BehaviorTest {
     p.play.performClick();
     p.view.performLongClick();
     idle();
+    RefImages.lastAsk = null;
     org.robolectric.Shadows.shadowOf(p.menu).clickOnItem(1);
+    boolean upscaleAsked = false;
     for (int i = 0; i < 50 && (ProcessRefDialog.last == null || ProcessRefDialog.last.dialog == null || !ProcessRefDialog.last.dialog.isShowing()); i++) {
       Thread.sleep(100);
       idle();
+      // A small frame: asked about upscaling first (Use as it is).
+      if (RefImages.lastAsk != null && RefImages.lastAsk.isShowing()) {
+        upscaleAsked = true;
+        RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+        idle();
+      }
     }
+    out.append("upscale asked ").append(upscaleAsked).append('\n');
     ProcessRefDialog r = ProcessRefDialog.last;
     out.append("process: video ").append(p.dialog.isShowing() ? "open" : "closed").append(", dialog ").append(r == null ? "none" : r.picture.getName() + ", program " + r.programBtn.getText())
         .append(", saved again ").append(p.extracted != null && !p.extracted.equals(before)).append('\n');
@@ -12418,6 +12427,79 @@ public class BehaviorTest {
     write("s227_first_frame_ref_media_browser", out.toString());
     boolean ok = at >= 0 && !items.contains(MediaDir.FIRST_FRAME_REF) && "walk-first-frame.png".equals(RefImages.lastFrameName) && asked
         && "ImageUpscaler.java".equals(app.pyName) && input != null && input.endsWith("walk-first-frame.png") && closed;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * A picture row's Choose file: a video's tap plays it (no R there); C fills the row with the frame
+   * (small: asked first, Use as it is), the player and the browser closed. The Media browser's own player has R.
+   */
+  @Test
+  public void s228_frame_for_picture_row() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m28");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaDir.rowPlace("--image", dir.getAbsolutePath());
+    MediaBrowser.save(app);
+    final String[] got = new String[1];
+    final File[] gotFile = new File[1];
+    MediaBrowser m = MediaBrowser.chooseFor(app, "--image", (name, file) -> {
+      got[0] = name;
+      gotFile[0] = file;
+    }, null, true);
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastVideo = null;
+    m.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video v = MediaBrowser.lastVideo;
+    boolean played = v != null && v.dialog.isShowing() && got[0] == null;
+    boolean noR = played && v.dialog.getWindow().getDecorView().findViewWithTag("media-video-ref") == null;
+    RefImages.lastAsk = null;
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    if (played) {
+      View c = v.dialog.getWindow().getDecorView().findViewWithTag("media-video-capture");
+      if (c != null && c.getVisibility() == View.VISIBLE) c.performClick();
+      else m.capture(video, v, false);
+    }
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    boolean closed = played && !v.dialog.isShowing() && !m.dialog.isShowing();
+    out.append("row player: played ").append(played).append(", no R ").append(noR).append(", asked ").append(asked).append(", row ").append(got[0])
+        .append(" (").append(gotFile[0] == null ? "no file" : gotFile[0].getParentFile().getName() + "/" + gotFile[0].getName() + " " + gotFile[0].length() + " bytes").append("), closed ").append(closed).append('\n');
+    // The Media browser's own player (no row): R is there.
+    MediaBrowser b = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (b.loading || b.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaBrowser.lastVideo = null;
+    b.dialog.getWindow().getDecorView().findViewWithTag("media-card:walk.mp4").performClick();
+    idle();
+    MediaBrowser.Video own = MediaBrowser.lastVideo;
+    boolean hasR = own != null && own.dialog.getWindow().getDecorView().findViewWithTag("media-video-ref") != null;
+    out.append("own player: R ").append(hasR).append('\n');
+    if (own != null) own.dialog.dismiss();
+    b.dialog.dismiss();
+    idle();
+    write("s228_frame_for_picture_row", out.toString());
+    boolean ok = played && noR && asked && got[0] != null && got[0].startsWith("walk") && got[0].endsWith(".png") && gotFile[0] != null
+        && gotFile[0].getParentFile().getName().equals("pyjav-in") && gotFile[0].length() > 0 && closed && hasR;
     if (!ok) throw new AssertionError(out.toString());
   }
 

@@ -3066,7 +3066,7 @@ final class PyJav {
                     if (!"any".equals(p.ext)) chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("." + p.ext + " files", exts));
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     this.assignFile(ps, values, index, fileLabels, chooser.getSelectedFile().getAbsolutePath(), null);
-                }));
+                }, ProgramParams.previewsPicture(p)));
                 if (p.newChat) {
                     // SogniChat: New chat leaves the saved chat out, so the next run starts afresh.
                     JButton fresh = new JButton("New chat");
