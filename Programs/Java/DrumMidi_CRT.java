@@ -24,7 +24,7 @@ import java.util.Set;
  * One file. WAV needs nothing else, so `javac DrumMidi.java` works on Android.
  * The jar also bundles JLayer 1.0.1 for MP3. A lone .java file tells you to use the jar for MP3.
  *
- *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--log [logfile]]
+ *   java -jar DrumMidi.jar song.wav drums.mid [--sens 1.0] [--hat 1.0] [--tom 1.0] [--ride 1.0] [--crash 1.0] [--bpm 120] [--quantize 16] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--log [logfile]]
  *
  * --log writes the input and output names, the settings and the hits found to a text file
  * (DrumMidi_CRT_log.txt when no name is given). The settings also go into the MIDI itself as a text
@@ -41,6 +41,10 @@ import java.util.Set;
  *
  * --no-toms leaves toms out of the MIDI (they are still told apart from kicks and snares); CompareHits
  * then leaves them out of its comparison too.
+ *
+ * --faded-opens writes as closed the open hats whose ring fades like a closed hat's (heard alone, or
+ * on a snare; see shortOpens). Many more closed hats right, some real open hats lost too (tested on
+ * four kits: hats right +297 of 11361, open hats lost 126 of 1283); off unless asked.
  *
  * --snare-leak drops the hats a bright snare's wires make in the hat band: what the song's snare puts
  * over 10 kHz is learned from its snares without a hat, and a hat on a snare that rises no more than
@@ -682,7 +686,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -699,6 +703,7 @@ public class DrumMidi_CRT{
         boolean writeToms = true;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
+        boolean fadedOpens = false;
         // A kit profile (vst_render's test beat, --learn-kit): its kick and toms tell the hits found apart.
         KitProfile kit = null;
         for (int i = 2; i < args.length; i++) {
@@ -714,6 +719,7 @@ public class DrumMidi_CRT{
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--snare-leak".equals(opt)) snareLeak = true;
+            else if ("--faded-opens".equals(opt)) fadedOpens = true;
             else if ("--kit".equals(opt)) kit = KitProfile.read(new File(args[++i]));
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
@@ -726,7 +732,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "")
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "") + (fadedOpens ? " --faded-opens" : "")
                 + (kit != null ? " --kit " + kit.name : ""));
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
@@ -1063,6 +1069,7 @@ public class DrumMidi_CRT{
         if (writeToms) tomClicks(hits);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
+        if (cymbals && fadedOpens) shortOpens(hits, audio.samples, sr, kit);
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
@@ -1102,7 +1109,7 @@ public class DrumMidi_CRT{
                 + "; args=" + given.toString().replace(';', ',') + "; sens=" + num(sens) + "; hat=" + num(hatSens)
                 + "; tom=" + num(tomSens) + "; ride=" + num(rideSens) + "; crash=" + num(crashSens)
                 + "; bpm=" + (bpmOverride > 0 ? num(bpmOverride) : "auto") + "; quantize=" + (quant > 0 ? Integer.toString(quant) : "off")
-                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + (snareLeak ? "; snare-leak=on" : "") + "; tempo=" + num(bpm);
+                + "; hpss=" + (hpss ? "on" : "off") + "; cymbals=" + (cymbals ? "on" : "off") + (writeToms ? "" : "; toms=off") + (snareLeak ? "; snare-leak=on" : "") + (fadedOpens ? "; faded-opens=on" : "") + "; tempo=" + num(bpm);
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
@@ -1675,6 +1682,50 @@ public class DrumMidi_CRT{
             lc++;
         }
         return lc > 0 && late / lc - pre > peak * OPEN_HAT_LATE;
+    }
+
+    /**
+     * Open hats that fade like a closed hat are closed hats (shortOpens): a hat heard alone whose look
+     * (cymFeature) fades under OPEN_FADE_ALONE, or, with a kit profile, is nearer its learned closed hat
+     * than its learned open hat by more than OPEN_NEAR_ALONE; a hat on one snare that fades under
+     * OPEN_FADE_SNARE (the snare's ring keeps the hat band up after a closed hat). On a kick, or with
+     * more drums at it, open and closed hats look alike: left as they are. Only with --faded-opens.
+     * On the 7.11. kit tests (122 songs each, their MP3s, kit profiles) the closed hats written open
+     * fell 303 -> 135 (KVLT), 348 -> 177 (Artillery), 204 -> 147 (Anarchy), Riot's 18 -> 17, for 42,
+     * 58, 20 and 6 real open hats lost: hats right +127, +114, +61, -5. Stricter cuts (fade -0.9 and
+     * -1.5, nearer -0.4) lost fewer open hats (18, 23, 12, 3) but gained half as much (+158 in all).
+     */
+    static final double OPEN_FADE_ALONE = -0.6, OPEN_NEAR_ALONE = -0.3, OPEN_FADE_SNARE = -1.2;
+
+    static void shortOpens(List<Hit> hits, double[] x, double sr, KitProfile kit) {
+        double[] closedLook = kit == null ? null : kit.look(CLOSED_HAT), openLook = kit == null ? null : kit.look(OPEN_HAT);
+        int closed = 0;
+        for (int i = 0; i < hits.size(); i++) {
+            Hit h = hits.get(i);
+            if (h.note != OPEN_HAT) continue;
+            int others = 0;
+            boolean snare = false;
+            for (Hit o : hits) {
+                if (o == h || Math.abs(o.time - h.time) >= CYM_ALONE) continue;
+                others++;
+                snare = o.note == SNARE_NOTE;
+            }
+            if (others > 1 || (others == 1 && !snare)) continue;
+            double[] f = cymFeature(x, sr, h.time);
+            if (f == null) continue;
+            double fade = f[CYM_BANDS];
+            boolean shut;
+            if (others == 0) {
+                boolean nearer = closedLook != null && openLook != null && cymNear(f, openLook) - cymNear(f, closedLook) < OPEN_NEAR_ALONE;
+                shut = fade < OPEN_FADE_ALONE || nearer;
+            } else {
+                shut = fade < OPEN_FADE_SNARE;
+            }
+            if (!shut) continue;
+            hits.set(i, new Hit(h.time, CLOSED_HAT, h.strength));
+            closed++;
+        }
+        if (closed > 0) note("Open hats that fade as closed ones: " + closed + " made closed");
     }
 
     /** A ride keeps ringing in the mid-high band well after an open hat would have died. */

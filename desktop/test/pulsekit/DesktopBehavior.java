@@ -8190,6 +8190,66 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * DrumMidi --faded-opens: a Params switch (on/off), in DrumMidi's settings line when given and off
+   * otherwise, passed on by vst_render --test and labelled in its Params; open hats that fade like
+   * closed ones become closed only with it (a groove of short hats written open by DrumMidi's ring test).
+   */
+  void s229_faded_opens_option() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "faded-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--faded-opens");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--faded-opens"))
+        .append(", built ").append(DrumMidiArgs.build(new String[] {"", "", "", "", "", "", "", "", "", "", "", "1"})).append('\n');
+    // Hats alone that ring a while (DrumMidi's ring test calls them open) but fade fast later on.
+    File wav = new File(dir, "hats.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(5)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.4 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * (0.6 * np.exp(-n * 9) + 0.4 * np.exp(-n * 80))\n"
+        + "for b in range(14):\n"
+        + "    t = 0.25 + b * 0.5\n"
+        + "    put(t, kick)\n"
+        + "    put(t + 0.25, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String[] settings = new String[2], wrote = new String[2], closedSaid = new String[2];
+    for (int k = 0; k < 2; k++) {
+      java.util.List<String> run = new java.util.ArrayList<String>(java.util.Arrays.asList(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "hats-" + k + ".mid").getAbsolutePath()));
+      if (k == 1) run.add("--faded-opens");
+      Process p = new ProcessBuilder(run).directory(dir).redirectErrorStream(true).start();
+      String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+      p.waitFor();
+      settings[k] = wrote[k] = closedSaid[k] = "";
+      for (String line : said.split("\n")) {
+        if (line.startsWith("Settings:")) settings[k] = line.trim();
+        if (line.startsWith("Wrote ")) wrote[k] = line.trim().replaceAll("^Wrote [^:]*: ", "");
+        if (line.startsWith("Open hats that fade")) closedSaid[k] = line.trim();
+      }
+    }
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> vr = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    vr.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--faded-opens"));
+    String vrSaid = PythonRun.runFor(vr, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--faded-opens")) label = q.label;
+    this.out.append("without: ").append(settings[0]).append(" | ").append(wrote[0]).append(" | ").append(closedSaid[0]).append('\n')
+        .append("with: ").append(settings[1]).append(" | ").append(wrote[1]).append(" | ").append(closedSaid[1]).append('\n')
+        .append("vst_render: ").append(vrSaid).append("\nvst_render Params: ").append(label).append('\n');
+    boolean ok = at >= 0 && DrumMidiArgs.onOff("--faded-opens") && settings[1].endsWith("--faded-opens") && !settings[0].contains("--faded-opens")
+        && closedSaid[0].isEmpty() && !vrSaid.contains("unknown switch") && label.startsWith("Faded opens in the test");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** DrumMidi --snare-leak: a Params switch (on/off), passed on by vst_render --test, and DrumMidi says what it learned or why not. */
   void s154_snare_leak_option() throws Exception {
     File dir = new File(System.getProperty("user.home"), "leak-test");

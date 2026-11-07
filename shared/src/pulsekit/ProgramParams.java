@@ -832,6 +832,8 @@ public final class ProgramParams {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
     } else if (p.token.equals("--snare-leak")) {
       p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
+    } else if (p.token.equals("--faded-opens")) {
+      p.label = "Faded opens in the test: DrumMidi writes open hats that fade like closed ones as closed (more closed hats right, some open ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--compare_kits")) {
