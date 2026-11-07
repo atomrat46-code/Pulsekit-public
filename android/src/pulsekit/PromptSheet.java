@@ -2292,6 +2292,19 @@ public final class PromptSheet {
       items.add(kindItem);
       runs.add(() -> storedKindItem(activity, versionId, which, name, kindItem));
     }
+    // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
+    if (activity instanceof MainActivity && MediaDir.firstFrameRef(name)) {
+      items.add(MediaDir.FIRST_FRAME_AS_REF);
+      runs.add(() -> {
+        MainActivity host = (MainActivity) activity;
+        try {
+          File video = RefImages.videoFile(host, name, vault.fileBytes(versionId, which));
+          RefImages.firstFrameAsRef(host, name, video.getAbsolutePath(), null, null, null);
+        } catch (Exception ex) {
+          host.setNow("Could not read " + name + ": " + ex.getMessage());
+        }
+      });
+    }
     // Export to disk: a copy in Download, to work on with another app.
     items.add(MediaDir.EXPORT);
     runs.add(() -> exportToDisk(activity, versionId, which, name));

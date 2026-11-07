@@ -12374,6 +12374,53 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * The Media browser, a video's long press: First frame as a reference image; the frame (small: asked
+   * about upscaling first) goes to ImageUpscaler with Upscale first, as its input, the browser closed.
+   */
+  @Test
+  public void s227_first_frame_ref_media_browser() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    if (PromptVault.keys == null) PromptVault.keys = new AndroidVaultKey();
+    MediaBrowser.load(app);
+    File dir = new File(app.getCacheDir(), "m27");
+    dir.mkdirs();
+    File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(32, 18, android.graphics.Bitmap.Config.ARGB_8888);
+    org.robolectric.shadows.ShadowMediaMetadataRetriever.addFrame(org.robolectric.shadows.util.DataSource.toDataSource(clip.getAbsolutePath()), 0, bmp);
+    MediaBrowser m = MediaBrowser.open(app, dir.getAbsolutePath());
+    for (int i = 0; i < 200 && (m.loading || m.allEntries.isEmpty()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    MediaDir.Entry video = null;
+    for (MediaDir.Entry e : m.allEntries) if (e.name.equals("walk.mp4")) video = e;
+    m.menu(video);
+    idle();
+    String items = listItems(MediaBrowser.lastMenu);
+    out.append("menu: ").append(items).append('\n');
+    int at = java.util.Arrays.asList(items.split(" \\| ")).indexOf(MediaDir.FIRST_FRAME_AS_REF);
+    RefImages.lastAsk = null;
+    org.robolectric.Shadows.shadowOf(MediaBrowser.lastMenu).clickOnItem(at);
+    for (int i = 0; i < 200 && RefImages.lastAsk == null; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean asked = RefImages.lastAsk != null && RefImages.lastAsk.isShowing();
+    if (asked) RefImages.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean closed = m.dialog == null || !m.dialog.isShowing();
+    String input = app.pyJav.pkPyInputPath;
+    out.append("frame ").append(RefImages.lastFrameName).append(", asked ").append(asked).append(", program ").append(app.pyName)
+        .append(", input ").append(input == null ? "none" : new File(input).getName()).append(", browser closed ").append(closed).append('\n');
+    write("s227_first_frame_ref_media_browser", out.toString());
+    boolean ok = at >= 0 && !items.contains(MediaDir.FIRST_FRAME_REF) && "walk-first-frame.png".equals(RefImages.lastFrameName) && asked
+        && "ImageUpscaler.java".equals(app.pyName) && input != null && input.endsWith("walk-first-frame.png") && closed;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** Every TextView under `v`. */
   private static java.util.List<TextView> allText(View v) {
     java.util.List<TextView> out = new java.util.ArrayList<TextView>();

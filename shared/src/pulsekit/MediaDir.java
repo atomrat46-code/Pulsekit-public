@@ -871,6 +871,19 @@ public final class MediaDir {
   /** A made file's item when Sogni tools are shown and it carries a Sogni job id: the id (and its workflow), with Copy. */
   public static final String SOGNI_JOB = "Sogni job id";
 
+  /**
+   * A video's item (the Media browser, Downloads, DB/Prompts, Browse DB): its first frame as a reference
+   * of a Sogni program (asked about upscaling first when it needs it); in Browse DB it fills the row.
+   */
+  public static final String FIRST_FRAME_AS_REF = "First frame as a reference image";
+  /** Browse DB, a picture's item: ImageUpscaler with it as its input (its result goes on as a reference). */
+  public static final String UPSCALE_AS_REF = "Upscale and use as a reference image";
+
+  /** Whether a file offers FIRST_FRAME_AS_REF: a video, with the Sogni tools shown. */
+  public static boolean firstFrameRef(String name) {
+    return kind(name) == VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly();
+  }
+
   /** Choose file (a Params row), a video's item: its first frame, as a picture, fills the row. */
   public static final String FIRST_FRAME_REF = "Extract first frame as reference img";
 

@@ -1573,6 +1573,10 @@ final class MediaBrowser {
         if (this.chooser != null && entry.kind == MediaDir.VIDEO) {
             built = java.util.Arrays.copyOf(built, built.length + 1);
             built[built.length - 1] = MediaDir.FIRST_FRAME_REF;
+        } else if (this.chooser == null && MediaDir.firstFrameRef(entry.name)) {
+            // The Media browser, a video: its first frame as a reference (upscaled first when asked).
+            built = java.util.Arrays.copyOf(built, built.length + 1);
+            built[built.length - 1] = MediaDir.FIRST_FRAME_AS_REF;
         }
         // A favourite already: Remove from favourites.
         FileFavourites.load(PromptDb.dir());
@@ -1601,6 +1605,13 @@ final class MediaBrowser {
                     }
                     ProcessRefDialog.open(app, f, () -> this.reopen(backRoot, backDir));
                 });
+                menu.add(item);
+                continue;
+            }
+            if (MediaDir.FIRST_FRAME_AS_REF.equals(items[i])) {
+                final File backRoot = this.shownRoot, backDir = this.shown;
+                item.setName("media-menu:first-frame-ref");
+                item.addActionListener(e -> RefImages.firstFrameAsRef(app, f, this.last, () -> this.reopen(backRoot, backDir)));
                 menu.add(item);
                 continue;
             }

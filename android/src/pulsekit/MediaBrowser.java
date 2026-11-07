@@ -2677,6 +2677,10 @@ final class MediaBrowser {
         if (this.chooser != null && e.kind == MediaDir.VIDEO) {
             withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
             withPlaylist[withPlaylist.length - 1] = MediaDir.FIRST_FRAME_REF;
+        } else if (this.chooser == null && MediaDir.firstFrameRef(e.name)) {
+            // The Media browser, a video: its first frame as a reference (upscaled first when asked).
+            withPlaylist = java.util.Arrays.copyOf(withPlaylist, withPlaylist.length + 1);
+            withPlaylist[withPlaylist.length - 1] = MediaDir.FIRST_FRAME_AS_REF;
         }
         // A favourite already: Remove from favourites.
         FileFavourites.load(this.app.getFilesDir());
@@ -2705,6 +2709,8 @@ final class MediaBrowser {
                 else if (MediaDir.PROCESS_REF.equals(items[which])) this.useAsRef(e, refHead);
                 else if (MediaDir.SOGNI_JOB.equals(items[which])) SogniJobDialog.show(this.app, job);
                 else if (MediaDir.FIRST_FRAME_REF.equals(items[which])) this.firstFrameChosen(e);
+                else if (MediaDir.FIRST_FRAME_AS_REF.equals(items[which]))
+                    RefImages.firstFrameAsRef(this.app, e.name, this.onDisk(e) ? e.id : null, this.onDisk(e) ? null : this.uri(e), this.dialog, this.returner());
                 else if (MediaCollections.ADD.equals(items[which])) CollectionsScreen.addTo(this.app, MediaCollections.KIND_FILE, this.playlistAddress(e), e.name, e.size);
                 else this.pick(e, MediaDir.baseIndex(listed, e.kind, items[which]));
             })

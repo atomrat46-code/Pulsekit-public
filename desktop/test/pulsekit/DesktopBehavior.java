@@ -7706,6 +7706,61 @@ public final class DesktopBehavior {
    * group's right click lists its sections under it; a section's double click shows it fully (Load).
    */
   /**
+   * The Media browser, a video's menu: First frame as a reference image; the frame (small: asked about
+   * upscaling first) goes to ImageUpscaler with Upscale first, as its input, the browser closed.
+   */
+  void s211_first_frame_ref_media_browser() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "m211");
+    dir.mkdirs();
+    final File clip = new File(dir, "walk.mp4");
+    Files.write(clip.toPath(), new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'});
+    MediaBrowser.frameReader = (f, side) -> {
+      try {
+        java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(64, 36, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", jpeg);
+        return jpeg.toByteArray();
+      } catch (Exception ex) {
+        return null;
+      }
+    };
+    final String[] asked = new String[1];
+    RefImages.answer = q -> {
+      asked[0] = q;
+      return UpscaleCheck.UPSCALE_FIRST;
+    };
+    final Pulsekit app = (Pulsekit) frame;
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    final MediaDir.Entry[] video = new MediaDir.Entry[1];
+    for (MediaDir.Entry e : MediaBrowser.list(dir, true)) if (e.name.equals("walk.mp4")) video[0] = e;
+    final String[] items = new String[1];
+    inspectNext = d -> {
+      mb.menu(video[0], clip, component(d, "media-card:walk.mp4"), 2, 2);
+      StringBuilder sb = new StringBuilder();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) sb.append(sb.length() == 0 ? "" : " | ").append(((javax.swing.JMenuItem) c).getText());
+      items[0] = sb.toString();
+      for (java.awt.Component c : mb.lastMenu.getComponents()) if (c instanceof javax.swing.JMenuItem && MediaDir.FIRST_FRAME_AS_REF.equals(((javax.swing.JMenuItem) c).getText())) {
+        mb.lastMenu.setVisible(false);
+        ((javax.swing.JMenuItem) c).doClick();
+      }
+    };
+    SwingUtilities.invokeLater(() -> mb.open(dir));
+    for (int i = 0; i < 100 && !"ImageUpscaler.java".equals(app.pyName); i++) Thread.sleep(100);
+    idle();
+    final boolean[] closed = new boolean[1];
+    edt(() -> closed[0] = mb.last == null || !mb.last.isShowing());
+    MediaBrowser.frameReader = VlcPlayer::firstFrame;
+    RefImages.answer = null;
+    this.out.append("menu: ").append(items[0]).append("\nframe ").append(RefImages.lastFrame == null ? "none" : RefImages.lastFrame.getName())
+        .append(", asked ").append(asked[0] != null).append(", program ").append(app.pyName).append(", input ").append(app.pyInputPath == null ? "none" : new File(app.pyInputPath).getName())
+        .append(", browser closed ").append(closed[0]).append('\n');
+    boolean ok = String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_AS_REF) && !String.valueOf(items[0]).contains(MediaDir.FIRST_FRAME_REF)
+        && RefImages.lastFrame != null && RefImages.lastFrame.getName().equals("walk-first-frame.jpg") && asked[0] != null
+        && "ImageUpscaler.java".equals(app.pyName) && app.pyInputPath != null && app.pyInputPath.endsWith("walk-first-frame.jpg") && closed[0];
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * Sogni Params' Choose file: a video's menu has Extract first frame as reference img; the first frame
    * (full size, a JPEG in ~/.pulsekit/first-frames) fills the row as if picked, and the browser closes.
    * The Media browser itself (no row) has no such item.

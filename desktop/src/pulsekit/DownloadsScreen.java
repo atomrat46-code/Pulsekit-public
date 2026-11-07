@@ -436,6 +436,22 @@ final class DownloadsScreen {
             });
             m.add(it);
         }
+        // A video: its first frame as a reference; a picture: as a reference (upscaled first when asked).
+        final File f = new File(item.where);
+        if (MediaDir.firstFrameRef(item.name)) {
+            JMenuItem it = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+            it.setName("downloads-menu:" + MediaDir.FIRST_FRAME_AS_REF);
+            it.addActionListener(e -> {
+                if (!f.isFile()) app.setNow(item.name + " is gone from " + item.shown);
+                else RefImages.firstFrameAsRef(app, f, null, () -> app.showView("downloads"));
+            });
+            m.add(it);
+        } else if ("picture".equals(item.kind()) && MediaDir.useRef(item.name, MediaDir.head(f))) {
+            JMenuItem it = new JMenuItem(MediaDir.PROCESS_REF);
+            it.setName("downloads-menu:" + MediaDir.PROCESS_REF);
+            it.addActionListener(e -> RefImages.offer(app, f, null, () -> app.showView("downloads")));
+            m.add(it);
+        }
         MenuCancel.add(m);
         return m;
     }

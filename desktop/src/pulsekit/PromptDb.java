@@ -235,6 +235,33 @@ final class PromptDb {
             m.add(PlaylistWindow.addDefaultItem(app, Playlist.dbAddress(file), file.name));
             // Add to Collection: a link to the DB file.
             m.add(CollectionsWindow.addItem(app, card, MediaCollections.KIND_DB, Playlist.dbAddress(file), file.name, file.size));
+            // A video: its first frame fills the row; a picture: Upscale and use as a reference image (ImageUpscaler).
+            if (MediaDir.firstFrameRef(file.name)) {
+                JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+                first.setName("refs-first-frame");
+                first.addActionListener(e -> {
+                    File copy = this.copyOut(file);
+                    if (copy == null) {
+                        app.setNow("Could not read " + file.name + " from the library");
+                        return;
+                    }
+                    RefImages.firstFrame(app, copy, frame -> {
+                        lastPicked = file.name;
+                        dialog.dispose();
+                        picked.picked(frame.getName(), frame);
+                    });
+                });
+                m.add(first);
+            } else if (previewKind(file.name, null) == 2 && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+                JMenuItem up = new JMenuItem(MediaDir.UPSCALE_AS_REF);
+                up.setName("refs-upscale-ref");
+                up.addActionListener(e -> {
+                    File copy = this.copyOut(file);
+                    if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                    else RefImages.upscale(app, copy, dialog, null);
+                });
+                m.add(up);
+            }
             this.lastCardMenu = m;
             MenuCancel.add(m);
             m.show(card, 10, 10);
@@ -1382,6 +1409,17 @@ final class PromptDb {
                 }
             });
             menu.add(strip);
+        }
+        // A video: its first frame as a reference of a Sogni program (upscaled first when asked).
+        if (MediaDir.firstFrameRef(file.name)) {
+            JMenuItem first = new JMenuItem(MediaDir.FIRST_FRAME_AS_REF);
+            first.setName("gallery-first-frame-ref");
+            first.addActionListener(e -> {
+                File copy = this.copyOut(file);
+                if (copy == null) app.setNow("Could not read " + file.name + " from the library");
+                else RefImages.firstFrameAsRef(app, copy, null, () -> app.showView("prompts"));
+            });
+            menu.add(first);
         }
         // A picture, known by its name or, without a picture's extension, by its bytes.
         if (previewKind(file.name, this.bytesOf(file)) == 2) {
