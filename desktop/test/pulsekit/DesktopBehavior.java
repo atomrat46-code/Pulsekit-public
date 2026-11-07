@@ -473,6 +473,105 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch E: a DrumPad track's MIDI editor. A bar of 16 steps in 4/4 (12 in 3/4); a step selected on the
+   * timeline and a pad pressed puts the pad in it (pressed again, takes it out); a cell of the grid does
+   * the same; + Bar adds a bar and shows it; Quantize moves a hit off the steps onto one; each change
+   * makes the track's sound (two bars at 120 BPM: 4 s, and the last crash's ring); Export MIDI writes a drum MIDI file with the
+   * hits, tempo and time signature into the program files folder.
+   */
+  void s226_drum_editor() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    answers.add("(keep)");
+    edt(() -> AudioMixerWindow.show(app));
+    Thread.sleep(300);
+    javax.swing.JDialog d = AudioMixerWindow.last;
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    final AudioMix.Track t = AudioMix.tracks.get(0);
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-editor:DrumPad 1")).doClick());
+    Thread.sleep(300);
+    final javax.swing.JDialog ed = DrumGridWindow.last;
+    final DrumPads.Session s = DrumPads.current;
+    java.util.function.Supplier<String> state = () -> ((javax.swing.JLabel) component(ed, "editor-state")).getText();
+    int steps = 0;
+    while (component(ed, "editor-step:" + steps) != null) steps++;
+    out.append("opened: ").append(ed.getTitle()).append(", ").append(state.get()).append(", ").append(steps).append(" steps\n");
+    java.util.function.BiConsumer<Integer, String> put = (step, id) -> {
+      try {
+        edt(() -> {
+          ((javax.swing.JToggleButton) component(ed, "editor-step:" + step)).doClick();
+          javax.swing.JButton b = (javax.swing.JButton) component(ed, "editor-pad:" + id);
+          for (java.awt.event.MouseListener ml : b.getMouseListeners())
+            ml.mousePressed(new java.awt.event.MouseEvent(b, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        });
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    put.accept(0, "kick");
+    put.accept(4, "snare");
+    put.accept(8, "kick");
+    put.accept(12, "snare");
+    put.accept(2, "chh");
+    put.accept(2, "chh");
+    edt(() -> ((javax.swing.JToggleButton) component(ed, "editor-cell:chh:6")).doClick());
+    java.util.function.Function<String, String> row = id -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; component(ed, "editor-cell:" + id + ":" + i) != null; i++) sb.append(((javax.swing.JToggleButton) component(ed, "editor-cell:" + id + ":" + i)).isSelected() ? 'x' : '.');
+      return sb.toString();
+    };
+    out.append("bar 1: kick ").append(row.apply("kick")).append(", snare ").append(row.apply("snare")).append(", chh ").append(row.apply("chh")).append(" · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-add-bar")).doClick());
+    out.append("+ Bar: ").append(state.get()).append('\n');
+    put.accept(15, "crash");
+    out.append("bar 2: crash ").append(row.apply("crash")).append(", kick ").append(row.apply("kick")).append(" · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JComboBox<?>) component(ed, "editor-ts")).setSelectedItem("3/4"));
+    int steps34 = 0;
+    while (component(ed, "editor-step:" + steps34) != null) steps34++;
+    out.append("3/4: ").append(steps34).append(" steps · ").append(state.get()).append('\n');
+    edt(() -> ((javax.swing.JComboBox<?>) component(ed, "editor-ts")).setSelectedItem("4/4"));
+    s.take.hits.add(new DrumPads.Hit(Math.round(DrumGrid.stepFrames(s.take) * 10) + 700, Engine.track("rim"), 0.8f));
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-quantize")).doClick());
+    out.append("quantize: ").append(state.get()).append(", rim at step ").append(DrumGrid.has(s.take, Engine.track("rim"), 10) ? "11" : "?").append('\n');
+    out.append(String.format(java.util.Locale.ROOT, "track: %.2f s%n", t.seconds));
+    edt(() -> ((javax.swing.JButton) component(ed, "editor-export")).doClick());
+    File mid = DrumGridWindow.lastExport;
+    String midText = "none";
+    int notes = 0;
+    if (mid != null && mid.isFile()) {
+      javax.sound.midi.Sequence seq = javax.sound.midi.MidiSystem.getSequence(mid);
+      int tempo = 0;
+      String ts = "";
+      for (javax.sound.midi.Track tr : seq.getTracks()) {
+        for (int i = 0; i < tr.size(); i++) {
+          javax.sound.midi.MidiMessage m = tr.get(i).getMessage();
+          if (m instanceof javax.sound.midi.ShortMessage) {
+            javax.sound.midi.ShortMessage sm = (javax.sound.midi.ShortMessage) m;
+            if (sm.getCommand() == javax.sound.midi.ShortMessage.NOTE_ON && sm.getData2() > 0 && sm.getChannel() == 9) notes++;
+          } else if (m instanceof javax.sound.midi.MetaMessage) {
+            javax.sound.midi.MetaMessage mm = (javax.sound.midi.MetaMessage) m;
+            byte[] b = mm.getData();
+            if (mm.getType() == 0x51) tempo = (int) Math.round(60_000_000.0 / (((b[0] & 0xff) << 16) | ((b[1] & 0xff) << 8) | (b[2] & 0xff)));
+            if (mm.getType() == 0x58) ts = b[0] + "/" + (1 << b[1]);
+          }
+        }
+      }
+      midText = mid.getName() + ": " + notes + " notes on channel 10, " + tempo + " BPM, " + ts + ", " + String.format(java.util.Locale.ROOT, "%.1f", seq.getMicrosecondLength() / 1e6) + " s";
+    }
+    out.append("export: ").append(midText).append('\n');
+    edt(() -> ed.dispose());
+    Thread.sleep(200);
+    out.append("kept: ").append(DrumPads.load(t).hits.size()).append(" hits, closed ").append(DrumPads.current == null).append('\n');
+    edt(() -> d.dispose());
+    String text = out.toString();
+    boolean ok = steps == 16 && text.contains("bar 1: kick x.......x......., snare ....x.......x..., chh ......x.........") && text.contains("+ Bar: Bar 2 of 2")
+        && text.contains("bar 2: crash ...............x, kick ................") && text.contains("3/4: 12 steps") && text.contains("quantize: Bar 2 of 2") && text.contains("1 moved")
+        && text.contains("rim at step 11") && t.seconds >= 4.0 && t.seconds < 6 && text.contains("export: DrumPad 1.mid: 7 notes on channel 10, 120 BPM, 4/4, 4.0 s")
+        && text.contains("kept: 7 hits, closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * Batch E: DrumPad tracks. + New DrumPad track adds DrumPad 1 with a Drumpad button; its window has the
    * kits (here also a stand-in "Test kit"), BPM, time signature and Metronome (a high click on the
    * bar's first beat, lower on the others, a beat of the signature's unit apart); ● Record keeps each

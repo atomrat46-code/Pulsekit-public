@@ -77,6 +77,7 @@ final class AudioMixerScreen {
             stop();
             TrackRecorder.stop();
             if (DrumPadScreen.last != null && DrumPadScreen.last.isShowing()) DrumPadScreen.last.dismiss();
+            if (DrumGridScreen.last != null && DrumGridScreen.last.isShowing()) DrumGridScreen.last.dismiss();
             if (AudioMix.tracks.isEmpty()) return;
             new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?")
                 .setPositiveButton("Clear", (d, w) -> {
@@ -185,6 +186,7 @@ final class AudioMixerScreen {
             stop();
             if (TrackRecorder.recording() == t) TrackRecorder.stop();
             if (DrumPads.current != null && DrumPads.current.track == t && DrumPadScreen.last != null) DrumPadScreen.last.dismiss();
+            if (DrumPads.current != null && DrumPads.current.track == t && DrumGridScreen.last != null) DrumGridScreen.last.dismiss();
             AudioMix.remove(t);
             fill[0].run();
         });
@@ -203,8 +205,15 @@ final class AudioMixerScreen {
                 DrumPadScreen.show(app, t, () -> name.setText(AudioMix.line(t)));
             });
             pads.setTag("audiomixer-drumpad:" + t.name);
+            TextView editor = app.pill(DrumGrid.BUTTON, false, v -> {
+                stop();
+                TrackRecorder.stop();
+                DrumGridScreen.show(app, t, () -> name.setText(AudioMix.line(t)));
+            });
+            editor.setTag("audiomixer-editor:" + t.name);
             LinearLayout pr = app.row();
             pr.addView(pads);
+            pr.addView(editor, margin(app));
             box.addView(pr);
         } else {
             box.addView(recordRow(app, t, name, status));

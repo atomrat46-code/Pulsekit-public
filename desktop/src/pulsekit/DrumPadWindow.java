@@ -29,6 +29,7 @@ final class DrumPadWindow {
 
     static void show(final Pulsekit app, java.awt.Window owner, final AudioMix.Track t, final Runnable changed) {
         if (last != null && last.isDisplayable()) last.dispose();
+        if (DrumGridWindow.last != null && DrumGridWindow.last.isDisplayable()) DrumGridWindow.last.dispose();
         app.playback.fillMissingVoices();
         final DrumPads.Session s = DrumPads.open(t, null);
         int kitAt = app.playback.drumSetIndex;

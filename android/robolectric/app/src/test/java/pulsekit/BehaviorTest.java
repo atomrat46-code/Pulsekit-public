@@ -13331,6 +13331,85 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * Batch E: a DrumPad track's MIDI editor on the phone. A bar of 16 steps in 4/4 (12 in 6/8); a step
+   * tapped on the timeline and a pad touched puts the pad in it (touched again, takes it out); a cell of
+   * the grid does the same; + Bar adds a bar and shows it; Quantize moves a hit off the steps onto one;
+   * each change makes the track's sound; Export MIDI writes the drum MIDI into Download.
+   */
+  @Test
+  public void s243_drum_editor() throws Exception {
+    StringBuilder out = new StringBuilder();
+    AudioMixerScreen.show(app);
+    idle();
+    View decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-new-pads").performClick();
+    idle();
+    AudioMix.Track t = AudioMix.tracks.get(0);
+    decor = AudioMixerScreen.last.getWindow().getDecorView();
+    decor.findViewWithTag("audiomixer-editor:DrumPad 1").performClick();
+    idle();
+    final View ed = DrumGridScreen.last.getWindow().getDecorView();
+    DrumPads.Session s = DrumPads.current;
+    java.util.function.Supplier<String> state = () -> ((TextView) ed.findViewWithTag("editor-state")).getText().toString();
+    java.util.function.Supplier<Integer> steps = () -> {
+      int n = 0;
+      while (ed.findViewWithTag("editor-step:" + n) != null) n++;
+      return n;
+    };
+    out.append("opened: ").append(state.get()).append(", ").append(steps.get()).append(" steps\n");
+    java.util.function.BiConsumer<Integer, String> put = (step, id) -> {
+      ed.findViewWithTag("editor-step:" + step).performClick();
+      View p = ed.findViewWithTag("editor-pad:" + id);
+      long now = android.os.SystemClock.uptimeMillis();
+      p.dispatchTouchEvent(android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 5, 5, 0));
+      p.dispatchTouchEvent(android.view.MotionEvent.obtain(now, now + 40, android.view.MotionEvent.ACTION_UP, 5, 5, 0));
+    };
+    java.util.function.Function<String, String> row = id -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; ed.findViewWithTag("editor-cell:" + id + ":" + i) != null; i++) sb.append("●".contentEquals(((TextView) ed.findViewWithTag("editor-cell:" + id + ":" + i)).getText()) ? 'x' : '.');
+      return sb.toString();
+    };
+    put.accept(0, "kick");
+    put.accept(8, "kick");
+    put.accept(4, "snare");
+    put.accept(2, "chh");
+    put.accept(2, "chh");
+    ed.findViewWithTag("editor-cell:chh:6").performClick();
+    idle();
+    out.append("bar 1: kick ").append(row.apply("kick")).append(", snare ").append(row.apply("snare")).append(", chh ").append(row.apply("chh")).append(" · ").append(state.get()).append('\n');
+    ed.findViewWithTag("editor-add-bar").performClick();
+    put.accept(15, "crash");
+    out.append("bar 2: crash ").append(row.apply("crash")).append(" · ").append(state.get()).append('\n');
+    ((android.widget.Spinner) ed.findViewWithTag("editor-ts")).setSelection(java.util.Arrays.asList(DrumPads.SIGNATURES).indexOf("6/8"));
+    idle();
+    out.append("6/8: ").append(steps.get()).append(" steps\n");
+    ((android.widget.Spinner) ed.findViewWithTag("editor-ts")).setSelection(0);
+    idle();
+    s.take.hits.add(new DrumPads.Hit(Math.round(DrumGrid.stepFrames(s.take) * 10) + 700, Engine.track("rim"), 0.8f));
+    ed.findViewWithTag("editor-quantize").performClick();
+    idle();
+    out.append("quantize: ").append(state.get()).append('\n');
+    out.append(String.format(java.util.Locale.ROOT, "track: %.2f s%n", t.seconds));
+    ed.findViewWithTag("editor-export").performClick();
+    idle();
+    out.append("export: ").append(DrumGridScreen.lastExport).append('\n');
+    byte[] midi = DrumGrid.toMidi(s.take);
+    short[] heard = AudioIo.renderMidiDrums(midi, app.playback.mixVoices(), 22050);
+    out.append("the MIDI played with the kit: ").append(heard != null && heard.length > 22050 * 3).append('\n');
+    DrumGridScreen.last.dismiss();
+    idle();
+    out.append("kept: ").append(DrumPads.load(t).hits.size()).append(" hits, closed ").append(DrumPads.current == null).append('\n');
+    AudioMixerScreen.last.dismiss();
+    idle();
+    write("s243_drum_editor", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("Bar 1 of 1 · step 1 · 0 hits, 16 steps") && text.contains("bar 1: kick x.......x......., snare ....x..........., chh ......x.........")
+        && text.contains("bar 2: crash ...............x · Bar 2 of 2") && text.contains("6/8: 12 steps") && text.contains("1 moved onto the steps") && t.seconds >= 4.0
+        && String.valueOf(DrumGridScreen.lastExport).contains("DrumPad 1") && text.contains("played with the kit: true") && text.contains("kept: 6 hits, closed true");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

@@ -24,6 +24,7 @@ final class DrumPadScreen {
 
     static void show(final MainActivity app, final AudioMix.Track t, final Runnable changed) {
         if (last != null && last.isShowing()) last.dismiss();
+        if (DrumGridScreen.last != null && DrumGridScreen.last.isShowing()) DrumGridScreen.last.dismiss();
         app.playback.fillMissingVoices();
         final DrumPads.Session s = DrumPads.open(t, null);
         int kitAt = app.playback.drumSetIndex;

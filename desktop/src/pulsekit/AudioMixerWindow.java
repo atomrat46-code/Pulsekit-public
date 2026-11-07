@@ -93,6 +93,7 @@ final class AudioMixerWindow {
             stop();
             TrackRecorder.stop();
             if (DrumPadWindow.last != null) DrumPadWindow.last.dispose();
+            if (DrumGridWindow.last != null) DrumGridWindow.last.dispose();
             if (!AudioMix.tracks.isEmpty() && javax.swing.JOptionPane.showConfirmDialog(d, "Take every track out of the AudioMixer?", AudioMix.CLEAR,
                 javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
             AudioMix.clear();
@@ -141,6 +142,7 @@ final class AudioMixerWindow {
                 stop();
                 TrackRecorder.stop();
                 if (DrumPadWindow.last != null) DrumPadWindow.last.dispose();
+                if (DrumGridWindow.last != null) DrumGridWindow.last.dispose();
             }
         });
         d.pack();
@@ -219,6 +221,7 @@ final class AudioMixerWindow {
             stop();
             if (TrackRecorder.recording() == t) TrackRecorder.stop();
             if (DrumPads.current != null && DrumPads.current.track == t && DrumPadWindow.last != null) DrumPadWindow.last.dispose();
+            if (DrumPads.current != null && DrumPads.current.track == t && DrumGridWindow.last != null) DrumGridWindow.last.dispose();
             AudioMix.remove(t);
             fill[0].run();
         });
@@ -240,6 +243,14 @@ final class AudioMixerWindow {
             DrumPadWindow.show(app, last, t, () -> name.setText(AudioMix.line(t)));
         });
         r.add(pads);
+        JButton editor = new JButton(DrumGrid.BUTTON);
+        editor.setName("audiomixer-editor:" + t.name);
+        editor.addActionListener(e -> {
+            stop();
+            TrackRecorder.stop();
+            DrumGridWindow.show(app, last, t, () -> name.setText(AudioMix.line(t)));
+        });
+        r.add(editor);
         return r;
     }
 
