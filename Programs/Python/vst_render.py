@@ -129,7 +129,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   chat or mail that takes files up to a size (30 for 30 MB). Each MIDI stays with its WAV
                   and DrumMidi's MIDI, and each zip has the report, the settings and vst-render-run.txt.
   --zip_outdir F  then copies the run's zips (and with --test vst-test-results.zip) into folder F too,
-                  made when missing: one place to pick them up from (a cloud or chat folder).
+                  made when missing: one place to pick them up from (a cloud or chat folder). F can
+                  have % codes as Pulsekit's Downloads subfolders: after a %, dd day, mm month, yyyy
+                  or yy year (d, m: no leading 0) and n the first number whose folder is not there yet
+                  (D:\\pickup\\%ddmmyyyy, D:\\pickup\\run-%n). Filled in once: with --plugin2 to
+                  --plugin4 every plugin's zips go in the same folder.
   --zip_nowav     the zip without the WAVs (--zip implied): the MIDI files, DrumMidi's MIDI files and the
                   report are small, the WAVs are most of it (a 20 s WAV is about 3.5 MB). A thousand
                   tests fit in one zip this way; send the WAVs of the files that matter by themselves.
@@ -1706,6 +1710,66 @@ def packed_size(path):
 RESULTS_ZIP = "vst-test-results.zip"
 
 
+def fill_codes(pattern, now, n):
+    """The % codes filled in (as Pulsekit's Downloads subfolders): after a %, dd (day, 04), d (4), mm
+    (month, 11), m, yyyy (2026), yy (26) and n (the number `n`) follow each other until another
+    character; %% is a %, a lone % stays."""
+    out = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c != "%":
+            out.append(c)
+            i += 1
+            continue
+        if pattern[i + 1:i + 2] == "%":
+            out.append("%")
+            i += 2
+            continue
+        j = i + 1
+        while j < len(pattern):
+            rest = pattern[j:]
+            for code, value in (("yyyy", "%04d" % now.tm_year), ("yy", "%02d" % (now.tm_year % 100)), ("dd", "%02d" % now.tm_mday),
+                                ("d", str(now.tm_mday)), ("mm", "%02d" % now.tm_mon), ("m", str(now.tm_mon)), ("n", str(n))):
+                if rest.startswith(code):
+                    out.append(value)
+                    j += len(code)
+                    break
+            else:
+                break
+        if j == i + 1:
+            out.append("%")
+        i = max(j, i + 1)
+    return "".join(out)
+
+
+def expand_folder(pattern, now=None):
+    """--zip_outdir's % codes filled in for today; %n is the first number from 1 whose folder (the path up
+    to the part %n is in) is not there yet. No % codes: the path as it is."""
+    import time
+    if not pattern or "%" not in pattern:
+        return pattern
+    now = now or time.localtime()
+    one, two = fill_codes(pattern, now, 1), fill_codes(pattern, now, 2)
+    if one == two:
+        return one
+    at = next(i for i in range(min(len(one), len(two))) if one[i] != two[i])
+    for n in range(1, 100000):
+        path = fill_codes(pattern, now, n)
+        # The folder %n numbers: up to the separator after where the number is.
+        cut = len(path)
+        for sep in ("/", "\\"):
+            k = path.find(sep, at)
+            if k >= 0:
+                cut = min(cut, k)
+        if not os.path.exists(path[:cut]):
+            return path
+    return one
+
+
+ZIP_OUTDIR_EXPANDED = [False]
+
+
 def copy_zips(zips, folder):
     """--zip_outdir: the run's zips copied into the folder (made when missing; a zip of the same name there
     is replaced). The copies' paths."""
@@ -1961,6 +2025,15 @@ def main(argv):
     for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
         if opts[m] and not opts[k]:
             fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
+    # --zip_outdir's % codes: filled in once for the whole run (all plugins' zips in one folder).
+    if opts["--zip_outdir"] and not ZIP_OUTDIR_EXPANDED[0]:
+        ZIP_OUTDIR_EXPANDED[0] = True
+        filled = expand_folder(opts["--zip_outdir"])
+        if filled != opts["--zip_outdir"]:
+            print("Zip folder: %s" % filled)
+            opts["--zip_outdir"] = filled
+            argv = list(argv)
+            argv[argv.index("--zip_outdir") + 1] = filled
     more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
     if more:
         if not opts["--plugin"]:

@@ -845,7 +845,7 @@ public final class ProgramParams {
     } else if (p.token.equals("--zip_outdir")) {
       p.dir = true;
       p.label = "Copy the run's zips (and the test results zip) into this folder too";
-      p.hint = "empty: the zips stay beside the WAVs";
+      p.hint = "empty: the zips stay beside the WAVs; % codes: %ddmmyyyy, run-%n (the next free number)";
     }
   }
 

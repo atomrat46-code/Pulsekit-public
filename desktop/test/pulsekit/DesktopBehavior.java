@@ -7808,7 +7808,13 @@ public final class DesktopBehavior {
         + "    open(os.path.join(d, n), 'wb').write(b'PK'); zs.append(os.path.join(d, n))\n"
         + "got = vr.copy_zips(zs, os.path.join(d, 'pickup', 'today'))\n"
         + "print('copied ' + ' '.join(sorted(os.listdir(os.path.join(d, 'pickup', 'today')))))\n"
-        + "print('none %s' % vr.copy_zips([], os.path.join(d, 'pickup')))\n";
+        + "print('none %s' % vr.copy_zips([], os.path.join(d, 'pickup')))\n"
+        // % codes: the date, and %n the first number whose folder is not there (run-1 made: run-2); none: as it is.
+        + "import time\n"
+        + "now = time.struct_time((2026, 11, 4, 12, 0, 0, 2, 308, 0))\n"
+        + "p = os.path.join(d, 'got', 'run-%n')\n"
+        + "first = vr.expand_folder(p, now); vr.copy_zips(zs[:1], first)\n"
+        + "print('codes ' + os.path.relpath(vr.expand_folder(os.path.join(d, '%ddmmyyyy', 'x%d.%m.%yy'), now), d) + ' | ' + os.path.basename(first) + ' then ' + os.path.basename(vr.expand_folder(p, now)) + ' | ' + os.path.basename(vr.expand_folder(os.path.join(d, 'plain'), now)) + ' | ' + os.path.basename(vr.expand_folder(os.path.join(d, '100%%'), now)))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 60, null).trim();
@@ -7820,6 +7826,7 @@ public final class DesktopBehavior {
     this.out.append(said).append("\nParams: ").append(label).append(" (").append(tab).append(")\n");
     boolean ok = said.contains("copied vst-render-Kit-part1of2.zip vst-render-Kit-part2of2.zip vst-test-results.zip")
         && said.contains("Zip folder: 3 zips copied to ") && said.contains("none []") && said.contains("no zip made in this run")
+        && said.contains("codes 04112026" + File.separator + "x4.11.26 | run-1 then run-2 | plain | 100%")
         && label.startsWith("Copy the run's zips") && tab.equals("Output dir");
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -10541,6 +10548,7 @@ public final class DesktopBehavior {
           if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.add(k);
         }
       });
+      // Each MIDI file's row in each panel shown (Patterns, and Fills when the set has fills).
       int trackRows = rowsSeen[0];
       String trackClock = clockSeen[0];
       // Make song from one MIDI file (its row's right click): a song named for the file, of the set.
@@ -10556,7 +10564,7 @@ public final class DesktopBehavior {
       out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
       boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.contains("Random styles")
           && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
-          && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows == 2
+          && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows >= 2 && trackRows % 2 == 0
           && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00")
           && songMade[0].matches("(Funk|Metal)-turbo [1-9]\\d* SogniMusic run 1 turbo") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
