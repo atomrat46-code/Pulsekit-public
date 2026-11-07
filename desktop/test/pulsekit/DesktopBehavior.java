@@ -10396,6 +10396,66 @@ public final class DesktopBehavior {
   }
 
   /**
+   * vst_render's --zip_outdir in Params is a text field with the folder's full path: Browse puts the
+   * folder picked in it, % codes are written on after it, OK keeps it as written, and the Params opened
+   * again show it so; Clear empties it.
+   */
+  void s228_zip_outdir_field() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pickup = new File(home, "pickup");
+    pickup.mkdirs();
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    java.util.function.Supplier<JDialog> open = () -> {
+      final JDialog[] got = new JDialog[1];
+      inspectNext = d -> got[0] = d;
+      answers.add("(keep)");
+      SwingUtilities.invokeLater(() -> {
+        try {
+          call("openParams");
+        } catch (Exception ex) {
+          errors.add(ex);
+        }
+      });
+      try {
+        for (int i = 0; i < 100 && (got[0] == null || !got[0].isShowing()); i++) Thread.sleep(100);
+        Thread.sleep(300);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+      return got[0];
+    };
+    final JDialog d = open.get();
+    final javax.swing.JTextField field = (javax.swing.JTextField) component(d, "params-dir-text:--zip_outdir");
+    out.append("field: ").append(field == null ? "none" : "\"" + field.getText() + "\"").append('\n');
+    chooseNext = pickup;
+    edt(() -> ((javax.swing.JButton) component(d, "params-dir:--zip_outdir")).doClick());
+    idle();
+    String picked = field.getText();
+    out.append("Browse: ").append(picked.replace(home.getAbsolutePath(), "~")).append('\n');
+    edt(() -> field.setText(field.getText() + File.separator + "run-%n"));
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py")).replace(home.getAbsolutePath(), "~");
+    out.append("kept: ").append(kept).append('\n');
+    final JDialog e = open.get();
+    final javax.swing.JTextField again = (javax.swing.JTextField) component(e, "params-dir-text:--zip_outdir");
+    String shown = again.getText().replace(home.getAbsolutePath(), "~");
+    edt(() -> ((javax.swing.JButton) component(e, "params-clear:--zip_outdir")).doClick());
+    String cleared = again.getText();
+    edt(() -> find(e.getContentPane(), "OK").doClick());
+    idle();
+    String after = String.valueOf(call("loadParams", "vst_render.py"));
+    out.append("opened again: ").append(shown).append("; Clear: \"").append(cleared).append("\", kept ").append(after.contains("--zip_outdir") ? "with" : "without").append(" --zip_outdir\n");
+    call("saveParams", "vst_render.py", "");
+    String want = "~" + File.separator + "pickup" + File.separator + "run-%n";
+    boolean ok = field != null && picked.equals(pickup.getAbsolutePath()) && kept.contains("--zip_outdir " + want) && shown.equals(want) && cleared.isEmpty() && !after.contains("--zip_outdir");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * vst_render's Params: the form scrolls within the screen (the dialog no taller than it); closed
    * with the window's X, the second and third plugins and the second folder are kept as with OK;
    * Cancel leaves them as they were.

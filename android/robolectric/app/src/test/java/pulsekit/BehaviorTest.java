@@ -13493,6 +13493,51 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * vst_render's --zip_outdir in Params on the phone: a text field with the folder as it is; the folder
+   * Browse picks goes into it as it is, % codes are written on after it, OK keeps it as written, and
+   * the Params opened again show it so; Clear empties it.
+   */
+  @Test
+  public void s245_zip_outdir_field() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View root = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.EditText field = (android.widget.EditText) root.findViewWithTag("params-dir-text:--zip_outdir");
+    out.append("field: ").append(field == null ? "none" : "\"" + field.getText() + "\"").append('\n');
+    root.findViewWithTag("params-dir:--zip_outdir").performClick();
+    idle();
+    android.net.Uri tree = android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3APickup");
+    PyJavParams.dirPicked(app, tree);
+    idle();
+    String picked = field.getText().toString();
+    out.append("Browse: ").append(picked).append('\n');
+    field.setText(picked + "/run-%n");
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String kept = PyJavParams.load(app, "vst_render.py");
+    out.append("kept: ").append(kept).append('\n');
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View again = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.EditText field2 = (android.widget.EditText) again.findViewWithTag("params-dir-text:--zip_outdir");
+    String shown = field2.getText().toString();
+    again.findViewWithTag("params-clear:--zip_outdir").performClick();
+    String cleared = field2.getText().toString();
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String after = PyJavParams.load(app, "vst_render.py");
+    out.append("opened again: ").append(shown).append("; Clear: \"").append(cleared).append("\", kept ").append(after.contains("--zip_outdir") ? "with" : "without").append(" --zip_outdir\n");
+    PyJavParams.store(app, "vst_render.py", "");
+    write("s245_zip_outdir_field", out.toString());
+    String want = tree + "/run-%n";
+    boolean ok = field != null && picked.equals(tree.toString()) && kept.contains("--zip_outdir " + want) && shown.equals(want) && cleared.isEmpty() && !after.contains("--zip_outdir");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();
@@ -14818,9 +14863,12 @@ public class BehaviorTest {
       idle();
     }
     String said = MediaBrowser.lastDefaultsSaid;
-    idle();
-    // Its window: the result in the status line, the bar full, Close.
+    // Its window: the result in the status line, the bar full, Close (posted just after the result is set).
     View mw = MediaBrowser.lastMoveProgress.getWindow().getDecorView();
+    for (int i = 0; i < 200 && !String.valueOf(said).equals(String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText())); i++) {
+      Thread.sleep(20);
+      idle();
+    }
     String windowSays = String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText());
     int barAt = ((android.widget.ProgressBar) mw.findViewWithTag("media-move-progress")).getProgress();
     String closeText = String.valueOf(MediaBrowser.lastMoveProgress.getButton(android.content.DialogInterface.BUTTON_POSITIVE).getText());

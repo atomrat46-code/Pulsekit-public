@@ -137,6 +137,48 @@ public final class PyJavParams {
         box.addView(auto);
         continue;
       }
+      if (p.dir && p.typed) {
+        // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked folder in
+        // the field; % codes and the like can then be added to it.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final android.widget.EditText path = new android.widget.EditText(activity);
+        path.setTag("params-dir-text:" + p.token);
+        path.setSingleLine(true);
+        path.setHint(p.hint);
+        path.setText(values[i]);
+        path.addTextChangedListener(new android.text.TextWatcher() {
+          public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+          public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+          public void afterTextChanged(android.text.Editable s) {
+            values[index] = s.toString().trim();
+          }
+        });
+        android.widget.Button browse = new android.widget.Button(activity);
+        browse.setText("Browse");
+        browse.setTag("params-dir:" + p.token);
+        browse.setOnClickListener(v -> {
+          pendingPrompt = null;
+          pendingValues = values;
+          pendingIndex = index;
+          pendingLabel = path;
+          pendingOpensMedia = false;
+          if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
+        });
+        android.widget.Button clear = new android.widget.Button(activity);
+        clear.setText("Clear");
+        clear.setTag("params-clear:" + p.token);
+        clear.setOnClickListener(v -> path.setText(""));
+        row.addView(browse);
+        row.addView(clear);
+        useBox(activity, p, i, row, path, uses, off);
+        spaced(activity, row);
+        box.addView(row);
+        box.addView(path);
+        continue;
+      }
       if (p.dir) {
         // A folder (MediaBrowser's directory): Browse picks it with the system's picker and opens the Media browser on it.
         LinearLayout row = new LinearLayout(activity);
@@ -1416,7 +1458,9 @@ public final class PyJavParams {
     String dir = tree.toString();
     if (pendingValues != null && pendingIndex >= 0 && pendingIndex < pendingValues.length) {
       pendingValues[pendingIndex] = dir;
-      if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
+      // A path field (vst_render's --zip_outdir) shows the folder as it is, to write on.
+      if (pendingLabel instanceof android.widget.EditText) pendingLabel.setText(dir);
+      else if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
     }
     pendingValues = null;
     pendingIndex = -1;

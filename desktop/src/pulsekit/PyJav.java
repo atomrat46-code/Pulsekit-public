@@ -3043,6 +3043,50 @@ final class PyJav {
                 form.add(check);
                 continue;
             }
+            if (p.dir && p.typed) {
+                // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked
+                // folder's full path in the field; % codes and the like can then be added to it.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                final javax.swing.JTextField path = new javax.swing.JTextField(values[i], 30);
+                path.setName("params-dir-text:" + p.token);
+                path.setToolTipText(p.hint);
+                path.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                    void keep() {
+                        values[index] = path.getText().trim();
+                    }
+
+                    public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+
+                    public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+
+                    public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+                });
+                JButton browse = new JButton("Browse");
+                browse.setName("params-dir:" + p.token);
+                browse.addActionListener(e -> {
+                    String now = path.getText().trim();
+                    File start = now.length() > 0 && !now.contains("%") ? new File(now) : null;
+                    JFileChooser chooser = new JFileChooser(start);
+                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setDialogTitle("Directory");
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    path.setText(chooser.getSelectedFile().getAbsolutePath());
+                });
+                row.add(browse, BorderLayout.WEST);
+                row.add(path, BorderLayout.CENTER);
+                JButton clear = new JButton("Clear");
+                clear.setName("params-clear:" + p.token);
+                clear.addActionListener(e -> path.setText(""));
+                row.add(clear, BorderLayout.EAST);
+                form.add(this.withUse(p, i, row, path, uses, off));
+                continue;
+            }
             if (p.dir) {
                 // A folder (MediaBrowser's directory): Browse picks it and opens the Media browser on it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -3542,7 +3586,7 @@ final class PyJav {
      * A file or folder switch's row with its Use box in front (ticked: the file is in the run;
      * unticked: it stays chosen, greyed, and the run leaves it out). Other rows as they are.
      */
-    java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, JLabel chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
+    java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, javax.swing.JComponent chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
         if (!ProgramParams.canTurnOff(p)) return row;
         final javax.swing.JCheckBox use = new javax.swing.JCheckBox("Use", !off.contains(p.token));
         use.setName("params-use:" + p.token);

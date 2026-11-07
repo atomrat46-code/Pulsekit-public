@@ -72,6 +72,11 @@ public final class ProgramParams {
      */
     public boolean dir;
     /**
+     * A folder whose full path is shown in a text field (vst_render's --zip_outdir): Browse puts the
+     * picked folder in it, and the path can then be written on, % codes and all.
+     */
+    public boolean typed;
+    /**
      * A VST2 or VST3 plugin (vst_render.py's --plugin and --effect): on the desktop the row's chooser
      * starts in the computer's VST folders and also takes a .vst3 bundle folder.
      */
@@ -861,6 +866,7 @@ public final class ProgramParams {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
     } else if (p.token.equals("--zip_outdir")) {
       p.dir = true;
+      p.typed = true;
       p.label = "Copy the run's zips (and the test results zip) into this folder too";
       p.hint = "empty: the zips stay beside the WAVs; % codes: %ddmmyyyy, run-%n (the next free number)";
     }
