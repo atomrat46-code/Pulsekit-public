@@ -57,6 +57,11 @@ public final class DrumLibrary {
     public double[] measures;
     /** DrumMidi's kit profile spectrum (16 bands, 40-800 Hz) and cymbal look (12 bands, fade, level). */
     public double[] spectrum, look;
+    /**
+     * How a test beat's hit was played (vst_render --test, DrumMidi --cut-hits): "kick" or "snare" (a
+     * cymbal struck with one), "groove" (in eighths); empty for a sound heard alone (a one-shot).
+     */
+    public String context = "";
 
     public boolean ready() {
       return READY.equals(state);
@@ -135,6 +140,7 @@ public final class DrumLibrary {
         e.measures = p.length > 7 ? nums(p[7]) : null;
         e.spectrum = p.length > 8 ? nums(p[8]) : null;
         e.look = p.length > 9 ? nums(p[9]) : null;
+        e.context = p.length > 10 ? p[10] : "";
         entries.add(e);
       }
     } catch (Exception ignored) {
@@ -148,7 +154,7 @@ public final class DrumLibrary {
     for (Entry e : entries) {
       sb.append(AudioMix.clean(e.link)).append('\t').append(AudioMix.clean(e.name)).append('\t').append(e.part).append('\t').append(e.source).append('\t')
           .append(e.byName ? 1 : 0).append('\t').append(e.state).append('\t').append(AudioMix.clean(e.said)).append('\t').append(text(e.measures)).append('\t')
-          .append(text(e.spectrum)).append('\t').append(text(e.look)).append('\n');
+          .append(text(e.spectrum)).append('\t').append(text(e.look)).append('\t').append(e.context).append('\n');
     }
     try {
       if (!dir.isDirectory()) dir.mkdirs();
@@ -178,7 +184,8 @@ public final class DrumLibrary {
       double[] sum = new double[n + 1];
       int count = 0;
       for (Entry e : entries) {
-        if (!e.ready() || !e.part.equals(PROFILE_PARTS[i])) continue;
+        // Sounds heard alone only: a cymbal heard with a kick or snare, or in eighths, looks otherwise.
+        if (!e.ready() || !e.part.equals(PROFILE_PARTS[i]) || !e.context.isEmpty()) continue;
         double[] v = cym ? e.look : e.spectrum;
         if (v == null || v.length < (cym ? n + 1 : n)) continue;
         double norm = 0;
@@ -293,9 +300,20 @@ public final class DrumLibrary {
     e.part = partFor(name, part);
     e.byName = !e.part.equals(part);
     e.source = source;
+    // A test beat's hit added as a plain file (on the phone, a vst-hits folder): its part and how it was
+    // played from its name ("closed hat groove 03.wav").
+    java.util.regex.Matcher m = TEST_HIT.matcher(name);
+    if (m.matches() && java.util.Arrays.asList(PARTS).contains(m.group(1))) {
+      e.part = m.group(1);
+      e.byName = !e.part.equals(part);
+      e.context = "alone".equals(m.group(2)) ? "" : m.group(2);
+    }
     entries.add(e);
     return e;
   }
+
+  /** A test beat hit's file name: its part, how it was played and its number. */
+  static final java.util.regex.Pattern TEST_HIT = java.util.regex.Pattern.compile("([a-z ]+?) (alone|kick|snare|groove) \\d+\\.wav");
 
   public static synchronized void remove(Entry e) {
     entries.remove(e);
@@ -347,7 +365,7 @@ public final class DrumLibrary {
 
   /** An entry's line: "Kick 01 · 0.61 s · -3 dB · attack 10 ms · decay 261/516 ms · 55 Hz · bright 80 Hz". */
   public static String line(Entry e) {
-    String head = e.name + (e.byName ? " (by name: " + label(e.part) + ")" : "");
+    String head = e.name + (e.byName ? " (by name: " + label(e.part) + ")" : "") + (e.context.isEmpty() ? "" : " (" + contextLabel(e.context) + ")");
     if (!e.ready()) return head + " · " + (FAILED.equals(e.state) ? "failed: " + e.said : MISSING.equals(e.state) ? "missing: " + e.said : "waiting to be analyzed");
     double[] m = e.measures;
     return String.format(Locale.ROOT, "%s · %.2f s · %.0f dB · attack %.0f ms · decay %.0f/%.0f ms · %s · bright %.0f Hz", head, m[0] / 1000, m[1], m[2], m[3], m[4],
@@ -468,6 +486,107 @@ public final class DrumLibrary {
       } else if (f.getName().toLowerCase(Locale.ROOT).matches(SOUND_FILES)) out.add(f);
     }
     return out;
+  }
+
+  /** How a test beat's hit was played, said. */
+  public static String contextLabel(String context) {
+    return "kick".equals(context) ? "with a kick" : "snare".equals(context) ? "with a snare" : "groove".equals(context) ? "in eighths" : "alone";
+  }
+
+  // ---- vst_render's test beat hits (DrumMidi --cut-hits): a folder with its index.
+
+  /** The index of a folder of test beat hits. */
+  public static final String INDEX = "hits.txt";
+  /** vst_render's line naming the folder of a test's hits. */
+  public static final String HITS_SAID = "Hits for the drum sound library: ";
+
+  /**
+   * A folder of test beat hits added by its index: each hit in its part, with how it was played and
+   * DrumMidi's measures (ready at once: read in the whole render, as in a song). A hit already there is
+   * measured anew. Named "<file> (<kit>)": the kit is the folder's name after "vst-hits-".
+   */
+  public static synchronized String addIndex(File folder) {
+    File f = new File(folder, INDEX);
+    String kit = folder.getName().startsWith("vst-hits-") ? folder.getName().substring(9) : folder.getName();
+    int added = 0, again = 0;
+    try {
+      for (String line : new String(AudioMix.read(f), StandardCharsets.UTF_8).split("\n")) {
+        String[] p = line.split("\t", -1);
+        if (line.startsWith("#") || p.length < 12) continue;
+        File sound = new File(folder, p[0]);
+        if (!sound.isFile()) continue;
+        Entry e = find(sound.getAbsolutePath());
+        if (e == null) {
+          e = new Entry();
+          e.link = sound.getAbsolutePath();
+          e.source = "test";
+          entries.add(e);
+          added++;
+        } else {
+          again++;
+        }
+        e.name = p[0] + " (" + kit + ")";
+        e.part = p[1];
+        e.byName = false;
+        e.context = "alone".equals(p[2]) ? "" : p[2];
+        e.measures = new double[7];
+        for (int i = 0; i < 7; i++) e.measures[i] = AudioMix.parseDouble(p[3 + i]);
+        e.spectrum = nums(p[10]);
+        e.look = nums(p[11]);
+        e.state = READY;
+        e.said = "";
+      }
+    } catch (Exception ex) {
+      return "Could not read " + INDEX + " in " + folder.getName() + ": " + ex.getMessage();
+    }
+    save();
+    return "Added " + added + " test beat hit" + (added == 1 ? "" : "s") + " of " + kit + (again > 0 ? " (" + again + " already there, measured anew)" : "");
+  }
+
+  /**
+   * A folder's sounds added: a folder of test beat hits (its index) by its index; with `tree` its
+   * subfolders too, each such one by its index and the other sounds under `part` or their names' parts.
+   */
+  public static String addFolder(File folder, boolean tree, String part, String source) {
+    if (new File(folder, INDEX).isFile()) return addIndex(folder);
+    if (!tree) {
+      List<File> files = soundFiles(folder, false);
+      return files.isEmpty() ? "No WAV or MP3 in " + folder.getName() : addFiles(files, part, source);
+    }
+    List<String> said = new ArrayList<String>();
+    List<File> loose = new ArrayList<File>();
+    collect(folder, loose, said);
+    if (!loose.isEmpty()) said.add(0, addFiles(loose, part, source));
+    return said.isEmpty() ? "No WAV or MP3 in " + folder.getName() : String.join("; ", said);
+  }
+
+  private static void collect(File folder, List<File> loose, List<String> said) {
+    if (new File(folder, INDEX).isFile()) {
+      said.add(addIndex(folder));
+      return;
+    }
+    File[] in = folder.listFiles();
+    if (in == null) return;
+    java.util.Arrays.sort(in);
+    for (File f : in) {
+      if (f.isDirectory()) {
+        if (!f.getName().startsWith(".")) collect(f, loose, said);
+      } else if (f.getName().toLowerCase(Locale.ROOT).matches(SOUND_FILES)) loose.add(f);
+    }
+  }
+
+  /** A vst_render run's test beat hits (its HITS_SAID line) added; what it says, or null when it cut none. */
+  public static String fromLog(String log) {
+    if (log == null) return null;
+    for (String line : log.split("\n")) {
+      int at = line.indexOf(HITS_SAID);
+      if (at < 0) continue;
+      String rest = line.substring(at + HITS_SAID.length()).trim();
+      int cut = rest.lastIndexOf(" (Cut ");
+      File folder = new File(cut > 0 ? rest.substring(0, cut) : rest);
+      if (new File(folder, INDEX).isFile()) return addIndex(folder);
+    }
+    return null;
   }
 
   /** Files added (from a folder or one), under `part` or their names' parts; what it says. */

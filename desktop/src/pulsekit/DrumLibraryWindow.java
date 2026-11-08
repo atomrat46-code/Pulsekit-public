@@ -75,6 +75,12 @@ final class DrumLibraryWindow {
         else c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3", "wav", "wave", "mp3"));
         if (c.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || c.getSelectedFile() == null) return;
         File picked = c.getSelectedFile();
+        if (folder) {
+            // A folder of vst_render's test beat hits goes in by its index (hits.txt).
+            said(app, DrumLibrary.addFolder(picked, kind.equals(DrumLibrary.ADD_TREE), part, "folder"));
+            analyze(app);
+            return;
+        }
         List<File> files = folder ? DrumLibrary.soundFiles(picked, kind.equals(DrumLibrary.ADD_TREE)) : java.util.Collections.singletonList(picked);
         if (files.isEmpty()) {
             said(app, "No WAV or MP3 in " + picked.getName());
@@ -82,6 +88,14 @@ final class DrumLibraryWindow {
         }
         said(app, DrumLibrary.addFiles(files, part, folder ? "folder" : "file"));
         analyze(app);
+    }
+
+    /** After a vst_render run: its test beat's hits into the library (they come measured). */
+    static void fromRun(final Pulsekit app, String log) {
+        if (log == null || !log.contains(DrumLibrary.HITS_SAID)) return;
+        open();
+        final String s = DrumLibrary.fromLog(log);
+        if (s != null) javax.swing.SwingUtilities.invokeLater(() -> said(app, "Drum sound library: " + s));
     }
 
     static void said(Pulsekit app, String s) {

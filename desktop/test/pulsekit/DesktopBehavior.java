@@ -8191,6 +8191,74 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v390: vst_render's test beat into the drum sound library. Its cut_hits (DrumMidi --cut-hits) cuts a
+   * test beat into its hits (a note the kit does not play left out) with their index; the run's line
+   * puts them in the library when the run ends, each in its part with how it was played (a hat alone,
+   * with a kick, in eighths), measured at once; the profile takes the ones heard alone; a second test
+   * of the kit measures them anew; a folder of them added from a pad goes in by its index.
+   */
+  void s234_test_beat_hits() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = new File(System.getProperty("user.home"), "hits-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py"), jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String make = "import importlib.util, os, sys, wave, numpy as np\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; sr = 44100; x = np.zeros(sr * 12); rng = np.random.default_rng(6)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.45 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9); tom = np.sin(2 * np.pi * 120 * n) * np.exp(-n * 7)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 50) * 0.6\n"
+        + "times = [(1.0, 36, ''), (1.5, 36, ''), (3.0, 43, ''), (3.5, 43, ''), (4.5, 47, ''), (5.0, 42, ''), (6.0, 42, ''), (7.0, 42, 'k'), (9.0, 42, 'g'), (9.25, 42, 'g'), (9.5, 42, 'g')]\n"
+        + "for t, m, tag in times:\n"
+        + "    if m == 36 or tag == 'k': put(t, kick)\n"
+        + "    if m == 43: put(t, tom)\n"
+        + "    if m == 42: put(t, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "wav = os.path.join(d, 'vst-check-Kit.wav'); w = wave.open(wav, 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "tf = os.path.join(d, 'vst-check-Kit-times.txt'); open(tf, 'w').write(''.join('%.4f %d %s\\n' % e for e in times))\n"
+        + "hits = os.path.join(d, 'vst-hits-Kit')\n"
+        + "said = vr.cut_hits(sys.argv[3], sys.argv[4], wav, tf, hits)\n"
+        + "print('Hits for the drum sound library: %s (%s)' % (hits, said))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, script.getAbsolutePath(), dir.getAbsolutePath(), javaBin, jar.getAbsolutePath()));
+    String log = PythonRun.runFor(cmd, 120, null).trim();
+    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n');
+    File hits = new File(dir, "vst-hits-Kit");
+    String[] names = hits.list();
+    java.util.Arrays.sort(names);
+    out.append("folder: ").append(String.join(", ", names)).append('\n');
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryWindow.fromRun(app, "Kit: ...\n" + log + "\nSucceeded\n");
+    Thread.sleep(400);
+    out.append("after the run: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    StringBuilder lines = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) lines.append("  ").append(DrumLibrary.label(e.part)).append(" · ").append(DrumLibrary.line(e).replaceAll(" · [0-9.]+ s ·.*", "")).append(" · ").append(e.state).append('\n');
+    out.append(lines);
+    out.append(DrumLibrary.profileLine()).append('\n');
+    DrumLibraryWindow.fromRun(app, log);
+    Thread.sleep(300);
+    out.append("second test: ").append(DrumLibraryWindow.lastSaid).append(" (").append(DrumLibrary.entries.size()).append(" sounds)\n");
+    DrumLibrary.entries.clear();
+    DrumLibrary.save();
+    out.append("added from a pad: ").append(DrumLibrary.addFolder(dir, true, "snare", "folder")).append('\n');
+    String text = out.toString();
+    boolean ok = text.contains("(Cut 10 hits into vst-hits-Kit (hits.txt); 1 not played by the kit (too quiet))")
+        && text.contains("folder: closed hat alone 01.wav, closed hat alone 02.wav, closed hat groove 01.wav, closed hat groove 02.wav, closed hat groove 03.wav, closed hat kick 01.wav, floor tom alone 01.wav, floor tom alone 02.wav, hits.txt, kick alone 01.wav, kick alone 02.wav")
+        && text.contains("after the run: Drum sound library: Added 10 test beat hits of Kit")
+        && text.contains("Closed hat · closed hat kick 01.wav (Kit) (with a kick) · ready") && text.contains("Closed hat · closed hat groove 02.wav (Kit) (in eighths) · ready")
+        && text.contains("Floor tom · floor tom alone 01.wav (Kit) · ready") && text.contains("Kick · kick alone 02.wav (Kit) · ready")
+        && text.contains("DrumMidi profile (drum-library.kit): 2 kicks, 2 floor toms, 2 closed hats.")
+        && text.contains("second test: Drum sound library: Added 0 test beat hits of Kit (10 already there, measured anew) (10 sounds)")
+        && text.contains("added from a pad: Added 1 sound to Snare; Added 10 test beat hits of Kit");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * v389: the drum sound library's profile for DrumMidi. With a ready kick and tom (and a hat) the library
    * writes drum-library.kit (the mean of each part's sounds) and its window says so; Pulsekit's DrumMidi
    * runs get it (--library) and DrumMidi tells kicks and toms apart by it, unless a kit profile is given

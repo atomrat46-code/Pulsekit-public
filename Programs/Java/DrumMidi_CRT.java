@@ -640,6 +640,15 @@ public class DrumMidi_CRT{
             KitProfile.learn(new File(args[1]), new File(args[2]), new File(args[3]));
             return;
         }
+        // --cut-hits <render> <times.txt> <folder>: vst_render's test beat cut into its hits, for the drum sound library.
+        if (args.length > 0 && "--cut-hits".equals(args[0])) {
+            if (args.length < 4) {
+                finish("Failed: --cut-hits needs the test beat's render, its times file and a folder for the hits");
+                return;
+            }
+            Sounds.cut(new File(args[1]), new File(args[2]), new File(args[3]));
+            return;
+        }
         // --sounds <list.txt> <out.txt>: each drum sound listed measured (Pulsekit's drum sound library).
         if (args.length > 0 && "--sounds".equals(args[0])) {
             if (args.length < 3) {
@@ -1547,6 +1556,137 @@ public class DrumMidi_CRT{
                 w.close();
             }
             finish("Measured " + ok + " of " + lines.size() + " sounds: " + out.getName());
+        }
+
+        /** The hits' index in the folder --cut-hits writes. */
+        static final String INDEX = "hits.txt";
+        /** A hit quieter than this share of the render's peak is a drum the kit does not play: not cut. */
+        static final double CUT_SILENT = 0.02;
+
+        /** The library's part for a note (as Pulsekit's drum sound library names them). */
+        static String part(int note) {
+            switch (note) {
+                case 35: case 36: return "kick";
+                case 38: case 40: return "snare";
+                case 37: return "rim";
+                case 39: return "clap";
+                case 41: case 43: return "floor tom";
+                case 45: case 47: return "mid tom";
+                case 48: case 50: return "high tom";
+                case 42: return "closed hat";
+                case 44: return "pedal hat";
+                case 46: return "open hat";
+                case 51: case 59: return "ride";
+                case 53: return "ride bell";
+                case 52: return "china";
+                case 55: return "splash";
+                case 49: case 57: return "crash";
+                default: return "other";
+            }
+        }
+
+        /**
+         * vst_render's test beat cut into its hits (--cut-hits): each note of its times file (the kick, toms
+         * and cymbals; cymbals alone, with a kick or snare, and played on in eighths) as a WAV of its own in
+         * `outdir`, named by its part and how it was played, and INDEX: each one's file, part, how it was
+         * played ("alone", "kick", "snare", "groove") and --sounds' measures, its spectrum and cymbal look
+         * read where it starts in the whole render (the ring before taken off), as DrumMidi reads a song.
+         */
+        static void cut(File render, File times, File outdir) throws Exception {
+            Audio a = readAudio(render);
+            double sr = a.sampleRate;
+            double[] x = a.samples;
+            double top = 0;
+            for (double v : x) top = Math.max(top, Math.abs(v));
+            if (top <= 0) {
+                finish("Failed: the test beat is silent");
+                return;
+            }
+            List<double[]> ev = new ArrayList<double[]>();
+            List<String> tags = new ArrayList<String>();
+            for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
+                String[] w = line.trim().split("\\s+");
+                if (w.length < 2 || w[0].startsWith("#")) continue;
+                ev.add(new double[] {Double.parseDouble(w[0]), Integer.parseInt(w[1])});
+                tags.add(w.length > 2 ? w[2] : "");
+            }
+            // The render's offset (the cymbals alone tell it): a hit in eighths is read at its note plus it.
+            List<Double> shifts = new ArrayList<Double>();
+            for (int i = 0; i < ev.size(); i++) {
+                if (!tags.get(i).isEmpty() || !isCymbalNote((int) ev.get(i)[1])) continue;
+                double on = KitProfile.onset(x, sr, ev.get(i)[0]);
+                if (on >= 0) shifts.add(Double.valueOf(on - ev.get(i)[0]));
+            }
+            Collections.sort(shifts);
+            double shift = shifts.isEmpty() ? 0 : shifts.get(shifts.size() / 2).doubleValue();
+            if (!outdir.isDirectory() && !outdir.mkdirs()) throw new java.io.IOException("cannot make " + outdir);
+            StringBuilder index = new StringBuilder("# vst_render test beat hits (DrumMidi --cut-hits " + render.getName()
+                + "): file, part, how it was played, then --sounds' measures (spectrum and look read in the whole render)\n");
+            java.util.Map<String, Integer> count = new java.util.HashMap<String, Integer>();
+            int cut = 0, quiet = 0;
+            for (int i = 0; i < ev.size(); i++) {
+                int note = (int) ev.get(i)[1];
+                String tag = tags.get(i);
+                String how = tag.equals("k") ? "kick" : tag.equals("s") ? "snare" : tag.equals("g") ? "groove" : "alone";
+                double on = tag.equals("g") ? ev.get(i)[0] + shift : KitProfile.onset(x, sr, ev.get(i)[0]);
+                if (on < 0) {
+                    quiet++;
+                    continue;
+                }
+                double len = isCymbalNote(note) ? (tag.equals("g") ? 0.24 : 0.95) : 0.48;
+                if (i + 1 < ev.size()) len = Math.min(len, ev.get(i + 1)[0] - ev.get(i)[0] - 0.01);
+                int s0 = Math.max(0, (int) Math.round(on * sr)), n = Math.min(x.length - s0, (int) Math.round(len * sr));
+                if (n < sr * 0.05) continue;
+                double peak = 0;
+                for (int k = s0; k < s0 + n; k++) peak = Math.max(peak, Math.abs(x[k]));
+                if (peak < CUT_SILENT * top) {
+                    quiet++;
+                    continue;
+                }
+                String part = part(note), key = part + " " + how;
+                int c = count.containsKey(key) ? count.get(key).intValue() + 1 : 1;
+                count.put(key, Integer.valueOf(c));
+                File f = new File(outdir, String.format(java.util.Locale.ROOT, "%s %02d.wav", key, c));
+                writeWav16(f, java.util.Arrays.copyOfRange(x, s0, s0 + n), (int) sr);
+                String[] m = one(f).split("\t");
+                double[] spec = KitProfile.spectrum(x, sr, on), look = cymFeature(x, sr, on);
+                if (spec != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int k = 0; k < KIT_BANDS; k++) sb.append(k == 0 ? "" : ",").append(fmt(spec[k]));
+                    m[7] = sb.toString();
+                }
+                if (look != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int k = 0; k < CYM_BANDS + 2; k++) sb.append(k == 0 ? "" : ",").append(fmt(look[k]));
+                    m[8] = sb.toString();
+                }
+                index.append(f.getName()).append('\t').append(part).append('\t').append(how);
+                for (String v : m) index.append('\t').append(v);
+                index.append('\n');
+                cut++;
+            }
+            java.io.Writer w = new java.io.OutputStreamWriter(new FileOutputStream(new File(outdir, INDEX)), "UTF-8");
+            try {
+                w.write(index.toString());
+            } finally {
+                w.close();
+            }
+            finish("Cut " + cut + " hits into " + outdir.getName() + " (" + INDEX + ")" + (quiet > 0 ? "; " + quiet + " not played by the kit (too quiet)" : ""));
+        }
+
+        /** A mono 16-bit WAV. */
+        static void writeWav16(File f, double[] y, int rate) throws Exception {
+            byte[] b = new byte[44 + y.length * 2];
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(b).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            bb.put("RIFF".getBytes("US-ASCII")).putInt(36 + y.length * 2).put("WAVEfmt ".getBytes("US-ASCII")).putInt(16).putShort((short) 1).putShort((short) 1)
+                .putInt(rate).putInt(rate * 2).putShort((short) 2).putShort((short) 16).put("data".getBytes("US-ASCII")).putInt(y.length * 2);
+            for (double v : y) bb.putShort((short) Math.max(-32768, Math.min(32767, Math.round(v * 32767))));
+            FileOutputStream o = new FileOutputStream(f);
+            try {
+                o.write(b);
+            } finally {
+                o.close();
+            }
         }
 
         static String one(File f) throws Exception {

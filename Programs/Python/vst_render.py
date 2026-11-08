@@ -78,7 +78,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   and DrumMidi's MIDI as <wav>-dm.mid. Pulsekit gives its DrumMidi_CRT.jar (--drummidi)
                   and Java (--java). --no-toms: DrumMidi writes no toms and the report leaves them out.
                   The test beat as played is kept too: vst-check-<plugin>.wav (an MP3 with --mp3) and
-                  its notes' times, vst-check-<plugin>-times.txt (what the kit profile is learned from).
+                  its notes' times, vst-check-<plugin>-times.txt (what the kit profile is learned from),
+                  and its hits cut one by one into vst-hits-<plugin>/ (with hits.txt), which Pulsekit
+                  adds to its drum sound library.
                   Each test run then puts every report, test beat, times file and kit profile in the
                   output folder into one zip, vst-test-results.zip (added to by each run: after runs of
                   several plugins it holds them all) and deletes the loose reports, test beats and times
@@ -1570,6 +1572,19 @@ def learn_kit(java, jar, audio, rate, bits, nmap, out):
     return lines[-1] if lines else "DrumMidi_CRT said nothing"
 
 
+def cut_hits(java, jar, wav, times, out):
+    """DrumMidi --cut-hits: the test beat's hits as WAVs of their own in `out`, with their index (hits.txt)
+    for Pulsekit's drum sound library. Returns DrumMidi's line, or why not."""
+    import subprocess
+    try:
+        r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", "--cut-hits", os.path.abspath(wav), os.path.abspath(times), out],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+    except Exception as e:
+        return "DrumMidi_CRT did not run (%s)" % e
+    lines = [l for l in r.stdout.decode("utf-8", "replace").strip().splitlines() if l.strip()]
+    return lines[-1] if lines else "DrumMidi_CRT said nothing"
+
+
 def silent_note(note, gizmo, carla):
     """finish()'s silent note, for DrumGizmo (its MIDI map) or Carla (its project's kit)."""
     if note and gizmo and note.startswith("the render is silent"):
@@ -2442,6 +2457,14 @@ def main(argv):
                 f.write(kit_times_text(nmap))
             check_files = [keep, times_keep]
             print("Test beat: %s (%.1f s) and its times, %s" % (os.path.basename(keep), check_audio.shape[1] / float(rate), os.path.basename(times_keep)))
+            # Its hits cut into a folder of their own, for Pulsekit's drum sound library (DrumMidi --cut-hits).
+            if opts["--drummidi"] and os.path.isfile(opts["--drummidi"]):
+                hits = os.path.abspath(os.path.join(where, "vst-hits-%s" % tag))
+                said = cut_hits(opts["--java"], opts["--drummidi"], keep, times_keep, hits)
+                if said.startswith("Cut "):
+                    print("Hits for the drum sound library: %s (%s)" % (hits, said))
+                else:
+                    print("Hits not cut for the drum sound library: %s" % said)
         if "--check" in switches:
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):

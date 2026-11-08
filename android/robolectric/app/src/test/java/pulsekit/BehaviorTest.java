@@ -13687,6 +13687,33 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * v390: a vst_render test's hits on the phone (a vst-hits folder added from a pad): each goes to the
+   * part its name says with how it was played, kept so; the profile leaves out the ones not heard alone.
+   */
+  @Test
+  public void s248_test_beat_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryScreen.open(app);
+    String[] names = {"closed hat groove 03.wav", "ride kick 01.wav", "kick alone 02.wav", "Snare 5.wav"};
+    for (String n : names) {
+      DrumLibrary.Entry e = DrumLibrary.add("content://hits/" + n, n, "snare", "folder");
+      out.append(n).append(": ").append(DrumLibrary.label(e.part)).append(", ").append(DrumLibrary.contextLabel(e.context)).append(e.byName ? ", by name" : "").append('\n');
+    }
+    DrumLibrary.save();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryScreen.open(app);
+    out.append("kept: ").append(DrumLibrary.find("content://hits/ride kick 01.wav").context).append('\n');
+    write("s248_test_beat_hits", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("closed hat groove 03.wav: Closed hat, in eighths, by name") && text.contains("ride kick 01.wav: Ride, with a kick, by name")
+        && text.contains("kick alone 02.wav: Kick, alone, by name") && text.contains("Snare 5.wav: Snare, alone\n") && text.contains("kept: kick");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

@@ -883,6 +883,8 @@ final class PyJav {
                     : PythonRun.run(src, name, argv);
             // File > Logs (Logging on): the run's arguments, exit code and output.
             Logs.run(name, promptProg ? runArgv : argv, result.code, result.log, runStarted);
+            // vst_render's test: its test beat's hits into the drum sound library.
+            if ("vst_render.py".equals(name)) DrumLibraryWindow.fromRun(app, result.log);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);
