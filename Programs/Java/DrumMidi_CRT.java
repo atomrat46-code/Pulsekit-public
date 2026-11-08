@@ -695,7 +695,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--kit <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -715,6 +715,9 @@ public class DrumMidi_CRT{
         boolean fadedOpens = false;
         // A kit profile (vst_render's test beat, --learn-kit): its kick and toms tell the hits found apart.
         KitProfile kit = null;
+        // The drum sound library's profile (Pulsekit's drum-library.kit, from many sounds): its kick and
+        // toms tell the hits found apart where no kit profile is given.
+        KitProfile library = null;
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -730,6 +733,7 @@ public class DrumMidi_CRT{
             else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if ("--faded-opens".equals(opt)) fadedOpens = true;
             else if ("--kit".equals(opt)) kit = KitProfile.read(new File(args[++i]));
+            else if ("--library".equals(opt)) library = KitProfile.library(new File(args[++i]));
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
         }
         if (hatSens <= 0) hatSens = sens;
@@ -742,7 +746,9 @@ public class DrumMidi_CRT{
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
                 + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "") + (fadedOpens ? " --faded-opens" : "")
-                + (kit != null ? " --kit " + kit.name : ""));
+                + (kit != null ? " --kit " + kit.name : "") + (library != null ? " --library " + library.name : ""));
+        if (library != null && kit != null) note("Library " + library.name + " not used: the kit profile " + kit.name + " is this kit's own");
+        else if (library != null) note("Library " + library.name + ": kick and toms from " + library.said + " (its cymbals are not used)");
         Audio audio = readAudio(inFile);
         double sr = audio.sampleRate;
         double fps = sr / HOP;
@@ -1079,6 +1085,7 @@ public class DrumMidi_CRT{
         if (cymbals) ringingCrashes(hits, shape, fps);
         if (writeToms && !bassTones && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
         if (kit != null) kit.sort(hits, audio.samples, sr);
+        else if (library != null) library.sort(hits, audio.samples, sr);
         if (writeToms) tomClicks(hits);
         if (snareLeak && cymbals) snareLeaks(hits, mag, sr, fps);
         if (!bass) openRings(hits, shape, hatRaw, hatPeaks, sr);
@@ -2669,6 +2676,32 @@ public class DrumMidi_CRT{
                 + (cymLeft.isEmpty() ? "" : "; cymbals not heard: " + String.join(", ", cymLeft))
                 + (withKept.isEmpty() ? "" : "; cymbals on a kick or snare: " + String.join(", ", withKept))
                 + (grooveKept.isEmpty() ? "" : "; cymbals played on in eighths: " + String.join(", ", grooveKept)) + cutSaid);
+        }
+
+        /** What a library profile was made from ("12 kicks, 3 floor toms"), from its first line. */
+        String said = "";
+
+        /**
+         * The drum sound library's profile (--library): its kick and toms only. Its cymbals (sounds heard
+         * alone) are left out: on the 7.11. kit tests, a profile from the other three kits' test-beat
+         * sounds told kicks and toms apart as well as each kit's own profile (kicks right 4583 -> 4921 of
+         * 5052; own 4919), but its cymbals put Anarchy's closed hats wrong (-176).
+         */
+        static KitProfile library(File f) throws Exception {
+            KitProfile k = new KitProfile(f.getName());
+            for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("# from ")) k.said = t.substring(7);
+                String[] w = t.split("\\s+");
+                if (w.length < KIT_BANDS + 1 || !w[0].matches("\\d+")) continue;
+                double[] v = new double[KIT_BANDS + 1];
+                for (int i = 0; i < KIT_BANDS; i++) v[i] = Double.parseDouble(w[i + 1]);
+                k.notes.add(Integer.valueOf(w[0]));
+                k.spectra.add(v);
+            }
+            if (!k.notes.contains(Integer.valueOf(KICK_NOTE)) || k.notes.size() < 2) throw new IllegalArgumentException(f.getName() + " has no kick and tom to tell apart (the library needs a ready kick and tom)");
+            if (k.said.length() == 0) k.said = k.notes.size() + " drums";
+            return k;
         }
 
         static KitProfile read(File f) throws Exception {

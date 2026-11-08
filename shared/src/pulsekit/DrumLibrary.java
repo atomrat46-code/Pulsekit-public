@@ -27,6 +27,8 @@ public final class DrumLibrary {
   public static final String ADD_DB = "From the DB";
   public static final String ANALYZE = "Analyze waiting";
   public static final String FILE = "drum-library.txt";
+  /** DrumMidi's profile made from the ready sounds (--library), beside the list. */
+  public static final String PROFILE = "drum-library.kit";
   /** A link to a prompt library's sound file: "db:" and its name. */
   public static final String DB = "db:";
 
@@ -62,6 +64,8 @@ public final class DrumLibrary {
   }
 
   public static File dir;
+  /** Where the library is kept, set when the app starts (the list itself is read when first opened). */
+  public static volatile File home;
   public static final List<Entry> entries = new ArrayList<Entry>();
 
   /** The pad's part: Engine.TRACK_ID's order (kick, double kick, snare, clap, rim, closed hat, open hat, crash, ride, floor, mid, rack tom). */
@@ -111,6 +115,7 @@ public final class DrumLibrary {
   public static synchronized void open(File folder) {
     if (folder != null && folder.equals(dir) && !entries.isEmpty()) return;
     dir = folder;
+    if (folder != null) home = folder;
     entries.clear();
     if (dir == null) return;
     File f = new File(dir, FILE);
@@ -151,6 +156,109 @@ public final class DrumLibrary {
     } catch (Exception ignored) {
       // kept for this session
     }
+    writeProfile();
+  }
+
+  // ---- DrumMidi's profile from many sounds (--library).
+
+  /** The parts a profile has, and their notes: drums by spectrum, cymbals ("c" and the note) by look. */
+  static final String[] PROFILE_PARTS = {"kick", "floor tom", "mid tom", "high tom", "closed hat", "pedal hat", "open hat", "crash", "china", "ride", "ride bell", "splash"};
+  static final String[] PROFILE_NOTES = {"36", "41", "47", "50", "c42", "c44", "c46", "c49", "c52", "c51", "c53", "c55"};
+
+  /**
+   * The profile's text: per part, the mean of its ready sounds (each made unit length first, so a loud
+   * one counts no more), as DrumMidi's kit profile lines; null without a ready kick and tom.
+   */
+  public static synchronized String profile() {
+    StringBuilder body = new StringBuilder(), from = new StringBuilder();
+    boolean kick = false, tom = false;
+    for (int i = 0; i < PROFILE_PARTS.length; i++) {
+      boolean cym = PROFILE_NOTES[i].startsWith("c");
+      int n = cym ? 12 : 16;
+      double[] sum = new double[n + 1];
+      int count = 0;
+      for (Entry e : entries) {
+        if (!e.ready() || !e.part.equals(PROFILE_PARTS[i])) continue;
+        double[] v = cym ? e.look : e.spectrum;
+        if (v == null || v.length < (cym ? n + 1 : n)) continue;
+        double norm = 0;
+        for (int k = 0; k < n; k++) norm += v[k] * v[k];
+        if (norm <= 0) continue;
+        norm = Math.sqrt(norm);
+        for (int k = 0; k < n; k++) sum[k] += v[k] / norm;
+        if (cym) sum[n] += v[n];
+        count++;
+      }
+      if (count == 0) continue;
+      double norm = 0;
+      for (int k = 0; k < n; k++) norm += sum[k] * sum[k];
+      norm = Math.sqrt(norm);
+      if (norm <= 0) continue;
+      body.append(PROFILE_NOTES[i]);
+      for (int k = 0; k < n; k++) body.append(' ').append(String.format(Locale.ROOT, "%.4f", sum[k] / norm));
+      if (cym) body.append(' ').append(String.format(Locale.ROOT, "%.4f", sum[n] / count));
+      body.append('\n');
+      from.append(from.length() == 0 ? "" : ", ").append(count).append(' ').append(PROFILE_PARTS[i]).append(count == 1 ? "" : PROFILE_PARTS[i].endsWith("sh") ? "es" : "s");
+      if (i == 0) kick = true;
+      else if (!cym) tom = true;
+    }
+    if (!kick || !tom) return null;
+    return "# DrumMidi kit profile from the drum sound library (--library): note, then its 16 band spectrum 40-800 Hz; cymbals c<note>, 12 bands 2500-16000 Hz and fade\n"
+        + "# from " + from + "\n" + body;
+  }
+
+  /** The profile written beside the list, or taken away when there is none to make. */
+  static void writeProfile() {
+    if (dir == null) return;
+    File f = new File(dir, PROFILE);
+    String text = profile();
+    try {
+      if (text == null) f.delete();
+      else AudioMix.write(f, text.getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // none this time
+    }
+  }
+
+  /** The profile's file when there is one. */
+  public static File profileFile() {
+    File h = dir != null ? dir : home;
+    File f = h == null ? null : new File(h, PROFILE);
+    return f != null && f.isFile() ? f : null;
+  }
+
+  /** What the profile is, for the library's screen. */
+  public static String profileLine() {
+    String text = profile();
+    if (text == null) return "DrumMidi profile: needs a ready kick and a ready tom";
+    String from = text.split("\n")[1].substring(7);
+    return "DrumMidi profile (" + PROFILE + "): " + from + ". DrumMidi's runs tell kicks and toms apart by it when no kit profile is given";
+  }
+
+  /**
+   * DrumMidi's arguments with the library's profile (--library) added: on a run that finds drums in
+   * audio, when there is a profile and no --library given. "--library none" leaves it out.
+   */
+  public static List<String> withProfile(List<String> argv) {
+    if (argv == null || argv.isEmpty()) return argv;
+    String first = argv.get(0);
+    if ("--sounds".equals(first) || "--learn-kit".equals(first)) return argv;
+    int at = argv.indexOf("--library");
+    if (at >= 0) {
+      if (at + 1 < argv.size() && "none".equalsIgnoreCase(argv.get(at + 1).trim())) {
+        List<String> out = new ArrayList<String>(argv);
+        out.remove(at + 1);
+        out.remove(at);
+        return out;
+      }
+      return argv;
+    }
+    File f = profileFile();
+    if (f == null || argv.size() < 2 && !argv.contains("--dir")) return argv;
+    List<String> out = new ArrayList<String>(argv);
+    out.add("--library");
+    out.add(f.getAbsolutePath());
+    return out;
   }
 
   static double[] nums(String s) {

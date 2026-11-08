@@ -584,6 +584,8 @@ public final class JavaRun {
   public static Result run(String name, String source, byte[] bytes, List<String> argv) {
     String n = name == null || name.trim().isEmpty() ? "script.py" : name.replaceAll("[\\\\/]", "_");
     String low = n.toLowerCase();
+    // DrumMidi: the drum sound library's profile (--library) where there is one.
+    if (ProgramFolder.isDrumMidi(n)) argv = DrumLibrary.withProfile(argv);
     if (low.endsWith(".prompt")) {
       PromptRun.Sheet sheet = PromptRun.parse(source);
       String arg = "";

@@ -228,6 +228,8 @@ final class DrumLibraryScreen {
         sort.setTag("library-sort");
         final TextView status = app.text(" ", 13, false);
         status.setTag("library-status");
+        final TextView profile = app.text(" ", 12, false);
+        profile.setTag("library-profile");
         final LinearLayout rows = app.col();
         rows.setTag("library-rows");
         final int[] chosen = {0};
@@ -250,6 +252,7 @@ final class DrumLibraryScreen {
             if (list.isEmpty()) rows.addView(app.text("No sounds here yet: a pad's long-press menu has " + DrumLibrary.ADD, 13, false));
             int[] c = DrumLibrary.counts(null);
             status.setText(lastSaid.isEmpty() ? c[0] + " sounds, " + c[1] + " ready, " + c[2] + " waiting" : lastSaid);
+            profile.setText(DrumLibrary.profileLine());
         };
         refill = fill[0];
         part.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
@@ -277,6 +280,7 @@ final class DrumLibraryScreen {
         col.addView(sort);
         col.addView(analyze);
         col.addView(status);
+        col.addView(profile);
         col.addView(rows);
         fill[0].run();
         ScrollView scroll = new ScrollView(app);

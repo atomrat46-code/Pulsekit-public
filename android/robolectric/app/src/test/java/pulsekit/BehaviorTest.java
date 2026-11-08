@@ -13644,6 +13644,49 @@ public class BehaviorTest {
     }
   }
 
+  /**
+   * v389: the library's profile on the phone. The app's files folder is the library's home from the
+   * start; a ready kick and tom make drum-library.kit there, the library's screen says what it is made
+   * of, and DrumMidi's arguments get it (--library), not a run that measures sounds; without a tom the
+   * profile goes.
+   */
+  @Test
+  public void s247_library_profile() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    out.append("home is the files folder: ").append(app.getFilesDir().equals(DrumLibrary.home)).append('\n');
+    DrumLibraryScreen.open(app);
+    double[][] spec = {{0.4, 0.4, 0.4, 0.3, 0.2, 0.1, 0, 0, -0.1, -0.1, -0.2, -0.2, -0.2, -0.3, -0.3, -0.3}, {-0.3, -0.3, 0, 0.4, 0.4, 0.1, 0, 0.3, 0.3, 0, -0.1, -0.2, -0.2, -0.2, -0.2, -0.3}};
+    String[] parts = {"kick", "floor tom"};
+    for (int i = 0; i < 2; i++) {
+      DrumLibrary.Entry e = DrumLibrary.add("/sdcard/s" + i + ".wav", "s" + i + ".wav", parts[i], "file");
+      e.state = DrumLibrary.READY;
+      e.measures = new double[] {500, -3, 5, 200, 400, 60, 100};
+      e.spectrum = spec[i];
+    }
+    DrumLibrary.save();
+    File profile = new File(app.getFilesDir(), DrumLibrary.PROFILE);
+    out.append("profile: ").append(profile.isFile() ? new String(java.nio.file.Files.readAllBytes(profile.toPath()), StandardCharsets.UTF_8).split("\n")[1] : "none").append('\n');
+    List<String> argv = DrumLibrary.withProfile(java.util.Arrays.asList("in.wav", "out.mid"));
+    out.append("DrumMidi run: ").append(argv.size() == 4 && argv.get(2).equals("--library") && argv.get(3).equals(profile.getAbsolutePath())).append(", measuring: ")
+        .append(DrumLibrary.withProfile(java.util.Arrays.asList("--sounds", "a", "b")).size()).append('\n');
+    DrumLibraryScreen.show(app);
+    idle();
+    View w = DrumLibraryScreen.last.getWindow().getDecorView();
+    out.append("screen: ").append(((TextView) w.findViewWithTag("library-profile")).getText()).append('\n');
+    DrumLibraryScreen.last.dismiss();
+    idle();
+    DrumLibrary.remove(DrumLibrary.find("/sdcard/s1.wav"));
+    DrumLibrary.save();
+    out.append("without the tom: profile kept ").append(profile.isFile()).append('\n');
+    write("s247_library_profile", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("home is the files folder: true") && text.contains("profile: # from 1 kick, 1 floor tom") && text.contains("DrumMidi run: true, measuring: 3")
+        && text.contains("screen: DrumMidi profile (drum-library.kit): 1 kick, 1 floor tom. DrumMidi's runs tell kicks and toms apart by it") && text.contains("without the tom: profile kept false");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

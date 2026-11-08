@@ -351,6 +351,11 @@ public final class ProgramParams {
       p.label = "Zips of at most this many MB each (zip implied)";
       p.hint = "empty: one zip; e.g. 5 makes part1of3, part2of3...";
     }
+    // DrumMidi_CRT's drum sound library profile: Pulsekit gives its own when there is one.
+    if (drumMidi && p.flag && p.token.equals("--library")) {
+      p.label = "Drum sound library profile (kick and toms told apart by your library's sounds when no kit profile is given)";
+      p.hint = "empty: Pulsekit's drum-library.kit when the library has a ready kick and tom; none: not used";
+    }
     if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
       p.label = "Zip folder (made when missing)";
       p.hint = "empty: beside the MIDI (Download / the program files folder); % codes: dm%ddmmyy, zips%n";

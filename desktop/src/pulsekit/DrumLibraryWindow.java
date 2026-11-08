@@ -144,6 +144,8 @@ final class DrumLibraryWindow {
         sort.setName("library-sort");
         final JLabel status = new JLabel(" ");
         status.setName("library-status");
+        final JLabel profile = new JLabel(" ");
+        profile.setName("library-profile");
         final JPanel rows = new JPanel();
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
         rows.setName("library-rows");
@@ -164,6 +166,7 @@ final class DrumLibraryWindow {
             if (list.isEmpty()) rows.add(new JLabel("No sounds here yet: a pad's menu (right click) has " + DrumLibrary.ADD));
             int[] c = DrumLibrary.counts(null);
             status.setText(lastSaid.isEmpty() ? c[0] + " sounds, " + c[1] + " ready, " + c[2] + " waiting" : lastSaid);
+            profile.setText(DrumLibrary.profileLine());
             rows.revalidate();
             rows.repaint();
         };
@@ -183,7 +186,10 @@ final class DrumLibraryWindow {
         top.add(analyze);
         JPanel north = new JPanel(new BorderLayout());
         north.add(top, BorderLayout.NORTH);
-        north.add(status, BorderLayout.SOUTH);
+        JPanel said = new JPanel(new java.awt.GridLayout(2, 1));
+        said.add(status);
+        said.add(profile);
+        north.add(said, BorderLayout.SOUTH);
         JPanel body = new JPanel(new BorderLayout(0, 6));
         body.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         body.add(north, BorderLayout.NORTH);

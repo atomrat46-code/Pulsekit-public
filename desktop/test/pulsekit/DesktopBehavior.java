@@ -8191,6 +8191,77 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v389: the drum sound library's profile for DrumMidi. With a ready kick and tom (and a hat) the library
+   * writes drum-library.kit (the mean of each part's sounds) and its window says so; Pulsekit's DrumMidi
+   * runs get it (--library) and DrumMidi tells kicks and toms apart by it, unless a kit profile is given
+   * (then not used) or "--library none"; a run measuring sounds does not get it. Without a ready tom
+   * there is no profile.
+   */
+  void s233_library_profile() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "lib sounds");
+    dir.mkdirs();
+    String make = "import sys, os, wave, numpy as np\n"
+        + "sr = 44100; rng = np.random.default_rng(4); d = sys.argv[1]\n"
+        + "def save(name, y):\n"
+        + "    y = (y / np.max(np.abs(y)) * 0.7 * 32767).astype('<i2'); w = wave.open(os.path.join(d, name), 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "n = np.arange(int(0.45 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9); tom = np.sin(2 * np.pi * 140 * n) * np.exp(-n * 7)\n"
+        + "save('kick.wav', kick); save('tom.wav', tom); save('hat.wav', np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60))\n"
+        + "x = np.zeros(sr * 8)\n"
+        + "for b in range(14):\n    i = int((0.3 + b * 0.5) * sr); s = kick if b % 2 == 0 else tom; x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "save('beat.wav', x)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, dir.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibrary.open(PromptDb.dir());
+    File profile = new File(PromptDb.dir(), DrumLibrary.PROFILE);
+    DrumLibrary.add(new File(dir, "kick.wav").getAbsolutePath(), "kick.wav", "kick", "file");
+    DrumLibrary.add(new File(dir, "hat.wav").getAbsolutePath(), "hat.wav", "closed hat", "file");
+    DrumLibraryWindow.analyze(app);
+    for (int i = 0; i < 200 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    out.append("kick and hat only: ").append(DrumLibrary.profileLine()).append("; file ").append(profile.isFile()).append('\n');
+    DrumLibrary.add(new File(dir, "tom.wav").getAbsolutePath(), "tom.wav", "floor tom", "file");
+    DrumLibraryWindow.analyze(app);
+    Thread.sleep(300);
+    for (int i = 0; i < 200 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    String text = profile.isFile() ? new String(Files.readAllBytes(profile.toPath()), StandardCharsets.UTF_8) : "";
+    StringBuilder notes = new StringBuilder();
+    for (String line : text.split("\n")) if (line.length() > 0 && !line.startsWith("#")) notes.append(line.split(" ")[0]).append(' ').append(line.split(" ").length - 1).append(", ");
+    out.append("with a tom: ").append(text.split("\n")[1 < text.split("\n").length ? 1 : 0]).append(" | lines ").append(notes).append('\n');
+    javax.swing.SwingUtilities.invokeLater(() -> DrumLibraryWindow.show(app));
+    Thread.sleep(500);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    out.append("window: ").append(((javax.swing.JLabel) component(w, "library-profile")).getText()).append('\n');
+    edt(() -> w.dispose());
+    byte[] jar = ProgramFiles.read("Java", "DrumMidi_CRT.jar");
+    String wav = new File(dir, "beat.wav").getAbsolutePath(), mid = new File(dir, "beat.mid").getAbsolutePath();
+    String[][] runs = {{wav, mid}, {wav, mid, "--library", "none"}, {wav, mid, "--kit", new File(dir, "own.kit").getAbsolutePath()}};
+    Files.write(new File(dir, "own.kit").toPath(), text.replaceAll("(?m)^c.*\n", "").getBytes(StandardCharsets.UTF_8));
+    String[] said = new String[runs.length];
+    for (int r = 0; r < runs.length; r++) {
+      JavaRun.Result res = JavaRun.run("DrumMidi_CRT.jar", null, jar, java.util.Arrays.asList(runs[r]));
+      said[r] = "";
+      for (String line : res.log.split("\n")) if (line.contains("Library ") || line.contains("told apart again")) said[r] += line.trim() + " / ";
+      if (!res.log.contains("Wrote ")) said[r] = "failed: " + res.log;
+      out.append("run ").append(r).append(": ").append(said[r]).append('\n');
+    }
+    java.util.List<String> sounds = DrumLibrary.withProfile(java.util.Arrays.asList("--sounds", "a.txt", "b.txt"));
+    out.append("measuring: ").append(sounds).append('\n');
+    String all = out.toString();
+    boolean ok = all.contains("kick and hat only: DrumMidi profile: needs a ready kick and a ready tom; file false")
+        && all.contains("with a tom: # from 1 kick, 1 high tom, 1 closed hat | lines 36 16, 50 16, c42 13,")
+        && all.contains("window: DrumMidi profile (drum-library.kit): 1 kick, 1 high tom, 1 closed hat. DrumMidi's runs tell kicks and toms apart by it")
+        && said[0].startsWith("Library drum-library.kit: kick and toms from 1 kick, 1 high tom, 1 closed hat (its cymbals are not used) / Kit drum-library.kit: ")
+        && said[1].isEmpty() && said[2].startsWith("Library drum-library.kit not used: the kit profile own.kit is this kit's own / Kit own.kit: ")
+        && sounds.size() == 3;
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * Batch F: the drum sound library. The kick pad's menu adds a folder's sounds: to the kick, but
    * where a name says another drum (snare, closed hat, ride bell) to that part ("by name"); DrumMidi
    * measures them (--sounds) and they are ready: a kick's pitch, a hat brighter than a kick. The snare

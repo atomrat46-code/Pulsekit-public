@@ -285,6 +285,8 @@ public class MainActivity extends UiKit {
 
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // The drum sound library's folder: its profile goes into DrumMidi's runs (--library).
+        DrumLibrary.home = getFilesDir();
         // A crash is written to crash-log.txt; the next start shows it.
         CrashLog.install(this);
         // A busy screen (main thread) is caught where it is, so a "not responding" has its cause.

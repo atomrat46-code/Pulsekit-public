@@ -220,6 +220,8 @@ public final class Pulsekit extends UiKit {
 
     Pulsekit() {
         super("Pulsekit");
+        // The drum sound library's folder: its profile goes into DrumMidi's runs (--library).
+        DrumLibrary.home = new File(System.getProperty("user.home", "."), ".pulsekit");
         // "Pulsekit 228": which build is running shows in the title bar.
         if (Looks.version().length() > 0) this.setTitle("Pulsekit " + Looks.version());
         // General settings' Sogni tools and file types.
