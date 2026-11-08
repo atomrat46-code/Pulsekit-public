@@ -8191,6 +8191,48 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v392: DrumMidi's cymbal model. A run tells its cymbals apart again by their sound in the song and
+   * says what it changed; --no-cymbal-model (a Params on/off switch) leaves it out and is in the
+   * settings line.
+   */
+  void s235_cymbal_model() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymmodel-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--no-cymbal-model");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--no-cymbal-model")).append('\n');
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(9)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.5 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 40) * 0.5\n"
+        + "for b in range(28):\n    put(0.25 + b * 0.25, hat)\n    if b % 4 == 0: put(0.25 + b * 0.25, kick)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    byte[] jar = ProgramFiles.read("Java", "DrumMidi_CRT.jar");
+    String[] said = new String[2];
+    for (int r = 0; r < 2; r++) {
+      java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList(wav.getAbsolutePath(), new File(dir, "g" + r + ".mid").getAbsolutePath()));
+      if (r == 1) argv.add("--no-cymbal-model");
+      JavaRun.Result res = JavaRun.run("DrumMidi_CRT.jar", null, jar, argv);
+      said[r] = "";
+      for (String line : res.log.split("\n")) {
+        if (line.contains("the cymbal model")) said[r] += line.replaceAll(":.*", ":") + " / ";
+        if (line.startsWith("Settings:") && line.contains("--no-cymbal-model")) said[r] += "settings say --no-cymbal-model / ";
+      }
+      if (!res.log.contains("Wrote ")) said[r] = "failed: " + res.log;
+      this.out.append("run ").append(r).append(": ").append(said[r]).append('\n');
+    }
+    boolean ok = this.out.toString().contains("Params switch: No cymbal model: cymbals as found") && this.out.toString().contains("on/off true")
+        && said[0].equals("Cymbals by their sound in the song (the cymbal model): / ") && said[1].startsWith("settings say --no-cymbal-model") && !said[1].contains("cymbal model)");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
    * v390: vst_render's test beat into the drum sound library. Its cut_hits (DrumMidi --cut-hits) cuts a
    * test beat into its hits (a note the kit does not play left out) with their index; the run's line
    * puts them in the library when the run ends, each in its part with how it was played (a hat alone,

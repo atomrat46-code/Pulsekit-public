@@ -704,7 +704,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -722,6 +722,8 @@ public class DrumMidi_CRT{
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
+        // The cymbal model (CymModel): each cymbal found told apart again by its sound in the song.
+        boolean cymModel = true;
         // A kit profile (vst_render's test beat, --learn-kit): its kick and toms tell the hits found apart.
         KitProfile kit = null;
         // The drum sound library's profile (Pulsekit's drum-library.kit, from many sounds): its kick and
@@ -741,6 +743,7 @@ public class DrumMidi_CRT{
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if ("--faded-opens".equals(opt)) fadedOpens = true;
+            else if ("--no-cymbal-model".equals(opt)) cymModel = false;
             else if ("--kit".equals(opt)) kit = KitProfile.read(new File(args[++i]));
             else if ("--library".equals(opt)) library = KitProfile.library(new File(args[++i]));
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
@@ -754,7 +757,7 @@ public class DrumMidi_CRT{
         note("Settings: " + (given.length() == 0 ? "defaults" : given.toString()) + " | used: --sens " + num(sens)
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
-                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "") + (fadedOpens ? " --faded-opens" : "")
+                + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "") + (fadedOpens ? " --faded-opens" : "") + (cymModel ? "" : " --no-cymbal-model")
                 + (kit != null ? " --kit " + kit.name : "") + (library != null ? " --library " + library.name : ""));
         if (library != null && kit != null) note("Library " + library.name + " not used: the kit profile " + kit.name + " is this kit's own");
         else if (library != null) note("Library " + library.name + ": kick and toms from " + library.said + " (its cymbals are not used)");
@@ -1102,6 +1105,7 @@ public class DrumMidi_CRT{
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
+        if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
@@ -3050,6 +3054,255 @@ public class DrumMidi_CRT{
             }
             for (Hit h : toRide) hits.set(hits.indexOf(h), new Hit(h.time, RIDE_NOTE, h.strength));
             note("Kit " + name + ": ride by passage: " + toRide.size() + " hat" + (toRide.size() == 1 ? "" : "s") + " made the ride");
+        }
+    }
+
+    /**
+     * The cymbal model: each cymbal DrumMidi found (closed hat, open hat, ride, crash) told apart again by
+     * its sound where it is in the song, learned from six kits' renders of 122 songs (their MIDI telling
+     * which cymbal each hit was). A hit's features: its 12 band shape 2-16 kHz (the ring before taken off),
+     * how it fades to 30, 70, 120 and 200 ms (up to the next hit), its rise, how noisy and how peaky its
+     * spectrum is at once and after 30 ms, its brightness, how alike its ring is to its hit, the time to the
+     * next hit and its level; then the mean of the same over the cymbals within CM_CONTEXT s (a passage
+     * on the ride or the hats), and the kind written. A multinomial logistic model gives each kind's
+     * chance; a hit becomes the likeliest kind where that is CM_MARGIN surer than the kind written.
+     * On the 8.11. kit tests (6 kits, 122 songs each), each kit scored by a model learned from the other
+     * five: cymbals right +2087 (KVLT Mexico +503, Riot +66, Artillery Fat Metal +444, Anarchy +148, KVLT
+     * Mysterious Satan +365, Artillery Northern Violence 1 +561), mostly closed hats written open or ride;
+     * the open hats' and rides' precision up (Artillery's open hats 30% -> 72%), some open hats and rides
+     * lost; without a kit profile +1119 on four kits. On by default; --no-cymbal-model leaves it out.
+     */
+    static final class CymModel {
+        static final int N = 1024, F = 29, X = 63;
+        static final double CM_CONTEXT = 2.0, CM_MARGIN = 0.4;
+        static final double[] OFFS = {-0.03, 0, 0.03, 0.07, 0.12, 0.2};
+        static final int[] NOTE = {CLOSED_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE};
+        // The model's numbers (cym6/export.py): each feature's mean and spread, the kinds' biases and weights.
+    static final double[] CM_MU = {-0.414715, -0.332372, -0.188675, -0.176254, 0.168985, 0.525084, 0.504147, 0.37445, 0.214382, 0.00898978, -0.0905192, -0.593502, -0.353395, -1.22451, -1.42033, -1.35254, 3.62755, 0.392545, 0.393509, 3.12679, 3.18232, 7.40681, 0.673762, -1.92489, 4.00975, 0.0850975, 0.109029, 0.435654, 0.684211, -0.301484, -0.230927, -0.0899195, -0.0873932, 0.246693, 0.572575, 0.541807, 0.386542, 0.170453, -0.0788528, -0.266009, -0.863484, -0.438217, -1.34905, -1.50889, -1.3729, 3.59234, 0.379912, 0.379603, 3.17371, 3.25853, 7.3167, 0.688367, -1.93703, 4.03614, 0.0833865, 0.109326, 0.439728, 0.689592, 2.82048, 0.684252, 0.124592, 0.179776, 0.0113798};
+    static final double[] CM_SD = {1.44403, 1.2545, 1.14072, 1.03791, 0.794503, 0.670179, 0.666429, 0.686152, 0.880906, 0.954772, 1.16907, 1.73365, 0.67372, 0.96381, 1.54586, 2.3155, 2.62512, 0.0943822, 0.086582, 0.600631, 0.646731, 1.053, 0.280898, 0.884904, 1.34434, 0.279027, 0.311675, 0.495842, 0.46483, 0.668631, 0.591438, 0.558301, 0.573182, 0.350891, 0.294456, 0.293978, 0.325011, 0.504523, 0.574363, 0.723055, 1.28103, 0.364953, 0.521216, 0.888504, 1.3893, 1.48084, 0.0504911, 0.0556329, 0.342315, 0.379159, 0.575784, 0.121606, 0.34849, 1.02116, 0.0928661, 0.111909, 0.268716, 0.262195, 0.367964, 0.464813, 0.330256, 0.384001, 0.106067};
+    static final double[] CM_B = {2.95808, -0.356428, -0.377415, -2.22424};
+    static final double[][] CM_W = {{0.0125618, 0.00561102, -0.0675836, 0.0494108}, {-0.0256435, -0.0297495, 0.0338511, 0.0215419}, {0.0204594, 0.0410669, -0.0817967, 0.0202705}, {-0.0447934, 0.113685, -0.149795, 0.0809033}, {-0.0320941, 0.0361968, -0.11805, 0.113947}, {0.0925187, -0.0427776, -0.0890318, 0.0392907}, {0.0287682, 0.0764624, -0.15608, 0.0508495}, {0.0740864, 0.0368993, -0.171523, 0.0605377}, {0.011359, 0.0303342, -0.0887442, 0.047051}, {0.0200483, 0.0464475, 0.0101994, -0.0766951}, {-0.205307, -0.119743, 0.493583, -0.168533}, {0.0816442, -0.0825241, 0.0983338, -0.0974539}, {0.394722, -0.0596219, -0.399807, 0.0647072}, {-0.483325, 0.226267, 0.0715906, 0.185467}, {-0.48812, 0.234318, 0.115044, 0.138759}, {-0.543734, 0.288296, 0.212853, 0.042584}, {0.0694324, 0.0525489, -0.0431204, -0.0788609}, {0.181074, -0.0759866, -0.0414801, -0.0636072}, {0.24672, 0.0450858, -0.145225, -0.14658}, {0.0344041, 0.0616551, -0.151475, 0.0554154}, {-0.0496443, 0.0228709, -0.0816488, 0.108422}, {0.0841543, -0.0675724, 0.0330618, -0.0496437}, {-0.0690548, 0.0641538, -0.129201, 0.134102}, {-0.105349, 0.0639632, -0.0427775, 0.0841631}, {-0.3772, 0.217231, 0.229417, -0.0694483}, {-0.188656, 0.19838, 0.021703, -0.0314274}, {0.133363, 0.00204951, -0.101332, -0.0340806}, {0.417131, -0.381626, -0.0869063, 0.0514016}, {0.356753, -0.289236, -0.0552082, -0.0123086}, {-0.0963889, 0.0488744, 0.00747609, 0.0400385}, {-0.059711, -0.0519216, 0.114711, -0.00307822}, {-0.163571, 0.0529574, 0.086273, 0.0243406}, {0.225421, -0.0147616, -0.215854, 0.00519506}, {-0.0418962, 0.0903487, -0.0179311, -0.0305214}, {0.186301, -0.0477785, -0.108678, -0.0298451}, {0.0256393, 0.0710537, -0.186456, 0.0897631}, {0.0957884, -0.0462304, -0.0859683, 0.0364104}, {0.0423211, -0.0542692, 0.00188202, 0.0100661}, {-0.21463, 0.0334469, 0.150747, 0.0304362}, {-0.221655, -0.0753232, 0.348424, -0.0514451}, {0.191444, 0.0125367, -0.168381, -0.0355996}, {0.4266, 0.105566, -0.606958, 0.0747914}, {-0.245612, 0.025532, 0.196498, 0.0235821}, {-0.0656536, -0.0589019, 0.127621, -0.00306509}, {-0.0490594, -0.0961317, 0.136069, 0.009122}, {0.53378, 0.0979643, -0.595535, -0.0362092}, {0.0408174, -0.0158347, -0.00678041, -0.0182023}, {0.0214256, 0.070477, -0.126882, 0.0349791}, {-0.127248, 0.0710328, 0.0106566, 0.0455582}, {-0.140389, -0.054982, 0.171815, 0.023556}, {0.161075, 0.00642888, -0.115866, -0.0516381}, {0.0959517, -0.0595246, -0.0183966, -0.0180305}, {0.0232545, 0.00501239, -0.0202578, -0.00800908}, {0.036807, -0.0540868, 0.0372712, -0.0199914}, {-0.189372, -0.0519812, 0.255737, -0.0143841}, {0.139595, 0.120774, -0.176142, -0.0842263}, {0.242027, 0.0328824, -0.221136, -0.053773}, {0.042621, 0.0369211, -0.0730697, -0.00647244}, {0.100311, -0.0513667, 0.010314, -0.0592582}, {0.173321, -0.0879616, -0.0810936, -0.00426561}, {-0.0839685, 0.29203, -0.217855, 0.00979336}, {-0.106242, -0.139381, 0.281691, -0.0360684}, {-0.113454, -0.0192015, 0.0138753, 0.11878}};
+
+        /** A model file in place of the built-in one (the bench's, trained without the kit it scores). */
+        static double[] mu = CM_MU, sd = CM_SD, b = CM_B;
+        static double[][] w = CM_W;
+
+        static void load(String path) throws Exception {
+            List<double[]> rows = new ArrayList<double[]>();
+            for (String line : new String(java.nio.file.Files.readAllBytes(new File(path).toPath()), "UTF-8").split("\n")) {
+                String[] p = line.trim().split("\\s+");
+                if (p.length < 2) continue;
+                double[] v = new double[p.length - 1];
+                for (int i = 1; i < p.length; i++) v[i - 1] = Double.parseDouble(p[i]);
+                if (p[0].equals("mu")) mu = v;
+                else if (p[0].equals("sd")) sd = v;
+                else if (p[0].equals("b")) b = v;
+                else rows.add(v);
+            }
+            w = rows.toArray(new double[0][]);
+        }
+
+        static int kind(int note) {
+            return note == CLOSED_HAT || note == PEDAL_HAT ? 0 : note == OPEN_HAT ? 1 : note == RIDE_NOTE || note == 53 || note == 59 ? 2 : isCymbalNote(note) ? 3 : -1;
+        }
+
+        static double[] power(double[] x, double sr, double at) {
+            int a = (int) (at * sr);
+            if (at < 0 || a + N > x.length) return null;
+            double[] re = new double[N], im = new double[N];
+            for (int k = 0; k < N; k++) re[k] = x[a + k] * (0.5 - 0.5 * Math.cos(2 * Math.PI * k / (N - 1)));
+            fftN(re, im);
+            double[] m = new double[N / 2 + 1];
+            for (int k = 0; k <= N / 2; k++) m[k] = re[k] * re[k] + im[k] * im[k];
+            return m;
+        }
+
+        static double[] feats(double[] x, double sr, double t, double nxt) {
+            double[][] ms = new double[6][];
+            for (int i = 0; i < 6; i++) if ((ms[i] = power(x, sr, t + OFFS[i])) == null) return null;
+            double[][] band = new double[6][12];
+            double[] e = new double[6];
+            int lo = -1, hi = -1;
+            for (int k = 0; k <= N / 2; k++) {
+                double f = k * sr / N;
+                if (f > 3000 && lo < 0) lo = k;
+                if (f < 12000) hi = k;
+                for (int j = 0; j < 12; j++) {
+                    double a = 2000 * Math.pow(8, j / 12.0), c = 2000 * Math.pow(8, (j + 1) / 12.0);
+                    if (f >= a && f < c) for (int i = 0; i < 6; i++) band[i][j] += ms[i][k];
+                }
+            }
+            for (int i = 0; i < 6; i++) for (int j = 0; j < 12; j++) {
+                band[i][j] += 1e-12;
+                e[i] += band[i][j];
+            }
+            double[] v = new double[F];
+            double mean = 0;
+            for (int j = 0; j < 12; j++) {
+                v[j] = Math.log(Math.max(band[1][j] - band[0][j], 0.05 * band[1][j]));
+                mean += v[j] / 12;
+            }
+            for (int j = 0; j < 12; j++) v[j] -= mean;
+            double gap = nxt - t;
+            int[] at = {2, 3, 4, 5};
+            double[] after = {0.03, 0.07, 0.12, 0.2};
+            for (int j = 0; j < 4; j++) {
+                boolean has = gap > after[j] + 0.02;
+                v[12 + j] = has ? Math.log(e[at[j]] / e[1]) : 0;
+                v[25 + j] = has ? 0 : 1;
+            }
+            v[16] = Math.log(e[1] / e[0]);
+            v[17] = flat(ms[1], lo, hi);
+            v[18] = flat(ms[2], lo, hi);
+            v[19] = peaky(ms[1], lo, hi);
+            v[20] = peaky(ms[2], lo, hi);
+            double num = 0, den = 0;
+            for (int k = 0; k <= N / 2; k++) {
+                num += k * sr / N * ms[1][k];
+                den += ms[1][k];
+            }
+            v[21] = Math.log(num / den);
+            double[] l0 = new double[12], l1 = new double[12];
+            double m0 = 0, m1 = 0;
+            for (int j = 0; j < 12; j++) {
+                l0[j] = Math.log(band[1][j]);
+                l1[j] = Math.log(band[2][j]);
+                m0 += l0[j] / 12;
+                m1 += l1[j] / 12;
+            }
+            double dot = 0, n0 = 0, n1 = 0;
+            for (int j = 0; j < 12; j++) {
+                dot += (l0[j] - m0) * (l1[j] - m1);
+                n0 += (l0[j] - m0) * (l0[j] - m0);
+                n1 += (l1[j] - m1) * (l1[j] - m1);
+            }
+            v[22] = dot / (Math.sqrt(n0) * Math.sqrt(n1) + 1e-9);
+            v[23] = Math.log(Math.min(gap, 2.0));
+            v[24] = Math.log(e[1]);
+            return v;
+        }
+
+        /** An FFT of N points (DrumMidi's fft has its tables for FFT_SIZE). */
+        static final double[] CS = new double[N / 2], SN = new double[N / 2];
+        static {
+            for (int k = 0; k < N / 2; k++) {
+                CS[k] = Math.cos(-2 * Math.PI * k / N);
+                SN[k] = Math.sin(-2 * Math.PI * k / N);
+            }
+        }
+
+        static void fftN(double[] re, double[] im) {
+            for (int i = 1, j = 0; i < N; i++) {
+                int bit = N >> 1;
+                for (; (j & bit) != 0; bit >>= 1) j ^= bit;
+                j ^= bit;
+                if (i < j) {
+                    double tr = re[i]; re[i] = re[j]; re[j] = tr;
+                    double ti = im[i]; im[i] = im[j]; im[j] = ti;
+                }
+            }
+            for (int len = 2; len <= N; len <<= 1) {
+                int half = len / 2, step = N / len;
+                for (int i = 0; i < N; i += len) {
+                    for (int k = 0; k < half; k++) {
+                        double wr = CS[k * step], wi = SN[k * step];
+                        int a = i + k, b = a + half;
+                        double tr = re[b] * wr - im[b] * wi, ti = re[b] * wi + im[b] * wr;
+                        re[b] = re[a] - tr;
+                        im[b] = im[a] - ti;
+                        re[a] += tr;
+                        im[a] += ti;
+                    }
+                }
+            }
+        }
+
+        static double flat(double[] m, int lo, int hi) {
+            double lg = 0, s = 0;
+            for (int k = lo; k <= hi; k++) {
+                lg += Math.log(m[k] + 1e-12);
+                s += m[k] + 1e-12;
+            }
+            int n = hi - lo + 1;
+            return Math.exp(lg / n) / (s / n);
+        }
+
+        static double peaky(double[] m, int lo, int hi) {
+            double[] v = java.util.Arrays.copyOfRange(m, lo, hi + 1);
+            double top = 0;
+            for (double a : v) top = Math.max(top, a);
+            java.util.Arrays.sort(v);
+            double med = v.length % 2 == 1 ? v[v.length / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+            return Math.log(top / (med + 1e-12));
+        }
+
+        static void apply(List<Hit> hits, double[] x, double sr) {
+            String file = System.getProperty("dm.cymModelFile");
+            if (file != null) {
+                try {
+                    load(file);
+                } catch (Exception ex) {
+                    note("Cymbal model file not read: " + ex.getMessage());
+                }
+            }
+            double margin = Double.parseDouble(System.getProperty("dm.cymMargin", String.valueOf(CM_MARGIN)));
+            List<Hit> byTime = new ArrayList<Hit>(hits);
+            Collections.sort(byTime, new java.util.Comparator<Hit>() {
+                public int compare(Hit p, Hit q) {
+                    return Double.compare(p.time, q.time);
+                }
+            });
+            List<Hit> cym = new ArrayList<Hit>();
+            List<double[]> fs = new ArrayList<double[]>();
+            for (int i = 0; i < byTime.size(); i++) {
+                Hit h = byTime.get(i);
+                if (kind(h.note) < 0) continue;
+                double nxt = h.time + 2.0;
+                for (int j = i + 1; j < byTime.size(); j++) if (byTime.get(j).time > h.time + 0.005) {
+                    nxt = Math.min(nxt, byTime.get(j).time);
+                    break;
+                }
+                double[] f = feats(x, sr, h.time, nxt);
+                if (f == null) continue;
+                cym.add(h);
+                fs.add(f);
+            }
+            java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
+            java.util.Map<Hit, Hit> to = new java.util.HashMap<Hit, Hit>();
+            for (int i = 0; i < cym.size(); i++) {
+                Hit h = cym.get(i);
+                double[] in = new double[X];
+                System.arraycopy(fs.get(i), 0, in, 0, F);
+                int n = 0;
+                for (int j = 0; j < cym.size(); j++) {
+                    if (j == i || Math.abs(cym.get(j).time - h.time) > CM_CONTEXT) continue;
+                    for (int a = 0; a < F; a++) in[F + a] += fs.get(j)[a];
+                    n++;
+                }
+                if (n > 0) for (int a = 0; a < F; a++) in[F + a] /= n;
+                in[2 * F] = Math.log1p(n);
+                int mine = kind(h.note);
+                in[2 * F + 1 + mine] = 1;
+                double[] z = new double[4];
+                double top = -1e300;
+                for (int c = 0; c < 4; c++) {
+                    z[c] = b[c];
+                    for (int a = 0; a < X; a++) z[c] += (in[a] - mu[a]) / sd[a] * w[a][c];
+                    top = Math.max(top, z[c]);
+                }
+                double sum = 0;
+                for (int c = 0; c < 4; c++) sum += (z[c] = Math.exp(z[c] - top));
+                int best = 0;
+                for (int c = 0; c < 4; c++) if (z[c] > z[best]) best = c;
+                if (best == mine || (z[best] - z[mine]) / sum <= margin) continue;
+                to.put(h, new Hit(h.time, NOTE[best], h.strength));
+                String key = cymName(h.note) + " to " + cymName(NOTE[best]);
+                moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
+            }
+            for (int i = 0; i < hits.size(); i++) if (to.containsKey(hits.get(i))) hits.set(i, to.get(hits.get(i)));
+            StringBuilder said = new StringBuilder();
+            for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());
+            note("Cymbals by their sound in the song (the cymbal model): " + (said.length() == 0 ? "none changed" : said));
         }
     }
 
