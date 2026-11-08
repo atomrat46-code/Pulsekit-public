@@ -8222,11 +8222,20 @@ public final class DesktopBehavior {
         + "tf = os.path.join(d, 'vst-check-Kit-times.txt'); open(tf, 'w').write(''.join('%.4f %d %s\\n' % e for e in times))\n"
         + "hits = os.path.join(d, 'vst-hits-Kit')\n"
         + "said = vr.cut_hits(sys.argv[3], sys.argv[4], wav, tf, hits)\n"
-        + "print('Hits for the drum sound library: %s (%s)' % (hits, said))\n";
+        + "print('Hits for the drum sound library: %s (%s)' % (hits, said))\n"
+        // The results zip takes the hits folder too (as its folder), and leaves it on disk.
+        + "import zipfile, io, contextlib\n"
+        + "open(os.path.join(d, 'vst-test-Kit.txt'), 'w').write('All:\\n')\n"
+        + "buf = io.StringIO()\n"
+        + "with contextlib.redirect_stdout(buf): z = vr.results_zip([d])\n"
+        + "names = zipfile.ZipFile(z).namelist()\n"
+        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", make, script.getAbsolutePath(), dir.getAbsolutePath(), javaBin, jar.getAbsolutePath()));
-    String log = PythonRun.runFor(cmd, 120, null).trim();
-    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n');
+    String all = PythonRun.runFor(cmd, 120, null).trim();
+    String zipSaid = all.contains("ZIP ") ? all.substring(all.indexOf("ZIP ")).split("\n")[0] : "no zip";
+    String log = all.replace(zipSaid, "").trim();
+    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n');
     File hits = new File(dir, "vst-hits-Kit");
     String[] names = hits.list();
     java.util.Arrays.sort(names);
@@ -8248,13 +8257,15 @@ public final class DesktopBehavior {
     out.append("added from a pad: ").append(DrumLibrary.addFolder(dir, true, "snare", "folder")).append('\n');
     String text = out.toString();
     boolean ok = text.contains("(Cut 10 hits into vst-hits-Kit (hits.txt); 1 not played by the kit (too quiet))")
+        && text.contains("ZIP Results zip: ~" + File.separator + "vst-test-results.zip (14 files: the tests' reports, test beats, times and kit profiles, 11 in 1 hits folder;")
+        && text.contains("the kit profiles and hits folders kept | 11 in vst-hits-Kit/, hits.txt True | folder kept True")
         && text.contains("folder: closed hat alone 01.wav, closed hat alone 02.wav, closed hat groove 01.wav, closed hat groove 02.wav, closed hat groove 03.wav, closed hat kick 01.wav, floor tom alone 01.wav, floor tom alone 02.wav, hits.txt, kick alone 01.wav, kick alone 02.wav")
         && text.contains("after the run: Drum sound library: Added 10 test beat hits of Kit")
         && text.contains("Closed hat · closed hat kick 01.wav (Kit) (with a kick) · ready") && text.contains("Closed hat · closed hat groove 02.wav (Kit) (in eighths) · ready")
         && text.contains("Floor tom · floor tom alone 01.wav (Kit) · ready") && text.contains("Kick · kick alone 02.wav (Kit) · ready")
         && text.contains("DrumMidi profile (drum-library.kit): 2 kicks, 2 floor toms, 2 closed hats.")
         && text.contains("second test: Drum sound library: Added 0 test beat hits of Kit (10 already there, measured anew) (10 sounds)")
-        && text.contains("added from a pad: Added 1 sound to Snare; Added 10 test beat hits of Kit");
+        && text.contains("added from a pad: Added 10 test beat hits of Kit\n");
     if (!ok) throw new AssertionError(text);
   }
 

@@ -84,7 +84,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   Each test run then puts every report, test beat, times file and kit profile in the
                   output folder into one zip, vst-test-results.zip (added to by each run: after runs of
                   several plugins it holds them all) and deletes the loose reports, test beats and times
-                  files; the kit profiles stay (--compare_kits reads them).
+                  files; the kit profiles stay (--compare_kits reads them). The hits folders go in the
+                  zip too (as vst-hits-<plugin>/...) and stay on disk (the drum library links to them).
   --snare-leak    with --test: DrumMidi leaves out the hats a bright snare's wires make in the hat band
                   (its --snare-leak): fewer false hats on the snare, some real ones lost.
   --faded-opens   with --test: DrumMidi writes the open hats that fade like closed ones as closed
@@ -1877,7 +1878,9 @@ def results_zip(dirs):
     folder. The zip is added to, not made anew: what it holds stays, a file of the same name is replaced,
     so after runs of several plugins it holds them all. Then the reports, test beats and times files are
     deleted (they are in the zip); the kit profiles stay (--kit, --compare_kits). A test beat goes only
-    with its times file (a --check WAV has none and stays). Its path, or None when there was nothing."""
+    with its times file (a --check WAV has none and stays). The test beats' hits (vst-hits-*/ with its
+    hits.txt) go in as their folders, and stay on disk too: the drum sound library links to them. Its
+    path, or None when there was nothing."""
     import zipfile
     files, loose = [], []
     for d in dirs:
@@ -1899,13 +1902,27 @@ def results_zip(dirs):
                 files.append(p)
                 if not kit:
                     loose.append(p)
-    if not files:
+    # The hits folders: each file under its folder's name (vst-hits-<plugin>/<file>).
+    folders = []
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            h = os.path.join(d, f)
+            if f.lower().startswith("vst-hits-") and os.path.isfile(os.path.join(h, "hits.txt")) and h not in folders:
+                folders.append(h)
+    if not files and not folders:
         return None
     path = os.path.join(dirs[0], RESULTS_ZIP)
     work = path + ".part"
     names = {}
     for p in files:
         names.setdefault(os.path.basename(p), p)
+    hits = 0
+    for h in folders:
+        for f in sorted(os.listdir(h)):
+            if os.path.isfile(os.path.join(h, f)) and names.setdefault(os.path.basename(h) + "/" + f, os.path.join(h, f)) == os.path.join(h, f):
+                hits += 1
     kept = 0
     with zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as z:
         if os.path.isfile(path):
@@ -1927,8 +1944,10 @@ def results_zip(dirs):
             removed += 1
         except OSError:
             pass
-    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles%s; %.1f MB); %d loose file%s deleted, the kit profiles kept"
-          % (path, len(names) + kept, ", %d from earlier runs" % kept if kept else "", os.path.getsize(path) / float(ZIP_MB), removed, "" if removed == 1 else "s"))
+    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles%s%s; %.1f MB); %d loose file%s deleted, the kit profiles%s kept"
+          % (path, len(names) + kept, ", %d in %d hits folder%s" % (hits, len(folders), "" if len(folders) == 1 else "s") if folders else "",
+             ", %d from earlier runs" % kept if kept else "", os.path.getsize(path) / float(ZIP_MB), removed, "" if removed == 1 else "s",
+             " and hits folders" if folders else ""))
     return path
 
 
