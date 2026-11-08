@@ -8191,6 +8191,129 @@ public final class DesktopBehavior {
   }
 
   /**
+   * Batch F: the drum sound library. The kick pad's menu adds a folder's sounds: to the kick, but
+   * where a name says another drum (snare, closed hat, ride bell) to that part ("by name"); DrumMidi
+   * measures them (--sounds) and they are ready: a kick's pitch, a hat brighter than a kick. The snare
+   * pad adds the folder with its subfolders (only the new one is added, a kick by its name). File > Drum
+   * sound library lists the parts and their sounds (sorted by pitch); a sound moved to another part,
+   * one taken out (its file stays), a file gone is missing when measured again; the library is kept.
+   */
+  void s232_drum_library() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"));
+    File kit = new File(home, "kit sounds");
+    new File(kit, "more").mkdirs();
+    String make = "import sys, os, wave, numpy as np\n"
+        + "sr = 44100; rng = np.random.default_rng(2); d = sys.argv[1]\n"
+        + "def save(name, y):\n"
+        + "    y = (y / np.max(np.abs(y)) * 0.7 * 32767).astype('<i2'); w = wave.open(os.path.join(d, name), 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "n = np.arange(int(0.6 * sr)) / sr\n"
+        + "save('Kick 01.wav', np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9))\n"
+        + "save('Perc.wav', np.sin(2 * np.pi * 70 * n) * np.exp(-n * 12))\n"
+        + "save('more/Kick 02.wav', np.sin(2 * np.pi * 48 * n) * np.exp(-n * 8))\n"
+        + "n = np.arange(int(0.3 * sr)) / sr\n"
+        + "save('snare 2.wav', (rng.standard_normal(len(n)) * 0.6 + np.sin(2 * np.pi * 190 * n)) * np.exp(-n * 25))\n"
+        + "save('closed hat.wav', np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60))\n"
+        + "n = np.arange(int(1.5 * sr)) / sr\n"
+        + "save('ride bell 3.wav', (np.diff(rng.standard_normal(len(n) + 1)) * 0.4 + np.sin(2 * np.pi * 3100 * n) * 0.5) * np.exp(-n * 3))\n"
+        + "open(os.path.join(d, 'readme.txt'), 'w').write('x')\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, kit.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    java.util.function.BiFunction<Integer, String, javax.swing.JMenuItem> item = (pad, kind) -> {
+      try {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("padMenu", pad);
+        for (java.awt.Component c : m.getComponents()) {
+          if (!(c instanceof javax.swing.JMenu)) continue;
+          for (java.awt.Component k : ((javax.swing.JMenu) c).getMenuComponents()) if (("pad-library-" + kind + ":" + pad).equals(k.getName())) return (javax.swing.JMenuItem) k;
+        }
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      return null;
+    };
+    javax.swing.JMenuItem folder = item.apply(0, "folder");
+    out.append("kick pad menu: ").append(folder == null ? "no library item" : DrumLibrary.ADD + " > " + folder.getText()).append('\n');
+    chooseNext = kit;
+    edt(() -> folder.doClick());
+    Thread.sleep(300);
+    Thread t = DrumLibraryWindow.analyzing;
+    if (t != null) t.join(120000);
+    Thread.sleep(300);
+    out.append("added: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    StringBuilder lines = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) lines.append("  ").append(DrumLibrary.label(e.part)).append(" · ").append(DrumLibrary.line(e)).append('\n');
+    out.append(lines.toString().replaceAll("[0-9.]+ s ·", "<n> s ·").replaceAll("-?[0-9]+ dB", "<n> dB").replaceAll("(attack|decay) [0-9/]+ ms", "$1 <n> ms").replaceAll("bright [0-9]+ Hz", "bright <n> Hz"));
+    DrumLibrary.Entry kick = DrumLibrary.find(new File(kit, "Kick 01.wav").getAbsolutePath()), hat = DrumLibrary.find(new File(kit, "closed hat.wav").getAbsolutePath());
+    out.append(String.format(java.util.Locale.ROOT, "kick: %s, pitch %.0f Hz, bright %.0f Hz; hat: %s, bright %.0f Hz%n", kick.state, kick.measures[5], kick.measures[6], hat.state, hat.measures[6]));
+    javax.swing.JMenuItem tree = item.apply(2, "tree");
+    chooseNext = kit;
+    edt(() -> tree.doClick());
+    Thread.sleep(300);
+    t = DrumLibraryWindow.analyzing;
+    if (t != null) t.join(120000);
+    Thread.sleep(300);
+    out.append("snare pad, with subfolders: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    DrumLibraryWindow.lastSaid = "";
+    answers.add("(keep)");
+    javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
+    edt(() -> {
+      javax.swing.JButton fileTab = null;
+      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      fileTab.doClick();
+    });
+    Thread.sleep(300);
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        java.awt.Component c = component(w, "file-drum-library");
+        if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
+      }
+      ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
+      found[0].doClick();
+    });
+    Thread.sleep(400);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    @SuppressWarnings("unchecked")
+    final javax.swing.JComboBox<String> part = (javax.swing.JComboBox<String>) component(w, "library-part");
+    StringBuilder parts = new StringBuilder();
+    for (int i = 0; i < part.getItemCount(); i++) if (!part.getItemAt(i).endsWith("(0)")) parts.append(parts.length() == 0 ? "" : ", ").append(part.getItemAt(i));
+    out.append("window parts: ").append(parts).append('\n');
+    edt(() -> {
+      part.setSelectedIndex(1);
+      ((javax.swing.JComboBox<?>) component(w, "library-sort")).setSelectedIndex(6);
+    });
+    StringBuilder kicks = new StringBuilder();
+    for (java.awt.Component c : ((javax.swing.JPanel) component(w, "library-rows")).getComponents()) if (c.getName() != null) kicks.append(c.getName().replace("library-row:", "")).append(", ");
+    out.append("kicks by pitch: ").append(kicks).append('\n');
+    DrumLibrary.Entry perc = DrumLibrary.find(new File(kit, "Perc.wav").getAbsolutePath());
+    DrumLibrary.move(perc, "clap");
+    edt(() -> ((javax.swing.JButton) component(w, "library-remove:Kick 02.wav")).doClick());
+    Files.delete(new File(kit, "snare 2.wav").toPath());
+    edt(() -> ((javax.swing.JButton) component(w, "library-again:Kick 01.wav")).doClick());
+    DrumLibrary.find(new File(kit, "snare 2.wav").getAbsolutePath()).state = DrumLibrary.WAITING;
+    DrumLibraryWindow.analyze(app);
+    for (int i = 0; i < 100 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    DrumLibrary.Entry snare = DrumLibrary.find(new File(kit, "snare 2.wav").getAbsolutePath());
+    out.append("snare gone: ").append(snare.state).append(" (").append(snare.said).append("); Kick 02 file kept ").append(new File(kit, "more/Kick 02.wav").isFile()).append('\n');
+    edt(() -> w.dispose());
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibrary.open(PromptDb.dir());
+    StringBuilder kept = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) kept.append(e.name).append(" (").append(DrumLibrary.label(e.part)).append(", ").append(e.state).append(") ");
+    out.append("kept: ").append(kept.toString().trim()).append('\n');
+    String text = out.toString(), ls = lines.toString();
+    boolean ok = folder != null && text.contains("added: Analyzed 5 sounds: 5 ready") && ls.contains("Kick · Kick 01.wav ·") && ls.contains("Kick · Perc.wav ·")
+        && ls.contains("Snare · snare 2.wav (by name: Snare)") && ls.contains("Closed hat · closed hat.wav (by name: Closed hat)") && ls.contains("Ride bell · ride bell 3.wav (by name: Ride bell)")
+        && "ready".equals(kick.state) && Math.abs(kick.measures[5] - 55) <= 3 && hat.measures[6] > 4 * kick.measures[6] && text.contains("snare pad, with subfolders: Analyzed 1 sound: 1 ready")
+        && DrumLibrary.find(new File(kit, "more/Kick 02.wav").getAbsolutePath()) == null && text.contains("window parts: All parts (6, 6 ready), Kick (3, 3 ready)")
+        && text.contains("kicks by pitch: Kick 02.wav, Kick 01.wav, Perc.wav,") && text.contains("snare gone: missing (the file is gone); Kick 02 file kept true")
+        && text.contains("Perc.wav (Clap, ready)") && text.contains("Kick 01.wav (Kick, ready)");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
    * DrumMidi with a kit profile whose open hat and crash sound alike (Riot's learned cymbals): its crash
    * peaks would be the open hats, so it takes crashes only from the dark and ridden passes and says so;
    * a profile whose crash sounds unlike its open hat keeps the crash peaks.

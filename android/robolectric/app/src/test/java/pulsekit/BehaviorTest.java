@@ -13538,6 +13538,112 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Batch F: the drum sound library on the phone. A pad's long-press menu has "Add sounds to the
+   * library…" with its sources; a folder's sounds go to the pad's part or the part their names say;
+   * DrumMidi measures them (--sounds; here the jar run on the computer) and they are ready; File > Drum
+   * sound library lists the parts and a part's sounds with their measures; ✕ takes one out; a file gone
+   * is missing when measured again; the library is kept.
+   */
+  @Test
+  public void s246_drum_library() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    final File jar = new File("../../../Programs/Java/DrumMidi_CRT.jar").getAbsoluteFile();
+    DrumLibrary.runner = argv -> {
+      try {
+        List<String> cmd = new ArrayList<String>(java.util.Arrays.asList(new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath(), "-cp", jar.getPath(), "DrumMidi_CRT"));
+        cmd.addAll(argv);
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        java.io.InputStream in = p.getInputStream();
+        byte[] b = new byte[8192];
+        for (int n; (n = in.read(b)) > 0;) bo.write(b, 0, n);
+        String log = new String(bo.toByteArray(), StandardCharsets.UTF_8);
+        return new JavaRun.Result(log, new ArrayList<JavaRun.FileOut>(), p.waitFor());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    try {
+      File dir = new File(app.getCacheDir(), "kit sounds");
+      dir.mkdirs();
+      int sr = 44100;
+      short[] kick = new short[sr / 2], hat = new short[sr / 4];
+      java.util.Random rng = new java.util.Random(3);
+      for (int i = 0; i < kick.length; i++) kick[i] = (short) (20000 * Math.sin(2 * Math.PI * 60 * i / sr) * Math.exp(-i * 9.0 / sr));
+      double prev = 0;
+      for (int i = 0; i < hat.length; i++) {
+        double v = rng.nextGaussian();
+        hat[i] = (short) (6000 * (v - prev) * Math.exp(-i * 60.0 / sr));
+        prev = v;
+      }
+      Files.write(new File(dir, "BD 01.wav").toPath(), AudioIo.encodeWav(kick, sr));
+      Files.write(new File(dir, "hihat closed.wav").toPath(), AudioIo.encodeWav(hat, sr));
+      Files.write(new File(dir, "Thing.wav").toPath(), AudioIo.encodeWav(kick, sr));
+      call("show", "pads");
+      idle();
+      app.playback.showPadMenu(0);
+      idle();
+      AlertDialog menu = (AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < menu.getListView().getCount(); i++) items.append(i == 0 ? "" : " | ").append(menu.getListView().getItemAtPosition(i));
+      out.append("pad menu: ").append(items).append('\n');
+      org.robolectric.Shadows.shadowOf(menu.getListView()).performItemClick(java.util.Arrays.asList(items.toString().split(" \\| ")).indexOf(DrumLibrary.ADD));
+      idle();
+      AlertDialog kinds = (AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      StringBuilder ks = new StringBuilder();
+      for (int i = 0; i < kinds.getListView().getCount(); i++) ks.append(i == 0 ? "" : " | ").append(kinds.getListView().getItemAtPosition(i));
+      out.append("sources: ").append(ks).append('\n');
+      kinds.dismiss();
+      DrumLibraryScreen.open(app);
+      out.append("added: ").append(DrumLibrary.addFiles(DrumLibrary.soundFiles(dir, false), DrumLibrary.partOfPad(0), "folder")).append('\n');
+      DrumLibraryScreen.analyze(app);
+      Thread t = DrumLibraryScreen.analyzing;
+      if (t != null) t.join(120000);
+      idle();
+      out.append("analysis: ").append(DrumLibraryScreen.lastSaid).append('\n');
+      DrumLibrary.Entry bd = DrumLibrary.find(new File(dir, "BD 01.wav").getAbsolutePath()), hh = DrumLibrary.find(new File(dir, "hihat closed.wav").getAbsolutePath());
+      out.append(String.format(java.util.Locale.ROOT, "BD 01: %s, %s, pitch %.0f Hz | hihat closed: %s, %s, bright %.0f Hz%n", DrumLibrary.label(bd.part), bd.state, bd.measures[5],
+          DrumLibrary.label(hh.part), hh.state, hh.measures[6]));
+      findText(root(), "File").performClick();
+      idle();
+      android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+      pop.getContentView().findViewWithTag("file-drum-library").performClick();
+      idle();
+      View w = DrumLibraryScreen.last.getWindow().getDecorView();
+      android.widget.Spinner part = (android.widget.Spinner) w.findViewWithTag("library-part");
+      out.append("screen: ").append(part.getItemAtPosition(0)).append(" / ").append(part.getItemAtPosition(1)).append(" / ").append(part.getItemAtPosition(6)).append('\n');
+      w.findViewWithTag("library-remove:Thing.wav").performClick();
+      idle();
+      new File(dir, "BD 01.wav").delete();
+      DrumLibraryScreen.last.getWindow().getDecorView().findViewWithTag("library-again:BD 01.wav").performClick();
+      t = DrumLibraryScreen.analyzing;
+      if (t != null) t.join(120000);
+      idle();
+      out.append("gone: ").append(bd.state).append(" (").append(bd.said).append("), Thing.wav taken out, file kept ").append(new File(dir, "Thing.wav").isFile()).append('\n');
+      DrumLibraryScreen.last.dismiss();
+      idle();
+      DrumLibrary.entries.clear();
+      DrumLibrary.dir = null;
+      DrumLibraryScreen.open(app);
+      StringBuilder kept = new StringBuilder();
+      for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) kept.append(e.name).append(" (").append(DrumLibrary.label(e.part)).append(", ").append(e.state).append(") ");
+      out.append("kept: ").append(kept.toString().trim()).append('\n');
+      write("s246_drum_library", out.toString());
+      String text = out.toString();
+      boolean ok = text.contains(DrumLibrary.ADD) && text.contains("sources: A sound file | A folder of sounds | A folder with its subfolders | From the DB")
+          && text.contains("added: Added 3 sounds to Kick (1 to other parts by their names)") && text.contains("analysis: Analyzed 3 sounds: 3 ready")
+          && Math.abs(bd.measures[5] - 60) <= 3 && hh.measures[6] > 3000 && "Closed hat".equals(DrumLibrary.label(hh.part))
+          && text.contains("screen: All parts (3, 3 ready) / Kick (2, 2 ready)") && text.contains("gone: missing (the file is gone), Thing.wav taken out, file kept true")
+          && text.contains("kept: BD 01.wav (Kick, missing) hihat closed.wav (Closed hat, ready)");
+      if (!ok) throw new AssertionError(text);
+    } finally {
+      DrumLibrary.runner = null;
+    }
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();

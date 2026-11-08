@@ -841,6 +841,11 @@ public class MainActivity extends UiKit {
             }
             return;
         }
+        if (n == DrumLibraryScreen.PICK_FILE || n == DrumLibraryScreen.PICK_FOLDER || n == DrumLibraryScreen.PICK_TREE) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) DrumLibraryScreen.picked(this, n, intent.getData());
+            return;
+        }
         if (n == PluginBrowser.PICK_KIT_FOLDER) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) PluginBrowser.folderPicked(this, intent.getData());
@@ -1312,6 +1317,11 @@ public class MainActivity extends UiKit {
         logs.setTextColor(FG);
         logs.setTag("file-logs");
         // AudioMixer: tracks mixed into one (also in PyJav's Java list).
+        // The drum sound library: links to drum sounds, by part, measured.
+        android.widget.TextView library = this.text(DrumLibrary.TITLE, 14, true);
+        library.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        library.setTextColor(FG);
+        library.setTag("file-drum-library");
         android.widget.TextView mixer = this.text(AudioMix.TITLE, 14, true);
         mixer.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         mixer.setTextColor(FG);
@@ -1351,6 +1361,7 @@ public class MainActivity extends UiKit {
         menu.addView(downloads);
         menu.addView(logs);
         menu.addView(mixer);
+        menu.addView(library);
         menu.addView(sound);
         menu.addView(backup);
         menu.addView(playlists);
@@ -1410,6 +1421,10 @@ public class MainActivity extends UiKit {
         sound.setOnClickListener(v -> {
             pop.dismiss();
             SoundDevicesScreen.show(this);
+        });
+        library.setOnClickListener(v -> {
+            pop.dismiss();
+            DrumLibraryScreen.show(this);
         });
         mixer.setOnClickListener(v -> {
             pop.dismiss();

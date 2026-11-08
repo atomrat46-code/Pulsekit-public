@@ -724,6 +724,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem mixer = new JMenuItem(AudioMix.TITLE);
             mixer.setName("file-audiomixer");
             mixer.addActionListener(e -> AudioMixerWindow.show(this));
+            // The drum sound library: links to drum sounds, by part, measured.
+            JMenuItem library = new JMenuItem(DrumLibrary.TITLE);
+            library.setName("file-drum-library");
+            library.addActionListener(e -> DrumLibraryWindow.show(this));
             JMenuItem sound = new JMenuItem("Sound devices");
             sound.setName("file-sound-devices");
             sound.addActionListener(e -> SoundDevicesScreen.show(this));
@@ -760,6 +764,7 @@ public final class Pulsekit extends UiKit {
             menu.add(downloads);
             menu.add(logs);
             menu.add(mixer);
+            menu.add(library);
             menu.add(sound);
             menu.add(backup);
             menu.add(playlists);

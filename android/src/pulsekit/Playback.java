@@ -687,6 +687,8 @@ final class Playback {
                 arrayList.add("Remove sample");
             }
         }
+        // The drum sound library: sounds for this pad's part.
+        arrayList.add(DrumLibrary.ADD);
         CharSequence[] charSequenceArray = arrayList.toArray(new String[0]);
         new AlertDialog.Builder((Context)app).setItems(charSequenceArray, (arg_0, arg_1) -> this.showPadMenuAction147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).setNegativeButton("Cancel", null).show();
     }
@@ -744,6 +746,8 @@ final class Playback {
             drumSet.matchOrig[n] = false;
             this.refreshPadLabels();
             Toast.makeText((Context)app, (CharSequence)(Engine.TRACK_LABEL[n] + " \u00b7 this set"), (int)0).show();
+        } else if (DrumLibrary.ADD.equals(string)) {
+            DrumLibraryScreen.addMenu(app, n);
         } else if ("Remove sample".equals(string)) {
             Object object = app.mixLock;
             synchronized (object) {

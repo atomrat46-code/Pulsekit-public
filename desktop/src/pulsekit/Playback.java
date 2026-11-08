@@ -667,6 +667,9 @@ final class Playback {
                 m.add(clear);
             }
         }
+        // The drum sound library: sounds for this pad's part.
+        m.addSeparator();
+        m.add(DrumLibraryWindow.padMenu(app, t));
         MenuCancel.add(m);
         return m;
     }

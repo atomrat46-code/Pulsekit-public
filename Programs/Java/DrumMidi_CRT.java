@@ -640,6 +640,15 @@ public class DrumMidi_CRT{
             KitProfile.learn(new File(args[1]), new File(args[2]), new File(args[3]));
             return;
         }
+        // --sounds <list.txt> <out.txt>: each drum sound listed measured (Pulsekit's drum sound library).
+        if (args.length > 0 && "--sounds".equals(args[0])) {
+            if (args.length < 3) {
+                finish("Failed: --sounds needs a list of sound files (one a line) and the file to write the measures to");
+                return;
+            }
+            Sounds.measure(new File(args[1]), new File(args[2]));
+            return;
+        }
         List<String> rest = new ArrayList<String>();
         for (int i = 0; i < args.length; i++) {
             String a = args[i] == null ? "" : args[i].trim();
@@ -1490,6 +1499,139 @@ public class DrumMidi_CRT{
 
     static int u32(byte[] b, int i) {
         return (b[i] & 255) | ((b[i + 1] & 255) << 8) | ((b[i + 2] & 255) << 16) | ((b[i + 3] & 255) << 24);
+    }
+
+    /**
+     * --sounds: drum sounds measured one by one (Pulsekit's drum sound library). Each line of the list is
+     * a sound file (WAV, or MP3 in the jar); each line written is its path, then "ok" and its measures,
+     * tab-separated: length, peak (dBFS), attack (ms to the loudest 5 ms), decay to -20 and -40 dB of
+     * that (ms), the strongest pitch at 25-400 Hz in its first 150 ms (a kick's or tom's), the brightness
+     * (spectral centre of its first 100 ms, Hz), the kit profile's spectrum (KIT_BANDS at 40-800 Hz, as
+     * --learn-kit reads a kick or tom) and the cymbal look (cymFeature: CYM_BANDS at 2.5-16 kHz, its fade
+     * and level), each comma-separated; or "fail" and why. All from where the sound starts.
+     */
+    static final class Sounds {
+        private Sounds() {}
+
+        static void measure(File list, File out) throws Exception {
+            List<String> lines = new ArrayList<String>();
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(list), "UTF-8"));
+            try {
+                for (String line; (line = r.readLine()) != null; ) if (line.trim().length() > 0) lines.add(line.trim());
+            } finally {
+                r.close();
+            }
+            StringBuilder sb = new StringBuilder();
+            int ok = 0;
+            for (String path : lines) {
+                String row;
+                try {
+                    row = path + "\tok\t" + one(new File(path));
+                    ok++;
+                } catch (Throwable ex) {
+                    row = path + "\tfail\t" + String.valueOf(ex.getMessage() == null ? ex.toString() : ex.getMessage()).replace('\t', ' ').replace('\n', ' ');
+                }
+                sb.append(row).append('\n');
+            }
+            java.io.Writer w = new java.io.OutputStreamWriter(new FileOutputStream(out), "UTF-8");
+            try {
+                w.write(sb.toString());
+            } finally {
+                w.close();
+            }
+            finish("Measured " + ok + " of " + lines.size() + " sounds: " + out.getName());
+        }
+
+        static String one(File f) throws Exception {
+            Audio a = readAudio(f);
+            double sr = a.sampleRate;
+            double[] x = a.samples;
+            int win = Math.max(1, (int) Math.round(0.005 * sr));
+            int nw = x.length / win;
+            if (nw < 2) throw new IllegalArgumentException("too short");
+            double[] env = new double[nw];
+            double top = 0;
+            int topAt = 0;
+            for (int w = 0; w < nw; w++) {
+                double s = 0;
+                for (int i = w * win; i < (w + 1) * win; i++) s += x[i] * x[i];
+                env[w] = Math.sqrt(s / win);
+                if (env[w] > top) {
+                    top = env[w];
+                    topAt = w;
+                }
+            }
+            if (top < 1e-6) throw new IllegalArgumentException("silent");
+            int start = 0;
+            while (start < topAt && env[start] < top * 0.01) start++;
+            double peak = 0;
+            for (double v : x) peak = Math.max(peak, Math.abs(v));
+            int d20 = -1, d40 = -1;
+            for (int w = nw - 1; w > topAt; w--) {
+                if (d40 < 0 && env[w] >= top * 0.01) d40 = w;
+                if (d20 < 0 && env[w] >= top * 0.1) d20 = w;
+            }
+            double ms = 1000.0 * win / sr;
+            double t0 = start * win / sr;
+            // Room after the sound for the windows the profile reads.
+            double[] padded = java.util.Arrays.copyOf(x, x.length + (int) sr);
+            double[] spec = KitProfile.spectrum(padded, sr, t0);
+            double[] look = cymFeature(padded, sr, t0, false);
+            StringBuilder sb = new StringBuilder();
+            sb.append(fmt(x.length * 1000.0 / sr)).append('\t').append(fmt(20 * Math.log10(peak))).append('\t').append(fmt((topAt - start) * ms)).append('\t')
+                .append(fmt(d20 < 0 ? 0 : (d20 - topAt + 1) * ms)).append('\t').append(fmt(d40 < 0 ? 0 : (d40 - topAt + 1) * ms)).append('\t')
+                .append(fmt(pitch(x, sr, start * win))).append('\t').append(fmt(bright(x, sr, start * win))).append('\t');
+            for (int k = 0; k < KIT_BANDS; k++) sb.append(k == 0 ? "" : ",").append(spec == null ? "0" : fmt(spec[k]));
+            sb.append('\t');
+            for (int k = 0; k < CYM_BANDS + 2; k++) sb.append(k == 0 ? "" : ",").append(look == null ? "0" : fmt(look[k]));
+            return sb.toString();
+        }
+
+        /** The strongest frequency at 25-400 Hz (1 Hz steps) in the first 150 ms (Hann window). */
+        static double pitch(double[] x, double sr, int from) {
+            int n = Math.min(x.length - from, (int) (0.15 * sr));
+            if (n < 64) return 0;
+            double best = 0, at = 0;
+            for (int hz = 25; hz <= 400; hz++) {
+                double w = 2 * Math.PI * hz / sr, c = Math.cos(w), sn = Math.sin(w), re = 0, im = 0, cr = 1, ci = 0;
+                for (int i = 0; i < n; i++) {
+                    double v = x[from + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)));
+                    re += v * cr;
+                    im -= v * ci;
+                    double t = cr * c - ci * sn;
+                    ci = cr * sn + ci * c;
+                    cr = t;
+                }
+                double m = re * re + im * im;
+                if (m > best) {
+                    best = m;
+                    at = hz;
+                }
+            }
+            return at;
+        }
+
+        /** The spectral centre (Hz) of the first 100 ms. */
+        static double bright(double[] x, double sr, int from) {
+            int n = Math.min(x.length - from, (int) (0.1 * sr));
+            if (n < 64) return 0;
+            double[] part = java.util.Arrays.copyOfRange(x, from, from + Math.max(n, FFT_SIZE * 2));
+            float[][] mag = spectrogram(part, sr);
+            double num = 0, den = 0;
+            int frames = Math.max(1, Math.min(mag.length, n / HOP + 1));
+            for (int f = 0; f < frames; f++) {
+                for (int b = 1; b < mag[f].length; b++) {
+                    double hz = b * sr / FFT_SIZE;
+                    num += hz * mag[f][b];
+                    den += mag[f][b];
+                }
+            }
+            return den <= 0 ? 0 : num / den;
+        }
+
+        static String fmt(double v) {
+            return String.format(java.util.Locale.ROOT, "%.4g", v);
+        }
     }
 
     static float[][] spectrogram(double[] x, double sr) {
