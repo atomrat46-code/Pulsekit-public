@@ -3382,11 +3382,13 @@ final class PyJav {
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
-                                // It did not open (a 32-bit plugin without Carla, not a plugin...): why, in a window.
+                                // What it came to, always in a window: why it did not open (a 32-bit plugin without Carla,
+                                // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
                                 pluginTestSaid = failed == null ? "" : failed;
-                                if (failed != null && !pluginTestQuiet)
-                                    JOptionPane.showMessageDialog(editSettings, failed + "\n\n" + PluginsList.summary(log), "Edit settings \u00b7 " + plug.getName(), JOptionPane.WARNING_MESSAGE);
+                                if (!pluginTestQuiet)
+                                    JOptionPane.showMessageDialog(editSettings, PluginsList.result(plug, true, log), "Edit settings \u00b7 " + plug.getName(),
+                                        failed != null ? JOptionPane.WARNING_MESSAGE : JOptionPane.PLAIN_MESSAGE);
                             });
                         });
                         picks.add(editSettings);

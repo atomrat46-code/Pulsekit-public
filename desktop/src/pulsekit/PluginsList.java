@@ -493,7 +493,7 @@ final class PluginsList {
         for (String l : log.split("\n")) {
             String t = l.trim();
             if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.contains("is a 32-bit VST2") || t.startsWith("32-bit plugin:") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
-                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
+                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Note:") || t.startsWith("Carla project:") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
         }
         return b.length() == 0 ? log.trim() : b.toString().trim();
     }

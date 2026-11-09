@@ -9865,6 +9865,59 @@ public final class DesktopBehavior {
    * bridge (vst_render finds the rack in Pulsekit's plugin folders too); without Carla it says so; a .dll
    * that is no plugin is said so; the Params' notices and Test's verdict say the same.
    */
+  /**
+   * v402: a 32-bit plugin's Edit settings opens Carla's own program (found beside its rack, Carla.vst's
+   * parent) with a project holding the plugin; the project saved there is the plugin's settings for later
+   * runs. A --map without --test or --check is left out, not refused (the Plugins tab's Test gives it).
+   */
+  void s240_bridged_edit_in_carla() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "carla-edit");
+    File vst = new File(dir, "Carla-2.4.1-win64/Carla/Carla.vst");
+    vst.mkdirs();
+    Files.write(new File(vst, "CarlaVstShell.dll").toPath(), new byte[] {1});
+    // Carla's program: here a script that saves the project it is given with the plugin's chunk in it.
+    File app = new File(dir, "Carla-2.4.1-win64/Carla/carla");
+    Files.write(app.toPath(), ("#!/bin/sh\nsleep 0.2\nsed -i 's#<Active>Yes</Active>#<Active>Yes</Active><Chunk>KIT</Chunk>#' \"$1\"\n").getBytes(StandardCharsets.UTF_8));
+    app.setExecutable(true);
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Old32.dll").toPath(), new byte[] {1});
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; os.environ['HOME'] = sys.argv[3]; os.environ['USERPROFILE'] = sys.argv[3]\n"
+        + "rack = os.path.join(d, 'Carla-2.4.1-win64', 'Carla', 'Carla.vst', 'CarlaVstShell.dll')\n"
+        + "print('app: %s' % os.path.relpath(vr.carla_app(rack), d))\n"
+        + "plug = os.path.join(d, 'Old32.dll')\n"
+        + "print('project: %s' % os.path.relpath(vr.bridged_project(plug), sys.argv[3]))\n"
+        + "kept = vr.carla_edit(plug, rack)\n"
+        + "text = open(kept).read()\n"
+        + "print('saved: chunk %s, binary %s' % ('<Chunk>KIT</Chunk>' in text, plug in text))\n"
+        + "print('load time kept: %s' % os.path.isfile(vr.state_home(plug) + '.load'))\n"
+        + "try:\n"
+        + "    vr.carla_edit(plug, os.path.join(d, 'nowhere', 'CarlaVstShell.dll'))\n"
+        + "except SystemExit as e:\n"
+        + "    pass\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), System.getProperty("user.home")));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replace(dir.getAbsolutePath(), "~")).append('\n');
+    // A render without --test: the map is left out with a line saying so.
+    java.util.List<String> noTest = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    noTest.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map", "45=46"));
+    String run = PythonRun.runFor(noTest, 60, null).trim();
+    this.out.append("without --test: ").append(run).append('\n');
+    this.out.append("notice: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), new File(vst, "CarlaVstShell.dll")).replace(dir.getAbsolutePath(), "~")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("app: Carla-2.4.1-win64/Carla/carla") && all.contains("project: .pulsekit/vst/Old32.carxp")
+        && all.contains("Old32.dll's window opens in Carla") && all.contains("saved: chunk True, binary True") && all.contains("load time kept: True")
+        && all.contains("Wrote Plugin settings: ") && all.contains("Kit load time: ")
+        && all.contains("Failed: Carla's program (Carla.exe) was not found beside")
+        && all.contains("Map: left out (--map is for --test and --check") && !all.contains("Failed: --map is for --test")
+        && all.contains("Edit settings opens it in Carla's own program");
+    if (!ok) throw new AssertionError(all);
+  }
+
   void s239_dll_plugins() throws Exception {
     File dir = new File(System.getProperty("user.home"), "dll-test");
     File carla = new File(dir, "Apps/Carla");

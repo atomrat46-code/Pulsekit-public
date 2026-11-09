@@ -379,6 +379,85 @@ def bridged_state(proc, path):
     return "32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(path)
 
 
+def bridged_project(path):
+    """Where a 32-bit plugin's settings are kept: the Carla project Edit settings saves in Carla (~/.pulsekit/vst/<name>.carxp)."""
+    return os.path.splitext(state_home(path))[0] + ".carxp"
+
+
+def carla_app(rack):
+    """Carla's own program beside its rack plugin (Carla.exe on Windows: the Carla.vst folder's parent); None when there is none."""
+    names = ("Carla.exe", "carla.exe", "Carla", "carla")
+    here = os.path.dirname(os.path.abspath(rack)) if rack else ""
+    for _ in range(4):
+        if not here:
+            break
+        for n in names:
+            full = os.path.join(here, n)
+            if os.path.isfile(full):
+                return full
+        mac = os.path.join(here, "Carla.app", "Contents", "MacOS", "Carla")
+        if os.path.isfile(mac):
+            return mac
+        up = os.path.dirname(here)
+        if up == here:
+            break
+        here = up
+    for d in (r"C:\Program Files\Carla", r"C:\Program Files (x86)\Carla", "/usr/bin", "/usr/local/bin", "/Applications/Carla.app/Contents/MacOS"):
+        for n in names:
+            if os.path.isfile(os.path.join(d, n)):
+                return os.path.join(d, n)
+    return None
+
+
+def carla_edit(path, rack):
+    """Edit settings for a 32-bit plugin: Carla's own program opens with it (its 32-bit bridge); the kit is set
+    there and the project saved; returns the project, which later runs load into the rack."""
+    import subprocess
+    import time
+    project = bridged_project(path)
+    folder = os.path.dirname(project)
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    if not os.path.isfile(project) or "<Plugin>" not in open(project, encoding="utf-8", errors="replace").read():
+        with open(project, "w", encoding="utf-8") as f:
+            f.write("<?xml version='1.0' encoding='UTF-8'?>\n<!DOCTYPE CARLA-PROJECT>\n<CARLA-PROJECT VERSION='2.4'>\n "
+                    + bridged_carla_plugin(path) + "\n</CARLA-PROJECT>\n")
+    app = carla_app(rack)
+    if not app:
+        fail("Carla's program (Carla.exe) was not found beside %s: a 32-bit plugin's own window opens in Carla. Open Carla, "
+             "open the project %s (the plugin is in it), load the kit, save the project and close Carla; then Test."
+             % (rack, project))
+    print("Plugin: %s's window opens in Carla (%s): double-click %s in Carla's rack for its window, load a kit or patch, "
+          "then save the project (Ctrl+S: %s) and close Carla." % (os.path.basename(path), app, stem(path), project))
+    print("Plugin's window is open in Carla; press Stop timer in Pulsekit when the kit has loaded.")
+    sys.stdout.flush()
+    started = time.time()
+    before = os.path.getmtime(project)
+    timer_file = os.environ.get("PULSEKIT_TIMER_FILE")
+    stopped = None
+    try:
+        proc = subprocess.Popen([app, os.path.abspath(project)], cwd=os.path.dirname(app))
+    except OSError as e:
+        fail("Carla (%s) did not start: %s" % (app, e))
+    while proc.poll() is None:
+        if stopped is None and timer_file and os.path.exists(timer_file):
+            stopped = time.time()
+            print("Timer stopped: %.1f s" % (stopped - started))
+            sys.stdout.flush()
+        time.sleep(0.2)
+    took = (stopped or time.time()) - started
+    if os.path.getmtime(project) == before:
+        print("Note: the project was not saved in Carla (Ctrl+S before closing): the plugin plays as it starts, without the kit set there.")
+    text = open(project, encoding="utf-8", errors="replace").read()
+    if "<Plugin>" not in text:
+        fail("the project %s has no plugin now: open %s in Carla, save the project with it and try again" % (project, os.path.basename(path)))
+    with open(os.path.splitext(state_home(path))[0] + ".state.load", "w") as f:
+        f.write("%.1f\n" % took)
+    print("Wrote Plugin settings: %s (Carla project)" % project)
+    print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if stopped else "until Carla closed"))
+    return project
+
+
 def pulsekit_plugin_folders():
     """The plugin folders set in Pulsekit (vst_render's Params, Plugins tab: Plugin folders), that exist."""
     path = os.path.join(os.path.expanduser("~"), ".pulsekit", "plugin-folders.txt")
@@ -1721,7 +1800,8 @@ def silent_note(note, gizmo, carla):
     if note and gizmo and note.startswith("the render is silent"):
         return "the render is silent. Does the MIDI map play this kit's drums with the MIDI's notes (--midimap)?"
     if note and carla and note.startswith("the render is silent"):
-        return "the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again."
+        return ("the render is silent. Does the plugin need a kit loaded? Load it in Carla and save the project again (for a 32-bit plugin: "
+                "Edit settings opens it in Carla). Is Carla's 32-bit bridge (carla-bridge-win32.exe) beside Carla?")
     return note
 
 
@@ -1759,8 +1839,17 @@ class Chain(object):
         print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
         clap = opts.get("--clap") or opts.get("--bridged")
         put = (lambda: bridged_state(self.main, clap)) if opts.get("--bridged") else (lambda: clap_state(self.main, clap, opts.get("--clap_id")))
+        bridged = opts.get("--bridged")
         if opts["--carla"]:
             print(carla_state(self.main, opts["--carla"]))
+        elif bridged and "--edit" in switches:
+            # A 32-bit plugin's window: in Carla's own program (the rack plugin has no window of its own on Windows).
+            print(carla_state(self.main, carla_edit(bridged, self.plugin)))
+            print("32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(bridged))
+        elif bridged and os.path.isfile(bridged_project(bridged)):
+            # Its settings: the Carla project saved in Edit settings (its kit with it).
+            print(carla_state(self.main, bridged_project(bridged)))
+            print("32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(bridged))
         elif clap and "--edit" in switches:
             # The rack with the plugin in it; its settings are saved under the CLAP's name.
             print(put())
@@ -2401,7 +2490,8 @@ def main(argv):
     if not (opts["--kit_name"] or "").strip() and (opts["--plugin"] or opts["--clap"]) and not opts["--carla"] and not opts["--drumgizmo"]:
         # A CLAP or bridged plugin's settings are kept under its own name (not the rack's).
         plug = opts["--clap"] or opts.get("--bridged") or opts["--plugin"]
-        opts["--kit_name"] = "saved kit" if opts["--state"] or os.path.isfile(state_home(plug)) else "default kit"
+        saved = os.path.isfile(state_home(plug)) or (opts.get("--bridged") and os.path.isfile(bridged_project(plug)))
+        opts["--kit_name"] = "saved kit" if opts["--state"] or saved else "default kit"
         print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
     elif opts["--kit_name"]:
         print("Kit: %s (--kit_name)" % opts["--kit_name"])
@@ -2421,9 +2511,11 @@ def main(argv):
         if known:
             opts["--map"] = known
             print("Map: drum-kits.txt, section [%s] (no --map given; --no-map leaves it out)" % part)
+    if opts["--map"] and not test and "--check" not in switches:
+        # The map says what the plugin plays for a --test's notes: a render without a test has no use for it.
+        print("Map: left out (--map is for --test and --check: what the plugin plays for the MIDI's notes)")
+        opts["--map"] = None
     if opts["--map"]:
-        if not test:
-            fail("--map is for --test: what the plugin plays for the MIDI's notes")
         try:
             nmap, map_part = map_for(map_file(opts["--map"]), name)
         except (ValueError, OSError) as e:
@@ -2565,7 +2657,7 @@ def main(argv):
                 print("Plugin check: it plays after %.0f s" % waited)
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
-                 % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"])))
+                 % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"] or opts.get("--bridged"))))
         peak = float(np.max(np.abs(check_audio)))
         print("Plugin check: the test beat plays (peak %.1f dBFS)" % (20 * np.log10(max(peak, 1e-9))))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
@@ -2659,7 +2751,7 @@ def main(argv):
         if opts["--wav"]:
             print("Input: %s, %.1f s" % (os.path.basename(source), length))
         audio, note = finish(np, audio, volume)
-        note = silent_note(note, gizmo, opts["--carla"])
+        note = silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"))
         if note:
             print("Note: " + note)
         if not out:
@@ -2712,7 +2804,7 @@ def main(argv):
             if note and note.startswith("the render is silent"):
                 # Nothing to test or keep: the MIDI's notes are ones this kit does not play.
                 silent += 1
-                print("Skipped %s: %s" % (rel(m), silent_note(note, gizmo, opts["--carla"])))
+                print("Skipped %s: %s" % (rel(m), silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"))))
                 if silent >= SILENT_STOP and rendered == 0:
                     print("Stopped: the first %d renders are silent. Load a kit or patch the MIDI's notes play (--edit), "
                           "check the plugin (--check), or give a --map" % silent)

@@ -97,7 +97,7 @@ public final class DllInfo {
   /** A 32-bit plugin's notice: how it plays, and whether Carla's rack is there for it. */
   public static String bridgedNote(File plugin, File rack) {
     return plugin.getName() + " is a 32-bit VST2 plugin. vst_render runs 64-bit, so it plays it in Carla's rack, through Carla's 32-bit bridge"
-        + (rack != null ? " (Carla-Rack: " + rack.getPath() + "). Edit settings opens the rack: double-click the plugin there for its own window."
+        + (rack != null ? " (Carla-Rack: " + rack.getPath() + "). Edit settings opens it in Carla's own program: double-click the plugin there for its own window, load the kit, save the project (Ctrl+S) and close Carla."
             : ".\nCarla-Rack was not found: install Carla (free at kx.studio/carla, with its 32-bit bridge), or add the folder Carla is in to Plugin folders.");
   }
 
