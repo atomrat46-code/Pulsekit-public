@@ -9896,6 +9896,17 @@ public final class DesktopBehavior {
         + "text = open(kept).read()\n"
         + "print('saved: chunk %s, binary %s' % ('<Chunk>KIT</Chunk>' in text, plug in text))\n"
         + "print('load time kept: %s' % os.path.isfile(vr.state_home(plug) + '.load'))\n"
+        // Which notes sound: a plugin with its pads on other notes (DigiDrum: 48 to 51 only).
+        + "import numpy as np\n"
+        + "audio = np.zeros((2, 44100 * 26))\n"
+        + "for t, n, v, tag in vr.kit_events():\n"
+        + "    if tag == '' and n >= 48: audio[:, int(t * 44100):int(t * 44100) + 2000] = 0.5\n"
+        + "h, s = vr.notes_heard(np, audio, 44100, [(t, n) for t, n, v, tag in vr.kit_events() if tag == ''])\n"
+        + "print('notes: %s heard; %s silent' % (vr.note_list(h), vr.note_list(s)))\n"
+        // A Carla project's plugins named by their own names, not their parameters'.
+        + "proj = os.path.join(d, 'p.carxp'); open(proj, 'w').write('<CARLA-PROJECT><Plugin><Info><Type>VST2</Type><Name>Digi</Name></Info><Data><Parameter><Name>Gain</Name></Parameter></Data></Plugin></CARLA-PROJECT>')\n"
+        + "vr.rack_load = lambda proc, plugins, missing: None\n"
+        + "print(vr.carla_state(None, proj))\n"
         + "try:\n"
         + "    vr.carla_edit(plug, '/nonexistent/a/b/CarlaVstShell.dll')\n"
         + "except SystemExit as e:\n"
@@ -9916,7 +9927,9 @@ public final class DesktopBehavior {
         && all.contains("Wrote Plugin settings: ") && all.contains("Kit load time: ")
         && all.contains("Failed: Carla's program (Carla.exe) was not found beside")
         && all.contains("Map: left out (--map is for --test and --check") && !all.contains("Failed: --map is for --test")
-        && all.contains("Edit settings opens it in Carla's own program");
+        && all.contains("Edit settings opens it in Carla's own program")
+        && all.contains("notes: 48-51 heard; 36, 41-43, 45-47 silent") && all.contains("Carla project: p.carxp (Digi)")
+        && PluginsList.summary("Plugin check: x\nNotes: 48-51 heard; 36 silent").contains("Notes: 48-51 heard");
     if (!ok) throw new AssertionError(all);
   }
 

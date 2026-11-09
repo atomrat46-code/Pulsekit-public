@@ -542,7 +542,11 @@ def carla_state(proc, project):
     plugins = re.findall(r"<Plugin>.*?</Plugin>", text, re.S)
     if not plugins:
         fail("%s has no plugins (save the project in Carla with the plugin loaded)" % os.path.basename(project))
-    names = [m.strip() for m in re.findall(r"<Name>(.*?)</Name>", "".join(plugins), re.S)]
+    names = []
+    for block in plugins:
+        info = re.search(r"<Info>.*?<Name>(.*?)</Name>", block, re.S)
+        if info:
+            names.append(info.group(1).strip())
     rack_load(proc, plugins, "Carla loaded %%d of the %%d plugins in %s. Are they installed on this computer (and in Carla's folders)?" % os.path.basename(project))
     return "Carla project: %s (%s)" % (os.path.basename(project), ", ".join(names))
 
@@ -1753,6 +1757,74 @@ def warm_up(chain, np):
     return True
 
 
+def notes_midi(path, notes):
+    """A MIDI file of (seconds, note, velocity) hits on the drum channel, at 120 BPM (960 ticks a second)."""
+    events = []
+    for t, n, vel in notes:
+        tick = int(round(t * 960))
+        events.append((tick, 0x99, n, vel))
+        events.append((tick + 120, 0x89, n, 0))
+    events.sort(key=lambda e: (e[0], e[1] == 0x99))
+    data, last = bytearray(), 0
+    for tick, status, note, vel in events:
+        delta = tick - last
+        last = tick
+        var = [delta & 0x7F]
+        while delta > 0x7F:
+            delta >>= 7
+            var.insert(0, (delta & 0x7F) | 0x80)
+        data += bytes(var) + bytes([status, note, vel])
+    data += b"\x00\xff\x2f\x00"
+    with open(path, "wb") as f:
+        f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480) + b"MTrk" + struct.pack(">I", len(data)) + bytes(data))
+    return path
+
+
+def notes_heard(np, audio, rate, hits, window=0.25):
+    """Which notes of (seconds, note) hits sound: a hit is heard when its first `window` seconds are
+    louder than 2% of the render's peak. Returns (heard notes, silent notes), each sorted."""
+    mono = np.max(np.abs(audio), axis=0) if audio.size else audio
+    peak = float(np.max(mono)) if mono.size else 0.0
+    heard, played = set(), set()
+    for t, n in hits:
+        played.add(n)
+        a, b = int(t * rate), int((t + window) * rate)
+        if peak > 1e-6 and a < mono.size and float(np.max(mono[a:max(b, a + 1)])) > peak * 0.02:
+            heard.add(n)
+    return sorted(heard), sorted(played - heard)
+
+
+def note_list(notes):
+    """Notes as "36, 38, 41-51": runs of three or more written as a range."""
+    out, i = [], 0
+    while i < len(notes):
+        j = i
+        while j + 1 < len(notes) and notes[j + 1] == notes[j] + 1:
+            j += 1
+        out.append("%d-%d" % (notes[i], notes[j]) if j - i >= 2 else ", ".join(str(n) for n in notes[i:j + 1]))
+        i = j + 1
+    return ", ".join(out)
+
+
+# The note sweep for a plugin silent for the GM drum notes: every note from SWEEP_LOW to SWEEP_HIGH alone.
+SWEEP_LOW, SWEEP_HIGH, SWEEP_STEP = 24, 96, 0.3
+
+
+def note_sweep(chain, np, rate):
+    """The notes the plugin plays at all, of SWEEP_LOW to SWEEP_HIGH, each played alone (for a plugin
+    whose pads are set to notes other than the GM drums'); an empty list when none sounds."""
+    import tempfile
+    folder = tempfile.mkdtemp(prefix="vst-sweep-")
+    notes = list(range(SWEEP_LOW, SWEEP_HIGH + 1))
+    hits = [(0.5 + SWEEP_STEP * i, n) for i, n in enumerate(notes)]
+    midi = notes_midi(os.path.join(folder, "sweep.mid"), [(t, n, 110) for t, n in hits])
+    try:
+        audio, _, _ = chain.render(np, midi=midi, tail=1.0)
+    except ValueError:
+        return []
+    return notes_heard(np, audio, rate, hits, SWEEP_STEP * 0.8)[0]
+
+
 def kit_missing(said):
     """The kick, toms and cymbals DrumMidi --learn-kit heard nothing (or next to nothing) of: how many
     (99 when it learned no tom, or failed)."""
@@ -2680,6 +2752,14 @@ def main(argv):
                 check_audio, check_note = finish(np, check_audio, volume)
             if waited and not (check_note and check_note.startswith("the render is silent")):
                 print("Plugin check: it plays after %.0f s" % waited)
+        if check_note and check_note.startswith("the render is silent") and not gizmo:
+            # Silent for the GM drum notes: maybe its pads are on other notes (a sampler's C4 up). They are named.
+            plays = note_sweep(chain, np, rate)
+            if plays:
+                fail("%s plays nothing for the GM drum notes of a test beat (kick, snare, hats: 36, 38, 42), but it plays notes %s: "
+                     "its pads are on those notes. Set its pads to the GM notes in Edit settings, or give a map (--map, e.g. 36=%d)"
+                     % (os.path.basename(os.path.normpath(name)), note_list(plays), plays[0]))
+            print("Notes: none of %d to %d sounds either (each played alone)" % (SWEEP_LOW, SWEEP_HIGH))
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"] or opts.get("--bridged"))))
@@ -2694,6 +2774,14 @@ def main(argv):
             span = "; sound from %.1f s to %.1f s of %.1f s, in %d of its %d half-seconds" % (
                 loud[0] / float(rate), loud[-1] / float(rate), secs, blocks.size, int(np.ceil(secs * 2)))
         print("Plugin check: the test beat plays (peak %.1f dBFS%s)" % (20 * np.log10(max(peak, 1e-9)), span))
+        # Which of its notes sound (each drum and cymbal played alone): a plugin with pads on other notes
+        # plays only some of them.
+        heard, silent = notes_heard(np, check_audio, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
+        if silent:
+            print("Notes: %s heard; %s silent (each played alone)%s" % (note_list(heard) or "none", note_list(silent),
+                  ": its pads may be on other notes (set them in Edit settings, or give a map: --map)" if len(silent) > len(heard) else ""))
+        else:
+            print("Notes: all heard (%s)" % note_list(heard))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
         if "--no-kit" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and (test or "--check" in switches):
             where = opts["--outdir"] or "."
