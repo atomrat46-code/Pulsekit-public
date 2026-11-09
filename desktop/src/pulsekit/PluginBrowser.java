@@ -192,11 +192,17 @@ final class PluginBrowser {
                 }, "kit-test").start();
                 return;
             }
+            // A .dll that is no plugin: said at once, nothing run.
+            String problem = DllInfo.problem(f);
+            if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+                say.accept("\u2718 " + problem);
+                return;
+            }
             for (JButton b : new JButton[] {use, test, edit}) b.setEnabled(false);
             about.setText(PluginsList.testing(f, editFirst));
             PluginsList.test(testsQuiet != null ? null : app.pyJav, f, editFirst, log -> {
                 for (JButton b : new JButton[] {use, test, edit}) b.setEnabled(true);
-                say.accept(PluginsList.summary(log));
+                say.accept(PluginsList.result(f, editFirst, log));
             });
         };
         final Runnable favIt = () -> {

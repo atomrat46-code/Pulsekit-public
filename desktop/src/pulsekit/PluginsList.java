@@ -283,6 +283,12 @@ final class PluginsList {
         final java.util.function.Consumer<Boolean> run = editFirst -> {
             File f = list.getSelectedValue();
             if (f == null) return;
+            // A .dll that is no plugin: said at once, nothing run.
+            String problem = DllInfo.problem(f);
+            if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+                about.setText("\u2718 " + problem + "\n\n" + info(f));
+                return;
+            }
             for (JButton b : busy) b.setEnabled(false);
             stopTimer.setEnabled(editFirst);
             stopTimer.setText("Stop timer");
@@ -290,7 +296,7 @@ final class PluginsList {
             test(pj, f, editFirst, log -> {
                 for (JButton b : busy) b.setEnabled(true);
                 stopTimer.setEnabled(false);
-                about.setText(summary(log) + "\n\n" + info(f));
+                about.setText(result(f, editFirst, log) + "\n\n" + info(f));
             });
         };
         use.addActionListener(e -> useIt.run());
@@ -435,7 +441,10 @@ final class PluginsList {
         }
         boolean plays = check.contains("the test beat plays");
         String head;
-        if (!plays) {
+        if (!plays && failed.length() > 0 && !failed.contains("plays nothing")) {
+            // It did not load or start (a 32-bit plugin without Carla, a .dll that is no plugin...): why.
+            head = "\u2718 " + name + " could not play: " + failed.replaceFirst("^Failed:\\s*", "");
+        } else if (!plays) {
             head = "\u2718 " + name + " plays no drums" + (failed.length() > 0 ? ": " + failed.replaceFirst("^Failed:\\s*", "") : "");
         } else if (kit.contains("not learned") || kit.contains("silent in this kit") || kit.contains("cymbals not heard") || kit.contains("no tom played")) {
             StringBuilder what = new StringBuilder();
@@ -452,12 +461,30 @@ final class PluginsList {
         return head + "\n\n" + summary(log) + (kit.length() > 0 && summary(log).indexOf(kit) < 0 ? "\n" + kit : "");
     }
 
+    /**
+     * What Test or Edit settings came to, for the Plugins list, the Plugin browser and the Params: Test's
+     * verdict (plays drums, some not heard, could not play and why); Edit settings: why it did not open,
+     * else its lines. A 32-bit .dll's note (Carla's bridge) first.
+     */
+    static String result(File f, boolean editFirst, String log) {
+        String note = DllInfo.BRIDGED.equals(DllInfo.problem(f)) ? DllInfo.bridgedNote(f, DllInfo.carlaRack(PyJav.pluginFolders())) + "\n\n" : "";
+        if (!editFirst) return note + verdict(f.getName(), log);
+        String failed = failed(log);
+        return note + (failed != null ? "\u2718 Edit settings did not open " + f.getName() + ": " + failed + "\n\n" : "") + summary(log);
+    }
+
+    /** A run's Failed line without "Failed: "; null when it did not fail. */
+    static String failed(String log) {
+        for (String l : log.split("\n")) if (l.trim().startsWith("Failed")) return l.trim().replaceFirst("^Failed:\\s*", "");
+        return null;
+    }
+
     /** What a test said, in short: its check line and how it ended (the lines that matter, not the setup). */
     static String summary(String log) {
         StringBuilder b = new StringBuilder();
         for (String l : log.split("\n")) {
             String t = l.trim();
-            if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
+            if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.contains("is a 32-bit VST2") || t.startsWith("32-bit plugin:") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
                 || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
         }
         return b.length() == 0 ? log.trim() : b.toString().trim();

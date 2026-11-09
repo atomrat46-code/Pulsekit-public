@@ -9861,6 +9861,90 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v399: a .dll's header read without loading it. A 32-bit VST2 plays in Carla's rack through Carla's
+   * bridge (vst_render finds the rack in Pulsekit's plugin folders too); without Carla it says so; a .dll
+   * that is no plugin is said so; the Params' notices and Test's verdict say the same.
+   */
+  void s239_dll_plugins() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "dll-test");
+    File carla = new File(dir, "Apps/Carla");
+    carla.mkdirs();
+    Files.write(new File(carla, "CarlaRack.dll").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    // Pulsekit's plugin folders (the Plugins tab's): Carla's folder among them.
+    new File(System.getProperty("user.home"), ".pulsekit").mkdirs();
+    Files.write(new File(System.getProperty("user.home"), ".pulsekit/plugin-folders.txt").toPath(), ("VST2=" + carla.getAbsolutePath() + "\n").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types, struct\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; os.environ['HOME'] = sys.argv[3]; os.environ['USERPROFILE'] = sys.argv[3]\n"
+        + "def pe(bits, names):\n"
+        + "    dos = b'MZ' + bytes(0x3A) + struct.pack('<I', 0x40)\n"
+        + "    magic = 0x20B if bits == 64 else 0x10B\n"
+        + "    optsize = 240 if bits == 64 else 224\n"
+        + "    coff = b'PE\\0\\0' + struct.pack('<HHIIIHH', 0x8664 if bits == 64 else 0x14C, 1, 0, 0, 0, optsize, 0x2022)\n"
+        + "    opt = bytearray(optsize); struct.pack_into('<H', opt, 0, magic)\n"
+        + "    struct.pack_into('<II', opt, 112 if bits == 64 else 96, 0x1000, 0x200)\n"
+        + "    sec = b'.edata\\0\\0' + struct.pack('<IIII', 0x200, 0x1000, 0x200, 0x200) + bytes(16)\n"
+        + "    head = dos + coff + bytes(opt) + sec\n"
+        + "    head += bytes(0x200 - len(head))\n"
+        + "    exp = bytearray(0x200)\n"
+        + "    struct.pack_into('<I', exp, 24, len(names)); struct.pack_into('<I', exp, 32, 0x1000 + 40)\n"
+        + "    at = 40 + 4 * len(names)\n"
+        + "    for i, n in enumerate(names):\n"
+        + "        struct.pack_into('<I', exp, 40 + 4 * i, 0x1000 + at); exp[at:at + len(n)] = n.encode(); at += len(n) + 1\n"
+        + "    return head + bytes(exp)\n"
+        + "for name, bits, names in (('Old32.dll', 32, ['VSTPluginMain', 'main']), ('New64.dll', 64, ['VSTPluginMain']), ('Helper.dll', 64, ['DoThings'])):\n"
+        + "    open(os.path.join(d, name), 'wb').write(pe(bits, names))\n"
+        + "    print('%s: %s %s, problem %s' % ((name,) + vr.dll_info(os.path.join(d, name))[:1] + (sorted(vr.dll_info(os.path.join(d, name))[1]), vr.dll_problem(os.path.join(d, name)))))\n"
+        + "print('rack: %s' % os.path.relpath(vr.carla_rack() or 'none', d))\n"
+        + "seen = {}\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        seen.update(opts)\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "def run(args):\n"
+        + "    try:\n"
+        + "        vr.main(args)\n"
+        + "    except SystemExit as e:\n"
+        + "        return str(e)\n"
+        + "print('32-bit: %s | plugin %s, bridged %s' % (run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Old32.dll')]), os.path.basename(seen.get('--plugin') or ''), os.path.basename(seen.get('--bridged') or '')))\n"
+        + "print(vr.bridged_carla_plugin(os.path.join(d, 'Old32.dll')).replace(d, '~').replace(chr(10), ' '))\n"
+        + "vr.carla_rack = lambda: None\n"
+        + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Old32.dll')])\n"
+        + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Helper.dll')])\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), System.getProperty("user.home")));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    for (String line : said.split("\n")) if (line.contains(".dll") || line.startsWith("rack") || line.startsWith("<Plugin>") || line.startsWith("Failed")) this.out.append(line.trim()).append('\n');
+    // The app reads the same headers.
+    for (String n : new String[] {"Old32.dll", "New64.dll", "Helper.dll"}) {
+      DllInfo i = DllInfo.read(new File(dir, n));
+      this.out.append("app ").append(n).append(": ").append(i.bits).append(" bits, problem ").append(DllInfo.problem(new File(dir, n))).append('\n');
+    }
+    File rack = DllInfo.carlaRack(java.util.Arrays.asList(new File(dir, "Apps").getAbsolutePath()));
+    this.out.append("notice: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), rack).split("\n")[0].replace(dir.getAbsolutePath(), "~")).append('\n');
+    this.out.append("no Carla: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), null).split("\n")[1]).append('\n');
+    this.out.append("verdict: ").append(PluginsList.verdict("Old32.dll", "Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla").split("\n")[0]).append('\n');
+    String edited = PluginsList.result(new File(dir, "Old32.dll"), true, "Failed: Carla did not load Old32.dll (0 of 1). Is Carla's 32-bit bridge installed (carla-bridge-win32)?");
+    this.out.append("Plugins list, Edit settings: ").append(edited.split("\n\n")[1].split("\n")[0]).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("Old32.dll: 32 ['VSTPluginMain', 'main'], problem 32") && all.contains("New64.dll: 64 ['VSTPluginMain'], problem None")
+        && all.contains("Helper.dll: 64 ['DoThings'], problem Helper.dll is not a VST plugin") && all.contains("rack: Apps/Carla/CarlaRack.dll")
+        && all.contains("Old32.dll is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge") && all.contains("| plugin CarlaRack.dll, bridged Old32.dll")
+        && all.contains("<Type>VST2</Type>") && all.contains("<Binary>~/Old32.dll</Binary>")
+        && all.contains("Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla") && all.contains("Failed: Helper.dll is not a VST plugin")
+        && all.contains("app Old32.dll: 32 bits, problem 32") && all.contains("app New64.dll: 64 bits, problem null") && all.contains("app Helper.dll: 64 bits, problem Helper.dll is not a VST plugin")
+        && all.contains("notice: Old32.dll is a 32-bit VST2 plugin. vst_render runs 64-bit, so it plays it in Carla's rack, through Carla's 32-bit bridge (Carla-Rack: ~/Apps/Carla/CarlaRack.dll)")
+        && all.contains("no Carla: Carla-Rack was not found: install Carla") && all.contains("verdict: \u2718 Old32.dll could not play: Old32.dll is a 32-bit VST2 plugin")
+        && all.contains("Plugins list, Edit settings: \u2718 Edit settings did not open Old32.dll: Carla did not load Old32.dll (0 of 1). Is Carla's 32-bit bridge installed");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v398: the Media browser's video shows Mute and the volume above the picture; the window's X closes
    * it as Close does: its player is released (it had gone on playing, hidden, without a picture).
    */

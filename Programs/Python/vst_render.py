@@ -299,10 +299,103 @@ def clap_pick(path, wanted):
     return plugins[0]
 
 
+def dll_info(path):
+    """A Windows .dll's header: (its bits, 32 or 64, or None when it is not a Windows program file; the
+    names it exports). A VST2 exports VSTPluginMain (or main), a VST3 GetPluginFactory."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(64 * 1024 * 1024)
+    except OSError:
+        return None, set()
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return None, set()
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if pe + 24 > len(data) or data[pe:pe + 4] != b"PE\0\0":
+        return None, set()
+    machine = struct.unpack_from("<H", data, pe + 4)[0]
+    sections = struct.unpack_from("<H", data, pe + 6)[0]
+    opt_size = struct.unpack_from("<H", data, pe + 20)[0]
+    opt = pe + 24
+    magic = struct.unpack_from("<H", data, opt)[0]
+    bits = 64 if magic == 0x20B else 32 if magic == 0x10B else None
+    if machine in (0x8664, 0xAA64):
+        bits = 64
+    elif machine == 0x14C:
+        bits = 32
+    names = set()
+    try:
+        dirs = opt + (112 if magic == 0x20B else 96)
+        exp_rva = struct.unpack_from("<I", data, dirs)[0]
+        table = opt + opt_size
+
+        def offset(rva):
+            for i in range(sections):
+                sec = table + 40 * i
+                vsize, vaddr, rsize, raw = struct.unpack_from("<IIII", data, sec + 8)
+                if vaddr <= rva < vaddr + max(vsize, rsize):
+                    return rva - vaddr + raw
+            return None
+        at = offset(exp_rva) if exp_rva else None
+        if at is not None:
+            count, names_rva = struct.unpack_from("<I", data, at + 24)[0], struct.unpack_from("<I", data, at + 32)[0]
+            first = offset(names_rva)
+            for i in range(min(count, 5000)):
+                o = offset(struct.unpack_from("<I", data, first + 4 * i)[0])
+                if o is None:
+                    continue
+                end = data.find(b"\0", o)
+                names.add(data[o:end].decode("latin-1"))
+    except (struct.error, TypeError):
+        pass
+    return bits, names
+
+
+def dll_problem(path):
+    """Why a .dll will not play as it is: None when it is a plugin for this Python; "32" for a 32-bit VST2
+    (Carla's bridge plays it); else what is wrong."""
+    if not path.lower().endswith(".dll") or not os.path.isfile(path):
+        return None
+    bits, names = dll_info(path)
+    if bits is None:
+        return "%s is not a Windows plugin file" % os.path.basename(path)
+    if names and not ({"VSTPluginMain", "main", "GetPluginFactory"} & names):
+        return "%s is not a VST plugin: it has no VSTPluginMain (a VST2's start), so it is some other program's library" % os.path.basename(path)
+    if bits == 32 and struct.calcsize("P") == 8:
+        return "32"
+    if bits == 64 and struct.calcsize("P") == 4:
+        return "%s is a 64-bit plugin, but this Python is 32-bit: install 64-bit Python" % os.path.basename(path)
+    return None
+
+
+def bridged_carla_plugin(path):
+    """A Carla project's <Plugin> for a VST2 .dll: Carla runs a 32-bit one in its 32-bit bridge."""
+    return ("<Plugin>\n  <Info>\n   <Type>VST2</Type>\n   <Name>%s</Name>\n   <Binary>%s</Binary>\n   <UniqueID>0</UniqueID>\n  </Info>\n"
+            "  <Data>\n   <Active>Yes</Active>\n  </Data>\n </Plugin>") % (xml_text(stem(path)), xml_text(os.path.abspath(path)))
+
+
+def bridged_state(proc, path):
+    """Puts the 32-bit VST2 into the Carla-Rack VST (bridged); returns the line saying so."""
+    rack_load(proc, [bridged_carla_plugin(path)], "Carla did not load %s (%%d of %%d). Is Carla's 32-bit bridge installed (carla-bridge-win32)?" % os.path.basename(path))
+    return "32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(path)
+
+
+def pulsekit_plugin_folders():
+    """The plugin folders set in Pulsekit (vst_render's Params, Plugins tab: Plugin folders), that exist."""
+    path = os.path.join(os.path.expanduser("~"), ".pulsekit", "plugin-folders.txt")
+    out = []
+    try:
+        for line in open(path, encoding="utf-8", errors="replace"):
+            if "=" in line:
+                out += [p.strip() for p in line.split("=", 1)[1].split("|") if p.strip()]
+    except OSError:
+        pass
+    return [d for d in out if os.path.isdir(d)]
+
+
 def carla_rack():
-    """Carla's Carla-Rack VST in the VST folders (also Carla's own folders); None when there is none."""
-    dirs = vst_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
-                                        "/Applications/Carla.app/Contents/MacOS") if os.path.isdir(d)]
+    """Carla's Carla-Rack VST in the VST folders, Pulsekit's plugin folders and Carla's own folders; None when there is none."""
+    dirs = vst_folders() + pulsekit_plugin_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
+                                                                    r"C:\Program Files (x86)\Carla", "/Applications/Carla.app/Contents/MacOS") if os.path.isdir(d)]
     for d in dirs:
         for root, subdirs, files in os.walk(d):
             for n in sorted(subdirs + files):
@@ -1639,12 +1732,13 @@ class Chain(object):
         self.plugin = opts["--plugin"]
         self.main = load_plugin(self.engine, "plugin", self.plugin)
         print("Plugin: %s (%d in, %d out)" % (os.path.basename(os.path.normpath(self.plugin)), self.main.get_num_input_channels(), self.main.get_num_output_channels()))
-        clap = opts.get("--clap")
+        clap = opts.get("--clap") or opts.get("--bridged")
+        put = (lambda: bridged_state(self.main, clap)) if opts.get("--bridged") else (lambda: clap_state(self.main, clap, opts.get("--clap_id")))
         if opts["--carla"]:
             print(carla_state(self.main, opts["--carla"]))
         elif clap and "--edit" in switches:
             # The rack with the plugin in it; its settings are saved under the CLAP's name.
-            print(clap_state(self.main, clap, opts.get("--clap_id")))
+            print(put())
             print("In the rack: double-click the plugin for its own window.")
             edit(self.main, clap, opts["--state"], "Plugin")
         elif clap:
@@ -1652,9 +1746,9 @@ class Chain(object):
             if os.path.isfile(saved):
                 print(apply_state(self.main, clap, opts["--state"], "Plugin"))
                 if rack_plugins(self.main) == 0:
-                    print(clap_state(self.main, clap, opts.get("--clap_id")))
+                    print(put())
             else:
-                print(clap_state(self.main, clap, opts.get("--clap_id")))
+                print(put())
         elif "--edit" in switches:
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
@@ -2170,6 +2264,18 @@ def main(argv):
         if opts["--clap"]:
             fail("give the CLAP plugin once: --clap or --plugin")
         opts["--clap"], opts["--plugin"] = opts["--plugin"], None
+    # A .dll that is not a plugin for this Python: said plainly; a 32-bit VST2 plays in Carla's rack, bridged.
+    if opts["--plugin"]:
+        problem = dll_problem(opts["--plugin"])
+        if problem == "32":
+            rack = carla_rack()
+            if not rack:
+                fail("%s is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla (free at kx.studio/carla, with its "
+                     "32-bit bridge) and it plays through Carla's rack; or use a 64-bit version of the plugin" % os.path.basename(opts["--plugin"]))
+            print("%s is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge" % os.path.basename(opts["--plugin"]))
+            opts["--bridged"], opts["--plugin"] = opts["--plugin"], rack
+        elif problem:
+            fail(problem)
     if opts["--clap_id"] and not opts["--clap"]:
         fail("--clap_id picks a plugin of --clap's file: give --clap too")
     if opts["--clap"]:
@@ -2197,7 +2303,7 @@ def main(argv):
     if not plugin:
         fail("no plugin: give one with --plugin (--scan lists the installed ones)")
     # The WAVs and the report are named after the Carla project, the CLAP plugin or the kit, not the rack.
-    name = opts["--carla"] or opts["--clap"] or plugin
+    name = opts["--carla"] or opts["--clap"] or opts.get("--bridged") or plugin
     if gizmo and stem(gizmo).lower() == "drumkit":
         name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
     folder = opts["--dir"]
@@ -2267,7 +2373,8 @@ def main(argv):
     # The plugin's name in the output files, with the kit loaded in it (--kit_name). Left blank, a
     # plugin's kit is named for what it plays: the kit saved for it (--edit, --state), else its default.
     if not (opts["--kit_name"] or "").strip() and (opts["--plugin"] or opts["--clap"]) and not opts["--carla"] and not opts["--drumgizmo"]:
-        plug = opts["--plugin"] or opts["--clap"]
+        # A CLAP or bridged plugin's settings are kept under its own name (not the rack's).
+        plug = opts["--clap"] or opts.get("--bridged") or opts["--plugin"]
         opts["--kit_name"] = "saved kit" if opts["--state"] or os.path.isfile(state_home(plug)) else "default kit"
         print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
     elif opts["--kit_name"]:

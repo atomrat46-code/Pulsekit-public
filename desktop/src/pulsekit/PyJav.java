@@ -3282,6 +3282,7 @@ final class PyJav {
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
+                    this.dllNotice(pick, chooser.getSelectedFile());
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
@@ -3350,6 +3351,7 @@ final class PyJav {
                             values[index] = picked.getAbsolutePath();
                             chosen.setText(picked.getName());
                             rememberVstFolder(picked.getParentFile());
+                            this.dllNotice(plugins, picked);
                         });
                         picks.add(plugins);
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
@@ -3373,6 +3375,11 @@ final class PyJav {
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
+                                // It did not open (a 32-bit plugin without Carla, not a plugin...): why, in a window.
+                                String failed = PluginsList.failed(log);
+                                pluginTestSaid = failed == null ? "" : failed;
+                                if (failed != null && !pluginTestQuiet)
+                                    JOptionPane.showMessageDialog(editSettings, failed + "\n\n" + PluginsList.summary(log), "Edit settings \u00b7 " + plug.getName(), JOptionPane.WARNING_MESSAGE);
                             });
                         });
                         picks.add(editSettings);
@@ -3995,6 +4002,25 @@ final class PyJav {
         return tabs;
     }
 
+    /** A .dll picked for a plugin row: said at once when it is a 32-bit plugin (Carla's bridge plays it) or no plugin. */
+    void dllNotice(java.awt.Component at, File f) {
+        String problem = DllInfo.problem(f);
+        if (problem == null) return;
+        String text = DllInfo.BRIDGED.equals(problem) ? DllInfo.bridgedNote(f, DllInfo.carlaRack(pluginFolders())) : "\u2718 " + problem;
+        pluginTestSaid = text;
+        app.setNow(text.split("\n")[0]);
+        if (!pluginTestQuiet) JOptionPane.showMessageDialog(at, text, "Plugin \u00b7 " + f.getName(), DllInfo.BRIDGED.equals(problem) ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    /** The VST folders Pulsekit looks in (Plugin folders). */
+    static List<String> pluginFolders() {
+        PluginLibrary.load(PromptDb.dir());
+        String home = System.getProperty("user.home", ".");
+        List<String> out = new ArrayList<String>(PluginLibrary.folders(PluginLibrary.VST3, false, home));
+        for (String f : PluginLibrary.folders(PluginLibrary.VST2, false, home)) if (!out.contains(f)) out.add(f);
+        return out;
+    }
+
     /** The tests: the Params' plugin Test said last (the verdict), and whether to show it in a window. */
     static volatile String pluginTestSaid = "";
     static boolean pluginTestQuiet;
@@ -4006,6 +4032,13 @@ final class PyJav {
             return;
         }
         final File plug = new File(path);
+        String problem = DllInfo.problem(plug);
+        if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+            pluginTestSaid = "\u2718 " + problem;
+            app.setNow(pluginTestSaid);
+            if (!pluginTestQuiet) JOptionPane.showMessageDialog(test, pluginTestSaid, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+            return;
+        }
         List<String> extra = new ArrayList<String>();
         String mapToken = token.equals("--plugin") ? "--map" : token.replace("--plugin", "--map");
         for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals(mapToken) && values[i] != null && values[i].trim().length() > 0) {
