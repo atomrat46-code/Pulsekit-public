@@ -273,6 +273,11 @@ public final class Engine {
   public static final String[] FILL_LABEL = { "Toms", "Snare roll", "Crash", "Break", "Silent" };
   public static final int[] NOTES = {36, 35, 38, 39, 37, 42, 46, 49, 51, 41, 47, 50};
 
+  /** A pad's MIDI note, for its label on the Pads tab: "36" (the note its hits are written with). */
+  public static String padNote(int t) {
+    return t >= 0 && t < NOTES.length ? String.valueOf(NOTES[t]) : "";
+  }
+
   public static final class Style {
     public final String id;
     public final String label;

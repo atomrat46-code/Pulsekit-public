@@ -253,6 +253,9 @@ public class BehaviorTest {
     call("show", "pads");
     idle();
     TextView[] pads = (TextView[]) get("padBtns");
+    // Each pad says its MIDI note.
+    if (!pads[0].getText().toString().contains("Kick \u00b7 36") || !pads[2].getText().toString().contains("Snare \u00b7 38") || !pads[5].getText().toString().contains("Closed hat \u00b7 42"))
+      throw new AssertionError(pads[0].getText() + " / " + pads[2].getText() + " / " + pads[5].getText());
     pads[0].performClick();
     idle();
     call("show", "pattern");

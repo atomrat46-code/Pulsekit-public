@@ -80,7 +80,7 @@ final class Playback {
                     continue;
                 }
                 int n8 = n7;
-                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7], view -> {
+                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7] + " \u00b7 " + Engine.padNote(n7), view -> {
                     this.bang(n8, 110);
                     this.flashPad(n8);
                     if (app.livePads) {
@@ -673,7 +673,7 @@ final class Playback {
             if (!drumSet.original) {
                 string = drumSet.matchOrig[i] ? "Original" : (drumSet.samples[i] != null ? "From song" : "Empty");
             }
-            app.padBtns[i].setText((CharSequence)(Engine.TRACK_SHORT[i] + "\n" + string));
+            app.padBtns[i].setText((CharSequence)(Engine.TRACK_SHORT[i] + "\n" + string + " \u00b7 " + Engine.padNote(i)));
         }
     }
 

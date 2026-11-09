@@ -9865,6 +9865,18 @@ public final class DesktopBehavior {
    * bridge (vst_render finds the rack in Pulsekit's plugin folders too); without Carla it says so; a .dll
    * that is no plugin is said so; the Params' notices and Test's verdict say the same.
    */
+  /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
+  void s241_pad_notes() throws Exception {
+    call("showView", "pads");
+    javax.swing.JButton[] pads = (javax.swing.JButton[]) get("padBtns");
+    for (javax.swing.JButton b : pads) this.out.append(b.getText()).append(" | ");
+    this.out.append('\n').append(pads[0].getToolTipText()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("KIK  Kick  \u00b7 36") && all.contains("SNR  Snare  \u00b7 38") && all.contains("CHH  Closed hat  \u00b7 42")
+        && all.contains("RAK  Rack tom  \u00b7 50") && all.contains("Kick: MIDI note 36");
+    if (!ok) throw new AssertionError(all);
+  }
+
   /**
    * v402: a 32-bit plugin's Edit settings opens Carla's own program (found beside its rack, Carla.vst's
    * parent) with a project holding the plugin; the project saved there is the plugin's settings for later
