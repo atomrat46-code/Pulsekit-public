@@ -8797,6 +8797,74 @@ public final class DesktopBehavior {
    * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
    */
   /**
+   * v397: vst_render with a kit name (or map) for a plugin row not given (--kit_name4 without --plugin4)
+   * leaves it out and goes on; the Plugins tab's rows have Test (its verdict: plays drums, some drums
+   * not heard, plays nothing); the tab's labels take only their own width, not half the page.
+   */
+  void s237_plugin_test_row() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "kitname-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "try:\n"
+        + "    vr.main([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Drums.vst3'), '--kit_name4', 'Artillery:Default Kit', '--map3', 'Riot Drums'])\n"
+        + "except SystemExit as e:\n"
+        + "    print('ended: %s' % e)\n";
+    Files.write(new File(dir, "Drums.vst3").toPath(), new byte[] {1});
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    for (String line : said.split("\n")) if (line.contains("left out") || line.startsWith("ended") || line.contains("give --plugin")) this.out.append(line.trim()).append('\n');
+    String ok1 = PluginsList.verdict("Good.vst3", "Plugin check: the test beat plays (peak -6.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: Good.vst3 plays");
+    String some = PluginsList.verdict("Half.vst3", "Plugin check: the test beat plays (peak -9.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)\nSucceeded: Half.vst3 plays");
+    String none = PluginsList.verdict("Synth.vst3", "Failed: Synth.vst3 plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: the render is silent");
+    this.out.append(ok1.split("\n")[0]).append('\n').append(some.split("\n")[0]).append('\n').append(none.split("\n")[0]).append('\n');
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = "Plugins";
+    final JDialog[] params = new JDialog[1];
+    inspectNext = dd -> params[0] = dd;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    java.awt.Component tab = component(d, "params-tab:Plugins");
+    StringBuilder tests = new StringBuilder();
+    for (String t : new String[] {"--plugin", "--plugin2", "--plugin3", "--plugin4"}) tests.append(component(tab, "params-plugin-test:" + t) == null ? "-" : "Test").append(' ');
+    java.awt.Component row = component(tab, "params-file:--plugin");
+    int x = row == null ? -1 : SwingUtilities.convertPoint(row.getParent(), row.getLocation(), tab).x;
+    this.out.append("Test buttons: ").append(tests).append("\nfirst row starts at ").append(x * 100 / Math.max(1, tab.getWidth())).append("% of the tab (was 50%)\n");
+    edt(() -> d.dispose());
+    PyJav.paramsTab = null;
+    String all = this.out.toString();
+    boolean ok = all.contains("--kit_name4 left out: it is the kit name for --plugin4, which is not given") && all.contains("--map3 left out: it is the map for --plugin3, which is not given")
+        && all.contains("ended: chain") && !all.contains("give --plugin")
+        && all.contains("\u2714 Good.vst3 plays drums: the kick, toms and cymbals of the test beat were heard")
+        && all.contains("\u26a0 Half.vst3 plays, but some drums were not heard: cymbals not heard: 51 ride (0.0% of the loudest cymbal)")
+        && all.contains("\u2718 Synth.vst3 plays no drums: Synth.vst3 plays nothing for a test beat") && all.contains("Test buttons: Test Test Test Test")
+        && x > 0 && x * 100 / Math.max(1, tab.getWidth()) < 35;
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 03112026: vst_render's Params on tabs (Input, Output, Plugins, Settings); the Plugins tab's Recently
    * used puts a plugin on a row; a list field's Clear (--map) shown while it has something; Logs' right
    * clicks (an entry: Open, Delete; a type: Clear all its logs); a Sogni list written whole (SafeWrite).
@@ -10842,13 +10910,13 @@ public final class DesktopBehavior {
       if (q.token.equals("--map2")) label = q.label;
       if (q.token.equals("--plugin4")) label4 = q.label;
     }
-    this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
+    this.out.append(said).append("\n--map2 alone: ").append(refused.split("\n")[0]).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
         && said.contains("Other.vst3: [(35, None)] ")
         && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
         && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && said.contains("run d.vst3: --plugin d.vst3 --test --map 57=49 --kit_name Artillery")
         && said.contains("lead --dir f --plugin b.vst3 --plugin2 c.vst3 --map2 41=none --plugin3 d.vst3 --kit_name3 Artillery | No --plugin: b.vst3 leads, c.vst3, d.vst3 after it")
-        && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
+        && refused.contains("--map2 left out: it is the map for --plugin2, which is not given") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 

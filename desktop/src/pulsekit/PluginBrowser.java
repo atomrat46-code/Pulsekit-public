@@ -381,10 +381,20 @@ final class PluginBrowser {
     /** A folder browsed for (the tests: answer "Folder"); its path, or null. */
     static String pickFolder(java.awt.Component parent, String from) {
         if (answer != null) return answer.apply("Folder");
-        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(from == null ? null : new File(from));
+        // Add folder… (no folder given): where the last folder was picked, that folder selected.
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(PluginBrowser.class);
+        File lastPicked = from == null ? new File(prefs.get(LAST_FOLDER, "")) : null;
+        File start = from != null ? new File(from) : lastPicked != null && lastPicked.isDirectory() ? lastPicked.getParentFile() : null;
+        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(start);
         fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-        return fc.showOpenDialog(parent) == javax.swing.JFileChooser.APPROVE_OPTION ? fc.getSelectedFile().getAbsolutePath() : null;
+        if (from == null && lastPicked != null && lastPicked.isDirectory()) fc.setSelectedFile(lastPicked);
+        if (fc.showOpenDialog(parent) != javax.swing.JFileChooser.APPROVE_OPTION || fc.getSelectedFile() == null) return null;
+        prefs.put(LAST_FOLDER, fc.getSelectedFile().getAbsolutePath());
+        return fc.getSelectedFile().getAbsolutePath();
     }
+
+    /** Where Add folder… picked last (its next one starts there). */
+    static final String LAST_FOLDER = "plugin-folder-last";
 
     /** Change…: the path to edit, or Browse… for another folder in its place; the new path ("" removes it), or null. */
     static String changeFolder(java.awt.Component parent, String path) {

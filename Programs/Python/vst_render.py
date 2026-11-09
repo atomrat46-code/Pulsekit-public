@@ -1047,6 +1047,18 @@ MORE_PLUGINS = (("--plugin2", "--map2", "--kit_name2"), ("--plugin3", "--map3", 
 MORE_SWITCHES = tuple(w for row in MORE_PLUGINS for w in row)
 
 
+def drop_switch(argv, switch):
+    """The arguments without `switch` and its value."""
+    out, j = [], 0
+    while j < len(argv):
+        if argv[j] == switch:
+            j += 2
+            continue
+        out.append(argv[j])
+        j += 1
+    return out
+
+
 def plugin_runs(argv, opts):
     """--plugin2 to --plugin4: each plugin's own run, (plugin, its arguments): --plugin swapped for it,
     --state only for the first, and --map2 to --map4 as that plugin's --map (else --map for all)."""
@@ -2114,9 +2126,12 @@ def main(argv):
     if moved:
         print(moved[1])
         return main(moved[0])
+    # A map or kit name for a plugin not given (its row unticked in Params): left out, not a stop.
     for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
         if opts[m] and not opts[k]:
-            fail("%s is the %s for %s: give %s too" % (m, "map" if m.startswith("--map") else "kit name", k, k))
+            print("%s left out: it is the %s for %s, which is not given" % (m, "map" if m.startswith("--map") else "kit name", k))
+            opts[m] = None
+            argv = drop_switch(argv, m)
     # --zip_outdir's % codes: filled in once for the whole run (all plugins' zips in one folder).
     if opts["--zip_outdir"] and not ZIP_OUTDIR_EXPANDED[0]:
         ZIP_OUTDIR_EXPANDED[0] = True

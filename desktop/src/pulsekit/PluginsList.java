@@ -387,10 +387,16 @@ final class PluginsList {
      * test beat opens in WAV ready; `done` gets the log on the window's thread.
      */
     static void test(final PyJav pj, final File f, final boolean editFirst, final java.util.function.Consumer<String> done) {
+        test(pj, f, editFirst, null, done);
+    }
+
+    /** The test with more arguments (`extra`: the row's --map, DrumMidi's jar for the kit's drums). */
+    static void test(final PyJav pj, final File f, final boolean editFirst, final List<String> extra, final java.util.function.Consumer<String> done) {
         new Thread(() -> {
             String src = ProgramFiles.bundledSource("vst_render.py");
             List<String> argv = new ArrayList<String>(Arrays.asList("--plugin", f.getAbsolutePath(), "--check"));
             if (editFirst) argv.add("--edit");
+            if (extra != null) argv.addAll(extra);
             PythonRun.Result r = src == null ? null : PythonRun.run(src, "vst_render.py", argv);
             String log = r == null ? "vst_render.py is not bundled." : r.log;
             lastTest = log;
@@ -412,6 +418,38 @@ final class PluginsList {
         JMenuItem i = new JMenuItem(text);
         i.addActionListener(e -> r.run());
         return i;
+    }
+
+    /**
+     * The Params' Test: whether the plugin plays drums. Its test beat played (vst_render --check) and, with
+     * DrumMidi's jar, the kit learned from it: which of the kick, toms and cymbals were heard. The verdict
+     * first (\u2714 plays drums, all heard; \u26a0 plays, some drums silent; \u2718 plays nothing), then the lines it rests on.
+     */
+    static String verdict(String name, String log) {
+        String kit = "", failed = "", check = "";
+        for (String l : log.split("\n")) {
+            String t = l.trim();
+            if (t.startsWith("Kit: ") && (t.contains("kick") || t.contains("not learned") || t.contains("silent"))) kit = t;
+            if (t.startsWith("Failed")) failed = t;
+            if (t.startsWith("Plugin check")) check = t;
+        }
+        boolean plays = check.contains("the test beat plays");
+        String head;
+        if (!plays) {
+            head = "\u2718 " + name + " plays no drums" + (failed.length() > 0 ? ": " + failed.replaceFirst("^Failed:\\s*", "") : "");
+        } else if (kit.contains("not learned") || kit.contains("silent in this kit") || kit.contains("cymbals not heard") || kit.contains("no tom played")) {
+            StringBuilder what = new StringBuilder();
+            for (String part : kit.split(";")) {
+                String q = part.trim();
+                if (q.startsWith("silent in this kit") || q.startsWith("cymbals not heard") || q.startsWith("nothing to read") || q.contains("not learned")) what.append(what.length() == 0 ? "" : "; ").append(q);
+            }
+            head = "\u26a0 " + name + " plays, but some drums were not heard" + (what.length() > 0 ? ": " + what : "");
+        } else if (kit.length() > 0) {
+            head = "\u2714 " + name + " plays drums: the kick, toms and cymbals of the test beat were heard";
+        } else {
+            head = "\u2714 " + name + " plays (" + check.replaceFirst("^Plugin check:\\s*", "") + ")";
+        }
+        return head + "\n\n" + summary(log) + (kit.length() > 0 && summary(log).indexOf(kit) < 0 ? "\n" + kit : "");
     }
 
     /** What a test said, in short: its check line and how it ended (the lines that matter, not the setup). */

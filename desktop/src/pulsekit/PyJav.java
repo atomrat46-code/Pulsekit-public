@@ -3377,6 +3377,12 @@ final class PyJav {
                         });
                         picks.add(editSettings);
                         picks.add(stopTimer);
+                        // Test: the plugin plays the test beat (its own window not opened); says whether it plays drums.
+                        JButton test = new JButton("Test");
+                        test.setName("params-plugin-test:" + p.token);
+                        test.setToolTipText("Plays the test beat through this plugin and says whether its drums are heard");
+                        test.addActionListener(e -> this.testPluginRow(test, ps, values, p.token, values[index]));
+                        picks.add(test);
                     }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
@@ -3944,12 +3950,35 @@ final class PyJav {
         if (names.isEmpty()) return form;
         java.awt.Component[] all = form.getComponents();
         java.util.LinkedHashMap<String, JPanel> pages = new java.util.LinkedHashMap<String, JPanel>();
-        for (String t : names) pages.put(t, new JPanel(new GridLayout(0, 2, 8, 6)));
+        // Each page's rows: the label only as wide as the page's labels, the rest for the row's buttons and names.
+        for (String t : names) pages.put(t, new JPanel(new java.awt.GridBagLayout()));
+        java.util.Map<String, int[]> rowsIn = new java.util.HashMap<String, int[]>();
         String last = names.get(names.size() - 1);
         for (int i = 0; i < ps.size(); i++) {
             int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
-            JPanel page = pages.get(ps.get(i).tab != null ? ps.get(i).tab : last);
-            for (int k = rowStarts[i]; k < end; k++) page.add(all[k]);
+            String tab = ps.get(i).tab != null ? ps.get(i).tab : last;
+            JPanel page = pages.get(tab);
+            int[] at = rowsIn.computeIfAbsent(tab, x -> new int[] {0, 0});
+            for (int k = rowStarts[i]; k < end; k++) {
+                java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+                c.gridx = at[1] % 2;
+                c.gridy = at[1] / 2;
+                c.weightx = c.gridx == 0 ? 0 : 1;
+                c.fill = java.awt.GridBagConstraints.HORIZONTAL;
+                c.anchor = java.awt.GridBagConstraints.WEST;
+                c.insets = new java.awt.Insets(3, 0, 3, c.gridx == 0 ? 12 : 0);
+                // A long label wraps (two lines) instead of widening the label column.
+                if (c.gridx == 0 && all[k] instanceof JLabel) {
+                    JLabel l = (JLabel) all[k];
+                    String text = l.getText();
+                    if (text != null && !text.startsWith("<html>") && l.getPreferredSize().width > TAB_LABEL_WIDTH) {
+                        l.setToolTipText(text);
+                        l.setText("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + text.replace("&", "&amp;").replace("<", "&lt;") + "</body></html>");
+                    }
+                }
+                page.add(all[k], c);
+                at[1]++;
+            }
         }
         final javax.swing.JTabbedPane tabs = new javax.swing.JTabbedPane();
         tabs.setName("params-tabs");
@@ -3965,6 +3994,46 @@ final class PyJav {
         tabs.addChangeListener(e -> paramsTab = tabs.getTitleAt(tabs.getSelectedIndex()));
         return tabs;
     }
+
+    /** The tests: the Params' plugin Test said last (the verdict), and whether to show it in a window. */
+    static volatile String pluginTestSaid = "";
+    static boolean pluginTestQuiet;
+
+    /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
+    void testPluginRow(final JButton test, List<ProgramParams.Param> ps, String[] values, String token, String path) {
+        if (path == null || path.length() == 0 || !new File(path).exists()) {
+            app.setNow("Choose a plugin first (" + token + ")");
+            return;
+        }
+        final File plug = new File(path);
+        List<String> extra = new ArrayList<String>();
+        String mapToken = token.equals("--plugin") ? "--map" : token.replace("--plugin", "--map");
+        for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals(mapToken) && values[i] != null && values[i].trim().length() > 0) {
+            extra.add("--map");
+            extra.add(values[i].trim());
+        }
+        VstLists.unpackMaps();
+        try {
+            File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");
+            List<String> with = JavaRun.withDrumMidi("vst_render.py", new ArrayList<String>(java.util.Arrays.asList("--test")), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+            with.remove("--test");
+            extra.addAll(with);
+        } catch (Exception ex) {
+            // without the jar: only whether it plays
+        }
+        test.setEnabled(false);
+        app.setNow(PluginsList.testing(plug, false));
+        PluginsList.test(pluginTestQuiet ? null : this, plug, false, extra, log -> {
+            test.setEnabled(true);
+            String v = PluginsList.verdict(plug.getName(), log);
+            pluginTestSaid = v;
+            app.setNow(v.split("\n")[0]);
+            if (!pluginTestQuiet) JOptionPane.showMessageDialog(test, v, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+        });
+    }
+
+    /** The widest a tab page's label is before it wraps (vst_render's Params: room for the rows' buttons and names). */
+    static final int TAB_LABEL_WIDTH = 300;
 
     /** A plugin's file name for a list: "Riot Drums.vst3". */
     static String plugName(String path) {
