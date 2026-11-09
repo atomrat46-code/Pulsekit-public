@@ -415,11 +415,13 @@ def carla_rack():
 
 
 def is_carla_rack(path):
-    """Carla's rack plugin by its name: CarlaRack.dll, Carla-Rack.vst3... (not CarlaRackFX, the effect one)."""
+    """Carla's rack plugin by its name: CarlaRack.dll, Carla-Rack.vst3, or on Windows (Carla 2.4 and newer)
+    CarlaVstShell.dll, the VST2 holding Carla-Rack (its first plugin) and Carla's others; not the effect ones
+    (CarlaRackFX, CarlaVstFxShell)."""
     base = os.path.basename(os.path.normpath(path))
     if not base.lower().endswith(PLUGIN_ENDS):
         return False
-    return re.sub(r"[^a-z]", "", os.path.splitext(base)[0].lower()) == "carlarack"
+    return re.sub(r"[^a-z]", "", os.path.splitext(base)[0].lower()) in ("carlarack", "carlavstshell")
 
 
 def carla_searched():
@@ -2294,7 +2296,7 @@ def main(argv):
             rack = carla_rack()
             if not rack:
                 fail("%s is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla (free at kx.studio/carla, with its "
-                     "32-bit bridge) and it plays through Carla's rack; or use a 64-bit version of the plugin. Carla's rack (CarlaRack.dll) "
+                     "32-bit bridge) and it plays through Carla's rack; or use a 64-bit version of the plugin. Carla's rack (CarlaVstShell.dll or CarlaRack) "
                      "was not found in: %s" % (os.path.basename(opts["--plugin"]), "; ".join(carla_searched()) or "no folders"))
             print("%s is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge" % os.path.basename(opts["--plugin"]))
             opts["--bridged"], opts["--plugin"] = opts["--plugin"], rack

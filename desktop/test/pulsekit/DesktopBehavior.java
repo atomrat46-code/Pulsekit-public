@@ -9916,7 +9916,7 @@ public final class DesktopBehavior {
         + "vr.carla_rack = lambda: None\n"
         + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Old32.dll')])\n"
         + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Helper.dll')])\n"
-        + "print('rack names: %s %s %s' % (vr.is_carla_rack('Carla-Rack.dll'), vr.is_carla_rack('CarlaRack.vst3'), vr.is_carla_rack('CarlaRackFX.dll')))\n";
+        + "print('rack names: %s %s %s %s %s' % (vr.is_carla_rack('Carla-Rack.dll'), vr.is_carla_rack('CarlaRack.vst3'), vr.is_carla_rack('CarlaRackFX.dll'), vr.is_carla_rack('CarlaVstShell.dll'), vr.is_carla_rack('CarlaVstFxShell.dll')))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), System.getProperty("user.home")));
     String said = PythonRun.runFor(cmd, 120, null).trim();
@@ -9932,12 +9932,13 @@ public final class DesktopBehavior {
     this.out.append("verdict: ").append(PluginsList.verdict("Old32.dll", "Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla").split("\n")[0]).append('\n');
     String twice = PluginsList.verdict("Old32.dll", "Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla");
     this.out.append("said once: ").append(twice.split("is a 32-bit VST2 plugin", -1).length - 1).append('\n');
-    this.out.append("app rack names: ").append(DllInfo.isRack(new File("Carla-Rack.dll"))).append(' ').append(DllInfo.isRack(new File("CarlaRackFX.dll"))).append('\n');
+    this.out.append("app rack names: ").append(DllInfo.isRack(new File("Carla-Rack.dll"))).append(' ').append(DllInfo.isRack(new File("CarlaRackFX.dll")))
+        .append(' ').append(DllInfo.isRack(new File("CarlaVstShell.dll"))).append(' ').append(DllInfo.isRack(new File("CarlaVstFxShell.dll"))).append('\n');
     String edited = PluginsList.result(new File(dir, "Old32.dll"), true, "Failed: Carla did not load Old32.dll (0 of 1). Is Carla's 32-bit bridge installed (carla-bridge-win32)?");
     this.out.append("Plugins list, Edit settings: ").append(edited.split("\n\n")[1].split("\n")[0]).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("Old32.dll: 32 ['VSTPluginMain', 'main'], problem 32") && all.contains("New64.dll: 64 ['VSTPluginMain'], problem None")
-        && all.contains("Helper.dll: 64 ['DoThings'], problem Helper.dll is not a VST plugin") && all.contains("rack: Apps/Carla/CarlaRack.dll") && all.contains("rack names: True True False") && all.contains("said once: 1") && all.contains("app rack names: true false")
+        && all.contains("Helper.dll: 64 ['DoThings'], problem Helper.dll is not a VST plugin") && all.contains("rack: Apps/Carla/CarlaRack.dll") && all.contains("rack names: True True False True False") && all.contains("said once: 1") && all.contains("app rack names: true false true false")
         && all.contains("Old32.dll is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge") && all.contains("| plugin CarlaRack.dll, bridged Old32.dll")
         && all.contains("<Type>VST2</Type>") && all.contains("<Binary>~/Old32.dll</Binary>")
         && all.contains("Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla") && all.contains("Failed: Helper.dll is not a VST plugin")
