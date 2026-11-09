@@ -150,6 +150,8 @@ final class DrumLibraryWindow {
         open();
         if (last != null && last.isDisplayable()) last.dispose();
         final JDialog d = new JDialog(app, DrumLibrary.TITLE, false);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         d.setName("drumlibrary");
         last = d;
         final JComboBox<String> part = new JComboBox<String>();

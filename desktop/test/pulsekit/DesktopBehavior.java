@@ -9861,6 +9861,44 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v398: the Media browser's video shows Mute and the volume above the picture; the window's X closes
+   * it as Close does: its player is released (it had gone on playing, hidden, without a picture).
+   */
+  void s238_video_x_stops() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File clips = new File(System.getProperty("user.home"), "clips238");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    set("lastVideo", null);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    final JDialog dialog = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    out.append("sound row ").append(component(dialog, "video-sound").isVisible() ? "shown" : "hidden").append(", mute ").append(component(dialog, "video-mute").isShowing())
+        .append(", volume ").append(component(dialog, "video-volume").isShowing()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(800);
+    boolean was = player.playing();
+    // The window's X.
+    edt(() -> dialog.dispatchEvent(new java.awt.event.WindowEvent(dialog, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+    Thread.sleep(800);
+    out.append("X while playing (").append(was).append("): window gone ").append(!dialog.isDisplayable()).append(", still playing ").append(player.playing()).append('\n');
+    String all = out.toString();
+    if (!all.contains("sound row shown, mute true, volume true") || !all.contains("window gone true, still playing false")) throw new AssertionError(all);
+  }
+
+  /**
    * The Media browser's video held (as on the phone): it pauses and a small Sound dialog shows Mute
    * and the volume; OK closes it, and the next video opens at that volume, muted as it was left.
    */

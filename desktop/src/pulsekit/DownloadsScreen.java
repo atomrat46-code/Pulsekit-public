@@ -43,6 +43,8 @@ final class DownloadsScreen {
         // The tab shown last, unless it is empty now (a run in progress is shown then).
         if (tab.length() == 0 || SogniDownloads.tab(tab).isEmpty()) tab = SogniDownloads.firstTab();
         final JDialog dialog = new JDialog(app, "Downloads", true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         dialog.setName("downloads");
         final JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));

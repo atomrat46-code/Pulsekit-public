@@ -63,6 +63,8 @@ final class PlaylistWindow {
         s.last = shown.name;
         Playlist.saveSettings(dir, s);
         final JDialog d = new JDialog(app, "Playlist · " + shown.name, true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         d.setName("playlist-window");
         final JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -908,6 +910,8 @@ final class PlaylistWindow {
         final File dir = PromptDb.dir();
         final Playlist.Settings s = Playlist.settings(dir);
         final JDialog v = new JDialog(owner, "Playlist viewer · " + p.name, java.awt.Dialog.ModalityType.APPLICATION_MODAL);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        v.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         v.setName("playlist-viewer");
         final CardLayout cards = new CardLayout();
         final JPanel stage = new JPanel(cards);
