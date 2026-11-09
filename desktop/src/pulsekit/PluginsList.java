@@ -289,6 +289,7 @@ final class PluginsList {
                 about.setText("\u2718 " + problem + "\n\n" + info(f));
                 return;
             }
+            if (DllInfo.BRIDGED.equals(problem)) PyJav.carlaRack();
             for (JButton b : busy) b.setEnabled(false);
             stopTimer.setEnabled(editFirst);
             stopTimer.setText("Stop timer");
@@ -458,7 +459,11 @@ final class PluginsList {
         } else {
             head = "\u2714 " + name + " plays (" + check.replaceFirst("^Plugin check:\\s*", "") + ")";
         }
-        return head + "\n\n" + summary(log) + (kit.length() > 0 && summary(log).indexOf(kit) < 0 ? "\n" + kit : "");
+        // The lines it rests on, without the Failed line the verdict says already.
+        StringBuilder rest = new StringBuilder();
+        for (String l : summary(log).split("\n")) if (!(l.trim().startsWith("Failed") && head.contains(l.trim().replaceFirst("^Failed:\\s*", "")))) rest.append(l).append('\n');
+        String lines = rest.toString().trim();
+        return head + (lines.length() > 0 ? "\n\n" + lines : "") + (kit.length() > 0 && lines.indexOf(kit) < 0 ? "\n" + kit : "");
     }
 
     /**
@@ -467,10 +472,13 @@ final class PluginsList {
      * else its lines. A 32-bit .dll's note (Carla's bridge) first.
      */
     static String result(File f, boolean editFirst, String log) {
-        String note = DllInfo.BRIDGED.equals(DllInfo.problem(f)) ? DllInfo.bridgedNote(f, DllInfo.carlaRack(PyJav.pluginFolders())) + "\n\n" : "";
+        String note = DllInfo.BRIDGED.equals(DllInfo.problem(f)) ? DllInfo.bridgedNote(f, PyJav.carlaRack()) + "\n\n" : "";
         if (!editFirst) return note + verdict(f.getName(), log);
         String failed = failed(log);
-        return note + (failed != null ? "\u2718 Edit settings did not open " + f.getName() + ": " + failed + "\n\n" : "") + summary(log);
+        if (failed == null) return note + summary(log);
+        StringBuilder rest = new StringBuilder();
+        for (String l : summary(log).split("\n")) if (!l.trim().startsWith("Failed")) rest.append(l).append('\n');
+        return note + "\u2718 Edit settings did not open " + f.getName() + ": " + failed + (rest.toString().trim().length() > 0 ? "\n\n" + rest.toString().trim() : "");
     }
 
     /** A run's Failed line without "Failed: "; null when it did not fail. */

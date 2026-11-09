@@ -112,14 +112,32 @@ public final class DllInfo {
     return null;
   }
 
+  /** Carla's rack plugin by its name: CarlaRack.dll, Carla-Rack.vst3... (not CarlaRackFX, the effect one). */
+  public static boolean isRack(File f) {
+    String low = f.getName().toLowerCase(java.util.Locale.ROOT);
+    int dot = low.lastIndexOf('.');
+    if (dot < 0) return false;
+    String ext = low.substring(dot);
+    return (ext.equals(".dll") || ext.equals(".vst3") || ext.equals(".so") || ext.equals(".vst")) && low.substring(0, dot).replaceAll("[^a-z]", "").equals("carlarack");
+  }
+
+  /** The rack found, kept for vst_render (~/.pulsekit/carla-rack.txt: it tries that first). */
+  public static void keepRack(File home, File rack) {
+    if (home == null || rack == null) return;
+    try {
+      home.mkdirs();
+      java.nio.file.Files.write(new File(home, "carla-rack.txt").toPath(), rack.getAbsolutePath().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // vst_render looks itself
+    }
+  }
+
   private static File find(File dir, int depth) {
+    if (isRack(dir) && dir.exists()) return dir;
     File[] in = dir.listFiles();
     if (in == null) return null;
     java.util.Arrays.sort(in);
-    for (File f : in) {
-      String n = f.getName(), low = n.toLowerCase(java.util.Locale.ROOT);
-      if ((low.equals("carlarack.dll") || low.equals("carlarack.vst3") || low.equals("carlarack.so") || low.equals("carlarack.vst"))) return f;
-    }
+    for (File f : in) if (isRack(f)) return f;
     if (depth >= PluginLibrary.DEPTH) return null;
     for (File f : in) {
       if (!f.isDirectory() || f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".vst3")) continue;

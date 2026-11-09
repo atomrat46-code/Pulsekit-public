@@ -3269,6 +3269,7 @@ final class PyJav {
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 chosen.setName("params-chosen:" + p.token);
                 fileLabels[i] = chosen;
+                final JButton[] rowEdit = new JButton[1];
                 JButton pick = new JButton(p.plugin ? "Choose plugin" : "any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
@@ -3282,7 +3283,9 @@ final class PyJav {
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
+                    this.editRow = rowEdit[0];
                     this.dllNotice(pick, chooser.getSelectedFile());
+                    this.editRow = null;
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
@@ -3351,12 +3354,15 @@ final class PyJav {
                             values[index] = picked.getAbsolutePath();
                             chosen.setText(picked.getName());
                             rememberVstFolder(picked.getParentFile());
+                            this.editRow = rowEdit[0];
                             this.dllNotice(plugins, picked);
+                            this.editRow = null;
                         });
                         picks.add(plugins);
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
                         // as the Plugins list's Edit settings does, without going there.
                         JButton editSettings = new JButton("Edit settings");
+                        rowEdit[0] = editSettings;
                         editSettings.setName("params-plugin-edit:" + p.token);
                         editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
                         // Stop timer: pressed when the kit has loaded (its load time is how long a test waits for it).
@@ -3367,6 +3373,7 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
+                            if (DllInfo.BRIDGED.equals(DllInfo.problem(plug))) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
                             stopTimer.setText("Stop timer");
@@ -4006,10 +4013,29 @@ final class PyJav {
     void dllNotice(java.awt.Component at, File f) {
         String problem = DllInfo.problem(f);
         if (problem == null) return;
-        String text = DllInfo.BRIDGED.equals(problem) ? DllInfo.bridgedNote(f, DllInfo.carlaRack(pluginFolders())) : "\u2718 " + problem;
+        File rack = DllInfo.BRIDGED.equals(problem) ? carlaRack() : null;
+        String text = DllInfo.BRIDGED.equals(problem) ? DllInfo.bridgedNote(f, rack) : "\u2718 " + problem;
         pluginTestSaid = text;
         app.setNow(text.split("\n")[0]);
-        if (!pluginTestQuiet) JOptionPane.showMessageDialog(at, text, "Plugin \u00b7 " + f.getName(), DllInfo.BRIDGED.equals(problem) ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        if (pluginTestQuiet) return;
+        if (rack != null && editRow != null) {
+            // A 32-bit plugin and Carla's rack found: its window (the rack, the plugin in it) opened now, when asked.
+            int ans = JOptionPane.showOptionDialog(at, text + "\n\nOpen it in Carla's rack now to load its kit (Edit settings)?", "Plugin \u00b7 " + f.getName(),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null, new Object[] {"Open in Carla", "Not now"}, "Open in Carla");
+            if (ans == 0) editRow.doClick();
+        } else {
+            JOptionPane.showMessageDialog(at, text, "Plugin \u00b7 " + f.getName(), DllInfo.BRIDGED.equals(problem) ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    /** The row's Edit settings while its plugin is being chosen (Open in Carla presses it). */
+    private JButton editRow;
+
+    /** Carla's rack in the plugin folders (and Carla's usual places), kept for vst_render when found. */
+    static File carlaRack() {
+        File rack = DllInfo.carlaRack(pluginFolders());
+        DllInfo.keepRack(PromptDb.dir(), rack);
+        return rack;
     }
 
     /** The VST folders Pulsekit looks in (Plugin folders). */
@@ -4033,6 +4059,7 @@ final class PyJav {
         }
         final File plug = new File(path);
         String problem = DllInfo.problem(plug);
+        if (DllInfo.BRIDGED.equals(problem)) carlaRack();
         if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
             pluginTestSaid = "\u2718 " + problem;
             app.setNow(pluginTestSaid);

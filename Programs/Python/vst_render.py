@@ -396,12 +396,35 @@ def carla_rack():
     """Carla's Carla-Rack VST in the VST folders, Pulsekit's plugin folders and Carla's own folders; None when there is none."""
     dirs = vst_folders() + pulsekit_plugin_folders() + [d for d in ("/usr/lib/carla", "/usr/local/lib/carla", r"C:\Program Files\Carla",
                                                                     r"C:\Program Files (x86)\Carla", "/Applications/Carla.app/Contents/MacOS") if os.path.isdir(d)]
+    # Where Pulsekit found it (it looks too, and keeps the path for vst_render): tried first.
+    kept = os.path.join(os.path.expanduser("~"), ".pulsekit", "carla-rack.txt")
+    try:
+        found = open(kept, encoding="utf-8").read().strip()
+        if found and os.path.exists(found):
+            return found
+    except OSError:
+        pass
     for d in dirs:
+        if is_carla_rack(d):
+            return d
         for root, subdirs, files in os.walk(d):
             for n in sorted(subdirs + files):
-                if os.path.splitext(n)[0] == "CarlaRack" and n.lower().endswith(PLUGIN_ENDS):
+                if is_carla_rack(n):
                     return os.path.join(root, n)
     return None
+
+
+def is_carla_rack(path):
+    """Carla's rack plugin by its name: CarlaRack.dll, Carla-Rack.vst3... (not CarlaRackFX, the effect one)."""
+    base = os.path.basename(os.path.normpath(path))
+    if not base.lower().endswith(PLUGIN_ENDS):
+        return False
+    return re.sub(r"[^a-z]", "", os.path.splitext(base)[0].lower()) == "carlarack"
+
+
+def carla_searched():
+    """The folders carla_rack looked through, for a "not found" message."""
+    return vst_folders() + pulsekit_plugin_folders()
 
 
 def carla_state(proc, project):
@@ -2271,7 +2294,8 @@ def main(argv):
             rack = carla_rack()
             if not rack:
                 fail("%s is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla (free at kx.studio/carla, with its "
-                     "32-bit bridge) and it plays through Carla's rack; or use a 64-bit version of the plugin" % os.path.basename(opts["--plugin"]))
+                     "32-bit bridge) and it plays through Carla's rack; or use a 64-bit version of the plugin. Carla's rack (CarlaRack.dll) "
+                     "was not found in: %s" % (os.path.basename(opts["--plugin"]), "; ".join(carla_searched()) or "no folders"))
             print("%s is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge" % os.path.basename(opts["--plugin"]))
             opts["--bridged"], opts["--plugin"] = opts["--plugin"], rack
         elif problem:
