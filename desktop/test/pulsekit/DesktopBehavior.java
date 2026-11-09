@@ -9872,11 +9872,13 @@ public final class DesktopBehavior {
    */
   void s240_bridged_edit_in_carla() throws Exception {
     File dir = new File(System.getProperty("user.home"), "carla-edit");
-    File vst = new File(dir, "Carla-2.4.1-win64/Carla/Carla.vst");
+    File vst = new File(dir, "Carla-2.4.1-win64/Carla.vst");
     vst.mkdirs();
     Files.write(new File(vst, "CarlaVstShell.dll").toPath(), new byte[] {1});
     // Carla's program: here a script that saves the project it is given with the plugin's chunk in it.
-    File app = new File(dir, "Carla-2.4.1-win64/Carla/carla");
+    // (another Carla's, beside the rack's: Carla-2.5.10's program, Carla-2.4.1's rack, as on the user's computer)
+    File app = new File(dir, "Carla-2.5.10-win64/Carla/carla");
+    app.getParentFile().mkdirs();
     Files.write(app.toPath(), ("#!/bin/sh\nsleep 0.2\nsed -i 's#<Active>Yes</Active>#<Active>Yes</Active><Chunk>KIT</Chunk>#' \"$1\"\n").getBytes(StandardCharsets.UTF_8));
     app.setExecutable(true);
     File script = new File(dir, "vst_render.py");
@@ -9886,7 +9888,7 @@ public final class DesktopBehavior {
         + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
         + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
         + "d = sys.argv[2]; os.environ['HOME'] = sys.argv[3]; os.environ['USERPROFILE'] = sys.argv[3]\n"
-        + "rack = os.path.join(d, 'Carla-2.4.1-win64', 'Carla', 'Carla.vst', 'CarlaVstShell.dll')\n"
+        + "rack = os.path.join(d, 'Carla-2.4.1-win64', 'Carla.vst', 'CarlaVstShell.dll')\n"
         + "print('app: %s' % os.path.relpath(vr.carla_app(rack), d))\n"
         + "plug = os.path.join(d, 'Old32.dll')\n"
         + "print('project: %s' % os.path.relpath(vr.bridged_project(plug), sys.argv[3]))\n"
@@ -9895,7 +9897,7 @@ public final class DesktopBehavior {
         + "print('saved: chunk %s, binary %s' % ('<Chunk>KIT</Chunk>' in text, plug in text))\n"
         + "print('load time kept: %s' % os.path.isfile(vr.state_home(plug) + '.load'))\n"
         + "try:\n"
-        + "    vr.carla_edit(plug, os.path.join(d, 'nowhere', 'CarlaVstShell.dll'))\n"
+        + "    vr.carla_edit(plug, '/nonexistent/a/b/CarlaVstShell.dll')\n"
         + "except SystemExit as e:\n"
         + "    pass\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
@@ -9909,7 +9911,7 @@ public final class DesktopBehavior {
     this.out.append("without --test: ").append(run).append('\n');
     this.out.append("notice: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), new File(vst, "CarlaVstShell.dll")).replace(dir.getAbsolutePath(), "~")).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("app: Carla-2.4.1-win64/Carla/carla") && all.contains("project: .pulsekit/vst/Old32.carxp")
+    boolean ok = all.contains("app: Carla-2.5.10-win64/Carla/carla") && all.contains("project: .pulsekit/vst/Old32.carxp")
         && all.contains("Old32.dll's window opens in Carla") && all.contains("saved: chunk True, binary True") && all.contains("load time kept: True")
         && all.contains("Wrote Plugin settings: ") && all.contains("Kit load time: ")
         && all.contains("Failed: Carla's program (Carla.exe) was not found beside")

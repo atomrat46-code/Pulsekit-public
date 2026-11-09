@@ -385,27 +385,52 @@ def bridged_project(path):
 
 
 def carla_app(rack):
-    """Carla's own program beside its rack plugin (Carla.exe on Windows: the Carla.vst folder's parent); None when there is none."""
-    names = ("Carla.exe", "carla.exe", "Carla", "carla")
-    here = os.path.dirname(os.path.abspath(rack)) if rack else ""
-    for _ in range(4):
-        if not here:
-            break
-        for n in names:
-            full = os.path.join(here, n)
-            if os.path.isfile(full):
+    """Carla's own program (Carla.exe on Windows): beside its rack plugin (the Carla.vst folder's parent), else in
+    another Carla near it (Carla-2.5.10-win64\\Carla\\Carla.exe beside Carla-2.4.1-win64\\Carla.vst), in Pulsekit's
+    plugin folders or Carla's usual places; None when there is none."""
+    names = ("carla.exe", "carla")
+
+    def look(folder, depth):
+        try:
+            items = sorted(os.listdir(folder))
+        except OSError:
+            return None
+        for n in items:
+            full = os.path.join(folder, n)
+            if n.lower() in names and os.path.isfile(full):
                 return full
-        mac = os.path.join(here, "Carla.app", "Contents", "MacOS", "Carla")
+        mac = os.path.join(folder, "Carla.app", "Contents", "MacOS", "Carla")
         if os.path.isfile(mac):
             return mac
+        if depth <= 0:
+            return None
+        # The newest Carla first (Carla-2.5.10-win64 before Carla-2.4.1-win64).
+        subs = [n for n in items if os.path.isdir(os.path.join(folder, n)) and not n.lower().endswith((".vst", ".vst3", ".clap", ".lv2"))]
+        subs.sort(key=lambda n: [int(x) if x.isdigit() else 0 for x in re.findall(r"\d+", n)], reverse=True)
+        for n in subs:
+            hit = look(os.path.join(folder, n), depth - 1)
+            if hit:
+                return hit
+        return None
+
+    here = os.path.dirname(os.path.abspath(rack)) if rack else ""
+    tops = []
+    for _ in range(3):
+        if not here:
+            break
+        tops.append(here)
         up = os.path.dirname(here)
         if up == here:
             break
         here = up
-    for d in (r"C:\Program Files\Carla", r"C:\Program Files (x86)\Carla", "/usr/bin", "/usr/local/bin", "/Applications/Carla.app/Contents/MacOS"):
-        for n in names:
-            if os.path.isfile(os.path.join(d, n)):
-                return os.path.join(d, n)
+    for k, top in enumerate(tops):
+        hit = look(top, k + 1)
+        if hit:
+            return hit
+    for d in pulsekit_plugin_folders() + [r"C:\Program Files\Carla", r"C:\Program Files (x86)\Carla", "/usr/bin", "/usr/local/bin", "/Applications/Carla.app/Contents/MacOS"]:
+        hit = look(d, 2)
+        if hit:
+            return hit
     return None
 
 
@@ -2659,7 +2684,16 @@ def main(argv):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
                  % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"] or opts.get("--bridged"))))
         peak = float(np.max(np.abs(check_audio)))
-        print("Plugin check: the test beat plays (peak %.1f dBFS)" % (20 * np.log10(max(peak, 1e-9))))
+        # Where the sound is in the test beat (its first notes are at 0 s): a plugin heard only late, or only
+        # in a short burst, plays the beat wrong (a bridge starting, a kit loading).
+        loud = np.nonzero(np.max(np.abs(check_audio), axis=0) > peak * 0.05)[0]
+        span = ""
+        if loud.size:
+            secs = check_audio.shape[1] / float(rate)
+            blocks = np.unique(loud // int(rate * 0.5))
+            span = "; sound from %.1f s to %.1f s of %.1f s, in %d of its %d half-seconds" % (
+                loud[0] / float(rate), loud[-1] / float(rate), secs, blocks.size, int(np.ceil(secs * 2)))
+        print("Plugin check: the test beat plays (peak %.1f dBFS%s)" % (20 * np.log10(max(peak, 1e-9)), span))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
         if "--no-kit" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and (test or "--check" in switches):
             where = opts["--outdir"] or "."
