@@ -12651,6 +12651,78 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
   /**
+   * v395: Sogni Params' prompt and LoRAs rows have Copy, Paste and Send after their labels, and
+   * Export sits next to Save. Copy puts the text on the clipboard; Paste over text asks (No keeps it,
+   * Yes replaces it); Send puts the prompt into another Sogni program's saved Params (asked; SogniChat
+   * has no LoRAs row, so LoRAs go only to the picture and video programs); Export writes the section
+   * rows into a file.
+   */
+  void s236_params_clip() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final File out = new File(System.getProperty("user.home"), "exported section.txt");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.List<String> loraTargets = new java.util.ArrayList<String>();
+    inspectNext = d -> {
+      javax.swing.text.JTextComponent prompt = null, loras = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        javax.swing.text.JTextComponent c = pj.shownAreas[i] != null ? pj.shownAreas[i] : pj.shownFields[i];
+        if (pj.shownParams.get(i).token.equals("--prompt")) prompt = c;
+        if (pj.shownParams.get(i).token.equals("--loras")) loras = c;
+      }
+      seen.append("buttons: ");
+      for (String n : new String[] {"params-copy:--prompt", "params-paste:--prompt", "params-send:--prompt", "params-copy:--loras", "params-send:--loras", "params-export-section"}) {
+        java.awt.Component c = component(d, n);
+        seen.append(c == null ? "-" : ((javax.swing.AbstractButton) c).getText()).append(' ');
+      }
+      seen.append('\n');
+      prompt.setText("a red kite over green hills");
+      loras.setText("kite-style:0.7");
+      ((javax.swing.AbstractButton) component(d, "params-copy:--prompt")).doClick();
+      seen.append("copy: ").append(PyJav.clipSaid).append('\n');
+      prompt.setText("other words");
+      PyJav.pasteReplace = false;
+      ((javax.swing.AbstractButton) component(d, "params-paste:--prompt")).doClick();
+      seen.append("paste, No: ").append(prompt.getText()).append('\n');
+      PyJav.pasteReplace = true;
+      ((javax.swing.AbstractButton) component(d, "params-paste:--prompt")).doClick();
+      seen.append("paste, Yes: ").append(prompt.getText()).append(" (").append(PyJav.clipSaid).append(")\n");
+      PyJav.sendTo = "SogniPadd.java";
+      PyJav.sendYes = false;
+      ((javax.swing.AbstractButton) component(d, "params-send:--prompt")).doClick();
+      seen.append("send, No: ").append(pj.loadParams("SogniPadd.java") == null ? "SogniPadd not saved" : pj.loadParams("SogniPadd.java")).append('\n');
+      PyJav.sendYes = true;
+      ((javax.swing.AbstractButton) component(d, "params-send:--prompt")).doClick();
+      seen.append("send, Yes: ").append(PyJav.clipSaid).append('\n');
+      PyJav.sendTo = "SogniChat.java";
+      ((javax.swing.AbstractButton) component(d, "params-send:--loras")).doClick();
+      seen.append("LoRAs to SogniChat: ").append(PyJav.clipSaid).append('\n');
+      loraTargets.addAll(ParamsClip.targets("SogniPedit.java", "--loras", PyJav::programTextOf));
+      PyJav.exportTo = out;
+      ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+      seen.append("export: ").append(PyJav.clipSaid).append('\n');
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pasteReplace = null;
+    PyJav.sendTo = null;
+    PyJav.sendYes = null;
+    PyJav.exportTo = null;
+    String padd = pj.loadParams("SogniPadd.java");
+    String file = out.isFile() ? new String(Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8) : "";
+    this.out.append(seen).append("SogniPadd's Params: ").append(padd).append("\nLoRAs go to: ").append(loraTargets).append("\nfile:\n").append(file);
+    String all = this.out.toString();
+    boolean ok = all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
+        && all.contains("paste, No: other words") && all.contains("paste, Yes: a red kite over green hills (Pasted into the prompt)")
+        && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
+        && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")
+        && loraTargets.equals(java.util.Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java"))
+        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * Sogni Params, as on Android: Save (bottom left) keeps the prompt and LoRAs as the program's
    * section (the same again is said so); Browse sections over unsaved entries asks, then loads it.
    */

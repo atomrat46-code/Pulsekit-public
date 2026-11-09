@@ -1328,6 +1328,128 @@ final class PyJav {
         return SogniSections.fields(ps, now);
     }
 
+    /** The tests: Export's file (else a file picker), Paste's answer (true: replace), Send's program and answer. */
+    static File exportTo;
+    static Boolean pasteReplace;
+    static String sendTo;
+    static Boolean sendYes;
+    static volatile String clipSaid = "";
+
+    private void clipSay(String text) {
+        clipSaid = text;
+        app.setNow(text);
+    }
+
+    /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
+    void exportSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.clipSay("Nothing to export: the prompt and the other rows are empty");
+            return;
+        }
+        File to = exportTo;
+        if (to == null) {
+            JFileChooser chooser = selectChooser();
+            chooser.setDialogTitle(ParamsClip.EXPORT + " the " + program + " section");
+            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), ParamsClip.exportName(program, now)));
+            if (chooser.showSaveDialog(at) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            to = chooser.getSelectedFile();
+            if (to.isFile() && JOptionPane.showConfirmDialog(at, to.getName() + " is there already. Replace it?", ParamsClip.EXPORT, JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            selected(to);
+        }
+        try {
+            Files.write(to.toPath(), ParamsClip.exportText(now).getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Exported the " + program + " section into " + to.getName());
+        } catch (Exception ex) {
+            this.clipSay("Could not export the section: " + ex.getMessage());
+        }
+    }
+
+    /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's text box. */
+    java.util.List<JButton> clipButtons(final String program, final String token, final java.util.function.Supplier<javax.swing.text.JTextComponent> box) {
+        JButton copy = new JButton(ParamsClip.COPY), paste = new JButton(ParamsClip.PASTE), send = new JButton(ParamsClip.SEND);
+        copy.setName("params-copy:" + token);
+        paste.setName("params-paste:" + token);
+        send.setName("params-send:" + token);
+        copy.setToolTipText(ParamsClip.COPY_TIP);
+        paste.setToolTipText(ParamsClip.PASTE_TIP);
+        send.setToolTipText(ParamsClip.SEND_TIP);
+        for (JButton b : new JButton[] {copy, paste, send}) {
+            b.setMargin(new java.awt.Insets(0, 4, 0, 4));
+            b.setFocusable(false);
+        }
+        copy.addActionListener(e -> {
+            String text = box.get().getText();
+            if (text.trim().length() > 0) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text), null);
+            this.clipSay(ParamsClip.copied(token, text));
+        });
+        paste.addActionListener(e -> {
+            String clip = null;
+            try {
+                clip = (String) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            } catch (Exception ignored) {
+                // no text there
+            }
+            if (clip == null || clip.trim().isEmpty()) {
+                this.clipSay("The clipboard has no text");
+                return;
+            }
+            javax.swing.text.JTextComponent t = box.get();
+            if (t.getText().trim().length() > 0) {
+                boolean yes = pasteReplace != null ? pasteReplace.booleanValue()
+                    : JOptionPane.showConfirmDialog(paste, ParamsClip.replaceAsk(token), "Paste", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+                if (!yes) return;
+            }
+            t.setText(clip.trim());
+            t.setCaretPosition(0);
+            this.clipSay("Pasted into the " + ParamsClip.what(token));
+        });
+        send.addActionListener(e -> {
+            final String text = box.get().getText();
+            if (text.trim().isEmpty()) {
+                this.clipSay("No " + ParamsClip.what(token) + " to send");
+                return;
+            }
+            java.util.List<String> targets = ParamsClip.targets(program, token, PyJav::programTextOf);
+            if (targets.isEmpty()) {
+                this.clipSay("No other Sogni program takes a " + ParamsClip.what(token));
+                return;
+            }
+            java.util.function.Consumer<String> go = target -> {
+                boolean yes = sendYes != null ? sendYes.booleanValue()
+                    : JOptionPane.showConfirmDialog(send, ParamsClip.sendAsk(token, target, text), ParamsClip.SEND_TITLE, JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+                if (!yes) return;
+                java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(target));
+                this.saveParams(target, ParamsClip.put(theirs, this.loadParams(target), token, text));
+                this.clipSay(ParamsClip.sent(token, target));
+            };
+            if (sendTo != null) {
+                if (targets.contains(sendTo)) go.accept(sendTo);
+                else this.clipSay(sendTo + " takes no " + ParamsClip.what(token));
+                return;
+            }
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            for (final String target : targets) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(SogniSections.app(target));
+                item.setName("params-send-to:" + target);
+                item.addActionListener(ev -> go.accept(target));
+                m.add(item);
+            }
+            MenuCancel.add(m);
+            m.show(send, 0, send.getHeight());
+        });
+        return java.util.Arrays.asList(copy, paste, send);
+    }
+
+    /** A program's text for its Params (its bundled source); null when it is not there. */
+    static String programTextOf(String program) {
+        try {
+            return PyJavHints.programText(program, new String(ProgramFiles.read("Java", program), StandardCharsets.UTF_8), null);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
     boolean saveSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
         java.util.Map<String, String> now = sectionFields(ps, fields, areas);
@@ -3033,7 +3155,16 @@ final class PyJav {
             final ProgramParams.Param p = ps.get(i);
             final int index = i;
             rowStarts[i] = form.getComponentCount();
-            form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
+            JLabel rowLabel = new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
+            if (ParamsClip.has(program, p)) {
+                // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
+                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                withClip.add(rowLabel);
+                for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
+                form.add(withClip);
+            } else {
+                form.add(rowLabel);
+            }
             if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
                 continue;
@@ -3531,8 +3662,13 @@ final class PyJav {
             JButton saveSection = new JButton(SogniSections.SAVE);
             saveSection.setName("params-save-section");
             saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
-            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+            // Export: the same rows written into a file picked, not the prompt library.
+            JButton exportSection = new JButton(ParamsClip.EXPORT);
+            exportSection.setName("params-export-section");
+            exportSection.addActionListener(e -> this.exportSection(exportSection, SogniSections.app(program), ps, fields, areas));
+            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
             south.add(saveSection);
+            south.add(exportSection);
             box.add(south, BorderLayout.SOUTH);
         }
         // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.

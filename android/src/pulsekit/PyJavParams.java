@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.text.InputType;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -129,7 +130,17 @@ public final class PyJavParams {
       TextView label = new TextView(activity);
       label.setText(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
       label.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
-      box.addView(label);
+      if (ParamsClip.has(name, p)) {
+        // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
+        LinearLayout withClip = new LinearLayout(activity);
+        withClip.setOrientation(LinearLayout.HORIZONTAL);
+        withClip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        withClip.addView(label);
+        for (View b : clipButtons(activity, name, p.token, () -> fields[index])) withClip.addView(b);
+        box.addView(withClip);
+      } else {
+        box.addView(label);
+      }
       if (p.output && !p.optional) {
         TextView auto = new TextView(activity);
         auto.setText("Named by PyJav from the input file");
@@ -545,6 +556,15 @@ public final class PyJavParams {
       box.addView(field);
     }
     onTabs(activity, box, rowStarts, ps, values, uses);
+    if (SogniSections.shown(name)) {
+      // Export (Save is the window's button): the rows Save keeps, written into a file picked.
+      android.widget.Button export = new android.widget.Button(activity);
+      export.setText(ParamsClip.EXPORT);
+      export.setTag("params-export-section");
+      export.setAllCaps(false);
+      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
+      box.addView(export);
+    }
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
@@ -615,6 +635,135 @@ public final class PyJavParams {
         .show();
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
     if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+  }
+
+  /** The tests: Export's file (else the system's save dialog), Paste's answer (true: replace), Send's program and answer. */
+  static java.io.File exportTo;
+  static Boolean pasteReplace;
+  static String sendTo;
+  static Boolean sendYes;
+  static volatile String clipSaid = "";
+  static AlertDialog lastClip;
+
+  static void clipSay(Activity activity, String text) {
+    clipSaid = text;
+    android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_SHORT).show();
+  }
+
+  /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
+  static void exportSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      clipSay(activity, "Nothing to export: the prompt and the other rows are empty");
+      return;
+    }
+    String text = ParamsClip.exportText(now);
+    if (exportTo != null) {
+      try {
+        java.io.FileOutputStream out = new java.io.FileOutputStream(exportTo);
+        try {
+          out.write(text.getBytes("UTF-8"));
+        } finally {
+          out.close();
+        }
+        clipSay(activity, "Exported the " + program + " section into " + exportTo.getName());
+      } catch (Exception ex) {
+        clipSay(activity, "Could not export the section: " + ex.getMessage());
+      }
+      return;
+    }
+    SaveText.save((MainActivity) activity, ParamsClip.exportName(program, now), text);
+  }
+
+  /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's field. */
+  static List<View> clipButtons(final Activity activity, final String program, final String token, final java.util.function.Supplier<EditText> box) {
+    final android.content.ClipboardManager clip = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    android.widget.Button copy = clipButton(activity, ParamsClip.COPY, "params-copy:" + token);
+    android.widget.Button paste = clipButton(activity, ParamsClip.PASTE, "params-paste:" + token);
+    android.widget.Button send = clipButton(activity, ParamsClip.SEND, "params-send:" + token);
+    copy.setOnClickListener(v -> {
+      String text = box.get().getText().toString();
+      if (text.trim().length() > 0) clip.setPrimaryClip(android.content.ClipData.newPlainText(ParamsClip.what(token), text));
+      clipSay(activity, ParamsClip.copied(token, text));
+    });
+    paste.setOnClickListener(v -> {
+      CharSequence got = clip.hasPrimaryClip() && clip.getPrimaryClip().getItemCount() > 0 ? clip.getPrimaryClip().getItemAt(0).coerceToText(activity) : null;
+      if (got == null || got.toString().trim().isEmpty()) {
+        clipSay(activity, "The clipboard has no text");
+        return;
+      }
+      final String text = got.toString().trim();
+      final EditText f = box.get();
+      final Runnable put = () -> {
+        f.setText(text);
+        clipSay(activity, "Pasted into the " + ParamsClip.what(token));
+      };
+      if (f.getText().toString().trim().isEmpty()) put.run();
+      else if (pasteReplace != null) {
+        if (pasteReplace.booleanValue()) put.run();
+      } else {
+        lastClip = new AlertDialog.Builder(activity).setTitle("Paste").setMessage(ParamsClip.replaceAsk(token))
+            .setPositiveButton("Replace", (d, w) -> put.run()).setNegativeButton("Cancel", null).show();
+      }
+    });
+    send.setOnClickListener(v -> {
+      final String text = box.get().getText().toString();
+      if (text.trim().isEmpty()) {
+        clipSay(activity, "No " + ParamsClip.what(token) + " to send");
+        return;
+      }
+      final List<String> targets = ParamsClip.targets(program, token, s -> programTextOf(activity, s));
+      if (targets.isEmpty()) {
+        clipSay(activity, "No other Sogni program takes a " + ParamsClip.what(token));
+        return;
+      }
+      final java.util.function.Consumer<String> go = target -> {
+        final Runnable put = () -> {
+          List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(activity, target));
+          store(activity, target, ParamsClip.put(theirs, load(activity, target), token, text));
+          clipSay(activity, ParamsClip.sent(token, target));
+        };
+        if (sendYes != null) {
+          if (sendYes.booleanValue()) put.run();
+          return;
+        }
+        lastClip = new AlertDialog.Builder(activity).setTitle(ParamsClip.SEND_TITLE).setMessage(ParamsClip.sendAsk(token, target, text))
+            .setPositiveButton("Send", (d, w) -> put.run()).setNegativeButton("Cancel", null).show();
+      };
+      if (sendTo != null) {
+        if (targets.contains(sendTo)) go.accept(sendTo);
+        else clipSay(activity, sendTo + " takes no " + ParamsClip.what(token));
+        return;
+      }
+      String[] rows = new String[targets.size()];
+      for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.app(targets.get(i));
+      lastClip = new AlertDialog.Builder(activity).setTitle(ParamsClip.SEND_TITLE).setItems(rows, (d, w) -> go.accept(targets.get(w)))
+          .setNegativeButton("Cancel", null).show();
+    });
+    return java.util.Arrays.<View>asList(copy, paste, send);
+  }
+
+  static android.widget.Button clipButton(Activity activity, String symbol, String tag) {
+    android.widget.Button b = new android.widget.Button(activity, null, android.R.attr.buttonStyleSmall);
+    b.setText(symbol);
+    b.setTag(tag);
+    b.setAllCaps(false);
+    b.setMinWidth(0);
+    b.setMinimumWidth(0);
+    b.setPadding(dp(activity, 8), 0, dp(activity, 8), 0);
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+    lp.leftMargin = dp(activity, 4);
+    b.setLayoutParams(lp);
+    return b;
+  }
+
+  /** A program's text for its Params (its bundled source); null when it is not there. */
+  static String programTextOf(Activity activity, String program) {
+    try {
+      return PyJavHints.programText(program, new String(((MainActivity) activity).programMenus.read("Java", program), "UTF-8"), null);
+    } catch (Exception ex) {
+      return null;
+    }
   }
 
   /** What Save or Browse sections said last, and the list shown last, for the tests. */

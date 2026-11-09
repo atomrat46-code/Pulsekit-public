@@ -13714,6 +13714,73 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * v395 on the phone: Sogni Params' prompt and LoRAs labels have Copy, Paste and Send; Paste over
+   * text asks (its dialog: Replace or Cancel); Send asks, then puts the prompt into SogniPadd's saved
+   * Params; Export (at the page's end) writes the section into a file.
+   */
+  @Test
+  public void s249_params_clip() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText prompt = null, loras = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) prompt = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) loras = PyJavParams.shownFields[i];
+    }
+    View dv = d.getWindow().getDecorView();
+    out.append("buttons: ");
+    for (String n : new String[] {"params-copy:--prompt", "params-paste:--prompt", "params-send:--prompt", "params-copy:--loras", "params-export-section"}) {
+      View v = dv.findViewWithTag(n);
+      out.append(v == null ? "-" : ((TextView) v).getText()).append(' ');
+    }
+    out.append('\n');
+    prompt.setText("a red kite over green hills");
+    loras.setText("kite-style:0.7");
+    dv.findViewWithTag("params-copy:--prompt").performClick();
+    idle();
+    out.append("copy: ").append(PyJavParams.clipSaid).append('\n');
+    prompt.setText("other words");
+    PyJavParams.lastClip = null;
+    dv.findViewWithTag("params-paste:--prompt").performClick();
+    idle();
+    AlertDialog ask = PyJavParams.lastClip;
+    out.append("paste asks: ").append(ask == null ? "no" : String.valueOf(ask.getButton(DialogInterface.BUTTON_POSITIVE).getText())).append('\n');
+    if (ask != null) ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("pasted: ").append(prompt.getText()).append('\n');
+    PyJavParams.sendTo = "SogniPadd.java";
+    PyJavParams.lastClip = null;
+    dv.findViewWithTag("params-send:--prompt").performClick();
+    idle();
+    AlertDialog sendAsk = PyJavParams.lastClip;
+    out.append("send asks: ").append(sendAsk == null ? "no" : String.valueOf(sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText())).append('\n');
+    if (sendAsk != null) sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("SogniPadd's Params: ").append(PyJavParams.load(app, "SogniPadd.java")).append('\n');
+    File file = new File(app.getCacheDir(), "exported.txt");
+    PyJavParams.exportTo = file;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    PyJavParams.sendTo = null;
+    PyJavParams.exportTo = null;
+    d.dismiss();
+    idle();
+    write("s249_params_clip", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
+        && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
+        && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
+        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7");
+    if (!ok) throw new AssertionError(text);
+  }
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();
