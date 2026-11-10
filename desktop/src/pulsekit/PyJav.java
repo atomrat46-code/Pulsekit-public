@@ -4132,7 +4132,7 @@ final class PyJav {
      */
     void offerSuggestion(java.awt.Component at, File plug, String verdict, PluginFiles.Suggestion s) {
         File home = new File(System.getProperty("user.home", "."));
-        javax.swing.JTextArea text = new javax.swing.JTextArea(verdict + "\n\nIts pads are on other notes. A note map from their sounds (each pad played alone), for map.txt:\n\n"
+        javax.swing.JTextArea text = new javax.swing.JTextArea(verdict + "\n\nSome of its drums are on other notes. A note map from their sounds (each pad played alone), for map.txt:\n\n"
             + PluginFiles.suggestionText(s), 22, 80);
         text.setEditable(false);
         text.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));

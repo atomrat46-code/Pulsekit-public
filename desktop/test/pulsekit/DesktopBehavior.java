@@ -10035,6 +10035,12 @@ public final class DesktopBehavior {
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
     this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    // A kit with every drum on its GM note but the crash on 57 and no ride: only 49 and 51 suggested.
+    File home2 = new File(home, "other");
+    home2.mkdirs();
+    java.util.List<String> cmdOnly = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmdOnly.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home2.getAbsolutePath(), "36:kick,38:snare,42:chh,46:ohh,57:crash,41:tom,43:tom,45:tom,47:tom,48:tom,50:tom"));
+    this.out.append(PythonRun.runFor(cmdOnly, 300, null).trim()).append('\n');
     // A kit named but not changed: its test beat as another kit's.
     String same = "import importlib.util, os, sys, types, numpy as np\n"
         + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
@@ -10057,6 +10063,9 @@ public final class DesktopBehavior {
     boolean ok = all.contains("first: suggestions 17") && all.contains("first Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
         && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
         && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
+        && all.contains("only Notes: 49 (C#3), 51 (D#3) silent: looking for them on the plugin's other notes")
+        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
+        && all.split("only Map suggestion").length == 3
         && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
         && all.contains("verdict: \u26a0 the test beat sounds exactly as it did for \"DigiDrum:kit 1\"")
         && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");

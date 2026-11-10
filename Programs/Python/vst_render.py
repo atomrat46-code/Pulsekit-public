@@ -2115,13 +2115,18 @@ def pad_sounds(chain, np, rate, notes):
     return out
 
 
-def print_suggestion(chain, np, rate, plugin, plays=None):
+# The drums a kit must have: a test beat silent at any of them looks for them on the plugin's other notes.
+KEY_NOTES = (36, 38, 42, 46, 49, 51)
+
+
+def print_suggestion(chain, np, rate, plugin, plays=None, only=None):
     """Test's suggested note map for a plugin whose pads are on other notes: printed as "Map suggestion:
-    [Plugin] 36=48 # why" lines (Pulsekit offers to add them to map.txt); how many."""
+    [Plugin] 36=48 # why" lines (Pulsekit offers to add them to map.txt); how many. `only`: just these
+    notes (the ones silent in the test beat; the others play already)."""
     if plays is None:
         plays = note_sweep(chain, np, rate)
     pads = pad_sounds(chain, np, rate, plays)
-    lines = suggest_map(pads)
+    lines = [l for l in suggest_map(pads) if only is None or (l[0] in only and l[1] is not None)]
     if not lines:
         return 0
     section = stem(plugin)
@@ -3155,9 +3160,15 @@ def main(argv):
             print("Notes: %s heard; %s silent (each played alone)%s" % (named_list(heard) or "none", named_list(silent),
                   ": its pads may be on other notes (set them in Edit settings, or a note map: Files & locations, map.txt)" if len(silent) > len(heard) else ""))
             # Most drums silent: which notes its pads are on, what each sounds like, and a note map for them.
-            # (With a note map in use, it is not suggested again: map.txt is edited instead.)
-            if len(silent) > len(heard) and not gizmo and not chain.note_map:
-                print_suggestion(chain, np, rate, name)
+            # (With a note map in use, it is not suggested again: map.txt is edited instead.) Some drums
+            # silent (no crash on 49, no ride on 51): those looked for on the plugin's other notes.
+            if not gizmo and not chain.note_map:
+                if len(silent) > len(heard):
+                    print_suggestion(chain, np, rate, name)
+                elif set(KEY_NOTES) & set(silent):
+                    print("Notes: %s silent: looking for them on the plugin's other notes" % named_list(sorted(set(KEY_NOTES) & set(silent))))
+                    if not print_suggestion(chain, np, rate, name, only=set(silent)):
+                        print("Notes: no pad on other notes sounds like them: the kit has none (or Edit settings can load one)")
         else:
             print("Notes: all heard (%s)" % named_list(heard))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.

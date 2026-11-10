@@ -1,9 +1,11 @@
 # A fake drum plugin with five pads on 48 to 52 (kick, snare, closed and open hat, crash, as DigiDrum's):
 # vst_render's Test (--check) through it, without a map and then with the map it suggested in map.txt.
-# Used by DesktopBehavior s244. Arguments: vst_render.py, a home folder.
+# Used by DesktopBehavior s244. Arguments: vst_render.py, a home folder[, another kit: note:kind,...].
 import sys, types, os, io, contextlib, numpy as np
 sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')
 os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]
+# Its test beat (vst-check-*.wav) is written where it runs: in its home, not the checkout.
+os.chdir(sys.argv[2])
 import importlib.util
 s = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(s); s.loader.exec_module(vr)
 R = 44100
@@ -17,7 +19,12 @@ def sound(kind):
     if kind == 'chh': return 0.6 * hp(rng.standard_normal(n)) * env(n, 0.02)
     if kind == 'ohh': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.12)
     if kind == 'crash': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.5)
+    if kind == 'tom': return 0.8 * np.sin(2 * np.pi * 140 * t) * env(n, 0.15)
 PADS = {48: 'kick', 49: 'snare', 50: 'chh', 51: 'ohh', 52: 'crash'}
+# A third argument (note:kind,...) for another kit: its run is the first only.
+OTHER = sys.argv[3] if len(sys.argv) > 3 else ''
+if OTHER:
+    PADS = dict((int(k), v) for k, v in (p.split(':') for p in OTHER.split(',')))
 class Chain:
     note_map = None
     load_limit = 0.0
@@ -42,6 +49,10 @@ def run():
         except SystemExit: pass
     return buf.getvalue()
 first = run()
+if OTHER:
+    for l in first.splitlines():
+        if l.startswith(('Notes', 'Pads', 'Map suggestion')): print('only ' + l)
+    sys.exit(0)
 print('first: suggestions %d' % first.count('Map suggestion:'))
 for l in first.splitlines():
     if l.startswith(('Notes', 'Pads', 'Working')): print('first ' + l)

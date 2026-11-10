@@ -1,2 +1,5 @@
 desktop/test/build/
 __pycache__/
+vst-check-*.wav
+vst-check-*-times.txt
+vst-kit-*.kit
