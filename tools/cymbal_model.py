@@ -86,6 +86,9 @@ def notes_map(report):
     m = re.search(r"Notes mapped \(--map[^)]*\): (.*)", open(report, encoding="utf-8", errors="replace").read())
     out = {}
     for pair in (m.group(1).split(",") if m else []):
+        # "none": the test played with no map.
+        if "=" not in pair:
+            continue
         a, b = pair.strip().split("=")
         out[int(a)] = None if b == "none" else int(b)
     return out

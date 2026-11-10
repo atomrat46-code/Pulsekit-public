@@ -3165,8 +3165,9 @@ def main(argv):
             if not gizmo and not chain.note_map:
                 if len(silent) > len(heard):
                     print_suggestion(chain, np, rate, name)
-                elif set(KEY_NOTES) & set(silent):
-                    print("Notes: %s silent: looking for them on the plugin's other notes" % named_list(sorted(set(KEY_NOTES) & set(silent))))
+                elif (set(KEY_NOTES) | set(GM_TOMS)) & set(silent):
+                    # (Toms too: a kit with two toms leaves 45-50 silent; the songs' toms then go to the two.)
+                    print("Notes: %s silent: looking for them on the plugin's other notes" % named_list(sorted((set(KEY_NOTES) | set(GM_TOMS)) & set(silent))))
                     if not print_suggestion(chain, np, rate, name, only=set(silent)):
                         print("Notes: no pad on other notes sounds like them: the kit has none (or Edit settings can load one)")
         else:

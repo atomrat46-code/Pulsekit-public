@@ -10063,6 +10063,13 @@ public final class DesktopBehavior {
     java.util.List<String> cmdOnly = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmdOnly.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home2.getAbsolutePath(), "36:kick,38:snare,42:chh,46:ohh,57:crash,41:tom,43:tom,45:tom,47:tom,48:tom,50:tom"));
     this.out.append(PythonRun.runFor(cmdOnly, 300, null).trim()).append('\n');
+    // A kit with two toms (Drumatic 4's): the songs' other toms go to them.
+    File home3 = new File(home, "twotoms");
+    home3.mkdirs();
+    java.util.List<String> cmdToms = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmdToms.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home3.getAbsolutePath(), "36:kick,38:snare,42:chh,46:ohh,49:crash,51:crash,41:tom,43:tom"));
+    String toms = PythonRun.runFor(cmdToms, 300, null).trim();
+    this.out.append(toms.replace("only ", "toms ")).append('\n');
     // A kit named but not changed: its test beat as another kit's.
     String same = "import importlib.util, os, sys, types, numpy as np\n"
         + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
@@ -10088,6 +10095,7 @@ public final class DesktopBehavior {
         && all.contains("only Notes: 49 (C#3), 51 (D#3) silent: looking for them on the plugin's other notes")
         && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
         && all.split("only Map suggestion").length == 3
+        && all.contains("toms Map suggestion: [DigiDrum Pro] 45=41") && all.contains("toms Map suggestion: [DigiDrum Pro] 50=43") && all.split("toms Map suggestion").length == 5
         && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
         && all.contains("verdict: \u26a0 the test beat sounds exactly as it did for \"DigiDrum:kit 1\"")
         && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");
