@@ -456,12 +456,13 @@ final class PluginsList {
      * first (\u2714 plays drums, all heard; \u26a0 plays, some drums silent; \u2718 plays nothing), then the lines it rests on.
      */
     static String verdict(String name, String log) {
-        String kit = "", failed = "", check = "";
+        String kit = "", failed = "", check = "", sameKit = "";
         for (String l : log.split("\n")) {
             String t = l.trim();
             if (t.startsWith("Kit: ") && (t.contains("kick") || t.contains("not learned") || t.contains("silent"))) kit = t;
             if (t.startsWith("Failed")) failed = t;
             if (t.startsWith("Plugin check")) check = t;
+            if (t.startsWith("Kit check:")) sameKit = "\u26a0 " + t.substring("Kit check: ".length());
         }
         boolean plays = check.contains("the test beat plays");
         String head;
@@ -486,6 +487,8 @@ final class PluginsList {
         StringBuilder rest = new StringBuilder();
         for (String l : summary(log).split("\n")) if (!(l.trim().startsWith("Failed") && head.contains(l.trim().replaceFirst("^Failed:\\s*", "")))) rest.append(l).append('\n');
         String lines = rest.toString().trim();
+        // The kit named, not changed (its test beat as another kit's): said right under the verdict.
+        if (sameKit.length() > 0) head += "\n" + sameKit;
         return head + (lines.length() > 0 ? "\n\n" + lines : "") + (kit.length() > 0 && lines.indexOf(kit) < 0 ? "\n" + kit : "");
     }
 
@@ -516,7 +519,7 @@ final class PluginsList {
         for (String l : log.split("\n")) {
             String t = l.trim();
             if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.contains("is a 32-bit VST2") || t.startsWith("32-bit plugin:") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
-                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Note:") || t.startsWith("Notes:") || t.startsWith("Pads:") || t.startsWith("Note map:") || t.startsWith("Carla project:") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
+                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Note:") || t.startsWith("Notes:") || t.startsWith("Kit check:") || t.startsWith("Pads:") || t.startsWith("Note map:") || t.startsWith("Carla project:") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
         }
         return b.length() == 0 ? log.trim() : b.toString().trim();
     }

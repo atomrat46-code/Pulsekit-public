@@ -10035,12 +10035,30 @@ public final class DesktopBehavior {
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
     this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    // A kit named but not changed: its test beat as another kit's.
+    String same = "import importlib.util, os, sys, types, numpy as np\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "rng = np.random.default_rng(3); a = np.zeros((2, 44100 * 6)); b = np.zeros((2, 44100 * 6))\n"
+        + "for t in range(0, 6 * 44100, 22050): a[:, t:t + 2000] = rng.random() ; b[:, t:t + 2000] = rng.random()\n"
+        + "print('kit 1: %s' % vr.same_kit_check(np, a, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 1'))\n"
+        + "print('kit 2: %s' % vr.same_kit_check(np, a * 0.999, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 2'))\n"
+        + "print('kit 3: %s' % vr.same_kit_check(np, b, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 3'))\n";
+    java.util.List<String> cmd3 = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd3.addAll(java.util.Arrays.asList("-c", same, script.getAbsolutePath(), home.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd3, 60, null).trim();
+    this.out.append(said).append('\n');
+    String kit2 = said.contains("kit 2: Kit check:") ? said.substring(said.indexOf("kit 2: ") + 7).split("\n")[0] : "";
+    this.out.append("verdict: ").append(PluginsList.verdict("DigiDrum Pro.dll", "Plugin check: the test beat plays (peak -3.0 dBFS)\n" + kit2 + "\nSucceeded: DigiDrum Pro.dll plays").split("\n")[1]).append('\n');
     PythonRun.keepLast("Plugin check: the test beat plays\nWorking: playing each of its 5 pads alone, to hear what each one is\n\n");
     this.out.append("progress: ").append(PluginsList.progress(84000, PythonRun.lastLine)).append(" | ").append(PluginsList.progress(3000, "$ python vst_render.py --check")).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("first: suggestions 17") && all.contains("first Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
         && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
         && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
+        && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
+        && all.contains("verdict: \u26a0 the test beat sounds exactly as it did for \"DigiDrum:kit 1\"")
         && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");
     if (!ok) throw new AssertionError(all);
   }

@@ -2131,6 +2131,51 @@ def print_suggestion(chain, np, rate, plugin, plays=None):
     return len(lines)
 
 
+def beat_shape(np, audio, rate):
+    """The test beat's loudness every 50 ms (0..1): what a kit sounds like, to tell two kits apart."""
+    mono = np.max(np.abs(audio), axis=0) if audio.ndim == 2 else np.abs(audio)
+    blk = int(rate * 0.05)
+    n = mono.size // blk
+    env = mono[:n * blk].reshape(n, blk).max(axis=1)
+    top = float(env.max()) if n else 0.0
+    return [round(float(v) / top, 3) for v in env] if top > 0 else []
+
+
+def same_kit_check(np, audio, rate, plugin, kit):
+    """Whether this kit's test beat sounds as another kit's did through this plugin (the kit not changed in
+    the plugin, only its name): kept in ~/.pulsekit/vst/<plugin>.sounds.json; the line saying so, or None."""
+    shape = beat_shape(np, audio, rate)
+    if not shape or not kit:
+        return None
+    path = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", stem(plugin) + ".sounds.json")
+    try:
+        kept = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = {}
+    same = []
+    for other, was in sorted(kept.items()):
+        if other == kit or abs(len(was) - len(shape)) > 1:
+            continue
+        n = min(len(was), len(shape))
+        a, b = np.array(shape[:n]), np.array(was[:n])
+        if float(np.mean(np.abs(a - b))) < 0.01 and float(np.corrcoef(a, b)[0, 1]) > 0.995:
+            same.append(other)
+    kept[kit] = shape
+    try:
+        folder = os.path.dirname(path)
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(kept, f)
+    except OSError:
+        pass
+    if not same:
+        return None
+    return ("Kit check: the test beat sounds exactly as it did for %s: was the kit really changed in the plugin? "
+            "(Edit settings: pick the kit and save; in Carla, tick Use Chunks in the plugin's settings so a kit picked "
+            "in its own window is saved)" % ", ".join("\"%s\"" % k for k in same))
+
+
 def kit_missing(said):
     """The kick, toms and cymbals DrumMidi --learn-kit heard nothing (or next to nothing) of: how many
     (99 when it learned no tom, or failed)."""
@@ -3094,6 +3139,10 @@ def main(argv):
             span = "; sound from %.1f s to %.1f s of %.1f s, in %d of its %d half-seconds" % (
                 loud[0] / float(rate), loud[-1] / float(rate), secs, blocks.size, int(np.ceil(secs * 2)))
         print("Plugin check: the test beat plays (peak %.1f dBFS%s)" % (20 * np.log10(max(peak, 1e-9)), span))
+        # Another kit's test beat, sound for sound: the kit was named, not changed.
+        same = same_kit_check(np, check_audio, rate, opts.get("--bridged") or opts["--clap"] or name, opts["--kit_name"])
+        if same:
+            print(same)
         # Which of its notes sound (each drum and cymbal played alone): a plugin with pads on other notes
         # plays only some of them.
         heard, silent = notes_heard(np, check_audio, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
