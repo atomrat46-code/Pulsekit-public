@@ -224,9 +224,9 @@ public final class ProgramParams {
     return out;
   }
 
-  /** The usage text after "Usage:", with Java "..." + "..." joins removed, up to the end of the string or line. */
+  /** The usage text after "Usage:" (up to 2000 characters: vst_render's is long), with Java "..." + "..." joins removed, up to the end of the string or line. */
   static String usageLine(String text, int from) {
-    String tail = text.substring(from, Math.min(text.length(), from + 800));
+    String tail = text.substring(from, Math.min(text.length(), from + 2000));
     tail = tail.replaceAll("\"\\s*\\+\\s*\"", "");
     int end = tail.length();
     int q = tail.indexOf('"');
@@ -706,11 +706,13 @@ public final class ProgramParams {
 
   /** vst_render's Params tabs: what it plays, what it writes, the plugins, and the test's settings. */
   public static final String INPUT = "Input", OUTPUT = "Output", PLUGINS = "Plugins", SETTINGS = "Settings";
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS};
+  public static final String FILES = PluginFiles.TAB;
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES};
 
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (t.equals("--note_map")) return FILES;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
@@ -846,6 +848,9 @@ public final class ProgramParams {
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
       p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT, Artillery), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+    } else if (p.token.equals("--note_map")) {
+      p.label = "Note map: the MIDI's notes sent to the plugin's pads (36=48: the kick on its pad 48; 41=none), or a text file of them ([plugin name] sections)";
+      p.hint = "empty: map.txt below (Edit), its lines for the plugin; pairs such as 36=48,38=50 or a file";
     } else if (p.token.equals("--no-map")) {
       p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
     } else if (p.token.equals("--map2") || p.token.equals("--map3") || p.token.equals("--map4")) {

@@ -8939,7 +8939,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
-    boolean tabsOk = titles.equals("Input Output Plugins Settings ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
@@ -9865,6 +9865,84 @@ public final class DesktopBehavior {
    * bridge (vst_render finds the rack in Pulsekit's plugin folders too); without Carla it says so; a .dll
    * that is no plugin is said so; the Params' notices and Test's verdict say the same.
    */
+  /**
+   * v406: vst_render's Files &amp; locations tab: Carla's program and rack kept in ~/.pulsekit (vst_render tries
+   * them first), map.txt with Edit and Pads &amp; notes; the note map sends the MIDI's notes to the plugin's
+   * pads (36=48); a plugin dragged from Recently used onto a plugin row.
+   */
+  void s242_files_locations_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PluginLibrary.reset();
+    PluginLibrary.load(PromptDb.dir());
+    File riot = new File(home, "vst/Riot Drums.vst3");
+    riot.mkdirs();
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", riot.getAbsolutePath()));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = PluginFiles.TAB;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    java.awt.Component files = component(d, "params-tab:" + PluginFiles.TAB);
+    this.out.append("files tab: ").append(files != null).append(", note map row ").append(component(files, "params-field:--note_map") != null)
+        .append(", Edit ").append(component(files, "params-files-map-edit") != null).append(", Pads & notes ").append(component(files, "params-files-pad-notes") != null)
+        .append(", Carla program ").append(component(files, "params-files-browse:carla-app") != null).append('\n');
+    // A plugin dragged from Recently used onto plugin 2's row.
+    final java.awt.Component row2 = component(d, "params-chosen:--plugin2");
+    final boolean[] dropped = new boolean[1];
+    edt(() -> {
+      javax.swing.JComponent c = (javax.swing.JComponent) row2;
+      dropped[0] = c.getTransferHandler().importData(new javax.swing.TransferHandler.TransferSupport(c, new java.awt.datatransfer.StringSelection(riot.getAbsolutePath())));
+    });
+    this.out.append("dropped on plugin 2: ").append(dropped[0]).append(", row reads ").append(((JLabel) row2).getText()).append('\n');
+    edt(() -> d.dispose());
+    PyJav.paramsTab = null;
+    // Carla's program kept, and read first by vst_render.
+    File carla = new File(home, "Carla-2.5.10-win64/Carla/Carla.exe");
+    carla.getParentFile().mkdirs();
+    Files.write(carla.toPath(), new byte[] {1});
+    PluginFiles.keep(PluginFiles.carlaAppFile(home), carla.getAbsolutePath());
+    this.out.append("shown: ").append(PluginFiles.shown(PluginFiles.kept(PluginFiles.carlaAppFile(home)), null).replace(home.getAbsolutePath(), "~")).append('\n');
+    // map.txt: the template, then a DigiDrum section; vst_render sends 36 as 48.
+    this.out.append("template: ").append(PluginFiles.mapText(PluginFiles.noteMap(home)).split("\n")[0]).append('\n');
+    PluginFiles.write(PluginFiles.noteMap(home), "[DigiDrum Pro]\n36=48\n42=none\n");
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print('carla app: %s' % os.path.relpath(vr.carla_app(None), sys.argv[2]))\n"
+        + "nmap, said = vr.pad_map('', 'DigiDrum Pro.dll'); print(said)\n"
+        + "print('other plugin: %s' % (vr.pad_map('', 'Riot Drums.vst3'),))\n"
+        + "m = vr.check_midi(sys.argv[2]); sent = vr.sent_midi(m, nmap)\n"
+        + "a = [n for t, n in vr.midi_notes(m)[1]]; b = [n for t, n in vr.midi_notes(sent)[1]]\n"
+        + "print('sent: 36 %d -> %d, 48 %d -> %d, 42 %d -> %d' % (a.count(36), b.count(36), a.count(48), b.count(48), a.count(42), b.count(42)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 60, null).trim()).append('\n');
+    this.out.append("pad notes: ").append(PluginFiles.padNotes().split("\n")[1].trim()).append(" | ").append(PluginFiles.padNotes().contains("44  Pedal hat")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("files tab: true, note map row true, Edit true, Pads & notes true, Carla program true")
+        && all.contains("dropped on plugin 2: true, row reads Riot Drums.vst3") && all.contains("shown: ~/Carla-2.5.10-win64/Carla/Carla.exe")
+        && all.contains("template: # Note map") && all.contains("carla app: Carla-2.5.10-win64/Carla/Carla.exe")
+        && all.contains("Note map: map.txt, section [DigiDrum Pro]: 36=48, 42=none") && all.contains("other plugin: ({}, None)")
+        && all.matches("(?s).*sent: 36 \\d+ -> 0, 48 \\d+ -> \\d+, 42 \\d+ -> 0.*") && all.contains("pad notes: 36  Kick | true");
+    if (!ok) throw new AssertionError(all);
+  }
+
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
   void s241_pad_notes() throws Exception {
     call("showView", "pads");

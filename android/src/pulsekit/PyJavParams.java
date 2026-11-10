@@ -1444,6 +1444,11 @@ public final class PyJavParams {
     android.view.View picks = pluginPicks(activity, ps, values, uses);
     box.addView(picks);
     on.put(picks, ProgramParams.PLUGINS);
+    if (names.contains(ProgramParams.FILES)) {
+      android.view.View files = filesPanel(activity);
+      box.addView(files);
+      on.put(files, ProgramParams.FILES);
+    }
     final LinearLayout strip = new LinearLayout(activity);
     strip.setOrientation(LinearLayout.HORIZONTAL);
     strip.setTag("params-tabs");
@@ -1498,6 +1503,75 @@ public final class PyJavParams {
 
   static AlertDialog useMenu;
 
+  /**
+   * The Files &amp; locations tab: the note map, map.txt (Edit: its text, Pads &amp; notes beside it); Carla's
+   * places are the desktop's (vst_render runs there).
+   */
+  static android.view.View filesPanel(final Activity activity) {
+    LinearLayout col = new LinearLayout(activity);
+    col.setOrientation(LinearLayout.VERTICAL);
+    col.setTag("params-files");
+    col.setPadding(0, dp(activity, 10), 0, 0);
+    TextView carla = new TextView(activity);
+    carla.setTag("params-files-carla");
+    carla.setTextSize(12);
+    carla.setText("Carla's program and rack plugin: set on the desktop (its Files & locations tab), where vst_render plays the plugins.");
+    col.addView(carla);
+    TextView head = new TextView(activity);
+    head.setText(PluginFiles.NOTE_MAP);
+    head.setTextSize(14);
+    head.setPadding(0, dp(activity, 10), 0, dp(activity, 2));
+    col.addView(head);
+    final File map = PluginFiles.noteMap(activity.getFilesDir());
+    LinearLayout row = new LinearLayout(activity);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    android.widget.Button edit = new android.widget.Button(activity);
+    edit.setText("Edit");
+    edit.setTag("params-files-map-edit");
+    edit.setOnClickListener(v -> editNoteMap(activity, map));
+    android.widget.Button notes = new android.widget.Button(activity);
+    notes.setText(PluginFiles.PAD_NOTES);
+    notes.setTag("params-files-pad-notes");
+    notes.setOnClickListener(v -> padNotes(activity));
+    row.addView(edit);
+    row.addView(notes);
+    col.addView(row);
+    return col;
+  }
+
+  static AlertDialog mapEditor, padNotesShown;
+  static EditText mapText;
+
+  /** map.txt's editor: its text (the template when new); Save, Pads & notes, Cancel. */
+  static void editNoteMap(final Activity activity, final File map) {
+    final EditText text = new EditText(activity);
+    text.setTag("params-files-map-text");
+    text.setText(PluginFiles.mapText(map));
+    text.setTypeface(android.graphics.Typeface.MONOSPACE);
+    text.setTextSize(13);
+    text.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+    text.setMinLines(12);
+    mapText = text;
+    mapEditor = new AlertDialog.Builder(activity).setTitle("Note map \u00b7 map.txt").setView(text)
+        .setPositiveButton("Save", (d, w) -> android.widget.Toast.makeText(activity, PluginFiles.write(map, text.getText().toString()) ? "Saved map.txt" : "Could not save map.txt",
+            android.widget.Toast.LENGTH_SHORT).show())
+        .setNeutralButton(PluginFiles.PAD_NOTES, null).setNegativeButton("Cancel", null).show();
+    // Pads & notes keeps the editor open.
+    mapEditor.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> padNotes(activity));
+  }
+
+  /** Pulsekit's pads with their MIDI notes. */
+  static void padNotes(Activity activity) {
+    TextView t = new TextView(activity);
+    t.setTag("params-pad-notes-text");
+    t.setText(PluginFiles.padNotes());
+    t.setTypeface(android.graphics.Typeface.MONOSPACE);
+    t.setPadding(dp(activity, 16), dp(activity, 8), dp(activity, 16), 0);
+    android.widget.ScrollView sv = new android.widget.ScrollView(activity);
+    sv.addView(t);
+    padNotesShown = new AlertDialog.Builder(activity).setTitle(PluginFiles.PAD_NOTES).setView(sv).setPositiveButton("OK", null).show();
+  }
+
   private static void pickList(final Activity activity, LinearLayout col, String title, String tag, List<String> paths, String empty,
       final List<ProgramParams.Param> ps, final String[] values, final android.widget.CheckBox[] uses) {
     TextView head = new TextView(activity);
@@ -1524,6 +1598,11 @@ public final class PyJavParams {
         for (int i = 0; i < items.length; i++) items[i] = ProgramParams.useAs(rows.get(i));
         useMenu = new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setItems(items, (d, which) -> usePlugin(ps, values, uses, rows.get(which), path))
             .setNegativeButton("Cancel", null).show();
+      });
+      // A long press: the same Use as plugin 1 to 4.
+      line.setOnLongClickListener(v -> {
+        v.performClick();
+        return true;
       });
       col.addView(line);
     }

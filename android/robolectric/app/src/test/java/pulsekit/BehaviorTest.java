@@ -13783,6 +13783,51 @@ public class BehaviorTest {
         && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7");
     if (!ok) throw new AssertionError(text);
   }
+  /** vst_render's Files & locations tab: map.txt's Edit (saved), Pads & notes beside it; a recent plugin's long press: Use as plugin. */
+  @Test
+  public void s250_files_locations() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PluginLibrary.reset();
+    PluginLibrary.load(app.getFilesDir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3"));
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    PyJavParams.paramsTab = null;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View vv = PyJavParams.shown.getWindow().getDecorView();
+    vv.findViewWithTag("params-recent:Riot Drums.vst3").performLongClick();
+    idle();
+    boolean menu = PyJavParams.useMenu != null && PyJavParams.useMenu.isShowing();
+    PyJavParams.useMenu.dismiss();
+    vv.findViewWithTag("params-tab:" + PluginFiles.TAB).performClick();
+    idle();
+    View files = vv.findViewWithTag("params-files");
+    boolean shown = files != null && files.getVisibility() == View.VISIBLE;
+    files.findViewWithTag("params-files-map-edit").performClick();
+    idle();
+    String template = PyJavParams.mapText.getText().toString().split("\n")[0];
+    PyJavParams.mapEditor.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    String notes = String.valueOf(((TextView) PyJavParams.padNotesShown.getWindow().getDecorView().findViewWithTag("params-pad-notes-text")).getText());
+    PyJavParams.padNotesShown.dismiss();
+    boolean editorOpen = PyJavParams.mapEditor.isShowing();
+    PyJavParams.mapText.setText("[DigiDrum Pro]\n36=48\n");
+    PyJavParams.mapEditor.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String saved = PluginFiles.read(PluginFiles.noteMap(app.getFilesDir()));
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    PyJavParams.paramsTab = null;
+    PyJavParams.shown = null;
+    PyJavParams.useMenu = null;
+    out.append("long press menu ").append(menu).append(" | files tab ").append(shown).append(" | template: ").append(template).append(" | notes: ").append(notes.split("\n")[1].trim())
+        .append(" | editor open after Pads & notes ").append(editorOpen).append(" | saved: ").append(saved == null ? null : saved.replace('\n', '|')).append('\n');
+    write("s250_files_locations", out.toString());
+    boolean ok = menu && shown && template.startsWith("# Note map") && notes.split("\n")[1].trim().equals("36  Kick") && editorOpen && "[DigiDrum Pro]\n36=48\n".equals(saved);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
 
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
@@ -15607,7 +15652,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
     if (!ok) throw new AssertionError(out.toString());
   }
 

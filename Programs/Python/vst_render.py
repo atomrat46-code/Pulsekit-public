@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -111,6 +111,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --map2 to --map4  --plugin2's to --plugin4's own --map (pairs or a file); without one, --map is theirs too.
                   A map file's bare name (drum-kits.txt) is looked for in ~/.pulsekit/maps and in the
                   maps folder beside this script.
+  --note_map notes  the notes sent to the plugin: the MIDI's note to the pad the plugin plays it
+                  with (36=48: the kick plays the plugin's pad 48; 41=none: not played). For a plugin
+                  whose pads are on other notes than the GM drums' (DigiDrum's P1 to P5 Note). Pairs,
+                  or a text file of them with [plugin name] sections, as --map. Empty: Pulsekit's
+                  ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
+                  The MIDI files themselves are not changed.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
@@ -413,6 +419,13 @@ def carla_app(rack):
                 return hit
         return None
 
+    # Where Pulsekit was told it is (Files & locations: Carla program), tried first.
+    try:
+        kept = open(os.path.join(os.path.expanduser("~"), ".pulsekit", "carla-app.txt"), encoding="utf-8").read().strip()
+        if kept and os.path.isfile(kept):
+            return kept
+    except OSError:
+        pass
     here = os.path.dirname(os.path.abspath(rack)) if rack else ""
     tops = []
     for _ in range(3):
@@ -737,9 +750,13 @@ class Gizmo:
         landed = first / float(self.rate * 4)
         return round(landed / 4.0, 3) if landed > 1 else 1.0
 
-    def render(self, np, midi=None, wav=None, tail=2.0):
+    note_map = None
+
+    def render(self, np, midi=None, wav=None, tail=2.0, raw=False):
         if wav:
             raise ValueError("DrumGizmo plays MIDI; --wav needs an effect plugin")
+        if not raw:
+            midi = sent_midi(midi, self.note_map)
         length = midi_notes(midi)[0]
         frames = int((length + tail) * self.rate)
         # Eight times the rate for a short MIDI (hits within 2 ms), four for a long one (5 ms): less disk.
@@ -1266,6 +1283,80 @@ def map_for(text, plugin=None):
             raise ValueError("%s: MIDI notes are 0 to 127" % pair)
         out[src] = dst
     return out, section
+
+
+def note_map_home():
+    """Pulsekit's note map (Files & locations: Edit): ~/.pulsekit/maps/map.txt."""
+    return os.path.join(os.path.expanduser("~"), ".pulsekit", "maps", "map.txt")
+
+
+def pad_map(given, plugin):
+    """--note_map's notes for the plugin (the MIDI's note to the plugin's own), and a line saying where
+    they came from; ({}, None) when there are none. Empty: map.txt's lines for the plugin, if any."""
+    text = given
+    if not (text or "").strip():
+        text = note_map_home()
+        if not os.path.isfile(text):
+            return {}, None
+    nmap, part = map_for(map_file(text), plugin)
+    nmap = dict((a, b) for a, b in nmap.items() if a != b)
+    if not nmap:
+        return {}, None
+    where = os.path.basename(text) if os.path.isfile(map_file(text)) else "--note_map"
+    if part:
+        where += ", section [%s]" % part
+    pairs = ", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items()))
+    return nmap, "Note map: %s: %s (the MIDI's notes sent to the plugin's)" % (where, pairs)
+
+
+def remap_midi(path, nmap, out):
+    """The MIDI file with its notes changed as nmap says (note to note; to None: the note-on made silent);
+    written to `out`, which is returned."""
+    d = bytearray(open(path, "rb").read())
+    if d[:4] != b"MThd":
+        raise ValueError("%s is not a MIDI file" % os.path.basename(path))
+    i = 8 + struct.unpack(">I", bytes(d[4:8]))[0]
+    while i + 8 <= len(d):
+        kind, size = bytes(d[i:i + 4]), struct.unpack(">I", bytes(d[i + 4:i + 8]))[0]
+        p, end, status = i + 8, min(len(d), i + 8 + size), 0
+        while kind == b"MTrk" and p < end:
+            _, p = var_len(d, p)
+            b = d[p]
+            if b == 0xFF:
+                n, p = var_len(d, p + 2)
+                p += n
+                continue
+            if b in (0xF0, 0xF7):
+                n, p = var_len(d, p + 1)
+                p += n
+                continue
+            if b & 0x80:
+                status = b
+                p += 1
+            hi = status & 0xF0
+            if hi in (0xC0, 0xD0):
+                p += 1
+                continue
+            if hi in (0x80, 0x90, 0xA0) and p + 1 < len(d) and d[p] in nmap:
+                to = nmap[d[p]]
+                if to is None:
+                    if hi == 0x90:
+                        d[p + 1] = 0
+                else:
+                    d[p] = to
+            p += 2
+        i += 8 + size
+    with open(out, "wb") as f:
+        f.write(bytes(d))
+    return out
+
+
+def sent_midi(midi, nmap):
+    """The MIDI to play: as it is, or (a note map) a copy with its notes sent to the plugin's."""
+    if not nmap or not midi:
+        return midi
+    import tempfile
+    return remap_midi(midi, nmap, os.path.join(tempfile.mkdtemp(prefix="vst-notes-"), os.path.basename(midi)))
 
 
 # The plugins played after --plugin, each with its own map and kit name.
@@ -1819,7 +1910,7 @@ def note_sweep(chain, np, rate):
     hits = [(0.5 + SWEEP_STEP * i, n) for i, n in enumerate(notes)]
     midi = notes_midi(os.path.join(folder, "sweep.mid"), [(t, n, 110) for t, n in hits])
     try:
-        audio, _, _ = chain.render(np, midi=midi, tail=1.0)
+        audio, _, _ = chain.render(np, midi=midi, tail=1.0, raw=True)
     except ValueError:
         return []
     return notes_heard(np, audio, rate, hits, SWEEP_STEP * 0.8)[0]
@@ -1982,8 +2073,13 @@ class Chain(object):
             n += self.fx.get_latency_samples()
         return max(0, int(n))
 
-    def render(self, np, midi=None, wav=None, tail=2.0):
-        """The audio (2 x samples) of the MIDI or the WAV through the chain, its latency taken off; and its length."""
+    note_map = None
+
+    def render(self, np, midi=None, wav=None, tail=2.0, raw=False):
+        """The audio (2 x samples) of the MIDI or the WAV through the chain, its latency taken off; and its length.
+        The note map (--note_map) changes the notes the plugin gets, unless `raw` (the note sweep)."""
+        if not raw:
+            midi = sent_midi(midi, self.note_map)
         graph = []
         if wav:
             data, length = read_wav(wav, self.rate)
@@ -2404,7 +2500,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
     switches = set()
     files = []
@@ -2713,6 +2809,13 @@ def main(argv):
         except ImportError as e:
             fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
         chain = Chain(daw, rate, opts, switches)
+    # The notes sent to the plugin (--note_map, else map.txt's lines for it).
+    try:
+        chain.note_map, said = pad_map(opts["--note_map"], name)
+    except (ValueError, OSError) as e:
+        fail("--note_map: %s" % e)
+    if said:
+        print(said)
     late = chain.latency()
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
