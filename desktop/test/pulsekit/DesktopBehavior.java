@@ -9943,6 +9943,81 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(all);
   }
 
+  /**
+   * v408: Test's note map from the pads' sounds. A plugin with five pads on 48 to 52 (kick, snare, closed
+   * and open hat, crash, as DigiDrum's): the sweep finds them, each is sorted by its sound, and a map is
+   * suggested (36=48, 38=49, 42=50...); Pulsekit reads it from the log and puts it in map.txt as the
+   * plugin's section (an older one replaced, other sections kept); vst_render then sends 36 to 48.
+   */
+  void s243_suggested_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File fake = new File(home, "fake.py");
+    String code = ""
+        + "import sys, types, os, numpy as np\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('d')\n"
+        + "import importlib.util\n"
+        + "s = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(s); s.loader.exec_module(vr)\n"
+        + "R = 44100\n"
+        + "rng = np.random.default_rng(1)\n"
+        + "def env(n, tau): return np.exp(-np.arange(n) / (tau * R))\n"
+        + "def hp(x):\n"
+        + "    y = np.diff(x, prepend=0); return np.diff(y, prepend=0)\n"
+        + "def sound(kind):\n"
+        + "    n = int(1.4 * R); t = np.arange(n) / R\n"
+        + "    if kind == 'kick': return 0.9 * np.sin(2 * np.pi * (55 + 80 * np.exp(-t * 30)) * t) * env(n, 0.12)\n"
+        + "    if kind == 'snare': return (0.5 * rng.standard_normal(n) + 0.4 * np.sin(2 * np.pi * 190 * t)) * env(n, 0.07)\n"
+        + "    if kind == 'chh': return 0.6 * hp(rng.standard_normal(n)) * env(n, 0.02)\n"
+        + "    if kind == 'ohh': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.12)\n"
+        + "    if kind == 'crash': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.5)\n"
+        + "    if kind == 'tom': return 0.8 * np.sin(2 * np.pi * 140 * t) * env(n, 0.15)\n"
+        + "PADS = dict(zip(map(int, sys.argv[2].split(',')), sys.argv[3].split(',')))\n"
+        + "class Chain:\n"
+        + "    note_map = None\n"
+        + "    def render(self, np_, midi=None, wav=None, tail=2.0, raw=False):\n"
+        + "        if not raw: midi = vr.sent_midi(midi, self.note_map)\n"
+        + "        length, notes = vr.midi_notes(midi)[:2]\n"
+        + "        out = np.zeros(int((length + tail) * R) + R)\n"
+        + "        for t, n in notes:\n"
+        + "            if n in PADS:\n"
+        + "                x = sound(PADS[n]); a = int(t * R); out[a:a + len(x)] += x[:len(out) - a]\n"
+        + "        return np.vstack([out, out]), length, 0\n"
+        + "c = Chain()\n"
+        + "plays = vr.note_sweep(c, np, R)\n"
+        + "print('plays', plays)\n"
+        + "vr.print_suggestion(c, np, R, 'DigiDrum Pro.dll', plays)\n";
+    Files.write(fake.toPath(), code.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(fake.getAbsolutePath(), script.getAbsolutePath(), "48,49,50,51,52", "kick,snare,chh,ohh,crash"));
+    String log = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(log).append('\n');
+    PluginFiles.Suggestion sg = PluginFiles.suggestion(log);
+    this.out.append("read: [").append(sg == null ? "none" : sg.section + "] " + sg.lines.size() + " lines, first " + sg.lines.get(0)).append('\n');
+    // map.txt with an older DigiDrum section and another plugin's: the DigiDrum one replaced.
+    PluginFiles.write(PluginFiles.noteMap(home), "# mine\n[DigiDrum Pro]\n36=60\n[Other]\n38=40\n");
+    PluginFiles.addSuggestion(home, sg);
+    String map = PluginFiles.read(PluginFiles.noteMap(home));
+    this.out.append("map.txt:\n").append(map).append('\n');
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print(vr.pad_map('', 'DigiDrum Pro.dll')[1]); print(vr.pad_map('', 'Other.vst3')[1])\n";
+    java.util.List<String> cmd2 = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd2.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd2, 60, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("plays [48, 49, 50, 51, 52]") && all.contains("Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
+        && all.contains("Map suggestion: [DigiDrum Pro] 36=48 # C3 kick-like") && all.contains("Map suggestion: [DigiDrum Pro] 38=49 # C#3 snare-like")
+        && all.contains("Map suggestion: [DigiDrum Pro] 42=50 # D3 hat-like") && all.contains("Map suggestion: [DigiDrum Pro] 46=51") && all.contains("Map suggestion: [DigiDrum Pro] 49=52")
+        && all.contains("Map suggestion: [DigiDrum Pro] 48=none # no tom found")
+        && all.contains("read: [DigiDrum Pro] 17 lines, first 35=48") && map.startsWith("# mine\n[DigiDrum Pro]\n# Suggested by Test") && !map.contains("36=60")
+        && map.contains("[Other]\n38=40") && all.contains("section [DigiDrum Pro]: 35=48 (C3), 36=48 (C3), 37=49 (C#3), 38=49 (C#3)")
+        && all.contains("Note map: map.txt, section [Other]: 38=40 (E2)");
+    if (!ok) throw new AssertionError(all);
+  }
+
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
   void s241_pad_notes() throws Exception {
     call("showView", "pads");

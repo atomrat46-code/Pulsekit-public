@@ -135,6 +135,70 @@ public final class PluginFiles {
     return Engine.NOTE_NAMING_LABELS[0];
   }
 
+  /** Test's suggested note map (vst_render's "Map suggestion: [Plugin] 36=48 # why" lines): its section and lines. */
+  public static final class Suggestion {
+    public String section = "";
+    public final java.util.List<String> lines = new java.util.ArrayList<String>();
+  }
+
+  public static final String SUGGESTION = "Map suggestion: ";
+
+  /** The suggestion in a Test's log; null when it has none. */
+  public static Suggestion suggestion(String log) {
+    Suggestion s = null;
+    for (String l : log.split("\n")) {
+      String t = l.trim();
+      if (!t.startsWith(SUGGESTION)) continue;
+      t = t.substring(SUGGESTION.length());
+      int close = t.indexOf(']');
+      if (!t.startsWith("[") || close < 0) continue;
+      if (s == null) s = new Suggestion();
+      s.section = t.substring(1, close);
+      s.lines.add(t.substring(close + 1).trim());
+    }
+    return s;
+  }
+
+  /** The suggestion as Test shows it: "[DigiDrum Pro]" and its lines. */
+  public static String suggestionText(Suggestion s) {
+    StringBuilder b = new StringBuilder("[" + s.section + "]");
+    for (String l : s.lines) b.append('\n').append(l);
+    return b.toString();
+  }
+
+  /**
+   * A map's text with a plugin's section set to these lines: the section of that name (case aside) replaced,
+   * up to the next section; else added at the end. Lines before any section are kept.
+   */
+  public static String withSection(String text, String section, java.util.List<String> lines) {
+    StringBuilder out = new StringBuilder();
+    boolean in = false, done = false;
+    String body = "[" + section + "]\n# Suggested by Test from the pads' sounds; edit as needed.\n" + String.join("\n", lines) + "\n";
+    for (String l : text.split("\n", -1)) {
+      String t = l.trim();
+      if (t.startsWith("[") && t.endsWith("]")) {
+        if (in) in = false;
+        if (!done && t.substring(1, t.length() - 1).trim().equalsIgnoreCase(section.trim())) {
+          out.append(body).append('\n');
+          in = true;
+          done = true;
+          continue;
+        }
+      }
+      if (in) continue;
+      out.append(l).append('\n');
+    }
+    String s = out.toString().replaceAll("\n+$", "\n");
+    if (!done) s = s + (s.endsWith("\n\n") || s.length() == 0 ? "" : "\n") + body;
+    return s;
+  }
+
+  /** The suggestion put in map.txt (its plugin's section replaced, or added). */
+  public static boolean addSuggestion(File home, Suggestion s) {
+    File map = noteMap(home);
+    return write(map, withSection(mapText(map), s.section, s.lines));
+  }
+
   public static String read(File f) {
     if (f == null || !f.isFile()) return null;
     try (InputStream in = new FileInputStream(f)) {

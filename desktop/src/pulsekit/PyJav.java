@@ -4097,8 +4097,41 @@ final class PyJav {
             String v = PluginsList.verdict(plug.getName(), log);
             pluginTestSaid = v;
             app.setNow(v.split("\n")[0]);
-            if (!pluginTestQuiet) JOptionPane.showMessageDialog(test, v, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+            // A plugin whose pads are on other notes: Test's note map from their sounds, put in map.txt when asked.
+            lastSuggestion = PluginFiles.suggestion(log);
+            if (pluginTestQuiet) return;
+            if (lastSuggestion == null) {
+                JOptionPane.showMessageDialog(test, v, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+                return;
+            }
+            this.offerSuggestion(test, plug, v, lastSuggestion);
         });
+    }
+
+    /** Test's suggested note map shown last (for the tests). */
+    static PluginFiles.Suggestion lastSuggestion;
+
+    /**
+     * Test's verdict with its suggested note map: Add to map.txt (the plugin's section replaced or added),
+     * Edit first (map.txt's editor with the lines in it), or Not now.
+     */
+    void offerSuggestion(java.awt.Component at, File plug, String verdict, PluginFiles.Suggestion s) {
+        File home = new File(System.getProperty("user.home", "."));
+        javax.swing.JTextArea text = new javax.swing.JTextArea(verdict + "\n\nIts pads are on other notes. A note map from their sounds (each pad played alone), for map.txt:\n\n"
+            + PluginFiles.suggestionText(s), 22, 80);
+        text.setEditable(false);
+        text.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+        int ans = JOptionPane.showOptionDialog(at, new JScrollPane(text), "Test \u00b7 " + plug.getName(), JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+            new Object[] {"Add to map.txt", "Edit first", "Not now"}, "Add to map.txt");
+        File map = PluginFiles.noteMap(home);
+        if (ans == 0) {
+            boolean ok = PluginFiles.addSuggestion(home, s);
+            app.setNow(ok ? "Added [" + s.section + "] to " + map.getPath() + ": Test again to hear it" : "Could not write " + map.getPath());
+        } else if (ans == 1) {
+            String before = PluginFiles.mapText(map);
+            PluginFiles.write(map, PluginFiles.withSection(before, s.section, s.lines));
+            if (!this.editNoteMap(at, map)) PluginFiles.write(map, before);
+        }
     }
 
     /** The widest a tab page's label is before it wraps (vst_render's Params: room for the rows' buttons and names). */

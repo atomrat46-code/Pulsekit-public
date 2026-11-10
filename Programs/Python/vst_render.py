@@ -1923,9 +1923,10 @@ def notes_midi(path, notes):
     return path
 
 
-def notes_heard(np, audio, rate, hits, window=0.25):
+def notes_heard(np, audio, rate, hits, window=0.25, rise=False):
     """Which notes of (seconds, note) hits sound: a hit is heard when its first `window` seconds are
-    louder than 2% of the render's peak. Returns (heard notes, silent notes), each sorted."""
+    louder than 2% of the render's peak (and, with `rise`, at least half again as loud as the 50 ms
+    before it: an earlier note still ringing is not this one). Returns (heard notes, silent notes), each sorted."""
     mono = np.max(np.abs(audio), axis=0) if audio.size else audio
     peak = float(np.max(mono)) if mono.size else 0.0
     heard, played = set(), set()
@@ -1933,7 +1934,9 @@ def notes_heard(np, audio, rate, hits, window=0.25):
         played.add(n)
         a, b = int(t * rate), int((t + window) * rate)
         if peak > 1e-6 and a < mono.size and float(np.max(mono[a:max(b, a + 1)])) > peak * 0.02:
-            heard.add(n)
+            before = float(np.max(mono[max(0, a - int(0.05 * rate)):a])) if a > 0 else 0.0
+            if not rise or float(np.max(mono[a:max(b, a + 1)])) > before * 1.5:
+                heard.add(n)
     return sorted(heard), sorted(played - heard)
 
 
@@ -1965,7 +1968,163 @@ def note_sweep(chain, np, rate):
         audio, _, _ = chain.render(np, midi=midi, tail=1.0, raw=True)
     except ValueError:
         return []
-    return notes_heard(np, audio, rate, hits, SWEEP_STEP * 0.8)[0]
+    return notes_heard(np, audio, rate, hits, SWEEP_STEP * 0.8, rise=True)[0]
+
+
+# The pads' sounds, each played alone this far apart (a cymbal rings on), at most this many of them.
+PAD_GAP, PAD_MAX = 1.5, 40
+
+
+def pad_features(np, audio, rate, t):
+    """A pad's sound at t: where its spectrum sits (centroid, Hz), how much is low (<150 Hz) and high
+    (>5 kHz), how noisy it is (flatness, 0 pure tone to 1 noise), its pitch (strongest peak under 1 kHz)
+    and how long it rings (s, to -20 dB)."""
+    mono = audio.mean(axis=0) if audio.ndim == 2 else audio
+    a = int(t * rate)
+    seg = mono[a:a + int(PAD_GAP * 0.9 * rate)]
+    if seg.size < 4096 or float(np.max(np.abs(seg))) < 1e-6:
+        return None
+    # Its attack: from its loudest moment's start (a pad can speak a little late).
+    blk = max(1, int(rate * 0.005))
+    env = np.array([float(np.max(np.abs(seg[i:i + blk]))) for i in range(0, seg.size - blk, blk)])
+    top = int(np.argmax(env))
+    start = max(0, top - 2) * blk
+    win = seg[start:start + 4096]
+    if win.size < 4096:
+        win = np.pad(win, (0, 4096 - win.size))
+    power = np.abs(np.fft.rfft(win * np.hanning(4096))) ** 2 + 1e-18
+    freqs = np.fft.rfftfreq(4096, 1.0 / rate)
+    total = float(power.sum())
+    under2k = float(power[freqs < 2000].sum() / total)
+    band = (freqs >= 200) & (freqs <= 10000)
+    flat = float(np.exp(np.mean(np.log(power[band]))) / np.mean(power[band]))
+    low_band = (freqs >= 30) & (freqs <= 1000)
+    peak = float(freqs[low_band][int(np.argmax(power[low_band]))])
+    after = np.nonzero(env[top:] < env[top] * 0.1)[0]
+    ring = (after[0] if after.size else env.size - top) * blk / float(rate)
+    return {"centroid": float((freqs * power).sum() / total), "low": float(power[freqs < 150].sum() / total),
+            "high": float(power[freqs > 5000].sum() / total), "under2k": under2k, "flat": flat, "pitch": peak, "ring": ring,
+            "level": float(env[top])}
+
+
+def pad_kind(f):
+    """What a pad sounds like: kick, snare, hat (bright and short), cymbal (bright and long), tom (pitched,
+    low to mid) or other (a cowbell, a zap)."""
+    # A kick: low, its pitch under 130 Hz (a tom rings higher; suggest_map makes the higher of two "kicks" a tom).
+    if f["low"] > 0.4 and f["centroid"] < 700 and f["pitch"] < 130:
+        return "kick"
+    # Hats and cymbals: nearly all above 2 kHz; a snare has its body (and its noise) lower too.
+    if f["under2k"] < 0.15:
+        return "hat" if f["ring"] < 0.35 else "cymbal"
+    # A snare (or clap): noisy; or a little noisy with some highs and short (an 808 snare's tone and noise).
+    if f["flat"] > 0.15 and f["centroid"] > 500 or f["flat"] > 0.08 and f["high"] > 0.05 and f["centroid"] > 800 and f["ring"] < 0.15:
+        return "snare"
+    if f["pitch"] < 500 and f["centroid"] < 2000:
+        return "tom"
+    return "other"
+
+
+# The GM drum notes a suggested map sends somewhere, by what plays them (toms by height).
+GM_ROLES = ((36, "kick"), (35, "kick"), (38, "snare"), (40, "snare"), (39, "snare2"), (37, "snare2"),
+            (42, "closed"), (44, "closed"), (46, "open"), (49, "crash"), (57, "crash"), (52, "crash"), (55, "crash"),
+            (51, "ride"), (59, "ride"), (53, "ride"))
+GM_TOMS = (41, 43, 45, 47, 48, 50)
+
+
+def pad_kinds(pads):
+    """Each pad's kind (pad_kind); of several "kicks", those a quarter higher than the lowest are toms."""
+    kinds = dict((n, pad_kind(f)) for n, f in pads.items())
+    lows = sorted((pads[n]["pitch"], n) for n in pads if kinds[n] == "kick")
+    for pitch, n in lows[1:]:
+        if pitch > lows[0][0] * 1.25:
+            kinds[n] = "tom"
+    return kinds
+
+
+def suggest_map(pads):
+    """A note map from the pads' sounds ({note: features}): [(GM note, pad, why)]. A GM note that is a pad
+    already playing its own kind of sound is left as it is; one landing on a pad of another kind with no
+    pad of its own kind goes nowhere (none)."""
+    kinds = pad_kinds(pads)
+    of = lambda k: [n for n in sorted(pads) if kinds[n] == k]
+    pick = {}
+    kicks = sorted(of("kick"), key=lambda n: pads[n]["centroid"])
+    if kicks:
+        pick["kick"] = kicks[0]
+    snares = sorted(of("snare"), key=lambda n: -pads[n]["flat"] * pads[n]["level"])
+    if snares:
+        pick["snare"] = snares[0]
+        pick["snare2"] = snares[1] if len(snares) > 1 else snares[0]
+    hats = sorted(of("hat"), key=lambda n: pads[n]["ring"])
+    cymbals = sorted(of("cymbal"), key=lambda n: -pads[n]["ring"])
+    if hats:
+        pick["closed"] = hats[0]
+        pick["open"] = hats[-1] if len(hats) > 1 else (cymbals[-1] if cymbals else None)
+    elif cymbals:
+        pick["closed"] = cymbals[-1]
+    if cymbals:
+        pick["crash"] = cymbals[0]
+        pick["ride"] = cymbals[1] if len(cymbals) > 1 else cymbals[0]
+    if not pick.get("open"):
+        pick.pop("open", None)
+    toms = sorted(of("tom"), key=lambda n: pads[n]["pitch"])
+    want = [(note, pick.get(role), role) for note, role in GM_ROLES]
+    for i, note in enumerate(GM_TOMS):
+        tom = toms[int(round(i * (len(toms) - 1) / 5.0))] if toms else None
+        want.append((note, tom, "tom"))
+    out = []
+    for note, pad, role in want:
+        own = kinds.get(note)
+        fits = own is not None and (own == role or role.startswith(own) or (own == "hat" and role in ("closed", "open"))
+                                    or (own == "cymbal" and role in ("crash", "ride", "open")))
+        if pad is None:
+            if own is not None and not fits:
+                out.append((note, None, "no %s found; %d plays a %s-like sound" % (role_word(role), note, own)))
+            continue
+        if pad == note or fits:
+            continue
+        f = pads[pad]
+        out.append((note, pad, "%s-like (%s: %.0f Hz, rings %.2f s)" % (kinds[pad], role_word(role), f["pitch"] if kinds[pad] in ("kick", "tom") else f["centroid"], f["ring"])))
+    return sorted(out)
+
+
+def role_word(role):
+    return {"kick": "kick", "snare": "snare", "snare2": "clap or rim", "closed": "closed hat", "open": "open hat",
+            "crash": "crash", "ride": "ride", "tom": "tom"}[role]
+
+
+def pad_sounds(chain, np, rate, notes):
+    """Each sounding pad played alone, PAD_GAP s apart: {note: pad_features}."""
+    import tempfile
+    notes = notes[:PAD_MAX]
+    hits = [(0.5 + PAD_GAP * i, n) for i, n in enumerate(notes)]
+    midi = notes_midi(os.path.join(tempfile.mkdtemp(prefix="vst-pads-"), "pads.mid"), [(t, n, 110) for t, n in hits])
+    try:
+        audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
+    except ValueError:
+        return {}
+    out = {}
+    for t, n in hits:
+        f = pad_features(np, audio, rate, t)
+        if f is not None:
+            out[n] = f
+    return out
+
+
+def print_suggestion(chain, np, rate, plugin, plays=None):
+    """Test's suggested note map for a plugin whose pads are on other notes: printed as "Map suggestion:
+    [Plugin] 36=48 # why" lines (Pulsekit offers to add them to map.txt); how many."""
+    if plays is None:
+        plays = note_sweep(chain, np, rate)
+    pads = pad_sounds(chain, np, rate, plays)
+    lines = suggest_map(pads)
+    if not lines:
+        return 0
+    section = stem(plugin)
+    print("Pads: " + "; ".join("%d (%s) %s" % (n, note_name(n), pad_kinds(pads)[n]) for n in sorted(pads)))
+    for note, pad, why in lines:
+        print("Map suggestion: [%s] %d=%s # %s" % (section, note, "none" if pad is None else pad, why if pad is None else "%s %s" % (note_name(pad), why)))
+    return len(lines)
 
 
 def kit_missing(said):
@@ -2911,6 +3070,7 @@ def main(argv):
             # Silent for the GM drum notes: maybe its pads are on other notes (a sampler's C4 up). They are named.
             plays = note_sweep(chain, np, rate)
             if plays:
+                print_suggestion(chain, np, rate, name, plays)
                 fail("%s plays nothing for the GM drum notes of a test beat (kick, snare, hats: 36, 38, 42), but it plays notes %s: "
                      "its pads are on those notes. Set its pads to the GM notes in Edit settings, or send the notes there with a note map "
                      "(Files & locations: map.txt, e.g. 36=%d)"
@@ -2936,6 +3096,9 @@ def main(argv):
         if silent:
             print("Notes: %s heard; %s silent (each played alone)%s" % (named_list(heard) or "none", named_list(silent),
                   ": its pads may be on other notes (set them in Edit settings, or a note map: Files & locations, map.txt)" if len(silent) > len(heard) else ""))
+            # Most drums silent: which notes its pads are on, what each sounds like, and a note map for them.
+            if len(silent) > len(heard) and not gizmo:
+                print_suggestion(chain, np, rate, name)
         else:
             print("Notes: all heard (%s)" % named_list(heard))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
