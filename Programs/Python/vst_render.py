@@ -1963,6 +1963,8 @@ def note_sweep(chain, np, rate):
     folder = tempfile.mkdtemp(prefix="vst-sweep-")
     notes = list(range(SWEEP_LOW, SWEEP_HIGH + 1))
     hits = [(0.5 + SWEEP_STEP * i, n) for i, n in enumerate(notes)]
+    print("Working: playing notes %d to %d one at a time, to find the plugin's pads" % (SWEEP_LOW, SWEEP_HIGH))
+    sys.stdout.flush()
     midi = notes_midi(os.path.join(folder, "sweep.mid"), [(t, n, 110) for t, n in hits])
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=1.0, raw=True)
@@ -2098,6 +2100,8 @@ def pad_sounds(chain, np, rate, notes):
     import tempfile
     notes = notes[:PAD_MAX]
     hits = [(0.5 + PAD_GAP * i, n) for i, n in enumerate(notes)]
+    print("Working: playing each of its %d pads alone, to hear what each one is" % len(notes))
+    sys.stdout.flush()
     midi = notes_midi(os.path.join(tempfile.mkdtemp(prefix="vst-pads-"), "pads.mid"), [(t, n, 110) for t, n in hits])
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
@@ -3069,7 +3073,7 @@ def main(argv):
         if check_note and check_note.startswith("the render is silent") and not gizmo:
             # Silent for the GM drum notes: maybe its pads are on other notes (a sampler's C4 up). They are named.
             plays = note_sweep(chain, np, rate)
-            if plays:
+            if plays and not chain.note_map:
                 print_suggestion(chain, np, rate, name, plays)
                 fail("%s plays nothing for the GM drum notes of a test beat (kick, snare, hats: 36, 38, 42), but it plays notes %s: "
                      "its pads are on those notes. Set its pads to the GM notes in Edit settings, or send the notes there with a note map "
@@ -3093,11 +3097,17 @@ def main(argv):
         # Which of its notes sound (each drum and cymbal played alone): a plugin with pads on other notes
         # plays only some of them.
         heard, silent = notes_heard(np, check_audio, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
+        # Notes the note map leaves out (=none) are silent on purpose.
+        off = [n for n in silent if chain.note_map and n in chain.note_map and chain.note_map[n] is None]
+        silent = [n for n in silent if n not in off]
+        if off:
+            print("Notes left out by the note map: %s" % named_list(off))
         if silent:
             print("Notes: %s heard; %s silent (each played alone)%s" % (named_list(heard) or "none", named_list(silent),
                   ": its pads may be on other notes (set them in Edit settings, or a note map: Files & locations, map.txt)" if len(silent) > len(heard) else ""))
             # Most drums silent: which notes its pads are on, what each sounds like, and a note map for them.
-            if len(silent) > len(heard) and not gizmo:
+            # (With a note map in use, it is not suggested again: map.txt is edited instead.)
+            if len(silent) > len(heard) and not gizmo and not chain.note_map:
                 print_suggestion(chain, np, rate, name)
         else:
             print("Notes: all heard (%s)" % named_list(heard))
@@ -3139,7 +3149,12 @@ def main(argv):
                 print("Kit: %d of the kick and toms silent in the first test beat (the kit still loading?); %s after %.0f s (waited at most %.0f s%s)"
                       % (first, "all heard" if not best else "%d still silent" % best, waited, limit,
                          ", the kit's load time" if limit != LOAD_WAIT else "; Edit settings' Stop timer sets it"))
-            if said.startswith("Wrote "):
+            if said.startswith("Wrote ") and "no tom played" in said:
+                # A kit without toms (DigiDrum's five pads): DrumMidi takes no profile without a tom, so none is used.
+                kit_file = None
+                kit_said = "not used (%s): no tom played, and DrumMidi needs a kick and a tom; the test went on without it" % said[6:]
+                print("Kit: not used (no tom played: a kit profile needs a kick and a tom); the test goes on without it")
+            elif said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])
             else:
@@ -3268,6 +3283,7 @@ def main(argv):
                   "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
                                       ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
+                  "Note map (the notes sent to the plugin, --note_map or map.txt): " + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(chain.note_map.items())) if chain.note_map else "none"),
                   "Kit profile (the test beat's kick and toms): " + kit_said,
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}

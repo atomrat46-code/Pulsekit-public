@@ -10018,6 +10018,29 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(all);
   }
 
+  /**
+   * v409: Test through a fake plugin with DigiDrum's five pads: the first suggests a note map; with it in
+   * map.txt the second suggests none, hears the kick, snare, hats and crash, and names the notes the map
+   * leaves out. While Test runs, the time taken and its last line are shown.
+   */
+  void s244_test_with_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File flow = new File(System.getProperty("pulsekit.test.dir"), "py/vst_fake_pads.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    PythonRun.keepLast("Plugin check: the test beat plays\nWorking: playing each of its 5 pads alone, to hear what each one is\n\n");
+    this.out.append("progress: ").append(PluginsList.progress(84000, PythonRun.lastLine)).append(" | ").append(PluginsList.progress(3000, "$ python vst_render.py --check")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("first: suggestions 17") && all.contains("first Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
+        && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
+        && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
+        && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");
+    if (!ok) throw new AssertionError(all);
+  }
+
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
   void s241_pad_notes() throws Exception {
     call("showView", "pads");

@@ -3378,7 +3378,9 @@ final class PyJav {
                             stopTimer.setEnabled(true);
                             stopTimer.setText("Stop timer");
                             app.setNow(PluginsList.testing(plug, true));
+                            final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
                             PluginsList.test(this, plug, true, log -> {
+                                tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
@@ -4092,7 +4094,14 @@ final class PyJav {
         }
         test.setEnabled(false);
         app.setNow(PluginsList.testing(plug, false));
+        // While it runs: the time taken on the button, what it is doing in the status line.
+        final javax.swing.Timer tick = PluginsList.ticker(p -> {
+            test.setText(p.split(" ")[0]);
+            app.setNow("Testing " + plug.getName() + ": " + p);
+        });
         PluginsList.test(pluginTestQuiet ? null : this, plug, false, extra, log -> {
+            tick.stop();
+            test.setText("Test");
             test.setEnabled(true);
             String v = PluginsList.verdict(plug.getName(), log);
             pluginTestSaid = v;

@@ -294,7 +294,10 @@ final class PluginsList {
             stopTimer.setEnabled(editFirst);
             stopTimer.setText("Stop timer");
             about.setText(testing(f, editFirst));
+            final String head = testing(f, editFirst);
+            final javax.swing.Timer tick = ticker(p -> about.setText(head + "\n" + p));
             test(pj, f, editFirst, log -> {
+                tick.stop();
                 for (JButton b : busy) b.setEnabled(true);
                 stopTimer.setEnabled(false);
                 about.setText(result(f, editFirst, log) + "\n\n" + info(f));
@@ -381,6 +384,26 @@ final class PluginsList {
             }
         });
         return b;
+    }
+
+    /**
+     * While a Test or Edit settings runs: every second, `show` gets the time it has taken and what it is
+     * doing (vst_render's last line): "0:24 · Working: playing each of its 5 pads alone". Stopped by the caller.
+     */
+    static javax.swing.Timer ticker(final java.util.function.Consumer<String> show) {
+        final long start = System.currentTimeMillis();
+        javax.swing.Timer t = new javax.swing.Timer(1000, e -> show.accept(progress(System.currentTimeMillis() - start, PythonRun.lastLine)));
+        t.setInitialDelay(0);
+        t.start();
+        return t;
+    }
+
+    /** "0:24 · what it does" (the line shortened to 110 characters). */
+    static String progress(long millis, String line) {
+        long s = millis / 1000;
+        String what = line == null ? "" : line.replaceFirst("^\\$ .*", "starting").trim();
+        if (what.length() > 110) what = what.substring(0, 107) + "\u2026";
+        return String.format(java.util.Locale.ROOT, "%d:%02d", s / 60, s % 60) + (what.length() > 0 ? " \u00b7 " + what : "");
     }
 
     /** What the info says while a test or Edit runs. */
