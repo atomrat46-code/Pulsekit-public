@@ -13816,6 +13816,15 @@ public class BehaviorTest {
     PyJavParams.mapEditor.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     String saved = PluginFiles.read(PluginFiles.noteMap(app.getFilesDir()));
+    // Note names: DigiDrum's (C-0 = note 0); the pads say them.
+    files.findViewWithTag("params-files-note-names").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.namesMenu.getListView()).performItemClick(2);
+    idle();
+    TextView[] pads = (TextView[]) get("padBtns");
+    String kick = String.valueOf(pads[0].getText());
+    PluginFiles.saveNoteNames(app.getFilesDir(), -1);
+    out.append("kick pad with DigiDrum's names: ").append(kick.replace('\n', '|')).append('\n');
     PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
     idle();
     PyJavParams.paramsTab = null;
@@ -13824,7 +13833,7 @@ public class BehaviorTest {
     out.append("long press menu ").append(menu).append(" | files tab ").append(shown).append(" | template: ").append(template).append(" | notes: ").append(notes.split("\n")[1].trim())
         .append(" | editor open after Pads & notes ").append(editorOpen).append(" | saved: ").append(saved == null ? null : saved.replace('\n', '|')).append('\n');
     write("s250_files_locations", out.toString());
-    boolean ok = menu && shown && template.startsWith("# Note map") && notes.split("\n")[1].trim().equals("36  Kick") && editorOpen && "[DigiDrum Pro]\n36=48\n".equals(saved);
+    boolean ok = menu && shown && template.startsWith("# Note map") && notes.split("\n")[1].trim().equals("36  C2    Kick") && editorOpen && "[DigiDrum Pro]\n36=48\n".equals(saved) && kick.contains("Kick \u00b7 36 C-3");
     if (!ok) throw new AssertionError(out.toString());
   }
 

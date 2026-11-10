@@ -65,6 +65,8 @@ final class Playback {
     Timer playheadTimer;
 
     JPanel buildPads() {
+        // The pads' note names as chosen (vst_render's Files & locations).
+        PluginFiles.loadNoteNames(new java.io.File(System.getProperty("user.home", ".")));
         JPanel jPanel = new JPanel(new BorderLayout(8, 8));
         jPanel.setOpaque(false);
         JPanel north = new JPanel();

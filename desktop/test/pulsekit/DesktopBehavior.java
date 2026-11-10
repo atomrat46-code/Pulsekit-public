@@ -9933,13 +9933,13 @@ public final class DesktopBehavior {
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
     this.out.append(PythonRun.runFor(cmd, 60, null).trim()).append('\n');
-    this.out.append("pad notes: ").append(PluginFiles.padNotes().split("\n")[1].trim()).append(" | ").append(PluginFiles.padNotes().contains("44  Pedal hat")).append('\n');
+    this.out.append("pad notes: ").append(PluginFiles.padNotes().split("\n")[1].trim()).append(" | ").append(PluginFiles.padNotes().contains("44  G#2   Pedal hat")).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("files tab: true, note map row true, Edit true, Pads & notes true, Carla program true")
         && all.contains("dropped on plugin 2: true, row reads Riot Drums.vst3") && all.contains("shown: ~/Carla-2.5.10-win64/Carla/Carla.exe")
         && all.contains("template: # Note map") && all.contains("carla app: Carla-2.5.10-win64/Carla/Carla.exe")
-        && all.contains("Note map: map.txt, section [DigiDrum Pro]: 36=48, 42=none") && all.contains("other plugin: ({}, None)")
-        && all.matches("(?s).*sent: 36 \\d+ -> 0, 48 \\d+ -> \\d+, 42 \\d+ -> 0.*") && all.contains("pad notes: 36  Kick | true");
+        && all.contains("Note map: map.txt, section [DigiDrum Pro]: 36=48 (C3), 42=none") && all.contains("other plugin: ({}, None)")
+        && all.matches("(?s).*sent: 36 \\d+ -> 0, 48 \\d+ -> \\d+, 42 \\d+ -> 0.*") && all.contains("pad notes: 36  C2    Kick | true");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -9949,9 +9949,26 @@ public final class DesktopBehavior {
     javax.swing.JButton[] pads = (javax.swing.JButton[]) get("padBtns");
     for (javax.swing.JButton b : pads) this.out.append(b.getText()).append(" | ");
     this.out.append('\n').append(pads[0].getToolTipText()).append('\n');
+    // DigiDrum's note names (C-0 = note 0): the pads say them; map.txt and vst_render read them.
+    File home = new File(System.getProperty("user.home"));
+    PluginFiles.saveNoteNames(home, 0);
+    edt(() -> ((Playback) get("playback")).refreshPadLabels());
+    this.out.append("DigiDrum's names: ").append(pads[0].getText()).append(" | ").append(Engine.noteName(48)).append(" | ").append(PluginFiles.padNotes().split("\n")[1].trim()).append('\n');
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print('vst_render: %s | %s' % (vr.map_for('36=C-4,38=C#-4')[0], vr.named_list([48, 49, 50, 51])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 60, null).trim()).append('\n');
+    PluginFiles.saveNoteNames(home, -1);
     String all = this.out.toString();
     boolean ok = all.contains("KIK  Kick  \u00b7 36") && all.contains("SNR  Snare  \u00b7 38") && all.contains("CHH  Closed hat  \u00b7 42")
-        && all.contains("RAK  Rack tom  \u00b7 50") && all.contains("Kick: MIDI note 36");
+        && all.contains("RAK  Rack tom  \u00b7 50 D3") && all.contains("Kick: MIDI note 36") && all.contains("KIK  Kick  \u00b7 36 C2")
+        && all.contains("DigiDrum's names: KIK  Kick  \u00b7 36 C-3 | C-4 | 36  C-3   Kick") && all.contains("vst_render: {36: 48, 38: 49} | 48-51 (C-4 to D#-4)");
     if (!ok) throw new AssertionError(all);
   }
 

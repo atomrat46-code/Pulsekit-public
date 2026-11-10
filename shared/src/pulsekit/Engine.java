@@ -273,9 +273,25 @@ public final class Engine {
   public static final String[] FILL_LABEL = { "Toms", "Snare roll", "Crash", "Break", "Silent" };
   public static final int[] NOTES = {36, 35, 38, 39, 37, 42, 46, 49, 51, 41, 47, 50};
 
-  /** A pad's MIDI note, for its label on the Pads tab: "36" (the note its hits are written with). */
+  /** A pad's MIDI note, for its label on the Pads tab: "36 C2" (the note its hits are written with, and its name). */
   public static String padNote(int t) {
-    return t >= 0 && t < NOTES.length ? String.valueOf(NOTES[t]) : "";
+    return t >= 0 && t < NOTES.length ? NOTES[t] + " " + noteName(NOTES[t]) : "";
+  }
+
+  /**
+   * How notes are named: the octave of MIDI note 0. Programs differ: -1 names note 60 C4 (most), -2 names
+   * it C3 (Yamaha, FL Studio, Cubase), 0 names note 0 C-0 and 48 C-4 (DigiDrum: its octave after a dash).
+   */
+  public static int noteOctaveAt0 = -1;
+  public static final int[] NOTE_NAMINGS = {-1, -2, 0};
+  public static final String[] NOTE_NAMING_LABELS = {"C4 = note 60 (most programs)", "C3 = note 60 (Yamaha, FL Studio, Cubase)",
+    "C-0 = note 0, C-4 = note 48 (DigiDrum)"};
+  private static final String[] NOTE_LETTERS = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+
+  /** A MIDI note's name in the naming chosen: 36 is C2 (C4 = 60), C1 (C3 = 60) or C-3 (DigiDrum's). */
+  public static String noteName(int n) {
+    if (n < 0 || n > 127) return "";
+    return NOTE_LETTERS[n % 12] + (noteOctaveAt0 >= 0 ? "-" : "") + (n / 12 + noteOctaveAt0);
   }
 
   public static final class Style {

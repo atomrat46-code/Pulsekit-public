@@ -32,6 +32,8 @@ final class Playback {
 
     /** Builds the Pads page: drum sets, Live/Silent/Match Original, and the pad grid. */
     void buildPadsPane(FrameLayout frameLayout) {
+        // The pads' note names as chosen (vst_render's Files & locations).
+        PluginFiles.loadNoteNames(app.getFilesDir());
         LinearLayout.LayoutParams layoutParams;
         TextView textView;
         LinearLayout linearLayout;

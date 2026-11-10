@@ -4170,6 +4170,25 @@ final class PyJav {
         c.gridy = 0;
         this.locationRow(out, c, "carla-app", PluginFiles.CARLA_APP, PluginFiles.carlaAppFile(home), () -> null, true);
         this.locationRow(out, c, "carla-rack", PluginFiles.CARLA_RACK, PluginFiles.carlaRackFile(home), () -> carlaRack(), false);
+        // Note names: as the plugin names them (DigiDrum's C-4 is note 48); the pads, Test and map.txt follow it.
+        c.gridx = 0;
+        c.weightx = 0;
+        out.add(new JLabel("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + PluginFiles.NOTE_NAMES + "</body></html>"), c);
+        PluginFiles.loadNoteNames(home);
+        final javax.swing.JComboBox<String> naming = new javax.swing.JComboBox<String>(Engine.NOTE_NAMING_LABELS);
+        naming.setName("params-files-note-names");
+        for (int k = 0; k < Engine.NOTE_NAMINGS.length; k++) if (Engine.NOTE_NAMINGS[k] == Engine.noteOctaveAt0) naming.setSelectedIndex(k);
+        naming.addActionListener(e -> {
+            PluginFiles.saveNoteNames(home, Engine.NOTE_NAMINGS[naming.getSelectedIndex()]);
+            app.playback.refreshPadLabels();
+            app.setNow("Note names: " + PluginFiles.label() + " (Kick 36 is " + Engine.noteName(36) + ")");
+        });
+        JPanel namingRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        namingRow.add(naming);
+        c.gridx = 1;
+        c.weightx = 1;
+        out.add(namingRow, c);
+        c.gridy++;
         c.gridx = 0;
         c.weightx = 0;
         out.add(new JLabel("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + PluginFiles.NOTE_MAP + "</body></html>"), c);

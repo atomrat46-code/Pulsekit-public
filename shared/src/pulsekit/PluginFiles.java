@@ -26,6 +26,32 @@ public final class PluginFiles {
     return new File(home, ".pulsekit");
   }
 
+  /** The note naming chosen (Engine.noteOctaveAt0), kept for Pulsekit and vst_render: ~/.pulsekit/note-names.txt. */
+  public static File noteNamesFile(File home) {
+    return new File(dir(home), "note-names.txt");
+  }
+
+  /** The note naming kept (Engine.noteOctaveAt0 set); -1 (C4 = 60) when none. */
+  public static int loadNoteNames(File home) {
+    int v = -1;
+    try {
+      v = Integer.parseInt(kept(noteNamesFile(home)));
+    } catch (Exception ex) {
+      v = -1;
+    }
+    boolean known = false;
+    for (int k : Engine.NOTE_NAMINGS) known |= k == v;
+    Engine.noteOctaveAt0 = known ? v : -1;
+    return Engine.noteOctaveAt0;
+  }
+
+  public static void saveNoteNames(File home, int octaveAt0) {
+    Engine.noteOctaveAt0 = octaveAt0;
+    write(noteNamesFile(home), String.valueOf(octaveAt0));
+  }
+
+  public static final String NOTE_NAMES = "Note names: how the pads, Test and the note map name notes (plugins differ: DigiDrum's C-4 is note 48)";
+
   public static File carlaAppFile(File home) {
     return new File(dir(home), "carla-app.txt");
   }
@@ -71,6 +97,7 @@ public final class PluginFiles {
       + "# A line is the MIDI's note=the plugin's note: 36=48 plays the MIDI's kick on the plugin's pad 48.\n"
       + "# 41=none leaves a note out. A [section] is for the plugin whose file name has its name in it;\n"
       + "# lines before any section are for every plugin. The MIDI files are not changed.\n"
+      + "# A note can be a number or a name in the Note names chosen (36=C-4 for DigiDrum's naming).\n"
       + "# Test (Plugins tab) says which notes a plugin plays.\n"
       + "\n"
       + "[DigiDrum Pro]\n"
@@ -84,14 +111,28 @@ public final class PluginFiles {
 
   /** Pulsekit's pads with their MIDI notes, and the other GM drum notes: for writing a note map. */
   public static String padNotes() {
-    StringBuilder b = new StringBuilder("Pulsekit's pads (Pads tab) and their MIDI notes:\n");
-    for (int t = 0; t < Engine.TRACK_ID.length; t++) b.append("  ").append(Engine.NOTES[t]).append("  ").append(Engine.TRACK_LABEL[t]).append('\n');
+    StringBuilder b = new StringBuilder("Pulsekit's pads (Pads tab) and their MIDI notes (names: " + label() + "):\n");
+    for (int t = 0; t < Engine.TRACK_ID.length; t++) b.append("  ").append(row(Engine.NOTES[t], Engine.TRACK_LABEL[t])).append('\n');
     b.append("\nMore GM drum notes in songs' MIDI:\n");
     String[][] more = {{"43", "Low floor tom"}, {"44", "Pedal hat"}, {"45", "Low tom"}, {"48", "High-mid tom"}, {"52", "China"}, {"53", "Ride bell"},
       {"55", "Splash"}, {"56", "Cowbell"}, {"57", "Crash 2"}, {"59", "Ride 2"}};
-    for (String[] m : more) b.append("  ").append(m[0]).append("  ").append(m[1]).append('\n');
-    b.append("\nA line: the MIDI's note=the plugin's pad note (36=48), or 41=none.");
+    for (String[] m : more) b.append("  ").append(row(Integer.parseInt(m[0]), m[1])).append('\n');
+    b.append("\nA line: the MIDI's note=the plugin's pad note (36=48, or by name: 36=" + Engine.noteName(48) + "), or 41=none.");
     return b.toString();
+  }
+
+  /** "36  C2    Kick": a note, its name, what plays it. */
+  static String row(int n, String what) {
+    String name = Engine.noteName(n);
+    StringBuilder pad = new StringBuilder(name);
+    while (pad.length() < 6) pad.append(' ');
+    return n + "  " + pad + what;
+  }
+
+  /** The naming chosen, in words. */
+  public static String label() {
+    for (int i = 0; i < Engine.NOTE_NAMINGS.length; i++) if (Engine.NOTE_NAMINGS[i] == Engine.noteOctaveAt0) return Engine.NOTE_NAMING_LABELS[i];
+    return Engine.NOTE_NAMING_LABELS[0];
   }
 
   public static String read(File f) {

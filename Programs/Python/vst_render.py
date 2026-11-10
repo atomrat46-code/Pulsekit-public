@@ -1275,14 +1275,66 @@ def map_for(text, plugin=None):
             raise ValueError("%s is not note=note (45=46, or 41=none)" % pair)
         a, b = (x.strip() for x in pair.split("=", 1))
         try:
-            src = int(a)
-            dst = None if b.lower() in ("none", "-", "off", "") else int(b)
+            src = note_number(a)
+            dst = None if b.lower() in ("none", "-", "off", "") else note_number(b)
         except ValueError:
-            raise ValueError("%s is not note=note (45=46, or 41=none)" % pair)
+            raise ValueError("%s is not note=note (45=46, 36=%s, or 41=none)" % (pair, note_name(48)))
         if not 0 <= src <= 127 or dst is not None and not 0 <= dst <= 127:
             raise ValueError("%s: MIDI notes are 0 to 127" % pair)
         out[src] = dst
     return out, section
+
+
+NOTE_LETTERS = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def note_octave():
+    """How notes are named (Pulsekit's Files & locations: Note names): the octave of MIDI note 0. -1: note
+    60 is C4 (most); -2: C3 (Yamaha, FL Studio, Cubase); 0: note 0 is C-0, 48 C-4 (DigiDrum)."""
+    try:
+        v = int(open(os.path.join(os.path.expanduser("~"), ".pulsekit", "note-names.txt"), encoding="utf-8").read().strip())
+        return v if v in (-1, -2, 0) else -1
+    except (OSError, ValueError):
+        return -1
+
+
+def note_name(n):
+    """A MIDI note's name in the naming chosen: 48 is C3 (C4 = 60), C2 (C3 = 60) or C-4 (DigiDrum's)."""
+    o = note_octave()
+    return "%s%s%d" % (NOTE_LETTERS[n % 12], "-" if o >= 0 else "", n // 12 + o)
+
+
+def note_number(text):
+    """A note given as a number (48) or a name in the naming chosen (C-4, C#3, Db3); ValueError otherwise."""
+    t = text.strip()
+    if re.match(r"^\d+$", t):
+        return int(t)
+    m = re.match(r"^([A-Ga-g])([#b]?)(-?\d+)$", t)
+    if not m:
+        raise ValueError(t)
+    o = note_octave()
+    letter, sign, octave = m.group(1).upper(), m.group(2), m.group(3)
+    # DigiDrum's naming writes its octave after a dash (C-4): a dash there is no minus.
+    octave = int(octave.lstrip("-")) if o >= 0 else int(octave)
+    n = NOTE_LETTERS.index(letter) + (1 if sign == "#" else -1 if sign == "b" else 0) + 12 * (octave - o)
+    if not 0 <= n <= 127:
+        raise ValueError(t)
+    return n
+
+
+def named_list(notes):
+    """note_list with the notes' names: "48-51 (C-4 to D#-4)", "36 (C-3)"."""
+    out, i = [], 0
+    while i < len(notes):
+        j = i
+        while j + 1 < len(notes) and notes[j + 1] == notes[j] + 1:
+            j += 1
+        if j - i >= 2:
+            out.append("%d-%d (%s to %s)" % (notes[i], notes[j], note_name(notes[i]), note_name(notes[j])))
+        else:
+            out += ["%d (%s)" % (n, note_name(n)) for n in notes[i:j + 1]]
+        i = j + 1
+    return ", ".join(out)
 
 
 def note_map_home():
@@ -1305,7 +1357,7 @@ def pad_map(given, plugin):
     where = os.path.basename(text) if os.path.isfile(map_file(text)) else "--note_map"
     if part:
         where += ", section [%s]" % part
-    pairs = ", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items()))
+    pairs = ", ".join("%d=%s" % (a, "none" if b is None else "%d (%s)" % (b, note_name(b))) for a, b in sorted(nmap.items()))
     return nmap, "Note map: %s: %s (the MIDI's notes sent to the plugin's)" % (where, pairs)
 
 
@@ -2860,8 +2912,9 @@ def main(argv):
             plays = note_sweep(chain, np, rate)
             if plays:
                 fail("%s plays nothing for the GM drum notes of a test beat (kick, snare, hats: 36, 38, 42), but it plays notes %s: "
-                     "its pads are on those notes. Set its pads to the GM notes in Edit settings, or give a map (--map, e.g. 36=%d)"
-                     % (os.path.basename(os.path.normpath(name)), note_list(plays), plays[0]))
+                     "its pads are on those notes. Set its pads to the GM notes in Edit settings, or send the notes there with a note map "
+                     "(Files & locations: map.txt, e.g. 36=%d)"
+                     % (os.path.basename(os.path.normpath(name)), named_list(plays), plays[0]))
             print("Notes: none of %d to %d sounds either (each played alone)" % (SWEEP_LOW, SWEEP_HIGH))
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
@@ -2881,10 +2934,10 @@ def main(argv):
         # plays only some of them.
         heard, silent = notes_heard(np, check_audio, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
         if silent:
-            print("Notes: %s heard; %s silent (each played alone)%s" % (note_list(heard) or "none", note_list(silent),
-                  ": its pads may be on other notes (set them in Edit settings, or give a map: --map)" if len(silent) > len(heard) else ""))
+            print("Notes: %s heard; %s silent (each played alone)%s" % (named_list(heard) or "none", named_list(silent),
+                  ": its pads may be on other notes (set them in Edit settings, or a note map: Files & locations, map.txt)" if len(silent) > len(heard) else ""))
         else:
-            print("Notes: all heard (%s)" % note_list(heard))
+            print("Notes: all heard (%s)" % named_list(heard))
         # The kit's own kick and toms (the beat's second part), for DrumMidi in the test.
         if "--no-kit" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and (test or "--check" in switches):
             where = opts["--outdir"] or "."

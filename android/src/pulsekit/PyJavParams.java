@@ -1517,6 +1517,23 @@ public final class PyJavParams {
     carla.setTextSize(12);
     carla.setText("Carla's program and rack plugin: set on the desktop (its Files & locations tab), where vst_render plays the plugins.");
     col.addView(carla);
+    // Note names: as the plugin names them (DigiDrum's C-4 is note 48); the pads, Test and map.txt follow it.
+    TextView namesHead = new TextView(activity);
+    namesHead.setText(PluginFiles.NOTE_NAMES);
+    namesHead.setTextSize(14);
+    namesHead.setPadding(0, dp(activity, 10), 0, dp(activity, 2));
+    col.addView(namesHead);
+    PluginFiles.loadNoteNames(activity.getFilesDir());
+    final android.widget.Button naming = new android.widget.Button(activity);
+    naming.setTag("params-files-note-names");
+    naming.setAllCaps(false);
+    naming.setText(PluginFiles.label());
+    naming.setOnClickListener(v -> namesMenu = new AlertDialog.Builder(activity).setTitle("Note names").setItems(Engine.NOTE_NAMING_LABELS, (dd, which) -> {
+      PluginFiles.saveNoteNames(activity.getFilesDir(), Engine.NOTE_NAMINGS[which]);
+      naming.setText(PluginFiles.label());
+      if (activity instanceof MainActivity) ((MainActivity) activity).playback.refreshPadLabels();
+    }).setNegativeButton("Cancel", null).show());
+    col.addView(naming);
     TextView head = new TextView(activity);
     head.setText(PluginFiles.NOTE_MAP);
     head.setTextSize(14);
@@ -1539,7 +1556,7 @@ public final class PyJavParams {
     return col;
   }
 
-  static AlertDialog mapEditor, padNotesShown;
+  static AlertDialog mapEditor, padNotesShown, namesMenu;
   static EditText mapText;
 
   /** map.txt's editor: its text (the template when new); Save, Pads & notes, Cancel. */
