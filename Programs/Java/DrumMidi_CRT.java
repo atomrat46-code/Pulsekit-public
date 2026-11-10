@@ -88,6 +88,13 @@ public class DrumMidi_CRT{
 
     static final double ATTACK_LO = 1000, ATTACK_HI = 4000;
     static final double KICK_CLICK = 0.5;
+    /**
+     * A kit whose kick has no beater click (an 808's sine, DigiDrum's, Beat DRMR's: its 2-6 kHz energy
+     * over its 40-150 Hz energy in its first 46 ms reads 0.00001-0.00002; sampled kicks 0.00025 (the
+     * darkest, Artillery Fat Metal) to 0.53) has its kicks found without one, when its kit profile
+     * (--kit) says so: under KICK_CLICKLESS.
+     */
+    static final double KICK_CLICKLESS = 0.0001;
     static final double TOM_ATTACK_GATE = 0.5, TOM_ATTACK = 0.6, TOM_RISE = 0.5;
     /**
      * A tom raises its band's level (70-320 Hz, linear) by TOM_JUMP, and its stick noise dies at
@@ -798,13 +805,17 @@ public class DrumMidi_CRT{
         normalize(bodyLevel);
         normalize(tomLevel);
         Levels lv = new Levels(kickLevel, bodyLevel, noiseLevel, bodyRaw, gapRaw, hatLevel);
+        // A kit whose kick has no beater click (its profile says so: an 808's long sine): its kicks are
+        // found by the kick band alone, and before HPSS, which takes much of such a kick away as a held tone.
+        final boolean clickless = kit != null && kit.kickClick >= 0 && kit.kickClick < KICK_CLICKLESS;
+        double[] kickBeforeHpss = clickless ? flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin)) : null;
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             applyHpss(mag);
             progress(70);
         }
 
-        double[] kick = flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
+        double[] kick = clickless ? kickBeforeHpss : flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
         double[] snareNoise = flux(mag, bin(SNARE_NOISE_LO, sr, maxBin), bin(SNARE_NOISE_HI, sr, maxBin));
         normalize(kick);
@@ -839,10 +850,13 @@ public class DrumMidi_CRT{
             crash[t] = Math.sqrt(ride[t] * top[t]);
         }
 
-        // Kick onsets only count where the beater clicks. Bass notes have no click.
+        // Kick onsets only count where the beater clicks. Bass notes have no click. A kit whose kick has
+        // none (its profile says so: an 808's) has its kicks found by the kick band alone.
+        if (clickless) note("Kit " + kit.name + ": its kick has no beater click (" + String.format(java.util.Locale.ROOT, "%.5f", kit.kickClick)
+            + "): kicks are found without one");
         double[] kickOnset = new double[kick.length];
         for (int t = 0; t < kick.length; t++) {
-            double g = Math.min(1.0, near(snareNoise, t) / KICK_CLICK);
+            double g = clickless ? 1.0 : Math.min(1.0, near(snareNoise, t) / KICK_CLICK);
             kickOnset[t] = kick[t] * g * g;
         }
         normalize(kickOnset);
@@ -925,7 +939,7 @@ public class DrumMidi_CRT{
         for (Integer p : pickPeaks(kickOnset, delta)) {
             int t = p.intValue();
             double jk = jump(kickLevel, t);
-            if (bass ? !bandKick(jk, jump(noiseLevel, t)) || jk < KICK_WITH_SNARE && maskedSnare(lv, t, sens, rideRings(rideEnergy, t)) : jk < KICK_JUMP) continue;
+            if (bass && !clickless ? !bandKick(jk, jump(noiseLevel, t)) || jk < KICK_WITH_SNARE && maskedSnare(lv, t, sens, rideRings(rideEnergy, t)) : jk < KICK_JUMP) continue;
             if (snareAt[t] && jk < KICK_WITH_SNARE) continue;
             kickFrames.add(p);
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
@@ -2515,6 +2529,8 @@ public class DrumMidi_CRT{
         final List<double[]> withLooks = new ArrayList<double[]>();
         /** The ride or hats cut learned from the runs ("ridecut a b"; null when not learned): see rideVote. */
         double[] rideCut;
+        /** How much the kick clicks ("kickclick v": kickClick's ratio, the median of its hits); -1 when not learned. */
+        double kickClick = -1;
 
         KitProfile(String name) {
             this.name = name;
@@ -2572,6 +2588,34 @@ public class DrumMidi_CRT{
 
         /** Where the hit of a note at `time` starts: the first sample within 0.45 s of it (from 20 ms
          * before) at a third of that stretch's peak, less 5 ms; -1 where it is silent or past the end. */
+        /**
+         * How much a kick clicks: its 2-6 kHz energy over its 40-150 Hz energy in its first 2048 samples
+         * (46 ms at 44.1 kHz), from where it reaches 30% of its peak after `onset`. See KICK_CLICKLESS.
+         */
+        static double kickClick(double[] x, double sr, double onset) {
+            int a = (int) Math.round(onset * sr), n = 2048;
+            if (a < 0 || a + n > x.length) return -1;
+            // From where it reaches 30% of its peak (in its first 150 ms): not the quiet before its attack
+            // (an MP3's pre-echo there is bright, and would make a sine kick look as if it clicked).
+            int end = Math.min(x.length - n, a + (int) (0.15 * sr));
+            double top = 0;
+            for (int i = a; i < end; i++) top = Math.max(top, Math.abs(x[i]));
+            for (int i = a; i < end; i++) if (Math.abs(x[i]) >= 0.3 * top) {
+                a = i;
+                break;
+            }
+            double[] re = new double[n], im = new double[n];
+            for (int i = 0; i < n; i++) re[i] = x[a + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)));
+            fft(re, im);
+            double hi = 0, lo = 0;
+            for (int k = 1; k < n / 2; k++) {
+                double hz = k * sr / n, p = re[k] * re[k] + im[k] * im[k];
+                if (hz >= 2000 && hz <= 6000) hi += p;
+                if (hz >= 40 && hz <= 150) lo += p;
+            }
+            return hi / Math.max(lo, 1e-12);
+        }
+
         static double onset(double[] x, double sr, double time) {
             int a = Math.max(0, (int) Math.round((time - 0.02) * sr)), b = Math.min(x.length, (int) Math.round((time + 0.45) * sr));
             double peak = 0;
@@ -2613,6 +2657,8 @@ public class DrumMidi_CRT{
             List<Integer> runNotes = new ArrayList<Integer>();
             List<double[][]> runLooks = new ArrayList<double[][]>();
             List<Double> cymShifts = new ArrayList<Double>();
+            // How much the kick clicks, each kick alone (kickClick): an 808's does not.
+            List<Double> clicks = new ArrayList<Double>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
@@ -2666,6 +2712,7 @@ public class DrumMidi_CRT{
                 // The hit as the plugin plays it: where its sound starts, up to 0.45 s after the note
                 // (a plugin may play some drums late), not the note's own time.
                 double onset = onset(audio.samples, audio.sampleRate, at);
+                if (note == KICK_NOTE && onset >= 0) clicks.add(Double.valueOf(kickClick(audio.samples, audio.sampleRate, onset)));
                 if (onset - at > late) late = onset - at;
                 double[] v = onset < 0 ? null : spectrum(audio.samples, audio.sampleRate, onset);
                 if (v == null) {
@@ -2732,6 +2779,10 @@ public class DrumMidi_CRT{
                 for (int k = 0; k < KIT_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", s[k] / norm));
                 sb.append('\n');
                 kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
+            }
+            if (!clicks.isEmpty()) {
+                Collections.sort(clicks);
+                sb.append(String.format(java.util.Locale.ROOT, "kickclick %.6f\n", clicks.get(clicks.size() / 2).doubleValue()));
             }
             // The cymbals: "c<note>", its spectrum and its fade.
             double loudest = 0;
@@ -2865,6 +2916,10 @@ public class DrumMidi_CRT{
                         k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
                         k.cymLooks.add(c);
                     }
+                    continue;
+                }
+                if (w.length == 2 && w[0].equals("kickclick")) {
+                    k.kickClick = Double.parseDouble(w[1]);
                     continue;
                 }
                 if (w.length == 3 && w[0].equals("ridecut")) {
