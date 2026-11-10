@@ -4014,9 +4014,15 @@ final class PyJav {
             holder.setName("params-tab:" + e.getKey());
             tabs.addTab(e.getKey(), holder);
         }
+        // The tab open last, also after Pulsekit is started again (~/.pulsekit/params-tab.txt).
+        final File home = new File(System.getProperty("user.home", "."));
+        if (paramsTab == null && PluginFiles.kept(PluginFiles.paramsTabFile(home)).length() > 0) paramsTab = PluginFiles.kept(PluginFiles.paramsTabFile(home));
         int at = paramsTab == null ? -1 : names.indexOf(paramsTab);
         if (at >= 0) tabs.setSelectedIndex(at);
-        tabs.addChangeListener(e -> paramsTab = tabs.getTitleAt(tabs.getSelectedIndex()));
+        tabs.addChangeListener(e -> {
+            paramsTab = tabs.getTitleAt(tabs.getSelectedIndex());
+            PluginFiles.keep(PluginFiles.paramsTabFile(home), paramsTab);
+        });
         return tabs;
     }
 

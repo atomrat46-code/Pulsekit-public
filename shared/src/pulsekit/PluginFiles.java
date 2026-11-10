@@ -52,6 +52,11 @@ public final class PluginFiles {
 
   public static final String NOTE_NAMES = "Note names: how the pads, Test and the note map name notes (plugins differ: DigiDrum's C-4 is note 48)";
 
+  /** The Params page's tab open last (vst_render's: Input, Plugins, Files &amp; locations...), kept across starts. */
+  public static File paramsTabFile(File home) {
+    return new File(dir(home), "params-tab.txt");
+  }
+
   public static File carlaAppFile(File home) {
     return new File(dir(home), "carla-app.txt");
   }

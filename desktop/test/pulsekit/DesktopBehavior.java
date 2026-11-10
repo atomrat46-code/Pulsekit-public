@@ -9907,6 +9907,10 @@ public final class DesktopBehavior {
       dropped[0] = c.getTransferHandler().importData(new javax.swing.TransferHandler.TransferSupport(c, new java.awt.datatransfer.StringSelection(riot.getAbsolutePath())));
     });
     this.out.append("dropped on plugin 2: ").append(dropped[0]).append(", row reads ").append(((JLabel) row2).getText()).append('\n');
+    // The tab open last is kept for the next start (params-tab.txt).
+    final javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane) component(d, "params-tabs");
+    edt(() -> tabs.setSelectedIndex(tabs.indexOfTab(ProgramParams.PLUGINS)));
+    this.out.append("tab kept: ").append(PluginFiles.kept(PluginFiles.paramsTabFile(home))).append('\n');
     edt(() -> d.dispose());
     PyJav.paramsTab = null;
     // Carla's program kept, and read first by vst_render.
@@ -9936,7 +9940,7 @@ public final class DesktopBehavior {
     this.out.append("pad notes: ").append(PluginFiles.padNotes().split("\n")[1].trim()).append(" | ").append(PluginFiles.padNotes().contains("44  G#2   Pedal hat")).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("files tab: true, note map row true, Edit true, Pads & notes true, Carla program true")
-        && all.contains("dropped on plugin 2: true, row reads Riot Drums.vst3") && all.contains("shown: ~/Carla-2.5.10-win64/Carla/Carla.exe")
+        && all.contains("dropped on plugin 2: true, row reads Riot Drums.vst3") && all.contains("tab kept: Plugins") && all.contains("shown: ~/Carla-2.5.10-win64/Carla/Carla.exe")
         && all.contains("template: # Note map") && all.contains("carla app: Carla-2.5.10-win64/Carla/Carla.exe")
         && all.contains("Note map: map.txt, section [DigiDrum Pro]: 36=48 (C3), 42=none") && all.contains("other plugin: ({}, None)")
         && all.matches("(?s).*sent: 36 \\d+ -> 0, 48 \\d+ -> \\d+, 42 \\d+ -> 0.*") && all.contains("pad notes: 36  C2    Kick | true");

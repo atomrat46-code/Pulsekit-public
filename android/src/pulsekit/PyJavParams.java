@@ -1453,8 +1453,12 @@ public final class PyJavParams {
     strip.setOrientation(LinearLayout.HORIZONTAL);
     strip.setTag("params-tabs");
     final List<android.widget.Button> buttons = new ArrayList<android.widget.Button>();
+    // The tab open last, also after Pulsekit is started again (params-tab.txt).
+    final File tabKept = PluginFiles.paramsTabFile(activity.getFilesDir());
+    if (paramsTab == null && PluginFiles.kept(tabKept).length() > 0) paramsTab = PluginFiles.kept(tabKept);
     final java.util.function.Consumer<String> show = t -> {
       paramsTab = t;
+      PluginFiles.keep(tabKept, t);
       for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) ? android.view.View.VISIBLE : android.view.View.GONE);
       for (android.widget.Button b : buttons) b.setAlpha(("params-tab:" + t).equals(b.getTag()) ? 1f : 0.55f);
     };
