@@ -10055,7 +10055,8 @@ public final class DesktopBehavior {
   /**
    * v419: an LV2 plugin (x42 AVL Drumkits' bundle as Windows installs it): its .dll or its folder plays in
    * Carla's rack, its kit picked by the plugin id (--clap_id); (v420: its SoundFont plays with
-   * Midi2Wav, s248); Pulsekit's own check lets the .dll and the SoundFont through.
+   * Midi2Wav, s248); Pulsekit's own check lets the .dll and the SoundFont through. v421: AVL's own .ttl
+   * files (plugins named with a prefix, avldrums:BlackPearl) read; the bundle's folder in LV2_PATH for Carla.
    */
   void s247_lv2_plugin() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10076,6 +10077,8 @@ public final class DesktopBehavior {
         && all.contains("bundle, Red: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Red Zeppelin in Carla-Rack | project avldrums-Red Zeppelin.carxp")
         && all.contains("avldrums.lv2 is an LV2 plugin: it plays in Carla's rack; its plugin: AVL Drumkits Black Pearl (the others, by --clap_id: AVL Drumkits Red Zeppelin)")
         && all.contains("<Type>LV2</Type>    <Name>AVL Drumkits Red Zeppelin</Name>    <URI>http://gareus.org/oss/lv2/avldrums#RedZeppelin</URI>")
+        && all.contains("real plugins: [('http://gareus.org/oss/lv2/avldrums#BlackPearl', 'Black Pearl Drumkit'), ('http://gareus.org/oss/lv2/avldrums#BlackPearlMulti', 'Black Pearl Drumkit Multi')]")
+        && all.contains("LV2_PATH: LV2\n") && all.contains("(LV2_PATH; if Carla still does not find it, add that folder in Carla's Settings, Plugin Paths, LV2)")
         && all.contains("app: dll null | lv2 true | sf2 null");
     if (!ok) throw new AssertionError(all);
   }

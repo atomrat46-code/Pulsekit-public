@@ -2,6 +2,7 @@
 # avldrums.dll, its .ttl files and a SoundFont a kit): the bundle or its .dll plays in Carla's rack, its kit
 # (a plugin of its own) picked by --clap_id; its Carla project block; Edit settings' project per kit; a
 # SoundFont is not taken for the bundle (it plays with Midi2Wav: vst_soundfont.py). Used by DesktopBehavior s247.
+# v421: AVL's own files, plugins named with a prefix (avldrums:BlackPearl); the bundle's folder in LV2_PATH.
 # Arguments: vst_render.py, a home folder.
 import importlib.util
 import os
@@ -54,6 +55,53 @@ os.makedirs(os.path.join(home, '.pulsekit'), exist_ok=True)
 open(os.path.join(home, '.pulsekit', 'carla-rack.txt'), 'w').write(rack)
 open(os.path.join(home, 'x.mid'), 'wb').write(vr.notes_midi(os.path.join(home, 'x.mid'), [(0.5, 36, 100)]) and open(os.path.join(home, 'x.mid'), 'rb').read())
 print('plugins: %s' % vr.lv2_plugins(bundle))
+# AVL Drumkits' own files name each plugin with a prefix (avldrums:BlackPearl), as installed.
+real = os.path.join(home, 'LV2real', 'avldrums.lv2')
+os.makedirs(real, exist_ok=True)
+open(os.path.join(real, 'manifest.ttl'), 'w').write('''@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ui:   <http://lv2plug.in/ns/extensions/ui#> .
+
+@prefix avldrums: <http://gareus.org/oss/lv2/avldrums#> .
+
+avldrums:BlackPearl
+\ta lv2:Plugin ;
+\tlv2:binary <avldrums.dll>  ;
+\trdfs:seeAlso <avldrums.ttl> .
+
+avldrums:BlackPearlMulti
+\ta lv2:Plugin ;
+\tlv2:binary <avldrums.dll>  ;
+\trdfs:seeAlso <avldrums.ttl> .
+
+avldrums:ui_gl
+\ta ui:WindowsUI ;
+\tui:binary <avldrumsUI_gl.dll> .
+''')
+open(os.path.join(real, 'avldrums.ttl'), 'w').write('''@prefix doap:  <http://usefulinc.com/ns/doap#> .
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ui:    <http://lv2plug.in/ns/extensions/ui#> .
+@prefix avldrums: <http://gareus.org/oss/lv2/avldrums#> .
+
+avldrums:BlackPearl
+  a doap:Project, lv2:InstrumentPlugin, lv2:Plugin ;
+
+  doap:name "Black Pearl Drumkit" ;
+  rdfs:comment "AVLinux MIDI Drumkit" ;
+  ui:ui avldrums:ui_gl ;
+  lv2:port [
+      lv2:index 0 ;
+      lv2:name "Midi In" ;
+  ] .
+
+avldrums:BlackPearlMulti
+  a doap:Project, lv2:InstrumentPlugin, lv2:Plugin ;
+
+  doap:name "Black Pearl Drumkit Multi" ;
+  ui:ui avldrums:ui_gl .
+''')
+print('real plugins: %s' % vr.lv2_plugins(real))
 seen = {}
 
 
@@ -82,4 +130,5 @@ for label, args in (('dll', ['x.mid', '--plugin', os.path.join(bundle, 'avldrums
                                                              vr.rack_said(seen.get('--bridged')) if seen.get('--bridged') else '-',
                                                              os.path.basename(vr.bridged_project(seen['--bridged'])) if seen.get('--bridged') else '-'))
 vr.LV2_WANTED['id'] = 'Red'
+print('LV2_PATH: %s' % os.path.basename(os.environ.get('LV2_PATH', '').split(os.pathsep)[0]))
 print('block: %s' % vr.bridged_carla_plugin(bundle).replace('\n', ' '))

@@ -392,18 +392,28 @@ def lv2_bundle(path):
 
 
 def lv2_plugins(bundle):
-    """The LV2 plugins in a bundle, [(uri, name)], from its .ttl files (x42 AVL Drumkits: a plugin a kit)."""
+    """The LV2 plugins in a bundle, [(uri, name)], from its .ttl files (x42 AVL Drumkits: a plugin a kit).
+    A plugin is named in full (<http://...#BlackPearl>) or with a prefix (avldrums:BlackPearl, its
+    @prefix avldrums: <http://...#>), as AVL Drumkits' files do."""
     text = ""
     for n in sorted(os.listdir(bundle)):
         if n.lower().endswith(".ttl"):
             text += open(os.path.join(bundle, n), encoding="utf-8", errors="replace").read() + "\n"
+    prefixes = dict(re.findall(r"@prefix\s+([\w-]*):\s*<([^<>\s]*)>", text))
     out = []
-    for m in re.finditer(r"<([^<>\s]+)>\s+a\s+[^;.]*lv2:Plugin", text):
-        uri = m.group(1)
+    # A statement's subject (at a line's start), then "a" and its types, lv2:Plugin among them.
+    for m in re.finditer(r"^\s*(?:<([^<>\s]+)>|([\w-]*):([\w-]+))\s+a\s+[^;.]*lv2:Plugin\b", text, re.M):
+        if m.group(1):
+            uri, names = m.group(1), [re.escape("<" + m.group(1) + ">")]
+        elif m.group(2) in prefixes:
+            uri = prefixes[m.group(2)] + m.group(3)
+            names = [re.escape("<" + uri + ">"), r"(?<![\w:-])" + re.escape(m.group(2) + ":" + m.group(3)) + r"(?![\w-])"]
+        else:
+            continue
         if uri in [u for u, _ in out]:
             continue
         name = None
-        for k in re.finditer(re.escape("<" + uri + ">"), text):
+        for k in re.finditer("|".join(names), text):
             # The statement about it: up to its end (" ." at a line's end; its URIs have dots of their own).
             block = text[k.end():k.end() + 20000]
             end = re.search(r"\s\.\s*(\n|$)", block)
@@ -3041,6 +3051,11 @@ def main(argv):
         print("%s is an LV2 plugin: it plays in Carla's rack; its plugin: %s%s" % (os.path.basename(lv2_bundle(opts["--plugin"])), kit,
               (" (the others, by --clap_id: %s)" % ", ".join(others)) if others else ""))
         opts["--bridged"], opts["--plugin"] = lv2_bundle(opts["--plugin"]), rack
+        # Carla finds an LV2 plugin by its URI in the LV2 folders: the bundle's own folder is one of them
+        # for this run and for Edit settings' Carla (LV2_PATH), wherever it was installed.
+        lv2_dir = os.path.dirname(opts["--bridged"])
+        os.environ["LV2_PATH"] = os.pathsep.join([lv2_dir] + [d for d in os.environ.get("LV2_PATH", "").split(os.pathsep) if d and d != lv2_dir])
+        print("LV2 folder for Carla: %s (LV2_PATH; if Carla still does not find it, add that folder in Carla's Settings, Plugin Paths, LV2)" % lv2_dir)
     # A .dll that is not a plugin for this Python: said plainly; a 32-bit VST2 plays in Carla's rack, bridged.
     # (Not Carla's rack an LV2 is played in.)
     if opts["--plugin"] and not opts.get("--bridged") and not soundfont:
