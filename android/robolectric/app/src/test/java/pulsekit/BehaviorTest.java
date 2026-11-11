@@ -253,6 +253,9 @@ public class BehaviorTest {
     call("show", "pads");
     idle();
     TextView[] pads = (TextView[]) get("padBtns");
+    // Each pad says its MIDI note.
+    if (!pads[0].getText().toString().contains("Kick \u00b7 36") || !pads[2].getText().toString().contains("Snare \u00b7 38") || !pads[5].getText().toString().contains("Closed hat \u00b7 42"))
+      throw new AssertionError(pads[0].getText() + " / " + pads[2].getText() + " / " + pads[5].getText());
     pads[0].performClick();
     idle();
     call("show", "pattern");
@@ -13493,6 +13496,348 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /**
+   * vst_render's --zip_outdir in Params on the phone: a text field with the folder as it is; the folder
+   * Browse picks goes into it as it is, % codes are written on after it, OK keeps it as written, and
+   * the Params opened again show it so; Clear empties it.
+   */
+  @Test
+  public void s245_zip_outdir_field() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View root = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.EditText field = (android.widget.EditText) root.findViewWithTag("params-dir-text:--zip_outdir");
+    out.append("field: ").append(field == null ? "none" : "\"" + field.getText() + "\"").append('\n');
+    root.findViewWithTag("params-dir:--zip_outdir").performClick();
+    idle();
+    android.net.Uri tree = android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3APickup");
+    PyJavParams.dirPicked(app, tree);
+    idle();
+    String picked = field.getText().toString();
+    out.append("Browse: ").append(picked).append('\n');
+    field.setText(picked + "/run-%n");
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String kept = PyJavParams.load(app, "vst_render.py");
+    out.append("kept: ").append(kept).append('\n');
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View again = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.EditText field2 = (android.widget.EditText) again.findViewWithTag("params-dir-text:--zip_outdir");
+    String shown = field2.getText().toString();
+    again.findViewWithTag("params-clear:--zip_outdir").performClick();
+    String cleared = field2.getText().toString();
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String after = PyJavParams.load(app, "vst_render.py");
+    out.append("opened again: ").append(shown).append("; Clear: \"").append(cleared).append("\", kept ").append(after.contains("--zip_outdir") ? "with" : "without").append(" --zip_outdir\n");
+    PyJavParams.store(app, "vst_render.py", "");
+    write("s245_zip_outdir_field", out.toString());
+    String want = tree + "/run-%n";
+    boolean ok = field != null && picked.equals(tree.toString()) && kept.contains("--zip_outdir " + want) && shown.equals(want) && cleared.isEmpty() && !after.contains("--zip_outdir");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * Batch F: the drum sound library on the phone. A pad's long-press menu has "Add sounds to the
+   * library…" with its sources; a folder's sounds go to the pad's part or the part their names say;
+   * DrumMidi measures them (--sounds; here the jar run on the computer) and they are ready; File > Drum
+   * sound library lists the parts and a part's sounds with their measures; ✕ takes one out; a file gone
+   * is missing when measured again; the library is kept.
+   */
+  @Test
+  public void s246_drum_library() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    final File jar = new File("../../../Programs/Java/DrumMidi_CRT.jar").getAbsoluteFile();
+    DrumLibrary.runner = argv -> {
+      try {
+        List<String> cmd = new ArrayList<String>(java.util.Arrays.asList(new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath(), "-cp", jar.getPath(), "DrumMidi_CRT"));
+        cmd.addAll(argv);
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        java.io.InputStream in = p.getInputStream();
+        byte[] b = new byte[8192];
+        for (int n; (n = in.read(b)) > 0;) bo.write(b, 0, n);
+        String log = new String(bo.toByteArray(), StandardCharsets.UTF_8);
+        return new JavaRun.Result(log, new ArrayList<JavaRun.FileOut>(), p.waitFor());
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    try {
+      File dir = new File(app.getCacheDir(), "kit sounds");
+      dir.mkdirs();
+      int sr = 44100;
+      short[] kick = new short[sr / 2], hat = new short[sr / 4];
+      java.util.Random rng = new java.util.Random(3);
+      for (int i = 0; i < kick.length; i++) kick[i] = (short) (20000 * Math.sin(2 * Math.PI * 60 * i / sr) * Math.exp(-i * 9.0 / sr));
+      double prev = 0;
+      for (int i = 0; i < hat.length; i++) {
+        double v = rng.nextGaussian();
+        hat[i] = (short) (6000 * (v - prev) * Math.exp(-i * 60.0 / sr));
+        prev = v;
+      }
+      Files.write(new File(dir, "BD 01.wav").toPath(), AudioIo.encodeWav(kick, sr));
+      Files.write(new File(dir, "hihat closed.wav").toPath(), AudioIo.encodeWav(hat, sr));
+      Files.write(new File(dir, "Thing.wav").toPath(), AudioIo.encodeWav(kick, sr));
+      call("show", "pads");
+      idle();
+      app.playback.showPadMenu(0);
+      idle();
+      AlertDialog menu = (AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      StringBuilder items = new StringBuilder();
+      for (int i = 0; i < menu.getListView().getCount(); i++) items.append(i == 0 ? "" : " | ").append(menu.getListView().getItemAtPosition(i));
+      out.append("pad menu: ").append(items).append('\n');
+      org.robolectric.Shadows.shadowOf(menu.getListView()).performItemClick(java.util.Arrays.asList(items.toString().split(" \\| ")).indexOf(DrumLibrary.ADD));
+      idle();
+      AlertDialog kinds = (AlertDialog) org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+      StringBuilder ks = new StringBuilder();
+      for (int i = 0; i < kinds.getListView().getCount(); i++) ks.append(i == 0 ? "" : " | ").append(kinds.getListView().getItemAtPosition(i));
+      out.append("sources: ").append(ks).append('\n');
+      kinds.dismiss();
+      DrumLibraryScreen.open(app);
+      out.append("added: ").append(DrumLibrary.addFiles(DrumLibrary.soundFiles(dir, false), DrumLibrary.partOfPad(0), "folder")).append('\n');
+      DrumLibraryScreen.analyze(app);
+      Thread t = DrumLibraryScreen.analyzing;
+      if (t != null) t.join(120000);
+      idle();
+      out.append("analysis: ").append(DrumLibraryScreen.lastSaid).append('\n');
+      DrumLibrary.Entry bd = DrumLibrary.find(new File(dir, "BD 01.wav").getAbsolutePath()), hh = DrumLibrary.find(new File(dir, "hihat closed.wav").getAbsolutePath());
+      out.append(String.format(java.util.Locale.ROOT, "BD 01: %s, %s, pitch %.0f Hz | hihat closed: %s, %s, bright %.0f Hz%n", DrumLibrary.label(bd.part), bd.state, bd.measures[5],
+          DrumLibrary.label(hh.part), hh.state, hh.measures[6]));
+      findText(root(), "File").performClick();
+      idle();
+      android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
+      pop.getContentView().findViewWithTag("file-drum-library").performClick();
+      idle();
+      View w = DrumLibraryScreen.last.getWindow().getDecorView();
+      android.widget.Spinner part = (android.widget.Spinner) w.findViewWithTag("library-part");
+      out.append("screen: ").append(part.getItemAtPosition(0)).append(" / ").append(part.getItemAtPosition(1)).append(" / ").append(part.getItemAtPosition(6)).append('\n');
+      w.findViewWithTag("library-remove:Thing.wav").performClick();
+      idle();
+      new File(dir, "BD 01.wav").delete();
+      DrumLibraryScreen.last.getWindow().getDecorView().findViewWithTag("library-again:BD 01.wav").performClick();
+      t = DrumLibraryScreen.analyzing;
+      if (t != null) t.join(120000);
+      idle();
+      out.append("gone: ").append(bd.state).append(" (").append(bd.said).append("), Thing.wav taken out, file kept ").append(new File(dir, "Thing.wav").isFile()).append('\n');
+      DrumLibraryScreen.last.dismiss();
+      idle();
+      DrumLibrary.entries.clear();
+      DrumLibrary.dir = null;
+      DrumLibraryScreen.open(app);
+      StringBuilder kept = new StringBuilder();
+      for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) kept.append(e.name).append(" (").append(DrumLibrary.label(e.part)).append(", ").append(e.state).append(") ");
+      out.append("kept: ").append(kept.toString().trim()).append('\n');
+      write("s246_drum_library", out.toString());
+      String text = out.toString();
+      boolean ok = text.contains(DrumLibrary.ADD) && text.contains("sources: A sound file | A folder of sounds | A folder with its subfolders | From the DB")
+          && text.contains("added: Added 3 sounds to Kick (1 to other parts by their names)") && text.contains("analysis: Analyzed 3 sounds: 3 ready")
+          && Math.abs(bd.measures[5] - 60) <= 3 && hh.measures[6] > 3000 && "Closed hat".equals(DrumLibrary.label(hh.part))
+          && text.contains("screen: All parts (3, 3 ready) / Kick (2, 2 ready)") && text.contains("gone: missing (the file is gone), Thing.wav taken out, file kept true")
+          && text.contains("kept: BD 01.wav (Kick, missing) hihat closed.wav (Closed hat, ready)");
+      if (!ok) throw new AssertionError(text);
+    } finally {
+      DrumLibrary.runner = null;
+    }
+  }
+
+  /**
+   * v389: the library's profile on the phone. The app's files folder is the library's home from the
+   * start; a ready kick and tom make drum-library.kit there, the library's screen says what it is made
+   * of, and DrumMidi's arguments get it (--library), not a run that measures sounds; without a tom the
+   * profile goes.
+   */
+  @Test
+  public void s247_library_profile() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    out.append("home is the files folder: ").append(app.getFilesDir().equals(DrumLibrary.home)).append('\n');
+    DrumLibraryScreen.open(app);
+    double[][] spec = {{0.4, 0.4, 0.4, 0.3, 0.2, 0.1, 0, 0, -0.1, -0.1, -0.2, -0.2, -0.2, -0.3, -0.3, -0.3}, {-0.3, -0.3, 0, 0.4, 0.4, 0.1, 0, 0.3, 0.3, 0, -0.1, -0.2, -0.2, -0.2, -0.2, -0.3}};
+    String[] parts = {"kick", "floor tom"};
+    for (int i = 0; i < 2; i++) {
+      DrumLibrary.Entry e = DrumLibrary.add("/sdcard/s" + i + ".wav", "s" + i + ".wav", parts[i], "file");
+      e.state = DrumLibrary.READY;
+      e.measures = new double[] {500, -3, 5, 200, 400, 60, 100};
+      e.spectrum = spec[i];
+    }
+    DrumLibrary.save();
+    File profile = new File(app.getFilesDir(), DrumLibrary.PROFILE);
+    out.append("profile: ").append(profile.isFile() ? new String(java.nio.file.Files.readAllBytes(profile.toPath()), StandardCharsets.UTF_8).split("\n")[1] : "none").append('\n');
+    List<String> argv = DrumLibrary.withProfile(java.util.Arrays.asList("in.wav", "out.mid"));
+    out.append("DrumMidi run: ").append(argv.size() == 4 && argv.get(2).equals("--library") && argv.get(3).equals(profile.getAbsolutePath())).append(", measuring: ")
+        .append(DrumLibrary.withProfile(java.util.Arrays.asList("--sounds", "a", "b")).size()).append('\n');
+    DrumLibraryScreen.show(app);
+    idle();
+    View w = DrumLibraryScreen.last.getWindow().getDecorView();
+    out.append("screen: ").append(((TextView) w.findViewWithTag("library-profile")).getText()).append('\n');
+    DrumLibraryScreen.last.dismiss();
+    idle();
+    DrumLibrary.remove(DrumLibrary.find("/sdcard/s1.wav"));
+    DrumLibrary.save();
+    out.append("without the tom: profile kept ").append(profile.isFile()).append('\n');
+    write("s247_library_profile", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("home is the files folder: true") && text.contains("profile: # from 1 kick, 1 floor tom") && text.contains("DrumMidi run: true, measuring: 3")
+        && text.contains("screen: DrumMidi profile (drum-library.kit): 1 kick, 1 floor tom. DrumMidi's runs tell kicks and toms apart by it") && text.contains("without the tom: profile kept false");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * v390: a vst_render test's hits on the phone (a vst-hits folder added from a pad): each goes to the
+   * part its name says with how it was played, kept so; the profile leaves out the ones not heard alone.
+   */
+  @Test
+  public void s248_test_beat_hits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryScreen.open(app);
+    String[] names = {"closed hat groove 03.wav", "ride kick 01.wav", "kick alone 02.wav", "Snare 5.wav"};
+    for (String n : names) {
+      DrumLibrary.Entry e = DrumLibrary.add("content://hits/" + n, n, "snare", "folder");
+      out.append(n).append(": ").append(DrumLibrary.label(e.part)).append(", ").append(DrumLibrary.contextLabel(e.context)).append(e.byName ? ", by name" : "").append('\n');
+    }
+    DrumLibrary.save();
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryScreen.open(app);
+    out.append("kept: ").append(DrumLibrary.find("content://hits/ride kick 01.wav").context).append('\n');
+    write("s248_test_beat_hits", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("closed hat groove 03.wav: Closed hat, in eighths, by name") && text.contains("ride kick 01.wav: Ride, with a kick, by name")
+        && text.contains("kick alone 02.wav: Kick, alone, by name") && text.contains("Snare 5.wav: Snare, alone\n") && text.contains("kept: kick");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * v395 on the phone: Sogni Params' prompt and LoRAs labels have Copy, Paste and Send; Paste over
+   * text asks (its dialog: Replace or Cancel); Send asks, then puts the prompt into SogniPadd's saved
+   * Params; Export (at the page's end) writes the section into a file.
+   */
+  @Test
+  public void s249_params_clip() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPedit.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    android.widget.EditText prompt = null, loras = null;
+    for (int i = 0; i < PyJavParams.shownParams.size(); i++) {
+      if (PyJavParams.shownParams.get(i).token.equals("--prompt")) prompt = PyJavParams.shownFields[i];
+      if (PyJavParams.shownParams.get(i).token.equals("--loras")) loras = PyJavParams.shownFields[i];
+    }
+    View dv = d.getWindow().getDecorView();
+    out.append("buttons: ");
+    for (String n : new String[] {"params-copy:--prompt", "params-paste:--prompt", "params-send:--prompt", "params-copy:--loras", "params-export-section"}) {
+      View v = dv.findViewWithTag(n);
+      out.append(v == null ? "-" : ((TextView) v).getText()).append(' ');
+    }
+    out.append('\n');
+    prompt.setText("a red kite over green hills");
+    loras.setText("kite-style:0.7");
+    dv.findViewWithTag("params-copy:--prompt").performClick();
+    idle();
+    out.append("copy: ").append(PyJavParams.clipSaid).append('\n');
+    prompt.setText("other words");
+    PyJavParams.lastClip = null;
+    dv.findViewWithTag("params-paste:--prompt").performClick();
+    idle();
+    AlertDialog ask = PyJavParams.lastClip;
+    out.append("paste asks: ").append(ask == null ? "no" : String.valueOf(ask.getButton(DialogInterface.BUTTON_POSITIVE).getText())).append('\n');
+    if (ask != null) ask.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("pasted: ").append(prompt.getText()).append('\n');
+    PyJavParams.sendTo = "SogniPadd.java";
+    PyJavParams.lastClip = null;
+    dv.findViewWithTag("params-send:--prompt").performClick();
+    idle();
+    AlertDialog sendAsk = PyJavParams.lastClip;
+    out.append("send asks: ").append(sendAsk == null ? "no" : String.valueOf(sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText())).append('\n');
+    if (sendAsk != null) sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("SogniPadd's Params: ").append(PyJavParams.load(app, "SogniPadd.java")).append('\n');
+    File file = new File(app.getCacheDir(), "exported.txt");
+    PyJavParams.exportTo = file;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    PyJavParams.sendTo = null;
+    PyJavParams.exportTo = null;
+    d.dismiss();
+    idle();
+    write("s249_params_clip", out.toString());
+    String text = out.toString();
+    boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
+        && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
+        && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
+        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7");
+    if (!ok) throw new AssertionError(text);
+  }
+  /** vst_render's Files & locations tab: map.txt's Edit (saved), Pads & notes beside it; a recent plugin's long press: Use as plugin. */
+  @Test
+  public void s250_files_locations() throws Exception {
+    StringBuilder out = new StringBuilder();
+    PluginLibrary.reset();
+    PluginLibrary.load(app.getFilesDir());
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", "/vst/Riot Drums.vst3"));
+    String src = new String(Files.readAllBytes(new File("../../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    PyJavParams.paramsTab = null;
+    PyJavParams.store(app, "vst_render.py", "");
+    PyJavParams.open(app, "vst_render.py", "", src);
+    idle();
+    View vv = PyJavParams.shown.getWindow().getDecorView();
+    vv.findViewWithTag("params-recent:Riot Drums.vst3").performLongClick();
+    idle();
+    boolean menu = PyJavParams.useMenu != null && PyJavParams.useMenu.isShowing();
+    PyJavParams.useMenu.dismiss();
+    vv.findViewWithTag("params-tab:" + PluginFiles.TAB).performClick();
+    idle();
+    View files = vv.findViewWithTag("params-files");
+    boolean shown = files != null && files.getVisibility() == View.VISIBLE;
+    files.findViewWithTag("params-files-map-edit").performClick();
+    idle();
+    String template = PyJavParams.mapText.getText().toString().split("\n")[0];
+    PyJavParams.mapEditor.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    String notes = String.valueOf(((TextView) PyJavParams.padNotesShown.getWindow().getDecorView().findViewWithTag("params-pad-notes-text")).getText());
+    PyJavParams.padNotesShown.dismiss();
+    boolean editorOpen = PyJavParams.mapEditor.isShowing();
+    PyJavParams.mapText.setText("[DigiDrum Pro]\n36=48\n");
+    PyJavParams.mapEditor.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String saved = PluginFiles.read(PluginFiles.noteMap(app.getFilesDir()));
+    // Note names: DigiDrum's (C-0 = note 0); the pads say them.
+    files.findViewWithTag("params-files-note-names").performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.namesMenu.getListView()).performItemClick(2);
+    idle();
+    TextView[] pads = (TextView[]) get("padBtns");
+    String kick = String.valueOf(pads[0].getText());
+    PluginFiles.saveNoteNames(app.getFilesDir(), -1);
+    out.append("kick pad with DigiDrum's names: ").append(kick.replace('\n', '|')).append('\n');
+    PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    PyJavParams.paramsTab = null;
+    PyJavParams.shown = null;
+    PyJavParams.useMenu = null;
+    out.append("long press menu ").append(menu).append(" | files tab ").append(shown).append(" | template: ").append(template).append(" | notes: ").append(notes.split("\n")[1].trim())
+        .append(" | editor open after Pads & notes ").append(editorOpen).append(" | saved: ").append(saved == null ? null : saved.replace('\n', '|')).append('\n');
+    write("s250_files_locations", out.toString());
+    boolean ok = menu && shown && template.startsWith("# Note map") && notes.split("\n")[1].trim().equals("36  C2    Kick") && editorOpen && "[DigiDrum Pro]\n36=48\n".equals(saved) && kick.contains("Kick \u00b7 36 C-3");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+
   /** A swipe from right to left (the next one) on `v`, as a finger makes it. */
   private static void swipeLeft(View v) {
     long t = android.os.SystemClock.uptimeMillis();
@@ -14818,9 +15163,12 @@ public class BehaviorTest {
       idle();
     }
     String said = MediaBrowser.lastDefaultsSaid;
-    idle();
-    // Its window: the result in the status line, the bar full, Close.
+    // Its window: the result in the status line, the bar full, Close (posted just after the result is set).
     View mw = MediaBrowser.lastMoveProgress.getWindow().getDecorView();
+    for (int i = 0; i < 200 && !String.valueOf(said).equals(String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText())); i++) {
+      Thread.sleep(20);
+      idle();
+    }
     String windowSays = String.valueOf(((TextView) mw.findViewWithTag("media-move-status")).getText());
     int barAt = ((android.widget.ProgressBar) mw.findViewWithTag("media-move-progress")).getProgress();
     String closeText = String.valueOf(MediaBrowser.lastMoveProgress.getButton(android.content.DialogInterface.BUTTON_POSITIVE).getText());
@@ -15313,7 +15661,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
     if (!ok) throw new AssertionError(out.toString());
   }
 

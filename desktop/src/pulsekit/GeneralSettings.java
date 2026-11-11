@@ -25,6 +25,8 @@ final class GeneralSettings {
 
     static void show(final Pulsekit app) {
         final JDialog dialog = new JDialog(app, "General settings", true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel col = new JPanel(new BorderLayout(0, 8));
         col.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
         // After a run with --saveprompt: ask where the prompt goes (Save prompt), or store it where its sheet says.

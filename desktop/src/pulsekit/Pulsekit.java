@@ -220,6 +220,8 @@ public final class Pulsekit extends UiKit {
 
     Pulsekit() {
         super("Pulsekit");
+        // The drum sound library's folder: its profile goes into DrumMidi's runs (--library).
+        DrumLibrary.home = new File(System.getProperty("user.home", "."), ".pulsekit");
         // "Pulsekit 228": which build is running shows in the title bar.
         if (Looks.version().length() > 0) this.setTitle("Pulsekit " + Looks.version());
         // General settings' Sogni tools and file types.
@@ -724,6 +726,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem mixer = new JMenuItem(AudioMix.TITLE);
             mixer.setName("file-audiomixer");
             mixer.addActionListener(e -> AudioMixerWindow.show(this));
+            // The drum sound library: links to drum sounds, by part, measured.
+            JMenuItem library = new JMenuItem(DrumLibrary.TITLE);
+            library.setName("file-drum-library");
+            library.addActionListener(e -> DrumLibraryWindow.show(this));
             JMenuItem sound = new JMenuItem("Sound devices");
             sound.setName("file-sound-devices");
             sound.addActionListener(e -> SoundDevicesScreen.show(this));
@@ -760,6 +766,7 @@ public final class Pulsekit extends UiKit {
             menu.add(downloads);
             menu.add(logs);
             menu.add(mixer);
+            menu.add(library);
             menu.add(sound);
             menu.add(backup);
             menu.add(playlists);

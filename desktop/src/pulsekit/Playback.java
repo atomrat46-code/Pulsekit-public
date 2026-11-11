@@ -65,6 +65,8 @@ final class Playback {
     Timer playheadTimer;
 
     JPanel buildPads() {
+        // The pads' note names as chosen (vst_render's Files & locations).
+        PluginFiles.loadNoteNames(new java.io.File(System.getProperty("user.home", ".")));
         JPanel jPanel = new JPanel(new BorderLayout(8, 8));
         jPanel.setOpaque(false);
         JPanel north = new JPanel();
@@ -109,7 +111,8 @@ final class Playback {
         jPanel3.setOpaque(false);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             final int n = i;
-            JButton jButton3 = app.action(Engine.TRACK_SHORT[i] + "  " + Engine.TRACK_LABEL[i], ELEV, FG);
+            JButton jButton3 = app.action(Engine.TRACK_SHORT[i] + "  " + Engine.TRACK_LABEL[i] + "  \u00b7 " + Engine.padNote(i), ELEV, FG);
+            jButton3.setToolTipText(Engine.TRACK_LABEL[i] + ": MIDI note " + Engine.padNote(i));
             jButton3.setPreferredSize(new Dimension(120, 88));
             jButton3.addActionListener(actionEvent -> {
                 this.preview(n);
@@ -667,6 +670,9 @@ final class Playback {
                 m.add(clear);
             }
         }
+        // The drum sound library: sounds for this pad's part.
+        m.addSeparator();
+        m.add(DrumLibraryWindow.padMenu(app, t));
         MenuCancel.add(m);
         return m;
     }
@@ -681,7 +687,7 @@ final class Playback {
                 else if (s.samples[t] != null) extra = "From song";
                 else extra = "Empty";
             }
-            this.padBtns[t].setText(Engine.TRACK_SHORT[t] + "  " + extra);
+            this.padBtns[t].setText(Engine.TRACK_SHORT[t] + "  " + extra + "  \u00b7 " + Engine.padNote(t));
         }
     }
 

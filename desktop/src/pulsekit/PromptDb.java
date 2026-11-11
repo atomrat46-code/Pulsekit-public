@@ -162,6 +162,8 @@ final class PromptDb {
     void browse(boolean results, String only, Picked picked) {
         FileFilter.use(FileFilter.BROWSE);
         final JDialog dialog = new JDialog(app, (results ? "Result files" : "Reference files") + FileFilter.title(), true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel kinds = this.kinds(results, k -> shown(k, only).size(), showResults -> {
             // Each tab keeps its place: the one left is noted, the one opened goes back to its own.
             browseScroll[results ? 1 : 0] = this.scrolledTo();
@@ -443,6 +445,8 @@ final class PromptDb {
      */
     void pickStored(String slot, boolean results, CardAction picked) {
         final JDialog dialog = new JDialog(app, "Database \u00b7 " + slot, true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JLabel head = new JLabel(results ? "Result files" : "Reference files");
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         top.add(head);
@@ -722,6 +726,8 @@ final class PromptDb {
         }
         final PromptVault.Version owner = vault.versionOf(file);
         final JDialog d = new JDialog(app, file.name, false);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel body = new JPanel(new BorderLayout(0, 8));
         body.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         JPanel thumbs = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -907,6 +913,8 @@ final class PromptDb {
         FileFilter.use(FileFilter.GALLERY);
         final boolean results = kind == 1;
         final JDialog dialog = new JDialog(app, (kind == 2 ? "Prompt files" : results ? "Result files" : "Ref files") + FileFilter.title(), true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel kinds = this.galleryTabs(kind, dialog);
         // Sort by type, date or size: the gallery opens again in that order (kept for next time).
         FileSort.restore(readSort());
@@ -2020,6 +2028,8 @@ final class PromptDb {
             return;
         }
         final JDialog d = new JDialog(owner, "Sound", java.awt.Dialog.ModalityType.MODELESS);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         final JButton m = new JButton(muted[0] ? "Unmute" : "Mute");
         m.setName("sound-dialog-mute");
         final javax.swing.JSlider v = new javax.swing.JSlider(0, 100, volume.getValue());
@@ -2076,6 +2086,8 @@ final class PromptDb {
         final boolean prompts = this.promptsPlayer && !remember;
         final int startVolume = remember ? MediaDir.volume : prompts ? PromptVideo.volume : 80;
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         // Play, Pause and Stop as symbols only (to save room); their names show when pointed at.
         JButton play = new JButton("\u25b6");
         play.setName("video-play");
@@ -2310,7 +2322,7 @@ final class PromptDb {
         transport.add(pause);
         transport.add(capture);
         transport.add(ref);
-        // Mute and volume: in the Media browser's player at the top, shown by a click on the picture.
+        // Mute and volume: in the Media browser's player in a row at the top (always shown).
         final JPanel sound = remember ? new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0)) : transport;
         sound.setName("video-sound");
         sound.add(mute);
@@ -2350,8 +2362,8 @@ final class PromptDb {
             };
         }
         if (remember) {
-            sound.setVisible(false);
-            // A click on the picture works as Pause (pauses, or plays on); held, it pauses and opens Sound (Mute, the volume, OK).
+            // Mute and the volume always shown above the picture; a click on the picture works as Pause
+            // (pauses, or plays on); held, it pauses and opens Sound (Mute, the volume, OK) too.
             player.screen.addMouseListener(new java.awt.event.MouseAdapter() {
                 javax.swing.Timer hold;
                 boolean held;
@@ -2641,6 +2653,8 @@ final class PromptDb {
 
     private void zoomPreview(String name, byte[] bytes, int kind) {
         final JDialog dialog = new JDialog(app, "Preview \u00b7 " + name, true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         // A picture opens at the zoom the last one had.
         if (kind == 2) loadPromptVideo();
         final float[] zoom = new float[] {kind == 2 ? (float) PromptVideo.imageZoom : 1f};
@@ -3080,6 +3094,8 @@ final class PromptDb {
             return;
         }
         final JDialog d = new JDialog(app, "Preview \u00b7 " + name, true);
+        // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
+        d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel col = new JPanel(new java.awt.GridLayout(0, 1, 0, 6));
         col.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
         col.add(new JLabel(name + " \u00b7 " + note));

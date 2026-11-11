@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.text.InputType;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -129,12 +130,64 @@ public final class PyJavParams {
       TextView label = new TextView(activity);
       label.setText(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
       label.setPadding(0, dp(activity, 8), 0, dp(activity, 2));
-      box.addView(label);
+      if (ParamsClip.has(name, p)) {
+        // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
+        LinearLayout withClip = new LinearLayout(activity);
+        withClip.setOrientation(LinearLayout.HORIZONTAL);
+        withClip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        withClip.addView(label);
+        for (View b : clipButtons(activity, name, p.token, () -> fields[index])) withClip.addView(b);
+        box.addView(withClip);
+      } else {
+        box.addView(label);
+      }
       if (p.output && !p.optional) {
         TextView auto = new TextView(activity);
         auto.setText("Named by PyJav from the input file");
         auto.setTextSize(12);
         box.addView(auto);
+        continue;
+      }
+      if (p.dir && p.typed) {
+        // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked folder in
+        // the field; % codes and the like can then be added to it.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final android.widget.EditText path = new android.widget.EditText(activity);
+        path.setTag("params-dir-text:" + p.token);
+        path.setSingleLine(true);
+        path.setHint(p.hint);
+        path.setText(values[i]);
+        path.addTextChangedListener(new android.text.TextWatcher() {
+          public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+          public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+          public void afterTextChanged(android.text.Editable s) {
+            values[index] = s.toString().trim();
+          }
+        });
+        android.widget.Button browse = new android.widget.Button(activity);
+        browse.setText("Browse");
+        browse.setTag("params-dir:" + p.token);
+        browse.setOnClickListener(v -> {
+          pendingPrompt = null;
+          pendingValues = values;
+          pendingIndex = index;
+          pendingLabel = path;
+          pendingOpensMedia = false;
+          if (activity instanceof MainActivity) MediaBrowser.pick((MainActivity) activity);
+        });
+        android.widget.Button clear = new android.widget.Button(activity);
+        clear.setText("Clear");
+        clear.setTag("params-clear:" + p.token);
+        clear.setOnClickListener(v -> path.setText(""));
+        row.addView(browse);
+        row.addView(clear);
+        useBox(activity, p, i, row, path, uses, off);
+        spaced(activity, row);
+        box.addView(row);
+        box.addView(path);
         continue;
       }
       if (p.dir) {
@@ -503,6 +556,15 @@ public final class PyJavParams {
       box.addView(field);
     }
     onTabs(activity, box, rowStarts, ps, values, uses);
+    if (SogniSections.shown(name)) {
+      // Export (Save is the window's button): the rows Save keeps, written into a file picked.
+      android.widget.Button export = new android.widget.Button(activity);
+      export.setText(ParamsClip.EXPORT);
+      export.setTag("params-export-section");
+      export.setAllCaps(false);
+      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
+      box.addView(export);
+    }
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
@@ -573,6 +635,135 @@ public final class PyJavParams {
         .show();
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
     if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+  }
+
+  /** The tests: Export's file (else the system's save dialog), Paste's answer (true: replace), Send's program and answer. */
+  static java.io.File exportTo;
+  static Boolean pasteReplace;
+  static String sendTo;
+  static Boolean sendYes;
+  static volatile String clipSaid = "";
+  static AlertDialog lastClip;
+
+  static void clipSay(Activity activity, String text) {
+    clipSaid = text;
+    android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_SHORT).show();
+  }
+
+  /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
+  static void exportSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      clipSay(activity, "Nothing to export: the prompt and the other rows are empty");
+      return;
+    }
+    String text = ParamsClip.exportText(now);
+    if (exportTo != null) {
+      try {
+        java.io.FileOutputStream out = new java.io.FileOutputStream(exportTo);
+        try {
+          out.write(text.getBytes("UTF-8"));
+        } finally {
+          out.close();
+        }
+        clipSay(activity, "Exported the " + program + " section into " + exportTo.getName());
+      } catch (Exception ex) {
+        clipSay(activity, "Could not export the section: " + ex.getMessage());
+      }
+      return;
+    }
+    SaveText.save((MainActivity) activity, ParamsClip.exportName(program, now), text);
+  }
+
+  /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's field. */
+  static List<View> clipButtons(final Activity activity, final String program, final String token, final java.util.function.Supplier<EditText> box) {
+    final android.content.ClipboardManager clip = (android.content.ClipboardManager) activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    android.widget.Button copy = clipButton(activity, ParamsClip.COPY, "params-copy:" + token);
+    android.widget.Button paste = clipButton(activity, ParamsClip.PASTE, "params-paste:" + token);
+    android.widget.Button send = clipButton(activity, ParamsClip.SEND, "params-send:" + token);
+    copy.setOnClickListener(v -> {
+      String text = box.get().getText().toString();
+      if (text.trim().length() > 0) clip.setPrimaryClip(android.content.ClipData.newPlainText(ParamsClip.what(token), text));
+      clipSay(activity, ParamsClip.copied(token, text));
+    });
+    paste.setOnClickListener(v -> {
+      CharSequence got = clip.hasPrimaryClip() && clip.getPrimaryClip().getItemCount() > 0 ? clip.getPrimaryClip().getItemAt(0).coerceToText(activity) : null;
+      if (got == null || got.toString().trim().isEmpty()) {
+        clipSay(activity, "The clipboard has no text");
+        return;
+      }
+      final String text = got.toString().trim();
+      final EditText f = box.get();
+      final Runnable put = () -> {
+        f.setText(text);
+        clipSay(activity, "Pasted into the " + ParamsClip.what(token));
+      };
+      if (f.getText().toString().trim().isEmpty()) put.run();
+      else if (pasteReplace != null) {
+        if (pasteReplace.booleanValue()) put.run();
+      } else {
+        lastClip = new AlertDialog.Builder(activity).setTitle("Paste").setMessage(ParamsClip.replaceAsk(token))
+            .setPositiveButton("Replace", (d, w) -> put.run()).setNegativeButton("Cancel", null).show();
+      }
+    });
+    send.setOnClickListener(v -> {
+      final String text = box.get().getText().toString();
+      if (text.trim().isEmpty()) {
+        clipSay(activity, "No " + ParamsClip.what(token) + " to send");
+        return;
+      }
+      final List<String> targets = ParamsClip.targets(program, token, s -> programTextOf(activity, s));
+      if (targets.isEmpty()) {
+        clipSay(activity, "No other Sogni program takes a " + ParamsClip.what(token));
+        return;
+      }
+      final java.util.function.Consumer<String> go = target -> {
+        final Runnable put = () -> {
+          List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(activity, target));
+          store(activity, target, ParamsClip.put(theirs, load(activity, target), token, text));
+          clipSay(activity, ParamsClip.sent(token, target));
+        };
+        if (sendYes != null) {
+          if (sendYes.booleanValue()) put.run();
+          return;
+        }
+        lastClip = new AlertDialog.Builder(activity).setTitle(ParamsClip.SEND_TITLE).setMessage(ParamsClip.sendAsk(token, target, text))
+            .setPositiveButton("Send", (d, w) -> put.run()).setNegativeButton("Cancel", null).show();
+      };
+      if (sendTo != null) {
+        if (targets.contains(sendTo)) go.accept(sendTo);
+        else clipSay(activity, sendTo + " takes no " + ParamsClip.what(token));
+        return;
+      }
+      String[] rows = new String[targets.size()];
+      for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.app(targets.get(i));
+      lastClip = new AlertDialog.Builder(activity).setTitle(ParamsClip.SEND_TITLE).setItems(rows, (d, w) -> go.accept(targets.get(w)))
+          .setNegativeButton("Cancel", null).show();
+    });
+    return java.util.Arrays.<View>asList(copy, paste, send);
+  }
+
+  static android.widget.Button clipButton(Activity activity, String symbol, String tag) {
+    android.widget.Button b = new android.widget.Button(activity, null, android.R.attr.buttonStyleSmall);
+    b.setText(symbol);
+    b.setTag(tag);
+    b.setAllCaps(false);
+    b.setMinWidth(0);
+    b.setMinimumWidth(0);
+    b.setPadding(dp(activity, 8), 0, dp(activity, 8), 0);
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+    lp.leftMargin = dp(activity, 4);
+    b.setLayoutParams(lp);
+    return b;
+  }
+
+  /** A program's text for its Params (its bundled source); null when it is not there. */
+  static String programTextOf(Activity activity, String program) {
+    try {
+      return PyJavHints.programText(program, new String(((MainActivity) activity).programMenus.read("Java", program), "UTF-8"), null);
+    } catch (Exception ex) {
+      return null;
+    }
   }
 
   /** What Save or Browse sections said last, and the list shown last, for the tests. */
@@ -1253,12 +1444,21 @@ public final class PyJavParams {
     android.view.View picks = pluginPicks(activity, ps, values, uses);
     box.addView(picks);
     on.put(picks, ProgramParams.PLUGINS);
+    if (names.contains(ProgramParams.FILES)) {
+      android.view.View files = filesPanel(activity);
+      box.addView(files);
+      on.put(files, ProgramParams.FILES);
+    }
     final LinearLayout strip = new LinearLayout(activity);
     strip.setOrientation(LinearLayout.HORIZONTAL);
     strip.setTag("params-tabs");
     final List<android.widget.Button> buttons = new ArrayList<android.widget.Button>();
+    // The tab open last, also after Pulsekit is started again (params-tab.txt).
+    final File tabKept = PluginFiles.paramsTabFile(activity.getFilesDir());
+    if (paramsTab == null && PluginFiles.kept(tabKept).length() > 0) paramsTab = PluginFiles.kept(tabKept);
     final java.util.function.Consumer<String> show = t -> {
       paramsTab = t;
+      PluginFiles.keep(tabKept, t);
       for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) ? android.view.View.VISIBLE : android.view.View.GONE);
       for (android.widget.Button b : buttons) b.setAlpha(("params-tab:" + t).equals(b.getTag()) ? 1f : 0.55f);
     };
@@ -1307,6 +1507,92 @@ public final class PyJavParams {
 
   static AlertDialog useMenu;
 
+  /**
+   * The Files &amp; locations tab: the note map, map.txt (Edit: its text, Pads &amp; notes beside it); Carla's
+   * places are the desktop's (vst_render runs there).
+   */
+  static android.view.View filesPanel(final Activity activity) {
+    LinearLayout col = new LinearLayout(activity);
+    col.setOrientation(LinearLayout.VERTICAL);
+    col.setTag("params-files");
+    col.setPadding(0, dp(activity, 10), 0, 0);
+    TextView carla = new TextView(activity);
+    carla.setTag("params-files-carla");
+    carla.setTextSize(12);
+    carla.setText("Carla's program and rack plugin: set on the desktop (its Files & locations tab), where vst_render plays the plugins.");
+    col.addView(carla);
+    // Note names: as the plugin names them (DigiDrum's C-4 is note 48); the pads, Test and map.txt follow it.
+    TextView namesHead = new TextView(activity);
+    namesHead.setText(PluginFiles.NOTE_NAMES);
+    namesHead.setTextSize(14);
+    namesHead.setPadding(0, dp(activity, 10), 0, dp(activity, 2));
+    col.addView(namesHead);
+    PluginFiles.loadNoteNames(activity.getFilesDir());
+    final android.widget.Button naming = new android.widget.Button(activity);
+    naming.setTag("params-files-note-names");
+    naming.setAllCaps(false);
+    naming.setText(PluginFiles.label());
+    naming.setOnClickListener(v -> namesMenu = new AlertDialog.Builder(activity).setTitle("Note names").setItems(Engine.NOTE_NAMING_LABELS, (dd, which) -> {
+      PluginFiles.saveNoteNames(activity.getFilesDir(), Engine.NOTE_NAMINGS[which]);
+      naming.setText(PluginFiles.label());
+      if (activity instanceof MainActivity) ((MainActivity) activity).playback.refreshPadLabels();
+    }).setNegativeButton("Cancel", null).show());
+    col.addView(naming);
+    TextView head = new TextView(activity);
+    head.setText(PluginFiles.NOTE_MAP);
+    head.setTextSize(14);
+    head.setPadding(0, dp(activity, 10), 0, dp(activity, 2));
+    col.addView(head);
+    final File map = PluginFiles.noteMap(activity.getFilesDir());
+    LinearLayout row = new LinearLayout(activity);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    android.widget.Button edit = new android.widget.Button(activity);
+    edit.setText("Edit");
+    edit.setTag("params-files-map-edit");
+    edit.setOnClickListener(v -> editNoteMap(activity, map));
+    android.widget.Button notes = new android.widget.Button(activity);
+    notes.setText(PluginFiles.PAD_NOTES);
+    notes.setTag("params-files-pad-notes");
+    notes.setOnClickListener(v -> padNotes(activity));
+    row.addView(edit);
+    row.addView(notes);
+    col.addView(row);
+    return col;
+  }
+
+  static AlertDialog mapEditor, padNotesShown, namesMenu;
+  static EditText mapText;
+
+  /** map.txt's editor: its text (the template when new); Save, Pads & notes, Cancel. */
+  static void editNoteMap(final Activity activity, final File map) {
+    final EditText text = new EditText(activity);
+    text.setTag("params-files-map-text");
+    text.setText(PluginFiles.mapText(map));
+    text.setTypeface(android.graphics.Typeface.MONOSPACE);
+    text.setTextSize(13);
+    text.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+    text.setMinLines(12);
+    mapText = text;
+    mapEditor = new AlertDialog.Builder(activity).setTitle("Note map \u00b7 map.txt").setView(text)
+        .setPositiveButton("Save", (d, w) -> android.widget.Toast.makeText(activity, PluginFiles.write(map, text.getText().toString()) ? "Saved map.txt" : "Could not save map.txt",
+            android.widget.Toast.LENGTH_SHORT).show())
+        .setNeutralButton(PluginFiles.PAD_NOTES, null).setNegativeButton("Cancel", null).show();
+    // Pads & notes keeps the editor open.
+    mapEditor.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> padNotes(activity));
+  }
+
+  /** Pulsekit's pads with their MIDI notes. */
+  static void padNotes(Activity activity) {
+    TextView t = new TextView(activity);
+    t.setTag("params-pad-notes-text");
+    t.setText(PluginFiles.padNotes());
+    t.setTypeface(android.graphics.Typeface.MONOSPACE);
+    t.setPadding(dp(activity, 16), dp(activity, 8), dp(activity, 16), 0);
+    android.widget.ScrollView sv = new android.widget.ScrollView(activity);
+    sv.addView(t);
+    padNotesShown = new AlertDialog.Builder(activity).setTitle(PluginFiles.PAD_NOTES).setView(sv).setPositiveButton("OK", null).show();
+  }
+
   private static void pickList(final Activity activity, LinearLayout col, String title, String tag, List<String> paths, String empty,
       final List<ProgramParams.Param> ps, final String[] values, final android.widget.CheckBox[] uses) {
     TextView head = new TextView(activity);
@@ -1333,6 +1619,11 @@ public final class PyJavParams {
         for (int i = 0; i < items.length; i++) items[i] = ProgramParams.useAs(rows.get(i));
         useMenu = new AlertDialog.Builder(activity).setTitle(new File(path).getName()).setItems(items, (d, which) -> usePlugin(ps, values, uses, rows.get(which), path))
             .setNegativeButton("Cancel", null).show();
+      });
+      // A long press: the same Use as plugin 1 to 4.
+      line.setOnLongClickListener(v -> {
+        v.performClick();
+        return true;
       });
       col.addView(line);
     }
@@ -1416,7 +1707,9 @@ public final class PyJavParams {
     String dir = tree.toString();
     if (pendingValues != null && pendingIndex >= 0 && pendingIndex < pendingValues.length) {
       pendingValues[pendingIndex] = dir;
-      if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
+      // A path field (vst_render's --zip_outdir) shows the folder as it is, to write on.
+      if (pendingLabel instanceof android.widget.EditText) pendingLabel.setText(dir);
+      else if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
     }
     pendingValues = null;
     pendingIndex = -1;

@@ -32,6 +32,8 @@ final class Playback {
 
     /** Builds the Pads page: drum sets, Live/Silent/Match Original, and the pad grid. */
     void buildPadsPane(FrameLayout frameLayout) {
+        // The pads' note names as chosen (vst_render's Files & locations).
+        PluginFiles.loadNoteNames(app.getFilesDir());
         LinearLayout.LayoutParams layoutParams;
         TextView textView;
         LinearLayout linearLayout;
@@ -80,7 +82,7 @@ final class Playback {
                     continue;
                 }
                 int n8 = n7;
-                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7], view -> {
+                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7] + " \u00b7 " + Engine.padNote(n7), view -> {
                     this.bang(n8, 110);
                     this.flashPad(n8);
                     if (app.livePads) {
@@ -673,7 +675,7 @@ final class Playback {
             if (!drumSet.original) {
                 string = drumSet.matchOrig[i] ? "Original" : (drumSet.samples[i] != null ? "From song" : "Empty");
             }
-            app.padBtns[i].setText((CharSequence)(Engine.TRACK_SHORT[i] + "\n" + string));
+            app.padBtns[i].setText((CharSequence)(Engine.TRACK_SHORT[i] + "\n" + string + " \u00b7 " + Engine.padNote(i)));
         }
     }
 
@@ -687,6 +689,8 @@ final class Playback {
                 arrayList.add("Remove sample");
             }
         }
+        // The drum sound library: sounds for this pad's part.
+        arrayList.add(DrumLibrary.ADD);
         CharSequence[] charSequenceArray = arrayList.toArray(new String[0]);
         new AlertDialog.Builder((Context)app).setItems(charSequenceArray, (arg_0, arg_1) -> this.showPadMenuAction147((String[])charSequenceArray, n, drumSet, arg_0, arg_1)).setNegativeButton("Cancel", null).show();
     }
@@ -744,6 +748,8 @@ final class Playback {
             drumSet.matchOrig[n] = false;
             this.refreshPadLabels();
             Toast.makeText((Context)app, (CharSequence)(Engine.TRACK_LABEL[n] + " \u00b7 this set"), (int)0).show();
+        } else if (DrumLibrary.ADD.equals(string)) {
+            DrumLibraryScreen.addMenu(app, n);
         } else if ("Remove sample".equals(string)) {
             Object object = app.mixLock;
             synchronized (object) {

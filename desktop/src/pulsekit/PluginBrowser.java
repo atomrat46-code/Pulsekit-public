@@ -192,11 +192,18 @@ final class PluginBrowser {
                 }, "kit-test").start();
                 return;
             }
+            // A .dll that is no plugin: said at once, nothing run.
+            String problem = DllInfo.problem(f);
+            if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+                say.accept("\u2718 " + problem);
+                return;
+            }
+            if (DllInfo.BRIDGED.equals(problem)) PyJav.carlaRack();
             for (JButton b : new JButton[] {use, test, edit}) b.setEnabled(false);
             about.setText(PluginsList.testing(f, editFirst));
             PluginsList.test(testsQuiet != null ? null : app.pyJav, f, editFirst, log -> {
                 for (JButton b : new JButton[] {use, test, edit}) b.setEnabled(true);
-                say.accept(PluginsList.summary(log));
+                say.accept(PluginsList.result(f, editFirst, log));
             });
         };
         final Runnable favIt = () -> {
@@ -380,11 +387,30 @@ final class PluginBrowser {
 
     /** A folder browsed for (the tests: answer "Folder"); its path, or null. */
     static String pickFolder(java.awt.Component parent, String from) {
-        if (answer != null) return answer.apply("Folder");
-        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(from == null ? null : new File(from));
-        fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-        return fc.showOpenDialog(parent) == javax.swing.JFileChooser.APPROVE_OPTION ? fc.getSelectedFile().getAbsolutePath() : null;
+        return pickFolder(parent, from, null);
     }
+
+    /** As above; `fallback` (the list's newest folder) where Add folder… has nothing remembered yet. */
+    static String pickFolder(java.awt.Component parent, String from, String fallback) {
+        if (answer != null) return answer.apply("Folder");
+        // Add folder… (no folder given): where the last one was browsed to, that folder selected.
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(PluginBrowser.class);
+        String kept = prefs.get(LAST_FOLDER, "");
+        File lastPicked = from == null ? new File(kept.length() > 0 || fallback == null ? kept : fallback) : null;
+        File start = from != null ? new File(from) : lastPicked != null && lastPicked.isDirectory() ? lastPicked.getParentFile() : null;
+        javax.swing.JFileChooser fc = new javax.swing.JFileChooser(start);
+        fc.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+        if (from == null && lastPicked != null && lastPicked.isDirectory()) fc.setSelectedFile(lastPicked);
+        int ans = fc.showOpenDialog(parent);
+        // Where the chooser was left: the next Add folder… starts there (also after Cancel).
+        File was = ans == javax.swing.JFileChooser.APPROVE_OPTION && fc.getSelectedFile() != null ? fc.getSelectedFile() : fc.getCurrentDirectory();
+        if (was != null && was.isDirectory()) prefs.put(LAST_FOLDER, was.getAbsolutePath());
+        if (ans != javax.swing.JFileChooser.APPROVE_OPTION || fc.getSelectedFile() == null) return null;
+        return fc.getSelectedFile().getAbsolutePath();
+    }
+
+    /** Where Add folder… picked last (its next one starts there). */
+    static final String LAST_FOLDER = "plugin-folder-last";
 
     /** Change…: the path to edit, or Browse… for another folder in its place; the new path ("" removes it), or null. */
     static String changeFolder(java.awt.Component parent, String path) {
@@ -432,7 +458,8 @@ final class PluginBrowser {
         JButton add = button(FolderPaths.ADD, "folders-add"), change = button(FolderPaths.CHANGE, "folders-change"), delete = button(FolderPaths.DELETE, "folders-delete");
         JButton defaults = button("Defaults", "folders-defaults"), save = button("Save", "folders-save"), cancel = button("Cancel", "folders-cancel");
         add.addActionListener(e -> {
-            String got = pickFolder(d, null);
+            List<String> shown = now.get();
+            String got = pickFolder(d, null, shown.isEmpty() ? null : shown.get(shown.size() - 1));
             if (got == null) return;
             List<String> list = now.get();
             if (!list.contains(got)) list.add(got);

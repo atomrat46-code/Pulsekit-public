@@ -8190,6 +8190,429 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * v392: DrumMidi's cymbal model. A run tells its cymbals apart again by their sound in the song and
+   * says what it changed; --no-cymbal-model (a Params on/off switch) leaves it out and is in the
+   * settings line.
+   */
+  void s235_cymbal_model() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "cymmodel-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--no-cymbal-model");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--no-cymbal-model")).append('\n');
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(9)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.5 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 40) * 0.5\n"
+        + "for b in range(28):\n    put(0.25 + b * 0.25, hat)\n    if b % 4 == 0: put(0.25 + b * 0.25, kick)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    byte[] jar = ProgramFiles.read("Java", "DrumMidi_CRT.jar");
+    String[] said = new String[2];
+    for (int r = 0; r < 2; r++) {
+      java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList(wav.getAbsolutePath(), new File(dir, "g" + r + ".mid").getAbsolutePath()));
+      if (r == 1) argv.add("--no-cymbal-model");
+      JavaRun.Result res = JavaRun.run("DrumMidi_CRT.jar", null, jar, argv);
+      said[r] = "";
+      for (String line : res.log.split("\n")) {
+        if (line.contains("the cymbal model")) said[r] += line.replaceAll(":.*", ":") + " / ";
+        if (line.startsWith("Settings:") && line.contains("--no-cymbal-model")) said[r] += "settings say --no-cymbal-model / ";
+      }
+      if (!res.log.contains("Wrote ")) said[r] = "failed: " + res.log;
+      this.out.append("run ").append(r).append(": ").append(said[r]).append('\n');
+    }
+    boolean ok = this.out.toString().contains("Params switch: No cymbal model: cymbals as found") && this.out.toString().contains("on/off true")
+        && said[0].equals("Cymbals by their sound in the song (the cymbal model): / ") && said[1].startsWith("settings say --no-cymbal-model") && !said[1].contains("cymbal model)");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * v390: vst_render's test beat into the drum sound library. Its cut_hits (DrumMidi --cut-hits) cuts a
+   * test beat into its hits (a note the kit does not play left out) with their index; the run's line
+   * puts them in the library when the run ends, each in its part with how it was played (a hat alone,
+   * with a kick, in eighths), measured at once; the profile takes the ones heard alone; a second test
+   * of the kit measures them anew; a folder of them added from a pad goes in by its index.
+   */
+  void s234_test_beat_hits() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File dir = new File(System.getProperty("user.home"), "hits-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py"), jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String make = "import importlib.util, os, sys, wave, numpy as np\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; sr = 44100; x = np.zeros(sr * 12); rng = np.random.default_rng(6)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.45 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9); tom = np.sin(2 * np.pi * 120 * n) * np.exp(-n * 7)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 50) * 0.6\n"
+        + "times = [(1.0, 36, ''), (1.5, 36, ''), (3.0, 43, ''), (3.5, 43, ''), (4.5, 47, ''), (5.0, 42, ''), (6.0, 42, ''), (7.0, 42, 'k'), (9.0, 42, 'g'), (9.25, 42, 'g'), (9.5, 42, 'g')]\n"
+        + "for t, m, tag in times:\n"
+        + "    if m == 36 or tag == 'k': put(t, kick)\n"
+        + "    if m == 43: put(t, tom)\n"
+        + "    if m == 42: put(t, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "wav = os.path.join(d, 'vst-check-Kit.wav'); w = wave.open(wav, 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "tf = os.path.join(d, 'vst-check-Kit-times.txt'); open(tf, 'w').write(''.join('%.4f %d %s\\n' % e for e in times))\n"
+        + "hits = os.path.join(d, 'vst-hits-Kit')\n"
+        + "said = vr.cut_hits(sys.argv[3], sys.argv[4], wav, tf, hits)\n"
+        + "print('Hits for the drum sound library: %s (%s)' % (hits, said))\n"
+        // The results zip takes the hits folder too (as its folder), and leaves it on disk.
+        + "import zipfile, io, contextlib\n"
+        + "open(os.path.join(d, 'vst-test-Kit.txt'), 'w').write('All:\\n')\n"
+        + "buf = io.StringIO()\n"
+        + "with contextlib.redirect_stdout(buf): z = vr.results_zip([d])\n"
+        + "names = zipfile.ZipFile(z).namelist()\n"
+        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, script.getAbsolutePath(), dir.getAbsolutePath(), javaBin, jar.getAbsolutePath()));
+    String all = PythonRun.runFor(cmd, 120, null).trim();
+    String zipSaid = all.contains("ZIP ") ? all.substring(all.indexOf("ZIP ")).split("\n")[0] : "no zip";
+    String log = all.replace(zipSaid, "").trim();
+    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n');
+    File hits = new File(dir, "vst-hits-Kit");
+    String[] names = hits.list();
+    java.util.Arrays.sort(names);
+    out.append("folder: ").append(String.join(", ", names)).append('\n');
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibraryWindow.fromRun(app, "Kit: ...\n" + log + "\nSucceeded\n");
+    Thread.sleep(400);
+    out.append("after the run: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    StringBuilder lines = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) lines.append("  ").append(DrumLibrary.label(e.part)).append(" · ").append(DrumLibrary.line(e).replaceAll(" · [0-9.]+ s ·.*", "")).append(" · ").append(e.state).append('\n');
+    out.append(lines);
+    out.append(DrumLibrary.profileLine()).append('\n');
+    DrumLibraryWindow.fromRun(app, log);
+    Thread.sleep(300);
+    out.append("second test: ").append(DrumLibraryWindow.lastSaid).append(" (").append(DrumLibrary.entries.size()).append(" sounds)\n");
+    DrumLibrary.entries.clear();
+    DrumLibrary.save();
+    out.append("added from a pad: ").append(DrumLibrary.addFolder(dir, true, "snare", "folder")).append('\n');
+    String text = out.toString();
+    boolean ok = text.contains("(Cut 10 hits into vst-hits-Kit (hits.txt); 1 not played by the kit (too quiet))")
+        && text.contains("ZIP Results zip: ~" + File.separator + "vst-test-results.zip (14 files: the tests' reports, test beats, times and kit profiles, 11 in 1 hits folder;")
+        && text.contains("the kit profiles and hits folders kept | 11 in vst-hits-Kit/, hits.txt True | folder kept True")
+        && text.contains("folder: closed hat alone 01.wav, closed hat alone 02.wav, closed hat groove 01.wav, closed hat groove 02.wav, closed hat groove 03.wav, closed hat kick 01.wav, floor tom alone 01.wav, floor tom alone 02.wav, hits.txt, kick alone 01.wav, kick alone 02.wav")
+        && text.contains("after the run: Drum sound library: Added 10 test beat hits of Kit")
+        && text.contains("Closed hat · closed hat kick 01.wav (Kit) (with a kick) · ready") && text.contains("Closed hat · closed hat groove 02.wav (Kit) (in eighths) · ready")
+        && text.contains("Floor tom · floor tom alone 01.wav (Kit) · ready") && text.contains("Kick · kick alone 02.wav (Kit) · ready")
+        && text.contains("DrumMidi profile (drum-library.kit): 2 kicks, 2 floor toms, 2 closed hats.")
+        && text.contains("second test: Drum sound library: Added 0 test beat hits of Kit (10 already there, measured anew) (10 sounds)")
+        && text.contains("added from a pad: Added 10 test beat hits of Kit\n");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * v389: the drum sound library's profile for DrumMidi. With a ready kick and tom (and a hat) the library
+   * writes drum-library.kit (the mean of each part's sounds) and its window says so; Pulsekit's DrumMidi
+   * runs get it (--library) and DrumMidi tells kicks and toms apart by it, unless a kit profile is given
+   * (then not used) or "--library none"; a run measuring sounds does not get it. Without a ready tom
+   * there is no profile.
+   */
+  void s233_library_profile() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"));
+    File dir = new File(home, "lib sounds");
+    dir.mkdirs();
+    String make = "import sys, os, wave, numpy as np\n"
+        + "sr = 44100; rng = np.random.default_rng(4); d = sys.argv[1]\n"
+        + "def save(name, y):\n"
+        + "    y = (y / np.max(np.abs(y)) * 0.7 * 32767).astype('<i2'); w = wave.open(os.path.join(d, name), 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "n = np.arange(int(0.45 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9); tom = np.sin(2 * np.pi * 140 * n) * np.exp(-n * 7)\n"
+        + "save('kick.wav', kick); save('tom.wav', tom); save('hat.wav', np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60))\n"
+        + "x = np.zeros(sr * 8)\n"
+        + "for b in range(14):\n    i = int((0.3 + b * 0.5) * sr); s = kick if b % 2 == 0 else tom; x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "save('beat.wav', x)\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, dir.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibrary.open(PromptDb.dir());
+    File profile = new File(PromptDb.dir(), DrumLibrary.PROFILE);
+    DrumLibrary.add(new File(dir, "kick.wav").getAbsolutePath(), "kick.wav", "kick", "file");
+    DrumLibrary.add(new File(dir, "hat.wav").getAbsolutePath(), "hat.wav", "closed hat", "file");
+    DrumLibraryWindow.analyze(app);
+    for (int i = 0; i < 200 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    out.append("kick and hat only: ").append(DrumLibrary.profileLine()).append("; file ").append(profile.isFile()).append('\n');
+    DrumLibrary.add(new File(dir, "tom.wav").getAbsolutePath(), "tom.wav", "floor tom", "file");
+    DrumLibraryWindow.analyze(app);
+    Thread.sleep(300);
+    for (int i = 0; i < 200 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    String text = profile.isFile() ? new String(Files.readAllBytes(profile.toPath()), StandardCharsets.UTF_8) : "";
+    StringBuilder notes = new StringBuilder();
+    for (String line : text.split("\n")) if (line.length() > 0 && !line.startsWith("#")) notes.append(line.split(" ")[0]).append(' ').append(line.split(" ").length - 1).append(", ");
+    out.append("with a tom: ").append(text.split("\n")[1 < text.split("\n").length ? 1 : 0]).append(" | lines ").append(notes).append('\n');
+    javax.swing.SwingUtilities.invokeLater(() -> DrumLibraryWindow.show(app));
+    Thread.sleep(500);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    out.append("window: ").append(((javax.swing.JLabel) component(w, "library-profile")).getText()).append('\n');
+    edt(() -> w.dispose());
+    byte[] jar = ProgramFiles.read("Java", "DrumMidi_CRT.jar");
+    String wav = new File(dir, "beat.wav").getAbsolutePath(), mid = new File(dir, "beat.mid").getAbsolutePath();
+    String[][] runs = {{wav, mid}, {wav, mid, "--library", "none"}, {wav, mid, "--kit", new File(dir, "own.kit").getAbsolutePath()}};
+    Files.write(new File(dir, "own.kit").toPath(), text.replaceAll("(?m)^c.*\n", "").getBytes(StandardCharsets.UTF_8));
+    String[] said = new String[runs.length];
+    for (int r = 0; r < runs.length; r++) {
+      JavaRun.Result res = JavaRun.run("DrumMidi_CRT.jar", null, jar, java.util.Arrays.asList(runs[r]));
+      said[r] = "";
+      for (String line : res.log.split("\n")) if (line.contains("Library ") || line.contains("told apart again")) said[r] += line.trim() + " / ";
+      if (!res.log.contains("Wrote ")) said[r] = "failed: " + res.log;
+      out.append("run ").append(r).append(": ").append(said[r]).append('\n');
+    }
+    java.util.List<String> sounds = DrumLibrary.withProfile(java.util.Arrays.asList("--sounds", "a.txt", "b.txt"));
+    out.append("measuring: ").append(sounds).append('\n');
+    String all = out.toString();
+    boolean ok = all.contains("kick and hat only: DrumMidi profile: needs a ready kick and a ready tom; file false")
+        && all.contains("with a tom: # from 1 kick, 1 high tom, 1 closed hat | lines 36 16, 50 16, c42 13,")
+        && all.contains("window: DrumMidi profile (drum-library.kit): 1 kick, 1 high tom, 1 closed hat. DrumMidi's runs tell kicks and toms apart by it")
+        && said[0].startsWith("Library drum-library.kit: kick and toms from 1 kick, 1 high tom, 1 closed hat (its cymbals are not used) / Kit drum-library.kit: ")
+        && said[1].isEmpty() && said[2].startsWith("Library drum-library.kit not used: the kit profile own.kit is this kit's own / Kit own.kit: ")
+        && sounds.size() == 3;
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * Batch F: the drum sound library. The kick pad's menu adds a folder's sounds: to the kick, but
+   * where a name says another drum (snare, closed hat, ride bell) to that part ("by name"); DrumMidi
+   * measures them (--sounds) and they are ready: a kick's pitch, a hat brighter than a kick. The snare
+   * pad adds the folder with its subfolders (only the new one is added, a kick by its name). File > Drum
+   * sound library lists the parts and their sounds (sorted by pitch); a sound moved to another part,
+   * one taken out (its file stays), a file gone is missing when measured again; the library is kept.
+   */
+  void s232_drum_library() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"));
+    File kit = new File(home, "kit sounds");
+    new File(kit, "more").mkdirs();
+    String make = "import sys, os, wave, numpy as np\n"
+        + "sr = 44100; rng = np.random.default_rng(2); d = sys.argv[1]\n"
+        + "def save(name, y):\n"
+        + "    y = (y / np.max(np.abs(y)) * 0.7 * 32767).astype('<i2'); w = wave.open(os.path.join(d, name), 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n"
+        + "n = np.arange(int(0.6 * sr)) / sr\n"
+        + "save('Kick 01.wav', np.sin(2 * np.pi * 55 * n) * np.exp(-n * 9))\n"
+        + "save('Perc.wav', np.sin(2 * np.pi * 70 * n) * np.exp(-n * 12))\n"
+        + "save('more/Kick 02.wav', np.sin(2 * np.pi * 48 * n) * np.exp(-n * 8))\n"
+        + "n = np.arange(int(0.3 * sr)) / sr\n"
+        + "save('snare 2.wav', (rng.standard_normal(len(n)) * 0.6 + np.sin(2 * np.pi * 190 * n)) * np.exp(-n * 25))\n"
+        + "save('closed hat.wav', np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 60))\n"
+        + "n = np.arange(int(1.5 * sr)) / sr\n"
+        + "save('ride bell 3.wav', (np.diff(rng.standard_normal(len(n) + 1)) * 0.4 + np.sin(2 * np.pi * 3100 * n) * 0.5) * np.exp(-n * 3))\n"
+        + "open(os.path.join(d, 'readme.txt'), 'w').write('x')\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, kit.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    java.util.function.BiFunction<Integer, String, javax.swing.JMenuItem> item = (pad, kind) -> {
+      try {
+        javax.swing.JPopupMenu m = (javax.swing.JPopupMenu) call("padMenu", pad);
+        for (java.awt.Component c : m.getComponents()) {
+          if (!(c instanceof javax.swing.JMenu)) continue;
+          for (java.awt.Component k : ((javax.swing.JMenu) c).getMenuComponents()) if (("pad-library-" + kind + ":" + pad).equals(k.getName())) return (javax.swing.JMenuItem) k;
+        }
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      return null;
+    };
+    javax.swing.JMenuItem folder = item.apply(0, "folder");
+    out.append("kick pad menu: ").append(folder == null ? "no library item" : DrumLibrary.ADD + " > " + folder.getText()).append('\n');
+    chooseNext = kit;
+    edt(() -> folder.doClick());
+    Thread.sleep(300);
+    Thread t = DrumLibraryWindow.analyzing;
+    if (t != null) t.join(120000);
+    Thread.sleep(300);
+    out.append("added: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    StringBuilder lines = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) lines.append("  ").append(DrumLibrary.label(e.part)).append(" · ").append(DrumLibrary.line(e)).append('\n');
+    out.append(lines.toString().replaceAll("[0-9.]+ s ·", "<n> s ·").replaceAll("-?[0-9]+ dB", "<n> dB").replaceAll("(attack|decay) [0-9/]+ ms", "$1 <n> ms").replaceAll("bright [0-9]+ Hz", "bright <n> Hz"));
+    DrumLibrary.Entry kick = DrumLibrary.find(new File(kit, "Kick 01.wav").getAbsolutePath()), hat = DrumLibrary.find(new File(kit, "closed hat.wav").getAbsolutePath());
+    out.append(String.format(java.util.Locale.ROOT, "kick: %s, pitch %.0f Hz, bright %.0f Hz; hat: %s, bright %.0f Hz%n", kick.state, kick.measures[5], kick.measures[6], hat.state, hat.measures[6]));
+    javax.swing.JMenuItem tree = item.apply(2, "tree");
+    chooseNext = kit;
+    edt(() -> tree.doClick());
+    Thread.sleep(300);
+    t = DrumLibraryWindow.analyzing;
+    if (t != null) t.join(120000);
+    Thread.sleep(300);
+    out.append("snare pad, with subfolders: ").append(DrumLibraryWindow.lastSaid).append('\n');
+    DrumLibraryWindow.lastSaid = "";
+    answers.add("(keep)");
+    javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
+    edt(() -> {
+      javax.swing.JButton fileTab = null;
+      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      fileTab.doClick();
+    });
+    Thread.sleep(300);
+    edt(() -> {
+      for (java.awt.Window w : java.awt.Window.getWindows()) {
+        java.awt.Component c = component(w, "file-drum-library");
+        if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
+      }
+      ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
+      found[0].doClick();
+    });
+    Thread.sleep(400);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    @SuppressWarnings("unchecked")
+    final javax.swing.JComboBox<String> part = (javax.swing.JComboBox<String>) component(w, "library-part");
+    StringBuilder parts = new StringBuilder();
+    for (int i = 0; i < part.getItemCount(); i++) if (!part.getItemAt(i).endsWith("(0)")) parts.append(parts.length() == 0 ? "" : ", ").append(part.getItemAt(i));
+    out.append("window parts: ").append(parts).append('\n');
+    edt(() -> {
+      part.setSelectedIndex(1);
+      ((javax.swing.JComboBox<?>) component(w, "library-sort")).setSelectedIndex(6);
+    });
+    StringBuilder kicks = new StringBuilder();
+    for (java.awt.Component c : ((javax.swing.JPanel) component(w, "library-rows")).getComponents()) if (c.getName() != null) kicks.append(c.getName().replace("library-row:", "")).append(", ");
+    out.append("kicks by pitch: ").append(kicks).append('\n');
+    DrumLibrary.Entry perc = DrumLibrary.find(new File(kit, "Perc.wav").getAbsolutePath());
+    DrumLibrary.move(perc, "clap");
+    edt(() -> ((javax.swing.JButton) component(w, "library-remove:Kick 02.wav")).doClick());
+    Files.delete(new File(kit, "snare 2.wav").toPath());
+    edt(() -> ((javax.swing.JButton) component(w, "library-again:Kick 01.wav")).doClick());
+    DrumLibrary.find(new File(kit, "snare 2.wav").getAbsolutePath()).state = DrumLibrary.WAITING;
+    DrumLibraryWindow.analyze(app);
+    for (int i = 0; i < 100 && (DrumLibraryWindow.analyzing == null || DrumLibraryWindow.analyzing.isAlive()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    DrumLibrary.Entry snare = DrumLibrary.find(new File(kit, "snare 2.wav").getAbsolutePath());
+    out.append("snare gone: ").append(snare.state).append(" (").append(snare.said).append("); Kick 02 file kept ").append(new File(kit, "more/Kick 02.wav").isFile()).append('\n');
+    edt(() -> w.dispose());
+    DrumLibrary.entries.clear();
+    DrumLibrary.dir = null;
+    DrumLibrary.open(PromptDb.dir());
+    StringBuilder kept = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.of(null, 0)) kept.append(e.name).append(" (").append(DrumLibrary.label(e.part)).append(", ").append(e.state).append(") ");
+    out.append("kept: ").append(kept.toString().trim()).append('\n');
+    String text = out.toString(), ls = lines.toString();
+    boolean ok = folder != null && text.contains("added: Analyzed 5 sounds: 5 ready") && ls.contains("Kick · Kick 01.wav ·") && ls.contains("Kick · Perc.wav ·")
+        && ls.contains("Snare · snare 2.wav (by name: Snare)") && ls.contains("Closed hat · closed hat.wav (by name: Closed hat)") && ls.contains("Ride bell · ride bell 3.wav (by name: Ride bell)")
+        && "ready".equals(kick.state) && Math.abs(kick.measures[5] - 55) <= 3 && hat.measures[6] > 4 * kick.measures[6] && text.contains("snare pad, with subfolders: Analyzed 1 sound: 1 ready")
+        && DrumLibrary.find(new File(kit, "more/Kick 02.wav").getAbsolutePath()) == null && text.contains("window parts: All parts (6, 6 ready), Kick (3, 3 ready)")
+        && text.contains("kicks by pitch: Kick 02.wav, Kick 01.wav, Perc.wav,") && text.contains("snare gone: missing (the file is gone); Kick 02 file kept true")
+        && text.contains("Perc.wav (Clap, ready)") && text.contains("Kick 01.wav (Kick, ready)");
+    if (!ok) throw new AssertionError(text);
+  }
+
+  /**
+   * DrumMidi with a kit profile whose open hat and crash sound alike (Riot's learned cymbals): its crash
+   * peaks would be the open hats, so it takes crashes only from the dark and ridden passes and says so;
+   * a profile whose crash sounds unlike its open hat keeps the crash peaks.
+   */
+  void s231_open_like_crash() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "openlike-test");
+    dir.mkdirs();
+    String head = "# DrumMidi kit profile\n36 0.3361 0.4714 0.3750 -0.0212 0.1075 0.1213 0.0699 0.1536 0.0784 -0.1441 -0.1107 -0.2269 -0.2140 -0.3507 -0.2984 -0.3400\n"
+        + "43 -0.3844 -0.3928 -0.1734 0.3948 0.3823 -0.0372 0.0489 0.3094 0.3949 0.1182 0.0046 -0.0971 -0.2020 -0.1126 -0.1008 -0.1000\n"
+        + "c42 -0.0025 -0.5514 -0.0348 0.1796 0.2900 0.5238 0.3681 0.0262 -0.1448 -0.1897 -0.2709 -0.1936 -0.8556\n"
+        + "c46 0.4306 -0.0660 0.1993 0.1393 0.1539 0.3376 0.2142 -0.0082 -0.1512 -0.3131 -0.5320 -0.4045 0.2096\n"
+        + "c51 0.6849 0.1699 -0.1297 -0.3246 -0.3083 0.1071 -0.1332 -0.0981 -0.4188 0.1784 0.1077 0.1648 -0.5039\n";
+    File alike = new File(dir, "alike.kit"), unlike = new File(dir, "unlike.kit");
+    Files.write(alike.toPath(), (head + "c49 0.0283 -0.0217 0.3189 0.3734 0.3427 0.0989 0.1469 -0.0727 0.0453 -0.2396 -0.6182 -0.4023 0.1225\n").getBytes(StandardCharsets.UTF_8));
+    Files.write(unlike.toPath(), (head + "c49 -0.6000 -0.4000 -0.2000 0.0000 0.1000 0.2000 0.1000 0.2000 0.3000 0.4000 0.5000 0.4000 0.6900\n").getBytes(StandardCharsets.UTF_8));
+    File wav = new File(dir, "groove.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 6); rng = np.random.default_rng(7)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.5 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * np.exp(-n * 40) * 0.5\n"
+        + "for b in range(10):\n    put(0.25 + b * 0.5, kick)\n    put(0.5 + b * 0.5, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String[] said = new String[2];
+    File[] kits = {alike, unlike};
+    for (int k = 0; k < 2; k++) {
+      Process p = new ProcessBuilder(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "g" + k + ".mid").getAbsolutePath(), "--kit", kits[k].getAbsolutePath())
+          .directory(dir).redirectErrorStream(true).start();
+      String all = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+      p.waitFor();
+      said[k] = "";
+      for (String line : all.split("\n")) if (line.contains("sounds like its crash")) said[k] = line.trim();
+      if (!all.contains("Wrote ")) said[k] = "failed: " + all;
+    }
+    this.out.append("alike: ").append(said[0]).append("\nunlike: ").append(said[1].isEmpty() ? "(crash peaks kept)" : said[1]).append('\n');
+    boolean ok = said[0].equals("Kit alike.kit: its open hat sounds like its crash: crashes only where they are dark or ridden") && said[1].isEmpty();
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * DrumMidi --faded-opens: a Params switch (on/off), in DrumMidi's settings line when given and off
+   * otherwise, passed on by vst_render --test and labelled in its Params; open hats that fade like
+   * closed ones become closed only with it (a groove of short hats written open by DrumMidi's ring test).
+   */
+  void s229_faded_opens_option() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "faded-test");
+    dir.mkdirs();
+    int at = DrumMidiArgs.index("--faded-opens");
+    this.out.append("Params switch: ").append(at >= 0 ? DrumMidiArgs.LABELS[at] : "none").append(", on/off ").append(DrumMidiArgs.onOff("--faded-opens"))
+        .append(", built ").append(DrumMidiArgs.build(new String[] {"", "", "", "", "", "", "", "", "", "", "", "1"})).append('\n');
+    // Hats alone that ring a while (DrumMidi's ring test calls them open) but fade fast later on.
+    File wav = new File(dir, "hats.wav");
+    String make = "import sys, wave, numpy as np\n"
+        + "sr = 44100; x = np.zeros(sr * 8); rng = np.random.default_rng(5)\n"
+        + "def put(t, s):\n    i = int(t * sr); x[i:i + len(s)] += s[:len(x) - i]\n"
+        + "n = np.arange(int(0.4 * sr)) / sr\n"
+        + "kick = np.sin(2 * np.pi * 60 * n) * np.exp(-n * 18)\n"
+        + "hat = np.diff(rng.standard_normal(len(n) + 1)) * (0.6 * np.exp(-n * 9) + 0.4 * np.exp(-n * 80))\n"
+        + "for b in range(14):\n"
+        + "    t = 0.25 + b * 0.5\n"
+        + "    put(t, kick)\n"
+        + "    put(t + 0.25, hat)\n"
+        + "y = (x / np.max(np.abs(x)) * 0.8 * 32767).astype('<i2')\n"
+        + "w = wave.open(sys.argv[1], 'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(y.tobytes()); w.close()\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", make, wav.getAbsolutePath()));
+    PythonRun.runFor(cmd, 60, null);
+    File jar = new File(dir, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    String javaBin = new File(new File(System.getProperty("java.home"), "bin"), "java").getAbsolutePath();
+    String[] settings = new String[2], wrote = new String[2], closedSaid = new String[2];
+    for (int k = 0; k < 2; k++) {
+      java.util.List<String> run = new java.util.ArrayList<String>(java.util.Arrays.asList(javaBin, "-cp", jar.getAbsolutePath(), "DrumMidi_CRT", wav.getAbsolutePath(), new File(dir, "hats-" + k + ".mid").getAbsolutePath()));
+      if (k == 1) run.add("--faded-opens");
+      Process p = new ProcessBuilder(run).directory(dir).redirectErrorStream(true).start();
+      String said = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+      p.waitFor();
+      settings[k] = wrote[k] = closedSaid[k] = "";
+      for (String line : said.split("\n")) {
+        if (line.startsWith("Settings:")) settings[k] = line.trim();
+        if (line.startsWith("Wrote ")) wrote[k] = line.trim().replaceAll("^Wrote [^:]*: ", "");
+        if (line.startsWith("Open hats that fade")) closedSaid[k] = line.trim();
+      }
+    }
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> vr = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    vr.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--faded-opens"));
+    String vrSaid = PythonRun.runFor(vr, 60, null).trim();
+    String label = "";
+    for (ProgramParams.Param q : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (q.token.equals("--faded-opens")) label = q.label;
+    this.out.append("without: ").append(settings[0]).append(" | ").append(wrote[0]).append(" | ").append(closedSaid[0]).append('\n')
+        .append("with: ").append(settings[1]).append(" | ").append(wrote[1]).append(" | ").append(closedSaid[1]).append('\n')
+        .append("vst_render: ").append(vrSaid).append("\nvst_render Params: ").append(label).append('\n');
+    boolean ok = at >= 0 && DrumMidiArgs.onOff("--faded-opens") && settings[1].endsWith("--faded-opens") && !settings[0].contains("--faded-opens")
+        && closedSaid[0].isEmpty() && !vrSaid.contains("unknown switch") && label.startsWith("Faded opens in the test");
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
   /** DrumMidi --snare-leak: a Params switch (on/off), passed on by vst_render --test, and DrumMidi says what it learned or why not. */
   void s154_snare_leak_option() throws Exception {
     File dir = new File(System.getProperty("user.home"), "leak-test");
@@ -8374,6 +8797,74 @@ public final class DesktopBehavior {
    * not its own), the reference one DrumMidi takes (--kit), and the report's lines; a Params switch.
    */
   /**
+   * v397: vst_render with a kit name (or map) for a plugin row not given (--kit_name4 without --plugin4)
+   * leaves it out and goes on; the Plugins tab's rows have Test (its verdict: plays drums, some drums
+   * not heard, plays nothing); the tab's labels take only their own width, not half the page.
+   */
+  void s237_plugin_test_row() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "kitname-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "try:\n"
+        + "    vr.main([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Drums.vst3'), '--kit_name4', 'Artillery:Default Kit', '--map3', 'Riot Drums'])\n"
+        + "except SystemExit as e:\n"
+        + "    print('ended: %s' % e)\n";
+    Files.write(new File(dir, "Drums.vst3").toPath(), new byte[] {1});
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    for (String line : said.split("\n")) if (line.contains("left out") || line.startsWith("ended") || line.contains("give --plugin")) this.out.append(line.trim()).append('\n');
+    String ok1 = PluginsList.verdict("Good.vst3", "Plugin check: the test beat plays (peak -6.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: Good.vst3 plays");
+    String some = PluginsList.verdict("Half.vst3", "Plugin check: the test beat plays (peak -9.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)\nSucceeded: Half.vst3 plays");
+    String none = PluginsList.verdict("Synth.vst3", "Failed: Synth.vst3 plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: the render is silent");
+    this.out.append(ok1.split("\n")[0]).append('\n').append(some.split("\n")[0]).append('\n').append(none.split("\n")[0]).append('\n');
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = "Plugins";
+    final JDialog[] params = new JDialog[1];
+    inspectNext = dd -> params[0] = dd;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    java.awt.Component tab = component(d, "params-tab:Plugins");
+    StringBuilder tests = new StringBuilder();
+    for (String t : new String[] {"--plugin", "--plugin2", "--plugin3", "--plugin4"}) tests.append(component(tab, "params-plugin-test:" + t) == null ? "-" : "Test").append(' ');
+    java.awt.Component row = component(tab, "params-file:--plugin");
+    int x = row == null ? -1 : SwingUtilities.convertPoint(row.getParent(), row.getLocation(), tab).x;
+    this.out.append("Test buttons: ").append(tests).append("\nfirst row starts at ").append(x * 100 / Math.max(1, tab.getWidth())).append("% of the tab (was 50%)\n");
+    edt(() -> d.dispose());
+    PyJav.paramsTab = null;
+    String all = this.out.toString();
+    boolean ok = all.contains("--kit_name4 left out: it is the kit name for --plugin4, which is not given") && all.contains("--map3 left out: it is the map for --plugin3, which is not given")
+        && all.contains("ended: chain") && !all.contains("give --plugin")
+        && all.contains("\u2714 Good.vst3 plays drums: the kick, toms and cymbals of the test beat were heard")
+        && all.contains("\u26a0 Half.vst3 plays, but some drums were not heard: cymbals not heard: 51 ride (0.0% of the loudest cymbal)")
+        && all.contains("\u2718 Synth.vst3 plays no drums: Synth.vst3 plays nothing for a test beat") && all.contains("Test buttons: Test Test Test Test")
+        && x > 0 && x * 100 / Math.max(1, tab.getWidth()) < 35;
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 03112026: vst_render's Params on tabs (Input, Output, Plugins, Settings); the Plugins tab's Recently
    * used puts a plugin on a row; a list field's Clear (--map) shown while it has something; Logs' right
    * clicks (an entry: Open, Delete; a type: Clear all its logs); a Sogni list written whole (SafeWrite).
@@ -8448,7 +8939,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
-    boolean tabsOk = titles.equals("Input Output Plugins Settings ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
@@ -8882,6 +9373,40 @@ public final class DesktopBehavior {
     });
     this.out.append(seen[0]).append('\n').append(seen[1]).append('\n');
     boolean ok = "vst_render.py | --test --mp3 256 | bundled true".equals(seen[0]) && "MidiDrumGen.java".equals(seen[1]);
+    if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * vst_render's warm-up: before the test beat every drum and cymbal is played once (soft, mid, hard)
+   * through the plugin and thrown away, so a sampler that loads a sound when it is first played has it;
+   * a learned kit missing a cymbal (KVLT's ride) counts as missing, so the test beat is played again.
+   */
+  void s230_vst_render_warm_up() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "warm-test");
+    dir.mkdirs();
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "vr.WARM_PAUSE = 0\n"
+        + "m = vr.warm_midi(sys.argv[2])\n"
+        + "length, notes = vr.midi_notes(m)\n"
+        + "print('warm notes %s, %d hits, %.1f s' % (sorted(set(n for t, n in notes)), len(notes), length))\n"
+        + "class Chain:\n"
+        + "    calls = []\n"
+        + "    def render(self, np, midi=None, wav=None, tail=2.0):\n"
+        + "        Chain.calls.append((os.path.basename(midi), sorted(set(n for t, n in vr.midi_notes(midi)[1]))))\n"
+        + "        return None, 0, 0\n"
+        + "print('warm_up %s rendered %s' % (vr.warm_up(Chain(), None), Chain.calls))\n"
+        + "kept = 'Wrote k.kit: kick and toms 36 (3 hits), 41 (3 hits); cymbals 42 closed hat (3 hits), 46 open hat (3 hits), 49 crash (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)'\n"
+        + "print('missing: ride %d, with a tom silent too %d, all heard %d' % (vr.kit_missing(kept), vr.kit_missing(kept.replace('; cymbals 42', '; silent in this kit: 43 (0.3% of the kick); cymbals 42')), vr.kit_missing(kept.split('; cymbals not heard')[0])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 60, null).trim();
+    this.out.append(said).append('\n');
+    boolean ok = said.contains("warm notes [36, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 57], 42 hits")
+        && said.contains("warm_up True rendered [('vst-warm.mid', [36, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 57])]")
+        && said.contains("missing: ride 1, with a tom silent too 2, all heard 0");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -9333,6 +9858,617 @@ public final class DesktopBehavior {
     idle();
     boolean ok = played && paused && walk.toString().equals("clip-b.mp4 (\u2039\u203a) > clip.webm (\u2039-) < clip-b.mp4 (\u2039\u203a) < clip-a.mp4 (-\u203a)");
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * v399: a .dll's header read without loading it. A 32-bit VST2 plays in Carla's rack through Carla's
+   * bridge (vst_render finds the rack in Pulsekit's plugin folders too); without Carla it says so; a .dll
+   * that is no plugin is said so; the Params' notices and Test's verdict say the same.
+   */
+  /**
+   * v406: vst_render's Files &amp; locations tab: Carla's program and rack kept in ~/.pulsekit (vst_render tries
+   * them first), map.txt with Edit and Pads &amp; notes; the note map sends the MIDI's notes to the plugin's
+   * pads (36=48); a plugin dragged from Recently used onto a plugin row.
+   */
+  void s242_files_locations_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    PluginLibrary.reset();
+    PluginLibrary.load(PromptDb.dir());
+    File riot = new File(home, "vst/Riot Drums.vst3");
+    riot.mkdirs();
+    PluginLibrary.used(java.util.Arrays.asList("--plugin", riot.getAbsolutePath()));
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = PluginFiles.TAB;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    java.awt.Component files = component(d, "params-tab:" + PluginFiles.TAB);
+    this.out.append("files tab: ").append(files != null).append(", note map row ").append(component(files, "params-field:--note_map") != null)
+        .append(", Edit ").append(component(files, "params-files-map-edit") != null).append(", Pads & notes ").append(component(files, "params-files-pad-notes") != null)
+        .append(", Carla program ").append(component(files, "params-files-browse:carla-app") != null).append('\n');
+    // A plugin dragged from Recently used onto plugin 2's row.
+    final java.awt.Component row2 = component(d, "params-chosen:--plugin2");
+    final boolean[] dropped = new boolean[1];
+    edt(() -> {
+      javax.swing.JComponent c = (javax.swing.JComponent) row2;
+      dropped[0] = c.getTransferHandler().importData(new javax.swing.TransferHandler.TransferSupport(c, new java.awt.datatransfer.StringSelection(riot.getAbsolutePath())));
+    });
+    this.out.append("dropped on plugin 2: ").append(dropped[0]).append(", row reads ").append(((JLabel) row2).getText()).append('\n');
+    // The tab open last is kept for the next start (params-tab.txt).
+    final javax.swing.JTabbedPane tabs = (javax.swing.JTabbedPane) component(d, "params-tabs");
+    edt(() -> tabs.setSelectedIndex(tabs.indexOfTab(ProgramParams.PLUGINS)));
+    this.out.append("tab kept: ").append(PluginFiles.kept(PluginFiles.paramsTabFile(home))).append('\n');
+    edt(() -> d.dispose());
+    PyJav.paramsTab = null;
+    // Carla's program kept, and read first by vst_render.
+    File carla = new File(home, "Carla-2.5.10-win64/Carla/Carla.exe");
+    carla.getParentFile().mkdirs();
+    Files.write(carla.toPath(), new byte[] {1});
+    PluginFiles.keep(PluginFiles.carlaAppFile(home), carla.getAbsolutePath());
+    this.out.append("shown: ").append(PluginFiles.shown(PluginFiles.kept(PluginFiles.carlaAppFile(home)), null).replace(home.getAbsolutePath(), "~")).append('\n');
+    // map.txt: the template, then a DigiDrum section; vst_render sends 36 as 48.
+    this.out.append("template: ").append(PluginFiles.mapText(PluginFiles.noteMap(home)).split("\n")[0]).append('\n');
+    PluginFiles.write(PluginFiles.noteMap(home), "[DigiDrum Pro]\n36=48\n42=none\n");
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print('carla app: %s' % os.path.relpath(vr.carla_app(None), sys.argv[2]))\n"
+        + "nmap, said = vr.pad_map('', 'DigiDrum Pro.dll'); print(said)\n"
+        + "print('other plugin: %s' % (vr.pad_map('', 'Riot Drums.vst3'),))\n"
+        + "m = vr.check_midi(sys.argv[2]); sent = vr.sent_midi(m, nmap)\n"
+        + "a = [n for t, n in vr.midi_notes(m)[1]]; b = [n for t, n in vr.midi_notes(sent)[1]]\n"
+        + "print('sent: 36 %d -> %d, 48 %d -> %d, 42 %d -> %d' % (a.count(36), b.count(36), a.count(48), b.count(48), a.count(42), b.count(42)))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 60, null).trim()).append('\n');
+    this.out.append("pad notes: ").append(PluginFiles.padNotes().split("\n")[1].trim()).append(" | ").append(PluginFiles.padNotes().contains("44  G#2   Pedal hat")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("files tab: true, note map row true, Edit true, Pads & notes true, Carla program true")
+        && all.contains("dropped on plugin 2: true, row reads Riot Drums.vst3") && all.contains("tab kept: Plugins") && all.contains("shown: ~/Carla-2.5.10-win64/Carla/Carla.exe")
+        && all.contains("template: # Note map") && all.contains("carla app: Carla-2.5.10-win64/Carla/Carla.exe")
+        && all.contains("Note map: map.txt, section [DigiDrum Pro]: 36=48 (C3), 42=none") && all.contains("other plugin: ({}, None)")
+        && all.matches("(?s).*sent: 36 \\d+ -> 0, 48 \\d+ -> \\d+, 42 \\d+ -> 0.*") && all.contains("pad notes: 36  C2    Kick | true");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v408: Test's note map from the pads' sounds. A plugin with five pads on 48 to 52 (kick, snare, closed
+   * and open hat, crash, as DigiDrum's): the sweep finds them, each is sorted by its sound, and a map is
+   * suggested (36=48, 38=49, 42=50...); Pulsekit reads it from the log and puts it in map.txt as the
+   * plugin's section (an older one replaced, other sections kept); vst_render then sends 36 to 48.
+   */
+  void s243_suggested_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File fake = new File(home, "fake.py");
+    String code = ""
+        + "import sys, types, os, numpy as np\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('d')\n"
+        + "import importlib.util\n"
+        + "s = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(s); s.loader.exec_module(vr)\n"
+        + "R = 44100\n"
+        + "rng = np.random.default_rng(1)\n"
+        + "def env(n, tau): return np.exp(-np.arange(n) / (tau * R))\n"
+        + "def hp(x):\n"
+        + "    y = np.diff(x, prepend=0); return np.diff(y, prepend=0)\n"
+        + "def sound(kind):\n"
+        + "    n = int(1.4 * R); t = np.arange(n) / R\n"
+        + "    if kind == 'kick': return 0.9 * np.sin(2 * np.pi * (55 + 80 * np.exp(-t * 30)) * t) * env(n, 0.12)\n"
+        + "    if kind == 'snare': return (0.5 * rng.standard_normal(n) + 0.4 * np.sin(2 * np.pi * 190 * t)) * env(n, 0.07)\n"
+        + "    if kind == 'chh': return 0.6 * hp(rng.standard_normal(n)) * env(n, 0.02)\n"
+        + "    if kind == 'ohh': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.12)\n"
+        + "    if kind == 'crash': return 0.5 * hp(rng.standard_normal(n)) * env(n, 0.5)\n"
+        + "    if kind == 'tom': return 0.8 * np.sin(2 * np.pi * 140 * t) * env(n, 0.15)\n"
+        + "PADS = dict(zip(map(int, sys.argv[2].split(',')), sys.argv[3].split(',')))\n"
+        + "class Chain:\n"
+        + "    note_map = None\n"
+        + "    def render(self, np_, midi=None, wav=None, tail=2.0, raw=False):\n"
+        + "        if not raw: midi = vr.sent_midi(midi, self.note_map)\n"
+        + "        length, notes = vr.midi_notes(midi)[:2]\n"
+        + "        out = np.zeros(int((length + tail) * R) + R)\n"
+        + "        for t, n in notes:\n"
+        + "            if n in PADS:\n"
+        + "                x = sound(PADS[n]); a = int(t * R); out[a:a + len(x)] += x[:len(out) - a]\n"
+        + "        return np.vstack([out, out]), length, 0\n"
+        + "c = Chain()\n"
+        + "plays = vr.note_sweep(c, np, R)\n"
+        + "print('plays', plays)\n"
+        + "vr.print_suggestion(c, np, R, 'DigiDrum Pro.dll', plays)\n";
+    Files.write(fake.toPath(), code.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(fake.getAbsolutePath(), script.getAbsolutePath(), "48,49,50,51,52", "kick,snare,chh,ohh,crash"));
+    String log = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(log).append('\n');
+    PluginFiles.Suggestion sg = PluginFiles.suggestion(log);
+    this.out.append("read: [").append(sg == null ? "none" : sg.section + "] " + sg.lines.size() + " lines, first " + sg.lines.get(0)).append('\n');
+    // map.txt with an older DigiDrum section and another plugin's: the DigiDrum one replaced.
+    PluginFiles.write(PluginFiles.noteMap(home), "# mine\n[DigiDrum Pro]\n36=60\n[Other]\n38=40\n");
+    PluginFiles.addSuggestion(home, sg);
+    String map = PluginFiles.read(PluginFiles.noteMap(home));
+    this.out.append("map.txt:\n").append(map).append('\n');
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print(vr.pad_map('', 'DigiDrum Pro.dll')[1]); print(vr.pad_map('', 'Other.vst3')[1])\n";
+    java.util.List<String> cmd2 = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd2.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd2, 60, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("plays [48, 49, 50, 51, 52]") && all.contains("Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
+        && all.contains("Map suggestion: [DigiDrum Pro] 36=48 # C3 kick-like") && all.contains("Map suggestion: [DigiDrum Pro] 38=49 # C#3 snare-like")
+        && all.contains("Map suggestion: [DigiDrum Pro] 42=50 # D3 hat-like") && all.contains("Map suggestion: [DigiDrum Pro] 46=51") && all.contains("Map suggestion: [DigiDrum Pro] 49=52")
+        && all.contains("Map suggestion: [DigiDrum Pro] 48=none # no tom found")
+        && all.contains("read: [DigiDrum Pro] 17 lines, first 35=48") && map.startsWith("# mine\n[DigiDrum Pro]\n# Suggested by Test") && !map.contains("36=60")
+        && map.contains("[Other]\n38=40") && all.contains("section [DigiDrum Pro]: 35=48 (C3), 36=48 (C3), 37=49 (C#3), 38=49 (C#3)")
+        && all.contains("Note map: map.txt, section [Other]: 38=40 (E2)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v426: the map suggestion with a fat studio snare that reads tom-like (Tight Studio Drums, run 25):
+   * the snare note is not left out and no tom goes to the snare's pad.
+   */
+  void s250_suggestion_keeps_snare() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_suggest_keep.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 120, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("38 kept: True | no tom to 38: True") && all.contains("(41, 47), (43, 47)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v423: vst_render --parts: the drums split between plugin rows in one run and mixed (the same SoundFont
+   * as plugins 1 and 2, kick and cymbals by 2: it sounds as the whole kit by one); the notes each row
+   * plays; files named after both; bad --parts refused; Params' Parts row on the Plugins tab.
+   */
+  void s249_parts() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(44100), "Test kit"));
+    File work = new File(home, "parts");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_parts.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), sf2.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    String label = "", tab = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--parts")) {
+      label = p.label;
+      tab = p.tab;
+    }
+    this.out.append("row: ").append(label).append(" | ").append(tab).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("notes: 2 [35, 36] | 3 [42, 44, 46, 49, 51, 52, 53, 55, 57, 59] | 1 [37, 38, 39, 40, 41, 43, 45, 47, 48, 50]")
+        && all.contains("hats apart: 2 [42, 44, 46] | 3 [49, 51, 52, 53, 55, 57, 59]")
+        && all.contains("text: kick and cymbals and hats by B.sf2; the rest by A.vst3")
+        && all.contains("Parts: kick and cymbals and hats by kit-b.sf2; the rest by kit-a.sf2")
+        && all.contains("Kit: parts (--parts; --kit_name names it otherwise)")
+        && all.contains("parts: done") && all.contains("made: ['x-kit-a+kit-b (parts).wav']") && all.contains("same sound: True")
+        && all.contains("bad: 1") && all.contains("Failed: --parts takes part=plugin row pairs, the parts kick, snare, toms, hats, cymbals and the rows 1 to 4 (kick=2,cymbals=3): bells=2")
+        && all.contains("missing: 1") && all.contains("Failed: --parts names plugin 3 (--plugin3), which is not given")
+        && label.startsWith("Parts: the drums split between the plugin rows") && tab.equals(ProgramParams.PLUGINS);
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v420: a SoundFont as vst_render's plugin: Midi2Wav (in DrumMidi_CRT.jar) plays the MIDI with it into
+   * the WAV, no DawDreamer or Carla; one in an LV2 bundle (AVL Drumkits' kits) the same; --edit refused;
+   * Pulsekit's check lets it through, Info names it. v422: AVL Drumkits' kits get its built-in note map.
+   */
+  void s248_soundfont_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Test kit"));
+    File work = new File(home, "sf");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_soundfont.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), sf2.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    this.out.append("app: ").append(DllInfo.problem(sf2)).append(" | ").append(PluginsList.isPlugin(sf2)).append(" | ").append(PluginsList.info(sf2).split("\n")[0]).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("SoundFont: test-kit.sf2, played with Pulsekit's Midi2Wav") && all.matches("(?s).*sf2: (done|0) \\| 44100 Hz, [0-9.]+ s, peak 0\\.[1-9].*")
+        && all.contains("Black_Pearl_4_LV2.sf2: a kit of the LV2 plugin avldrums.lv2, played here as a SoundFont (Midi2Wav)")
+        && all.matches("(?s).*lv2 kit: (done|0) \\| 44100 Hz, [0-9.]+ s, peak 0\\.[1-9].*")
+        && all.contains("edit: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Midi2Wav plays it; no --carla, --clap, --effect, --wav or --edit with it")
+        && all.contains("no jar: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Pulsekit's Midi2Wav plays it, in DrumMidi_CRT.jar")
+        && all.contains("avl: [True, True, True, True, True, True, False, False]")
+        && all.contains("avl map: Note map: built in for AVL Drumkits (its 48 is the swish hat, 50 Crash 1 choked: the songs' toms there go to its tom; a [Black_Pearl_4_LV2] section in map.txt replaces it): 48=47 (B2), 50=45 (A2)")
+        && all.contains("Note map: built in for AVL Drumkits (its 48 is the swish hat, 50 Crash 1 choked: the songs' toms there go to its tom; a [Black_Pearl_4_LV2] section in map.txt replaces it): 48=47")
+        && all.contains("app: null | true | test-kit (SoundFont, played with Midi2Wav)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v419: an LV2 plugin (x42 AVL Drumkits' bundle as Windows installs it): its .dll or its folder plays in
+   * Carla's rack, its kit picked by the plugin id (--clap_id); (v420: its SoundFont plays with
+   * Midi2Wav, s248); Pulsekit's own check lets the .dll and the SoundFont through. v421: AVL's own .ttl
+   * files (plugins named with a prefix, avldrums:BlackPearl) read; the bundle's folder in LV2_PATH for Carla.
+   */
+  void s247_lv2_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File work = new File(home, "lv2");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_lv2.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 120, null).trim()).append('\n');
+    File bundle = new File(work, "LV2/avldrums.lv2");
+    this.out.append("app: dll ").append(DllInfo.problem(new File(bundle, "avldrums.dll"))).append(" | lv2 ").append(DllInfo.isLv2(new File(bundle, "avldrums.dll")))
+        .append(" | sf2 ").append(DllInfo.problem(new File(bundle, "Black_Pearl_4_LV2.sf2"))).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("plugins: [('http://gareus.org/oss/lv2/avldrums#BlackPearl', 'AVL Drumkits Black Pearl'), ('http://gareus.org/oss/lv2/avldrums#RedZeppelin', 'AVL Drumkits Red Zeppelin')]")
+        && all.contains("dll: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Black Pearl in Carla-Rack | project avldrums.carxp")
+        && all.contains("bundle, Red: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Red Zeppelin in Carla-Rack | project avldrums-Red Zeppelin.carxp")
+        && all.contains("avldrums.lv2 is an LV2 plugin: it plays in Carla's rack; its plugin: AVL Drumkits Black Pearl (the others, by --clap_id: AVL Drumkits Red Zeppelin)")
+        && all.contains("<Type>LV2</Type>    <Name>AVL Drumkits Red Zeppelin</Name>    <URI>http://gareus.org/oss/lv2/avldrums#RedZeppelin</URI>")
+        && all.contains("real plugins: [('http://gareus.org/oss/lv2/avldrums#BlackPearl', 'Black Pearl Drumkit'), ('http://gareus.org/oss/lv2/avldrums#BlackPearlMulti', 'Black Pearl Drumkit Multi')]")
+        && all.contains("LV2_PATH: LV2\n") && all.contains("(LV2_PATH; if Carla still does not find it, add that folder in Carla's Settings, Plugin Paths, LV2)")
+        && all.contains("app: dll null | lv2 true | sf2 null");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v418: chokes. vst_render --chokes plays each cymbal and its choke alone after the test beat (a fake
+   * plugin: a crash on 49, the same crash cut at 120 ms on 50) and says what DrumMidi wrote for each;
+   * DrumMidi takes --chokes 49=50 (its Chokes line) and refuses a note without its pair.
+   */
+  void s246_chokes() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File work = new File(home, "chokes");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/drummidi_chokes.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--chokes")) label = p.label;
+    String dmLabel = "";
+    for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Java", "DrumMidi_CRT.java"), StandardCharsets.UTF_8))) if (p.token.equals("--chokes")) dmLabel = p.label;
+    this.out.append("labels: ").append(label).append(" | ").append(dmLabel).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("Working: playing each cymbal and its choke alone (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
+        && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
+        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
+        && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v415: a kit whose kick has no beater click (an 808's sine, Beat DRMR's): --learn-kit writes its
+   * "kickclick" under KICK_CLICKLESS, and with that profile DrumMidi finds its kicks without a click (it
+   * says so); a kick that clicks is learned over it and found as before.
+   */
+  void s245_clickless_kick() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File work = new File(home, "clickless");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/drummidi_clickless.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("808: kickclick under, clickless, kicks 64 of 64 found, 64 written") && all.contains("kick: kickclick over, clicks, kicks 64 of 64 found, 64 written")
+        && all.contains("808: snare learned: [' snare 38 (8 hits)']") && all.contains("kick: snare learned: [' snare 38 (8 hits)']");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v409: Test through a fake plugin with DigiDrum's five pads: the first suggests a note map; with it in
+   * map.txt the second suggests none, hears the kick, snare, hats and crash, and names the notes the map
+   * leaves out. While Test runs, the time taken and its last line are shown.
+   */
+  void s244_test_with_note_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File flow = new File(System.getProperty("pulsekit.test.dir"), "py/vst_fake_pads.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    // A kit with every drum on its GM note but the crash on 57 and no ride: only 49 and 51 suggested.
+    File home2 = new File(home, "other");
+    home2.mkdirs();
+    java.util.List<String> cmdOnly = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmdOnly.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home2.getAbsolutePath(), "36:kick,38:snare,42:chh,46:ohh,57:crash,41:tom,43:tom,45:tom,47:tom,48:tom,50:tom"));
+    this.out.append(PythonRun.runFor(cmdOnly, 300, null).trim()).append('\n');
+    // A kit with two toms (Drumatic 4's): the songs' other toms go to them.
+    File home3 = new File(home, "twotoms");
+    home3.mkdirs();
+    java.util.List<String> cmdToms = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmdToms.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home3.getAbsolutePath(), "36:kick,38:snare,42:chh,46:ohh,49:crash,51:crash,41:tom,43:tom"));
+    String toms = PythonRun.runFor(cmdToms, 300, null).trim();
+    this.out.append(toms.replace("only ", "toms ")).append('\n');
+    // A kit named but not changed: its test beat as another kit's.
+    String same = "import importlib.util, os, sys, types, numpy as np\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "rng = np.random.default_rng(3); a = np.zeros((2, 44100 * 6)); b = np.zeros((2, 44100 * 6))\n"
+        + "for t in range(0, 6 * 44100, 22050): a[:, t:t + 2000] = rng.random() ; b[:, t:t + 2000] = rng.random()\n"
+        + "print('kit 1: %s' % vr.same_kit_check(np, a, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 1'))\n"
+        + "print('kit 2: %s' % vr.same_kit_check(np, a * 0.999, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 2'))\n"
+        + "print('kit 3: %s' % vr.same_kit_check(np, b, 44100, 'DigiDrum Pro.dll', 'DigiDrum:kit 3'))\n";
+    java.util.List<String> cmd3 = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd3.addAll(java.util.Arrays.asList("-c", same, script.getAbsolutePath(), home.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd3, 60, null).trim();
+    this.out.append(said).append('\n');
+    String kit2 = said.contains("kit 2: Kit check:") ? said.substring(said.indexOf("kit 2: ") + 7).split("\n")[0] : "";
+    this.out.append("verdict: ").append(PluginsList.verdict("DigiDrum Pro.dll", "Plugin check: the test beat plays (peak -3.0 dBFS)\n" + kit2 + "\nSucceeded: DigiDrum Pro.dll plays").split("\n")[1]).append('\n');
+    PythonRun.keepLast("Plugin check: the test beat plays\nWorking: playing each of its 5 pads alone, to hear what each one is\n\n");
+    this.out.append("progress: ").append(PluginsList.progress(84000, PythonRun.lastLine)).append(" | ").append(PluginsList.progress(3000, "$ python vst_render.py --check")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("first: suggestions 17") && all.contains("first Pads: 48 (C3) kick; 49 (C#3) snare; 50 (D3) hat; 51 (D#3) hat; 52 (E3) cymbal")
+        && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
+        && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
+        && all.contains("only Notes: 49 (C#3), 51 (D#3) silent: looking for them on the plugin's other notes")
+        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
+        && all.split("only Map suggestion").length == 3
+        && all.contains("toms Map suggestion: [DigiDrum Pro] 45=41") && all.contains("toms Map suggestion: [DigiDrum Pro] 50=43") && all.split("toms Map suggestion").length == 5
+        && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
+        && all.contains("verdict: \u26a0 the test beat sounds exactly as it did for \"DigiDrum:kit 1\"")
+        && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
+  void s241_pad_notes() throws Exception {
+    call("showView", "pads");
+    javax.swing.JButton[] pads = (javax.swing.JButton[]) get("padBtns");
+    for (javax.swing.JButton b : pads) this.out.append(b.getText()).append(" | ");
+    this.out.append('\n').append(pads[0].getToolTipText()).append('\n');
+    // DigiDrum's note names (C-0 = note 0): the pads say them; map.txt and vst_render read them.
+    File home = new File(System.getProperty("user.home"));
+    PluginFiles.saveNoteNames(home, 0);
+    edt(() -> ((Playback) get("playback")).refreshPadLabels());
+    this.out.append("DigiDrum's names: ").append(pads[0].getText()).append(" | ").append(Engine.noteName(48)).append(" | ").append(PluginFiles.padNotes().split("\n")[1].trim()).append('\n');
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "os.environ['HOME'] = sys.argv[2]; os.environ['USERPROFILE'] = sys.argv[2]\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "print('vst_render: %s | %s' % (vr.map_for('36=C-4,38=C#-4')[0], vr.named_list([48, 49, 50, 51])))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), home.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 60, null).trim()).append('\n');
+    PluginFiles.saveNoteNames(home, -1);
+    String all = this.out.toString();
+    boolean ok = all.contains("KIK  Kick  \u00b7 36") && all.contains("SNR  Snare  \u00b7 38") && all.contains("CHH  Closed hat  \u00b7 42")
+        && all.contains("RAK  Rack tom  \u00b7 50 D3") && all.contains("Kick: MIDI note 36") && all.contains("KIK  Kick  \u00b7 36 C2")
+        && all.contains("DigiDrum's names: KIK  Kick  \u00b7 36 C-3 | C-4 | 36  C-3   Kick") && all.contains("vst_render: {36: 48, 38: 49} | 48-51 (C-4 to D#-4)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v402: a 32-bit plugin's Edit settings opens Carla's own program (found beside its rack, Carla.vst's
+   * parent) with a project holding the plugin; the project saved there is the plugin's settings for later
+   * runs. A --map without --test or --check is left out, not refused (the Plugins tab's Test gives it).
+   */
+  void s240_bridged_edit_in_carla() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "carla-edit");
+    File vst = new File(dir, "Carla-2.4.1-win64/Carla.vst");
+    vst.mkdirs();
+    Files.write(new File(vst, "CarlaVstShell.dll").toPath(), new byte[] {1});
+    // Carla's program: here a script that saves the project it is given with the plugin's chunk in it.
+    // (another Carla's, beside the rack's: Carla-2.5.10's program, Carla-2.4.1's rack, as on the user's computer)
+    File app = new File(dir, "Carla-2.5.10-win64/Carla/carla");
+    app.getParentFile().mkdirs();
+    Files.write(app.toPath(), ("#!/bin/sh\nsleep 0.2\nsed -i 's#<Active>Yes</Active>#<Active>Yes</Active><Chunk>KIT</Chunk>#' \"$1\"\n").getBytes(StandardCharsets.UTF_8));
+    app.setExecutable(true);
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "Old32.dll").toPath(), new byte[] {1});
+    String check = "import importlib.util, os, sys, types\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; os.environ['HOME'] = sys.argv[3]; os.environ['USERPROFILE'] = sys.argv[3]\n"
+        + "rack = os.path.join(d, 'Carla-2.4.1-win64', 'Carla.vst', 'CarlaVstShell.dll')\n"
+        + "print('app: %s' % os.path.relpath(vr.carla_app(rack), d))\n"
+        + "plug = os.path.join(d, 'Old32.dll')\n"
+        + "print('project: %s' % os.path.relpath(vr.bridged_project(plug), sys.argv[3]))\n"
+        + "kept = vr.carla_edit(plug, rack)\n"
+        + "text = open(kept).read()\n"
+        + "print('saved: chunk %s, binary %s' % ('<Chunk>KIT</Chunk>' in text, plug in text))\n"
+        + "print('load time kept: %s' % os.path.isfile(vr.state_home(plug) + '.load'))\n"
+        // Which notes sound: a plugin with its pads on other notes (DigiDrum: 48 to 51 only).
+        + "import numpy as np\n"
+        + "audio = np.zeros((2, 44100 * 26))\n"
+        + "for t, n, v, tag in vr.kit_events():\n"
+        + "    if tag == '' and n >= 48: audio[:, int(t * 44100):int(t * 44100) + 2000] = 0.5\n"
+        + "h, s = vr.notes_heard(np, audio, 44100, [(t, n) for t, n, v, tag in vr.kit_events() if tag == ''])\n"
+        + "print('notes: %s heard; %s silent' % (vr.note_list(h), vr.note_list(s)))\n"
+        // A Carla project's plugins named by their own names, not their parameters'.
+        + "proj = os.path.join(d, 'p.carxp'); open(proj, 'w').write('<CARLA-PROJECT><Plugin><Info><Type>VST2</Type><Name>Digi</Name></Info><Data><Parameter><Name>Gain</Name></Parameter></Data></Plugin></CARLA-PROJECT>')\n"
+        + "vr.rack_load = lambda proc, plugins, missing: None\n"
+        + "print(vr.carla_state(None, proj))\n"
+        + "try:\n"
+        + "    vr.carla_edit(plug, '/nonexistent/a/b/CarlaVstShell.dll')\n"
+        + "except SystemExit as e:\n"
+        + "    pass\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), System.getProperty("user.home")));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(said.replace(dir.getAbsolutePath(), "~")).append('\n');
+    // A render without --test: the map is left out with a line saying so.
+    java.util.List<String> noTest = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    noTest.addAll(java.util.Arrays.asList(script.getAbsolutePath(), "x.mid", "--plugin", "x.vst3", "--map", "45=46"));
+    String run = PythonRun.runFor(noTest, 60, null).trim();
+    this.out.append("without --test: ").append(run).append('\n');
+    this.out.append("notice: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), new File(vst, "CarlaVstShell.dll")).replace(dir.getAbsolutePath(), "~")).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("app: Carla-2.5.10-win64/Carla/carla") && all.contains("project: .pulsekit/vst/Old32.carxp")
+        && all.contains("Old32.dll's window opens in Carla") && all.contains("saved: chunk True, binary True") && all.contains("load time kept: True")
+        && all.contains("Wrote Plugin settings: ") && all.contains("Kit load time: ")
+        && all.contains("Failed: Carla's program (Carla.exe) was not found beside")
+        && all.contains("Map: left out (--map is for --test and --check") && !all.contains("Failed: --map is for --test")
+        && all.contains("Edit settings opens it in Carla's own program")
+        && all.contains("notes: 48-51 heard; 36, 41-43, 45-47 silent") && all.contains("Carla project: p.carxp (Digi)")
+        && PluginsList.summary("Plugin check: x\nNotes: 48-51 heard; 36 silent").contains("Notes: 48-51 heard");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  void s239_dll_plugins() throws Exception {
+    File dir = new File(System.getProperty("user.home"), "dll-test");
+    File carla = new File(dir, "Apps/Carla");
+    carla.mkdirs();
+    Files.write(new File(carla, "CarlaRack.dll").toPath(), new byte[] {1});
+    File script = new File(dir, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "x.mid").toPath(), midiFile(new byte[] {0x00, (byte) 0x99, 36, 100, (byte) 0x87, 0x40, (byte) 0x89, 36, 0, 0x00, (byte) 0xFF, 0x2F, 0x00}));
+    // Pulsekit's plugin folders (the Plugins tab's): Carla's folder among them.
+    new File(System.getProperty("user.home"), ".pulsekit").mkdirs();
+    Files.write(new File(System.getProperty("user.home"), ".pulsekit/plugin-folders.txt").toPath(), ("VST2=" + carla.getAbsolutePath() + "\n").getBytes(StandardCharsets.UTF_8));
+    String check = "import importlib.util, os, sys, types, struct\n"
+        + "sys.modules['dawdreamer'] = types.ModuleType('dawdreamer')\n"
+        + "spec = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(spec); spec.loader.exec_module(vr)\n"
+        + "d = sys.argv[2]; os.environ['HOME'] = sys.argv[3]; os.environ['USERPROFILE'] = sys.argv[3]\n"
+        + "def pe(bits, names):\n"
+        + "    dos = b'MZ' + bytes(0x3A) + struct.pack('<I', 0x40)\n"
+        + "    magic = 0x20B if bits == 64 else 0x10B\n"
+        + "    optsize = 240 if bits == 64 else 224\n"
+        + "    coff = b'PE\\0\\0' + struct.pack('<HHIIIHH', 0x8664 if bits == 64 else 0x14C, 1, 0, 0, 0, optsize, 0x2022)\n"
+        + "    opt = bytearray(optsize); struct.pack_into('<H', opt, 0, magic)\n"
+        + "    struct.pack_into('<II', opt, 112 if bits == 64 else 96, 0x1000, 0x200)\n"
+        + "    sec = b'.edata\\0\\0' + struct.pack('<IIII', 0x200, 0x1000, 0x200, 0x200) + bytes(16)\n"
+        + "    head = dos + coff + bytes(opt) + sec\n"
+        + "    head += bytes(0x200 - len(head))\n"
+        + "    exp = bytearray(0x200)\n"
+        + "    struct.pack_into('<I', exp, 24, len(names)); struct.pack_into('<I', exp, 32, 0x1000 + 40)\n"
+        + "    at = 40 + 4 * len(names)\n"
+        + "    for i, n in enumerate(names):\n"
+        + "        struct.pack_into('<I', exp, 40 + 4 * i, 0x1000 + at); exp[at:at + len(n)] = n.encode(); at += len(n) + 1\n"
+        + "    return head + bytes(exp)\n"
+        + "for name, bits, names in (('Old32.dll', 32, ['VSTPluginMain', 'main']), ('New64.dll', 64, ['VSTPluginMain']), ('Helper.dll', 64, ['DoThings'])):\n"
+        + "    open(os.path.join(d, name), 'wb').write(pe(bits, names))\n"
+        + "    print('%s: %s %s, problem %s' % ((name,) + vr.dll_info(os.path.join(d, name))[:1] + (sorted(vr.dll_info(os.path.join(d, name))[1]), vr.dll_problem(os.path.join(d, name)))))\n"
+        + "print('rack: %s' % os.path.relpath(vr.carla_rack() or 'none', d))\n"
+        + "seen = {}\n"
+        + "class C:\n"
+        + "    def __init__(self, daw, rate, opts, switches):\n"
+        + "        seen.update(opts)\n"
+        + "        raise SystemExit('chain')\n"
+        + "vr.Chain = C\n"
+        + "def run(args):\n"
+        + "    try:\n"
+        + "        vr.main(args)\n"
+        + "    except SystemExit as e:\n"
+        + "        return str(e)\n"
+        + "print('32-bit: %s | plugin %s, bridged %s' % (run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Old32.dll')]), os.path.basename(seen.get('--plugin') or ''), os.path.basename(seen.get('--bridged') or '')))\n"
+        + "print(vr.bridged_carla_plugin(os.path.join(d, 'Old32.dll')).replace(d, '~').replace(chr(10), ' '))\n"
+        + "vr.carla_rack = lambda: None\n"
+        + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Old32.dll')])\n"
+        + "run([os.path.join(d, 'x.mid'), '--plugin', os.path.join(d, 'Helper.dll')])\n"
+        + "print('rack names: %s %s %s %s %s' % (vr.is_carla_rack('Carla-Rack.dll'), vr.is_carla_rack('CarlaRack.vst3'), vr.is_carla_rack('CarlaRackFX.dll'), vr.is_carla_rack('CarlaVstShell.dll'), vr.is_carla_rack('CarlaVstFxShell.dll')))\n";
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath(), System.getProperty("user.home")));
+    String said = PythonRun.runFor(cmd, 120, null).trim();
+    for (String line : said.split("\n")) if (line.contains(".dll") || line.startsWith("rack") || line.startsWith("<Plugin>") || line.startsWith("Failed")) this.out.append(line.trim()).append('\n');
+    // The app reads the same headers.
+    for (String n : new String[] {"Old32.dll", "New64.dll", "Helper.dll"}) {
+      DllInfo i = DllInfo.read(new File(dir, n));
+      this.out.append("app ").append(n).append(": ").append(i.bits).append(" bits, problem ").append(DllInfo.problem(new File(dir, n))).append('\n');
+    }
+    File rack = DllInfo.carlaRack(java.util.Arrays.asList(new File(dir, "Apps").getAbsolutePath()));
+    this.out.append("notice: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), rack).split("\n")[0].replace(dir.getAbsolutePath(), "~")).append('\n');
+    this.out.append("no Carla: ").append(DllInfo.bridgedNote(new File(dir, "Old32.dll"), null).split("\n")[1]).append('\n');
+    this.out.append("verdict: ").append(PluginsList.verdict("Old32.dll", "Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla").split("\n")[0]).append('\n');
+    String twice = PluginsList.verdict("Old32.dll", "Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla");
+    this.out.append("said once: ").append(twice.split("is a 32-bit VST2 plugin", -1).length - 1).append('\n');
+    this.out.append("app rack names: ").append(DllInfo.isRack(new File("Carla-Rack.dll"))).append(' ').append(DllInfo.isRack(new File("CarlaRackFX.dll")))
+        .append(' ').append(DllInfo.isRack(new File("CarlaVstShell.dll"))).append(' ').append(DllInfo.isRack(new File("CarlaVstFxShell.dll"))).append('\n');
+    String edited = PluginsList.result(new File(dir, "Old32.dll"), true, "Failed: Carla did not load Old32.dll (0 of 1). Is Carla's 32-bit bridge installed (carla-bridge-win32)?");
+    this.out.append("Plugins list, Edit settings: ").append(edited.split("\n\n")[1].split("\n")[0]).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("Old32.dll: 32 ['VSTPluginMain', 'main'], problem 32") && all.contains("New64.dll: 64 ['VSTPluginMain'], problem None")
+        && all.contains("Helper.dll: 64 ['DoThings'], problem Helper.dll is not a VST plugin") && all.contains("rack: Apps/Carla/CarlaRack.dll") && all.contains("rack names: True True False True False") && all.contains("said once: 1") && all.contains("app rack names: true false true false")
+        && all.contains("Old32.dll is a 32-bit VST2: it plays in Carla's rack, through Carla's 32-bit bridge") && all.contains("| plugin CarlaRack.dll, bridged Old32.dll")
+        && all.contains("<Type>VST2</Type>") && all.contains("<Binary>~/Old32.dll</Binary>")
+        && all.contains("Failed: Old32.dll is a 32-bit VST2 plugin, and vst_render runs 64-bit: install Carla") && all.contains("Failed: Helper.dll is not a VST plugin")
+        && all.contains("app Old32.dll: 32 bits, problem 32") && all.contains("app New64.dll: 64 bits, problem null") && all.contains("app Helper.dll: 64 bits, problem Helper.dll is not a VST plugin")
+        && all.contains("notice: Old32.dll is a 32-bit VST2 plugin. vst_render runs 64-bit, so it plays it in Carla's rack, through Carla's 32-bit bridge (Carla-Rack: ~/Apps/Carla/CarlaRack.dll)")
+        && all.contains("no Carla: Carla-Rack was not found: install Carla") && all.contains("verdict: \u2718 Old32.dll could not play: Old32.dll is a 32-bit VST2 plugin")
+        && all.contains("Plugins list, Edit settings: \u2718 Edit settings did not open Old32.dll: Carla did not load Old32.dll (0 of 1). Is Carla's 32-bit bridge installed");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v398: the Media browser's video shows Mute and the volume above the picture; the window's X closes
+   * it as Close does: its player is released (it had gone on playing, hidden, without a picture).
+   */
+  void s238_video_x_stops() throws Exception {
+    System.setProperty("pulsekit.vlc.args", "--aout=dummy");
+    File clips = new File(System.getProperty("user.home"), "clips238");
+    clips.mkdirs();
+    File clip = new File(clips, "clip.webm");
+    Files.copy(new File(System.getProperty("pulsekit.test.dir", "."), "clip.webm").toPath(), clip.toPath());
+    if (!VlcPlayer.available()) {
+      out.append("no VLC: ").append(VlcPlayer.why()).append('\n');
+      return;
+    }
+    final MediaBrowser mb = (MediaBrowser) get("mediaBrowser");
+    MediaDir.Entry e = null;
+    for (MediaDir.Entry x : MediaBrowser.list(clips)) if (x.name.equals("clip.webm")) e = x;
+    final MediaDir.Entry entry = e;
+    set("lastVideo", null);
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> mb.openEntry(entry, clip));
+    for (int i = 0; i < 100 && get("lastVideo") == null; i++) Thread.sleep(100);
+    Thread.sleep(1500);
+    final JDialog dialog = (JDialog) get("lastVideo");
+    final VlcPlayer player = (VlcPlayer) get("lastPlayer");
+    out.append("sound row ").append(component(dialog, "video-sound").isVisible() ? "shown" : "hidden").append(", mute ").append(component(dialog, "video-mute").isShowing())
+        .append(", volume ").append(component(dialog, "video-volume").isShowing()).append('\n');
+    edt(() -> ((javax.swing.AbstractButton) component(dialog, "video-play")).doClick());
+    Thread.sleep(800);
+    boolean was = player.playing();
+    // The window's X.
+    edt(() -> dialog.dispatchEvent(new java.awt.event.WindowEvent(dialog, java.awt.event.WindowEvent.WINDOW_CLOSING)));
+    Thread.sleep(800);
+    out.append("X while playing (").append(was).append("): window gone ").append(!dialog.isDisplayable()).append(", still playing ").append(player.playing()).append('\n');
+    String all = out.toString();
+    if (!all.contains("sound row shown, mute true, volume true") || !all.contains("window gone true, still playing false")) throw new AssertionError(all);
   }
 
   /**
@@ -10385,14 +11521,74 @@ public final class DesktopBehavior {
       if (q.token.equals("--map2")) label = q.label;
       if (q.token.equals("--plugin4")) label4 = q.label;
     }
-    this.out.append(said).append("\n--map2 alone: ").append(refused).append("\nParams: ").append(label).append('\n');
+    this.out.append(said).append("\n--map2 alone: ").append(refused.split("\n")[0]).append("\nParams: ").append(label).append('\n');
     boolean ok = said.contains("Anarchy Drums.vst3: [(35, None), (41, None), (45, 46)] Anarchy Drums") && said.contains("Artillery2.vst3: [(35, None), (57, 49)] Artillery")
         && said.contains("Other.vst3: [(35, None)] ")
         && said.contains("run a.vst3: --plugin a.vst3 --map M --state s.fxp --test") && said.contains("run b.vst3: --plugin b.vst3 --test --map 45=46")
         && said.contains("run c.vst3: --plugin c.vst3 --map M --test") && said.contains("run d.vst3: --plugin d.vst3 --test --map 57=49 --kit_name Artillery")
         && said.contains("lead --dir f --plugin b.vst3 --plugin2 c.vst3 --map2 41=none --plugin3 d.vst3 --kit_name3 Artillery | No --plugin: b.vst3 leads, c.vst3, d.vst3 after it")
-        && refused.contains("--map2 is the map for --plugin2") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
+        && refused.contains("--map2 left out: it is the map for --plugin2, which is not given") && label.startsWith("Test: the second plugin") && label4.startsWith("Fourth plugin: the whole run again");
     if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * vst_render's --zip_outdir in Params is a text field with the folder's full path: Browse puts the
+   * folder picked in it, % codes are written on after it, OK keeps it as written, and the Params opened
+   * again show it so; Clear empties it.
+   */
+  void s228_zip_outdir_field() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File pickup = new File(home, "pickup");
+    pickup.mkdirs();
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    java.util.function.Supplier<JDialog> open = () -> {
+      final JDialog[] got = new JDialog[1];
+      inspectNext = d -> got[0] = d;
+      answers.add("(keep)");
+      SwingUtilities.invokeLater(() -> {
+        try {
+          call("openParams");
+        } catch (Exception ex) {
+          errors.add(ex);
+        }
+      });
+      try {
+        for (int i = 0; i < 100 && (got[0] == null || !got[0].isShowing()); i++) Thread.sleep(100);
+        Thread.sleep(300);
+      } catch (InterruptedException ex) {
+        throw new RuntimeException(ex);
+      }
+      return got[0];
+    };
+    final JDialog d = open.get();
+    final javax.swing.JTextField field = (javax.swing.JTextField) component(d, "params-dir-text:--zip_outdir");
+    out.append("field: ").append(field == null ? "none" : "\"" + field.getText() + "\"").append('\n');
+    chooseNext = pickup;
+    edt(() -> ((javax.swing.JButton) component(d, "params-dir:--zip_outdir")).doClick());
+    idle();
+    String picked = field.getText();
+    out.append("Browse: ").append(picked.replace(home.getAbsolutePath(), "~")).append('\n');
+    edt(() -> field.setText(field.getText() + File.separator + "run-%n"));
+    edt(() -> find(d.getContentPane(), "OK").doClick());
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py")).replace(home.getAbsolutePath(), "~");
+    out.append("kept: ").append(kept).append('\n');
+    final JDialog e = open.get();
+    final javax.swing.JTextField again = (javax.swing.JTextField) component(e, "params-dir-text:--zip_outdir");
+    String shown = again.getText().replace(home.getAbsolutePath(), "~");
+    edt(() -> ((javax.swing.JButton) component(e, "params-clear:--zip_outdir")).doClick());
+    String cleared = again.getText();
+    edt(() -> find(e.getContentPane(), "OK").doClick());
+    idle();
+    String after = String.valueOf(call("loadParams", "vst_render.py"));
+    out.append("opened again: ").append(shown).append("; Clear: \"").append(cleared).append("\", kept ").append(after.contains("--zip_outdir") ? "with" : "without").append(" --zip_outdir\n");
+    call("saveParams", "vst_render.py", "");
+    String want = "~" + File.separator + "pickup" + File.separator + "run-%n";
+    boolean ok = field != null && picked.equals(pickup.getAbsolutePath()) && kept.contains("--zip_outdir " + want) && shown.equals(want) && cleared.isEmpty() && !after.contains("--zip_outdir");
+    if (!ok) throw new AssertionError(out.toString());
   }
 
   /**
@@ -12133,6 +13329,78 @@ public final class DesktopBehavior {
         && said.contains("--plugin x.clap: --clap Test Synth.clap, --plugin /fake/CarlaRack.vst3");
     if (!ok) throw new AssertionError(this.out.toString());
   }
+  /**
+   * v395: Sogni Params' prompt and LoRAs rows have Copy, Paste and Send after their labels, and
+   * Export sits next to Save. Copy puts the text on the clipboard; Paste over text asks (No keeps it,
+   * Yes replaces it); Send puts the prompt into another Sogni program's saved Params (asked; SogniChat
+   * has no LoRAs row, so LoRAs go only to the picture and video programs); Export writes the section
+   * rows into a file.
+   */
+  void s236_params_clip() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    call("showView", "py");
+    call("selectListedProgram", "Java", "SogniPedit.java");
+    final File out = new File(System.getProperty("user.home"), "exported section.txt");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.List<String> loraTargets = new java.util.ArrayList<String>();
+    inspectNext = d -> {
+      javax.swing.text.JTextComponent prompt = null, loras = null;
+      for (int i = 0; i < pj.shownParams.size(); i++) {
+        javax.swing.text.JTextComponent c = pj.shownAreas[i] != null ? pj.shownAreas[i] : pj.shownFields[i];
+        if (pj.shownParams.get(i).token.equals("--prompt")) prompt = c;
+        if (pj.shownParams.get(i).token.equals("--loras")) loras = c;
+      }
+      seen.append("buttons: ");
+      for (String n : new String[] {"params-copy:--prompt", "params-paste:--prompt", "params-send:--prompt", "params-copy:--loras", "params-send:--loras", "params-export-section"}) {
+        java.awt.Component c = component(d, n);
+        seen.append(c == null ? "-" : ((javax.swing.AbstractButton) c).getText()).append(' ');
+      }
+      seen.append('\n');
+      prompt.setText("a red kite over green hills");
+      loras.setText("kite-style:0.7");
+      ((javax.swing.AbstractButton) component(d, "params-copy:--prompt")).doClick();
+      seen.append("copy: ").append(PyJav.clipSaid).append('\n');
+      prompt.setText("other words");
+      PyJav.pasteReplace = false;
+      ((javax.swing.AbstractButton) component(d, "params-paste:--prompt")).doClick();
+      seen.append("paste, No: ").append(prompt.getText()).append('\n');
+      PyJav.pasteReplace = true;
+      ((javax.swing.AbstractButton) component(d, "params-paste:--prompt")).doClick();
+      seen.append("paste, Yes: ").append(prompt.getText()).append(" (").append(PyJav.clipSaid).append(")\n");
+      PyJav.sendTo = "SogniPadd.java";
+      PyJav.sendYes = false;
+      ((javax.swing.AbstractButton) component(d, "params-send:--prompt")).doClick();
+      seen.append("send, No: ").append(pj.loadParams("SogniPadd.java") == null ? "SogniPadd not saved" : pj.loadParams("SogniPadd.java")).append('\n');
+      PyJav.sendYes = true;
+      ((javax.swing.AbstractButton) component(d, "params-send:--prompt")).doClick();
+      seen.append("send, Yes: ").append(PyJav.clipSaid).append('\n');
+      PyJav.sendTo = "SogniChat.java";
+      ((javax.swing.AbstractButton) component(d, "params-send:--loras")).doClick();
+      seen.append("LoRAs to SogniChat: ").append(PyJav.clipSaid).append('\n');
+      loraTargets.addAll(ParamsClip.targets("SogniPedit.java", "--loras", PyJav::programTextOf));
+      PyJav.exportTo = out;
+      ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+      seen.append("export: ").append(PyJav.clipSaid).append('\n');
+    };
+    answers.add("Cancel");
+    call("openParams");
+    PyJav.pasteReplace = null;
+    PyJav.sendTo = null;
+    PyJav.sendYes = null;
+    PyJav.exportTo = null;
+    String padd = pj.loadParams("SogniPadd.java");
+    String file = out.isFile() ? new String(Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8) : "";
+    this.out.append(seen).append("SogniPadd's Params: ").append(padd).append("\nLoRAs go to: ").append(loraTargets).append("\nfile:\n").append(file);
+    String all = this.out.toString();
+    boolean ok = all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
+        && all.contains("paste, No: other words") && all.contains("paste, Yes: a red kite over green hills (Pasted into the prompt)")
+        && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
+        && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")
+        && loraTargets.equals(java.util.Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java"))
+        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n");
+    if (!ok) throw new AssertionError(all);
+  }
+
   /**
    * Sogni Params, as on Android: Save (bottom left) keeps the prompt and LoRAs as the program's
    * section (the same again is said so); Browse sections over unsaved entries asks, then loads it.

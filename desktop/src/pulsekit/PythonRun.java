@@ -292,6 +292,21 @@ public final class PythonRun {
     return JavaRun.argvFor(source, bpm, style, bars, swing, extra, tsNum, tsDen);
   }
 
+  /** The running script's last line of output (for a status that says what it is doing). */
+  static volatile String lastLine = "";
+
+  /** A chunk of output's last whole line kept as lastLine. */
+  static void keepLast(String chunk) {
+    String[] lines = chunk.split("\n");
+    for (int i = lines.length - 1; i >= 0; i--) {
+      String t = lines[i].trim();
+      if (t.length() > 0) {
+        lastLine = t;
+        return;
+      }
+    }
+  }
+
   public static Result run(String source, String scriptName, List<String> argv) {
     List<String> python = pythonCommand();
     if (python == null) {
@@ -322,6 +337,7 @@ public final class PythonRun {
       timerAsk.delete();
       pb.environment().put("PULSEKIT_TIMER_FILE", timerAsk.getAbsolutePath());
       timerFile = timerAsk;
+      lastLine = "";
       Process proc = pb.start();
       stopFile = stopAsk;
       current = proc;
@@ -336,7 +352,9 @@ public final class PythonRun {
           int n = in.read(buf);
           if (n <= 0) break;
           bos.write(buf, 0, n);
-          if (live != null) live.add(new String(buf, 0, n, StandardCharsets.UTF_8));
+          String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
+          if (live != null) live.add(chunk);
+          keepLast(chunk);
           // Output: the script is working, its time starts again.
           deadline = System.currentTimeMillis() + SCRIPT_SECONDS * 1000L;
         }

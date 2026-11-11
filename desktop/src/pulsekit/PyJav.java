@@ -883,6 +883,8 @@ final class PyJav {
                     : PythonRun.run(src, name, argv);
             // File > Logs (Logging on): the run's arguments, exit code and output.
             Logs.run(name, promptProg ? runArgv : argv, result.code, result.log, runStarted);
+            // vst_render's test: its test beat's hits into the drum sound library.
+            if ("vst_render.py".equals(name)) DrumLibraryWindow.fromRun(app, result.log);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);
@@ -1324,6 +1326,128 @@ final class PyJav {
         String[] now = new String[ps.size()];
         for (int i = 0; i < now.length; i++) now[i] = areas[i] != null ? areas[i].getText() : fields[i] != null ? fields[i].getText() : "";
         return SogniSections.fields(ps, now);
+    }
+
+    /** The tests: Export's file (else a file picker), Paste's answer (true: replace), Send's program and answer. */
+    static File exportTo;
+    static Boolean pasteReplace;
+    static String sendTo;
+    static Boolean sendYes;
+    static volatile String clipSaid = "";
+
+    private void clipSay(String text) {
+        clipSaid = text;
+        app.setNow(text);
+    }
+
+    /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
+    void exportSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.clipSay("Nothing to export: the prompt and the other rows are empty");
+            return;
+        }
+        File to = exportTo;
+        if (to == null) {
+            JFileChooser chooser = selectChooser();
+            chooser.setDialogTitle(ParamsClip.EXPORT + " the " + program + " section");
+            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), ParamsClip.exportName(program, now)));
+            if (chooser.showSaveDialog(at) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+            to = chooser.getSelectedFile();
+            if (to.isFile() && JOptionPane.showConfirmDialog(at, to.getName() + " is there already. Replace it?", ParamsClip.EXPORT, JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            selected(to);
+        }
+        try {
+            Files.write(to.toPath(), ParamsClip.exportText(now).getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Exported the " + program + " section into " + to.getName());
+        } catch (Exception ex) {
+            this.clipSay("Could not export the section: " + ex.getMessage());
+        }
+    }
+
+    /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's text box. */
+    java.util.List<JButton> clipButtons(final String program, final String token, final java.util.function.Supplier<javax.swing.text.JTextComponent> box) {
+        JButton copy = new JButton(ParamsClip.COPY), paste = new JButton(ParamsClip.PASTE), send = new JButton(ParamsClip.SEND);
+        copy.setName("params-copy:" + token);
+        paste.setName("params-paste:" + token);
+        send.setName("params-send:" + token);
+        copy.setToolTipText(ParamsClip.COPY_TIP);
+        paste.setToolTipText(ParamsClip.PASTE_TIP);
+        send.setToolTipText(ParamsClip.SEND_TIP);
+        for (JButton b : new JButton[] {copy, paste, send}) {
+            b.setMargin(new java.awt.Insets(0, 4, 0, 4));
+            b.setFocusable(false);
+        }
+        copy.addActionListener(e -> {
+            String text = box.get().getText();
+            if (text.trim().length() > 0) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(text), null);
+            this.clipSay(ParamsClip.copied(token, text));
+        });
+        paste.addActionListener(e -> {
+            String clip = null;
+            try {
+                clip = (String) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            } catch (Exception ignored) {
+                // no text there
+            }
+            if (clip == null || clip.trim().isEmpty()) {
+                this.clipSay("The clipboard has no text");
+                return;
+            }
+            javax.swing.text.JTextComponent t = box.get();
+            if (t.getText().trim().length() > 0) {
+                boolean yes = pasteReplace != null ? pasteReplace.booleanValue()
+                    : JOptionPane.showConfirmDialog(paste, ParamsClip.replaceAsk(token), "Paste", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+                if (!yes) return;
+            }
+            t.setText(clip.trim());
+            t.setCaretPosition(0);
+            this.clipSay("Pasted into the " + ParamsClip.what(token));
+        });
+        send.addActionListener(e -> {
+            final String text = box.get().getText();
+            if (text.trim().isEmpty()) {
+                this.clipSay("No " + ParamsClip.what(token) + " to send");
+                return;
+            }
+            java.util.List<String> targets = ParamsClip.targets(program, token, PyJav::programTextOf);
+            if (targets.isEmpty()) {
+                this.clipSay("No other Sogni program takes a " + ParamsClip.what(token));
+                return;
+            }
+            java.util.function.Consumer<String> go = target -> {
+                boolean yes = sendYes != null ? sendYes.booleanValue()
+                    : JOptionPane.showConfirmDialog(send, ParamsClip.sendAsk(token, target, text), ParamsClip.SEND_TITLE, JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+                if (!yes) return;
+                java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(target));
+                this.saveParams(target, ParamsClip.put(theirs, this.loadParams(target), token, text));
+                this.clipSay(ParamsClip.sent(token, target));
+            };
+            if (sendTo != null) {
+                if (targets.contains(sendTo)) go.accept(sendTo);
+                else this.clipSay(sendTo + " takes no " + ParamsClip.what(token));
+                return;
+            }
+            javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+            for (final String target : targets) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(SogniSections.app(target));
+                item.setName("params-send-to:" + target);
+                item.addActionListener(ev -> go.accept(target));
+                m.add(item);
+            }
+            MenuCancel.add(m);
+            m.show(send, 0, send.getHeight());
+        });
+        return java.util.Arrays.asList(copy, paste, send);
+    }
+
+    /** A program's text for its Params (its bundled source); null when it is not there. */
+    static String programTextOf(String program) {
+        try {
+            return PyJavHints.programText(program, new String(ProgramFiles.read("Java", program), StandardCharsets.UTF_8), null);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
@@ -3031,7 +3155,16 @@ final class PyJav {
             final ProgramParams.Param p = ps.get(i);
             final int index = i;
             rowStarts[i] = form.getComponentCount();
-            form.add(new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : "")));
+            JLabel rowLabel = new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
+            if (ParamsClip.has(program, p)) {
+                // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
+                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                withClip.add(rowLabel);
+                for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
+                form.add(withClip);
+            } else {
+                form.add(rowLabel);
+            }
             if (p.output && !p.optional) {
                 form.add(new JLabel("Named by PyJav from the input file"));
                 continue;
@@ -3041,6 +3174,50 @@ final class PyJav {
                 check.setName("params-check:" + p.token);
                 checks[i] = check;
                 form.add(check);
+                continue;
+            }
+            if (p.dir && p.typed) {
+                // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked
+                // folder's full path in the field; % codes and the like can then be added to it.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                final javax.swing.JTextField path = new javax.swing.JTextField(values[i], 30);
+                path.setName("params-dir-text:" + p.token);
+                path.setToolTipText(p.hint);
+                path.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                    void keep() {
+                        values[index] = path.getText().trim();
+                    }
+
+                    public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+
+                    public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+
+                    public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                        keep();
+                    }
+                });
+                JButton browse = new JButton("Browse");
+                browse.setName("params-dir:" + p.token);
+                browse.addActionListener(e -> {
+                    String now = path.getText().trim();
+                    File start = now.length() > 0 && !now.contains("%") ? new File(now) : null;
+                    JFileChooser chooser = new JFileChooser(start);
+                    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+                    chooser.setDialogTitle("Directory");
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    path.setText(chooser.getSelectedFile().getAbsolutePath());
+                });
+                row.add(browse, BorderLayout.WEST);
+                row.add(path, BorderLayout.CENTER);
+                JButton clear = new JButton("Clear");
+                clear.setName("params-clear:" + p.token);
+                clear.addActionListener(e -> path.setText(""));
+                row.add(clear, BorderLayout.EAST);
+                form.add(this.withUse(p, i, row, path, uses, off));
                 continue;
             }
             if (p.dir) {
@@ -3092,6 +3269,7 @@ final class PyJav {
                 final JLabel chosen = new JLabel(values[i].length() == 0 ? "None" : new File(values[i]).getName());
                 chosen.setName("params-chosen:" + p.token);
                 fileLabels[i] = chosen;
+                final JButton[] rowEdit = new JButton[1];
                 JButton pick = new JButton(p.plugin ? "Choose plugin" : "any".equals(p.ext) ? "Choose file" : "Choose ." + p.ext);
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
@@ -3100,11 +3278,14 @@ final class PyJav {
                     File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : lastVstFolder();
                     JFileChooser chooser = new JFileChooser(start);
                     chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-                    chooser.setDialogTitle("VST plugin (.dll, .vst3)");
+                    chooser.setDialogTitle("Plugin (.dll, .vst3, .clap, .lv2) or SoundFont (.sf2, .sfz)");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
+                    this.editRow = rowEdit[0];
+                    this.dllNotice(pick, chooser.getSelectedFile());
+                    this.editRow = null;
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
@@ -3173,11 +3354,15 @@ final class PyJav {
                             values[index] = picked.getAbsolutePath();
                             chosen.setText(picked.getName());
                             rememberVstFolder(picked.getParentFile());
+                            this.editRow = rowEdit[0];
+                            this.dllNotice(plugins, picked);
+                            this.editRow = null;
                         });
                         picks.add(plugins);
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
                         // as the Plugins list's Edit settings does, without going there.
                         JButton editSettings = new JButton("Edit settings");
+                        rowEdit[0] = editSettings;
                         editSettings.setName("params-plugin-edit:" + p.token);
                         editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
                         // Stop timer: pressed when the kit has loaded (its load time is how long a test waits for it).
@@ -3188,23 +3373,45 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
+                            if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
                             stopTimer.setText("Stop timer");
                             app.setNow(PluginsList.testing(plug, true));
+                            final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
                             PluginsList.test(this, plug, true, log -> {
+                                tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
+                                // What it came to, always in a window: why it did not open (a 32-bit plugin without Carla,
+                                // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
+                                String failed = PluginsList.failed(log);
+                                pluginTestSaid = failed == null ? "" : failed;
+                                if (!pluginTestQuiet)
+                                    JOptionPane.showMessageDialog(editSettings, PluginsList.result(plug, true, log), "Edit settings \u00b7 " + plug.getName(),
+                                        failed != null ? JOptionPane.WARNING_MESSAGE : JOptionPane.PLAIN_MESSAGE);
                             });
                         });
                         picks.add(editSettings);
                         picks.add(stopTimer);
+                        // Test: the plugin plays the test beat (its own window not opened); says whether it plays drums.
+                        JButton test = new JButton("Test");
+                        test.setName("params-plugin-test:" + p.token);
+                        test.setToolTipText("Plays the test beat through this plugin and says whether its drums are heard");
+                        test.addActionListener(e -> this.testPluginRow(test, ps, values, p.token, values[index]));
+                        picks.add(test);
                     }
                     picks.add(this.clearButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 }
                 row.add(chosen, BorderLayout.CENTER);
+                // Plugin 1 to 4: a plugin dragged from Favourites or Recently used lands here.
+                if (p.plugin && p.token.matches("--plugin\\d?")) {
+                    javax.swing.TransferHandler drop = this.pluginDrop(ps, values, fileLabels, uses, p.token);
+                    row.setTransferHandler(drop);
+                    chosen.setTransferHandler(drop);
+                }
                 if ("mid".equals(p.ext)) {
                     // DrumMidi's MIDI is kept with the file set it made (source.mid), not as a file to browse to.
                     JButton fromSet = new JButton("From file set");
@@ -3485,8 +3692,13 @@ final class PyJav {
             JButton saveSection = new JButton(SogniSections.SAVE);
             saveSection.setName("params-save-section");
             saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
-            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+            // Export: the same rows written into a file picked, not the prompt library.
+            JButton exportSection = new JButton(ParamsClip.EXPORT);
+            exportSection.setName("params-export-section");
+            exportSection.addActionListener(e -> this.exportSection(exportSection, SogniSections.app(program), ps, fields, areas));
+            JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
             south.add(saveSection);
+            south.add(exportSection);
             box.add(south, BorderLayout.SOUTH);
         }
         // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
@@ -3542,7 +3754,7 @@ final class PyJav {
      * A file or folder switch's row with its Use box in front (ticked: the file is in the run;
      * unticked: it stays chosen, greyed, and the run leaves it out). Other rows as they are.
      */
-    java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, JLabel chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
+    java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, javax.swing.JComponent chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
         if (!ProgramParams.canTurnOff(p)) return row;
         final javax.swing.JCheckBox use = new javax.swing.JCheckBox("Use", !off.contains(p.token));
         use.setName("params-use:" + p.token);
@@ -3762,12 +3974,35 @@ final class PyJav {
         if (names.isEmpty()) return form;
         java.awt.Component[] all = form.getComponents();
         java.util.LinkedHashMap<String, JPanel> pages = new java.util.LinkedHashMap<String, JPanel>();
-        for (String t : names) pages.put(t, new JPanel(new GridLayout(0, 2, 8, 6)));
+        // Each page's rows: the label only as wide as the page's labels, the rest for the row's buttons and names.
+        for (String t : names) pages.put(t, new JPanel(new java.awt.GridBagLayout()));
+        java.util.Map<String, int[]> rowsIn = new java.util.HashMap<String, int[]>();
         String last = names.get(names.size() - 1);
         for (int i = 0; i < ps.size(); i++) {
             int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
-            JPanel page = pages.get(ps.get(i).tab != null ? ps.get(i).tab : last);
-            for (int k = rowStarts[i]; k < end; k++) page.add(all[k]);
+            String tab = ps.get(i).tab != null ? ps.get(i).tab : last;
+            JPanel page = pages.get(tab);
+            int[] at = rowsIn.computeIfAbsent(tab, x -> new int[] {0, 0});
+            for (int k = rowStarts[i]; k < end; k++) {
+                java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+                c.gridx = at[1] % 2;
+                c.gridy = at[1] / 2;
+                c.weightx = c.gridx == 0 ? 0 : 1;
+                c.fill = java.awt.GridBagConstraints.HORIZONTAL;
+                c.anchor = java.awt.GridBagConstraints.WEST;
+                c.insets = new java.awt.Insets(3, 0, 3, c.gridx == 0 ? 12 : 0);
+                // A long label wraps (two lines) instead of widening the label column.
+                if (c.gridx == 0 && all[k] instanceof JLabel) {
+                    JLabel l = (JLabel) all[k];
+                    String text = l.getText();
+                    if (text != null && !text.startsWith("<html>") && l.getPreferredSize().width > TAB_LABEL_WIDTH) {
+                        l.setToolTipText(text);
+                        l.setText("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + text.replace("&", "&amp;").replace("<", "&lt;") + "</body></html>");
+                    }
+                }
+                page.add(all[k], c);
+                at[1]++;
+            }
         }
         final javax.swing.JTabbedPane tabs = new javax.swing.JTabbedPane();
         tabs.setName("params-tabs");
@@ -3775,14 +4010,148 @@ final class PyJav {
             JPanel holder = new JPanel(new BorderLayout(0, 10));
             holder.add(e.getValue(), BorderLayout.NORTH);
             if (ProgramParams.PLUGINS.equals(e.getKey())) holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+            if (ProgramParams.FILES.equals(e.getKey())) holder.add(this.filesPanel(), BorderLayout.CENTER);
             holder.setName("params-tab:" + e.getKey());
             tabs.addTab(e.getKey(), holder);
         }
+        // The tab open last, also after Pulsekit is started again (~/.pulsekit/params-tab.txt).
+        final File home = new File(System.getProperty("user.home", "."));
+        if (paramsTab == null && PluginFiles.kept(PluginFiles.paramsTabFile(home)).length() > 0) paramsTab = PluginFiles.kept(PluginFiles.paramsTabFile(home));
         int at = paramsTab == null ? -1 : names.indexOf(paramsTab);
         if (at >= 0) tabs.setSelectedIndex(at);
-        tabs.addChangeListener(e -> paramsTab = tabs.getTitleAt(tabs.getSelectedIndex()));
+        tabs.addChangeListener(e -> {
+            paramsTab = tabs.getTitleAt(tabs.getSelectedIndex());
+            PluginFiles.keep(PluginFiles.paramsTabFile(home), paramsTab);
+        });
         return tabs;
     }
+
+    /** A .dll picked for a plugin row: said at once when it is a 32-bit plugin (Carla's bridge plays it) or no plugin. */
+    void dllNotice(java.awt.Component at, File f) {
+        String problem = DllInfo.problem(f);
+        if (problem == null && f != null && DllInfo.isSoundFont(f)) app.setNow(DllInfo.SOUNDFONT);
+        if (problem == null) return;
+        File rack = DllInfo.BRIDGED.equals(problem) ? carlaRack() : null;
+        String text = DllInfo.BRIDGED.equals(problem) ? DllInfo.bridgedNote(f, rack) : "\u2718 " + problem;
+        pluginTestSaid = text;
+        app.setNow(text.split("\n")[0]);
+        if (pluginTestQuiet) return;
+        if (rack != null && editRow != null) {
+            // A 32-bit plugin and Carla's rack found: its window (the rack, the plugin in it) opened now, when asked.
+            int ans = JOptionPane.showOptionDialog(at, text + "\n\nOpen it in Carla's rack now to load its kit (Edit settings)?", "Plugin \u00b7 " + f.getName(),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null, new Object[] {"Open in Carla", "Not now"}, "Open in Carla");
+            if (ans == 0) editRow.doClick();
+        } else {
+            JOptionPane.showMessageDialog(at, text, "Plugin \u00b7 " + f.getName(), DllInfo.BRIDGED.equals(problem) ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    /** The row's Edit settings while its plugin is being chosen (Open in Carla presses it). */
+    private JButton editRow;
+
+    /** Carla's rack in the plugin folders (and Carla's usual places), kept for vst_render when found. */
+    static File carlaRack() {
+        File rack = DllInfo.carlaRack(pluginFolders());
+        DllInfo.keepRack(PromptDb.dir(), rack);
+        return rack;
+    }
+
+    /** The VST folders Pulsekit looks in (Plugin folders). */
+    static List<String> pluginFolders() {
+        PluginLibrary.load(PromptDb.dir());
+        String home = System.getProperty("user.home", ".");
+        List<String> out = new ArrayList<String>(PluginLibrary.folders(PluginLibrary.VST3, false, home));
+        for (String f : PluginLibrary.folders(PluginLibrary.VST2, false, home)) if (!out.contains(f)) out.add(f);
+        return out;
+    }
+
+    /** The tests: the Params' plugin Test said last (the verdict), and whether to show it in a window. */
+    static volatile String pluginTestSaid = "";
+    static boolean pluginTestQuiet;
+
+    /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
+    void testPluginRow(final JButton test, List<ProgramParams.Param> ps, String[] values, String token, String path) {
+        if (path == null || path.length() == 0 || !new File(path).exists()) {
+            app.setNow("Choose a plugin first (" + token + ")");
+            return;
+        }
+        final File plug = new File(path);
+        String problem = DllInfo.problem(plug);
+        if (DllInfo.BRIDGED.equals(problem) || DllInfo.isLv2(plug)) carlaRack();
+        if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+            pluginTestSaid = "\u2718 " + problem;
+            app.setNow(pluginTestSaid);
+            if (!pluginTestQuiet) JOptionPane.showMessageDialog(test, pluginTestSaid, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+            return;
+        }
+        List<String> extra = new ArrayList<String>();
+        String mapToken = token.equals("--plugin") ? "--map" : token.replace("--plugin", "--map");
+        for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals(mapToken) && values[i] != null && values[i].trim().length() > 0) {
+            extra.add("--map");
+            extra.add(values[i].trim());
+        }
+        VstLists.unpackMaps();
+        try {
+            File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");
+            List<String> with = JavaRun.withDrumMidi("vst_render.py", new ArrayList<String>(java.util.Arrays.asList("--test")), jar, ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+            with.remove("--test");
+            extra.addAll(with);
+        } catch (Exception ex) {
+            // without the jar: only whether it plays
+        }
+        test.setEnabled(false);
+        app.setNow(PluginsList.testing(plug, false));
+        // While it runs: the time taken on the button, what it is doing in the status line.
+        final javax.swing.Timer tick = PluginsList.ticker(p -> {
+            test.setText(p.split(" ")[0]);
+            app.setNow("Testing " + plug.getName() + ": " + p);
+        });
+        PluginsList.test(pluginTestQuiet ? null : this, plug, false, extra, log -> {
+            tick.stop();
+            test.setText("Test");
+            test.setEnabled(true);
+            String v = PluginsList.verdict(plug.getName(), log);
+            pluginTestSaid = v;
+            app.setNow(v.split("\n")[0]);
+            // A plugin whose pads are on other notes: Test's note map from their sounds, put in map.txt when asked.
+            lastSuggestion = PluginFiles.suggestion(log);
+            if (pluginTestQuiet) return;
+            if (lastSuggestion == null) {
+                JOptionPane.showMessageDialog(test, v, "Test \u00b7 " + plug.getName(), JOptionPane.PLAIN_MESSAGE);
+                return;
+            }
+            this.offerSuggestion(test, plug, v, lastSuggestion);
+        });
+    }
+
+    /** Test's suggested note map shown last (for the tests). */
+    static PluginFiles.Suggestion lastSuggestion;
+
+    /**
+     * Test's verdict with its suggested note map: Add to map.txt (the plugin's section replaced or added),
+     * Edit first (map.txt's editor with the lines in it), or Not now.
+     */
+    void offerSuggestion(java.awt.Component at, File plug, String verdict, PluginFiles.Suggestion s) {
+        File home = new File(System.getProperty("user.home", "."));
+        javax.swing.JTextArea text = new javax.swing.JTextArea(verdict + "\n\nSome of its drums are on other notes. A note map from their sounds (each pad played alone), for map.txt:\n\n"
+            + PluginFiles.suggestionText(s), 22, 80);
+        text.setEditable(false);
+        text.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 12));
+        int ans = JOptionPane.showOptionDialog(at, new JScrollPane(text), "Test \u00b7 " + plug.getName(), JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+            new Object[] {"Add to map.txt", "Edit first", "Not now"}, "Add to map.txt");
+        File map = PluginFiles.noteMap(home);
+        if (ans == 0) {
+            boolean ok = PluginFiles.addSuggestion(home, s);
+            app.setNow(ok ? "Added [" + s.section + "] to " + map.getPath() + ": Test again to hear it" : "Could not write " + map.getPath());
+        } else if (ans == 1) {
+            String before = PluginFiles.mapText(map);
+            PluginFiles.write(map, PluginFiles.withSection(before, s.section, s.lines));
+            if (!this.editNoteMap(at, map)) PluginFiles.write(map, before);
+        }
+    }
+
+    /** The widest a tab page's label is before it wraps (vst_render's Params: room for the rows' buttons and names). */
+    static final int TAB_LABEL_WIDTH = 300;
 
     /** A plugin's file name for a list: "Riot Drums.vst3". */
     static String plugName(String path) {
@@ -3835,6 +4204,158 @@ final class PyJav {
         return out;
     }
 
+    /**
+     * The Files &amp; locations tab: Carla's program and rack plugin (Browse keeps them in ~/.pulsekit, where
+     * vst_render looks first) and the note map, map.txt (Edit: its text, with the pads' notes at hand).
+     */
+    JPanel filesPanel() {
+        final File home = new File(System.getProperty("user.home", "."));
+        JPanel out = new JPanel(new java.awt.GridBagLayout());
+        out.setName("params-files");
+        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+        c.anchor = java.awt.GridBagConstraints.WEST;
+        c.fill = java.awt.GridBagConstraints.HORIZONTAL;
+        c.insets = new java.awt.Insets(4, 0, 4, 8);
+        c.gridy = 0;
+        this.locationRow(out, c, "carla-app", PluginFiles.CARLA_APP, PluginFiles.carlaAppFile(home), () -> null, true);
+        this.locationRow(out, c, "carla-rack", PluginFiles.CARLA_RACK, PluginFiles.carlaRackFile(home), () -> carlaRack(), false);
+        // Note names: as the plugin names them (DigiDrum's C-4 is note 48); the pads, Test and map.txt follow it.
+        c.gridx = 0;
+        c.weightx = 0;
+        out.add(new JLabel("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + PluginFiles.NOTE_NAMES + "</body></html>"), c);
+        PluginFiles.loadNoteNames(home);
+        final javax.swing.JComboBox<String> naming = new javax.swing.JComboBox<String>(Engine.NOTE_NAMING_LABELS);
+        naming.setName("params-files-note-names");
+        for (int k = 0; k < Engine.NOTE_NAMINGS.length; k++) if (Engine.NOTE_NAMINGS[k] == Engine.noteOctaveAt0) naming.setSelectedIndex(k);
+        naming.addActionListener(e -> {
+            PluginFiles.saveNoteNames(home, Engine.NOTE_NAMINGS[naming.getSelectedIndex()]);
+            app.playback.refreshPadLabels();
+            app.setNow("Note names: " + PluginFiles.label() + " (Kick 36 is " + Engine.noteName(36) + ")");
+        });
+        JPanel namingRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        namingRow.add(naming);
+        c.gridx = 1;
+        c.weightx = 1;
+        out.add(namingRow, c);
+        c.gridy++;
+        c.gridx = 0;
+        c.weightx = 0;
+        out.add(new JLabel("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + PluginFiles.NOTE_MAP + "</body></html>"), c);
+        JPanel mapRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        final File map = PluginFiles.noteMap(home);
+        final JLabel mapAt = new JLabel(map.isFile() ? map.getPath() : map.getPath() + " (not made yet)");
+        mapAt.setName("params-files-map-path");
+        JButton edit = new JButton("Edit");
+        edit.setName("params-files-map-edit");
+        edit.setToolTipText("Opens map.txt: which notes go to which of the plugin's pads (Pads & notes shows Pulsekit's)");
+        edit.addActionListener(e -> {
+            if (this.editNoteMap(edit, map)) mapAt.setText(map.getPath());
+        });
+        JButton notes = new JButton(PluginFiles.PAD_NOTES);
+        notes.setName("params-files-pad-notes");
+        notes.addActionListener(e -> padNotesWindow(notes));
+        mapRow.add(edit);
+        mapRow.add(notes);
+        mapRow.add(mapAt);
+        c.gridx = 1;
+        c.weightx = 1;
+        out.add(mapRow, c);
+        return out;
+    }
+
+    /** A location row: its label, the path kept (or found), Browse… and Clear. */
+    private void locationRow(JPanel out, java.awt.GridBagConstraints c, String name, String label, final File kept, final java.util.function.Supplier<File> found,
+        final boolean isApp) {
+        c.gridx = 0;
+        c.weightx = 0;
+        out.add(new JLabel("<html><body style='width:" + TAB_LABEL_WIDTH + "px'>" + label + "</body></html>"), c);
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        final JLabel at = new JLabel();
+        at.setName("params-files-path:" + name);
+        final Runnable show = () -> at.setText(PluginFiles.shown(PluginFiles.kept(kept), PluginFiles.kept(kept).length() > 0 ? null : found.get()));
+        show.run();
+        JButton browse = new JButton("Browse\u2026");
+        browse.setName("params-files-browse:" + name);
+        browse.addActionListener(e -> {
+            String now = PluginFiles.kept(kept);
+            JFileChooser chooser = new JFileChooser(now.length() > 0 ? new File(now).getParentFile() : lastVstFolder());
+            chooser.setDialogTitle(isApp ? "Carla's program (Carla.exe)" : "Carla's rack plugin (CarlaVstShell.dll, Carla-Rack)");
+            chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+            if (chooser.showOpenDialog(browse) != JFileChooser.APPROVE_OPTION) return;
+            this.keepLocation(browse, kept, chooser.getSelectedFile(), isApp);
+            show.run();
+        });
+        JButton clear = new JButton("Clear");
+        clear.setName("params-files-clear:" + name);
+        clear.addActionListener(e -> {
+            PluginFiles.keep(kept, "");
+            show.run();
+        });
+        row.add(browse);
+        row.add(clear);
+        row.add(at);
+        c.gridx = 1;
+        c.weightx = 1;
+        out.add(row, c);
+        c.gridy++;
+    }
+
+    /** A Carla location picked: kept (and said when it is not what the row is for). */
+    void keepLocation(java.awt.Component at, File kept, File picked, boolean isApp) {
+        boolean right = isApp ? PluginFiles.isCarlaApp(picked) : DllInfo.isRack(picked);
+        PluginFiles.keep(kept, picked.getAbsolutePath());
+        String said = (right ? "Kept: " : "Kept, though it is not named as Carla's " + (isApp ? "program (Carla.exe)" : "rack (CarlaVstShell.dll, Carla-Rack)") + ": ") + picked.getPath();
+        app.setNow(said);
+        locationSaid = said;
+    }
+
+    /** What a Carla location's Browse said last (for the tests). */
+    static String locationSaid = "";
+
+    /** The note map's editor: its text (the template when new), Save, Pads &amp; notes, Cancel. True when saved. */
+    boolean editNoteMap(java.awt.Component at, File map) {
+        final javax.swing.JTextArea text = new javax.swing.JTextArea(PluginFiles.mapText(map), 22, 70);
+        text.setName("params-files-map-text");
+        text.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13));
+        JPanel box = new JPanel(new BorderLayout(0, 6));
+        box.add(new JScrollPane(text), BorderLayout.CENTER);
+        JButton notes = new JButton(PluginFiles.PAD_NOTES);
+        notes.setName("params-files-map-pad-notes");
+        notes.addActionListener(e -> padNotesWindow(notes));
+        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        top.add(new JLabel(map.getPath()));
+        top.add(notes);
+        box.add(top, BorderLayout.NORTH);
+        lastMapText = text;
+        int ans = JOptionPane.showOptionDialog(at, box, "Note map \u00b7 map.txt", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+            new Object[] {"Save", "Cancel"}, "Save");
+        if (ans != 0) return false;
+        boolean ok = PluginFiles.write(map, text.getText());
+        app.setNow(ok ? "Saved " + map.getPath() : "Could not save " + map.getPath());
+        return ok;
+    }
+
+    /** The note map editor's text shown last (for the tests). */
+    static javax.swing.JTextArea lastMapText;
+
+    /** Pulsekit's pads with their MIDI notes, beside the map's editor (not modal). */
+    static void padNotesWindow(java.awt.Component at) {
+        javax.swing.JTextArea t = new javax.swing.JTextArea(PluginFiles.padNotes());
+        t.setEditable(false);
+        t.setName("params-pad-notes-text");
+        t.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13));
+        javax.swing.JDialog d = new javax.swing.JDialog(SwingUtilities.getWindowAncestor(at), PluginFiles.PAD_NOTES, java.awt.Dialog.ModalityType.MODELESS);
+        d.setName("params-pad-notes");
+        d.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
+        d.add(new JScrollPane(t));
+        d.pack();
+        d.setLocationRelativeTo(at);
+        d.setVisible(true);
+        lastPadNotes = d;
+    }
+
+    static javax.swing.JDialog lastPadNotes;
+
     /** One of the Plugins tab's plugin lists: a click shows Use as plugin 1 to 4. */
     JPanel pickList(String title, String name, javax.swing.DefaultListModel<String> model, final List<ProgramParams.Param> ps, final String[] values,
         final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, String empty) {
@@ -3861,8 +4382,55 @@ final class PyJav {
                 useMenu(ps, values, fileLabels, uses, list.getModel().getElementAt(at)).show(list, ev.getX(), ev.getY());
             }
         });
+        // Dragged onto a plugin row: that row's plugin.
+        list.setDragEnabled(true);
+        list.setTransferHandler(new javax.swing.TransferHandler() {
+            @Override
+            public int getSourceActions(javax.swing.JComponent c) {
+                return COPY;
+            }
+
+            @Override
+            protected java.awt.datatransfer.Transferable createTransferable(javax.swing.JComponent c) {
+                String v = list.getSelectedValue();
+                return v == null ? null : new java.awt.datatransfer.StringSelection(v);
+            }
+        });
         box.add(new JScrollPane(list), BorderLayout.CENTER);
+        JLabel tip = new JLabel("Click: Use as plugin 1 to 4; or drag onto a plugin row");
+        tip.setFont(tip.getFont().deriveFont(11f));
+        box.add(tip, BorderLayout.SOUTH);
         return box;
+    }
+
+    /** A plugin row taking a plugin dragged from Favourites or Recently used (or a plugin file from the desktop). */
+    javax.swing.TransferHandler pluginDrop(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses,
+        final String token) {
+        return new javax.swing.TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport s) {
+                return s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor) || s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor);
+            }
+
+            @Override
+            public boolean importData(TransferSupport s) {
+                try {
+                    String path;
+                    if (s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) {
+                        List<?> files = (List<?>) s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.javaFileListFlavor);
+                        if (files.isEmpty()) return false;
+                        path = ((File) files.get(0)).getAbsolutePath();
+                    } else {
+                        path = String.valueOf(s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor)).trim();
+                    }
+                    if (path.length() == 0 || !new File(path).exists()) return false;
+                    usePlugin(ps, values, fileLabels, uses, token, path);
+                    return true;
+                } catch (Exception ex) {
+                    return false;
+                }
+            }
+        };
     }
 
     /** The menu a listed plugin shows: Use as plugin 1 to 4 (the page's plugin rows). */

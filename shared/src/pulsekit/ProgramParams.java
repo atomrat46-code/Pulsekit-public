@@ -72,6 +72,11 @@ public final class ProgramParams {
      */
     public boolean dir;
     /**
+     * A folder whose full path is shown in a text field (vst_render's --zip_outdir): Browse puts the
+     * picked folder in it, and the path can then be written on, % codes and all.
+     */
+    public boolean typed;
+    /**
      * A VST2 or VST3 plugin (vst_render.py's --plugin and --effect): on the desktop the row's chooser
      * starts in the computer's VST folders and also takes a .vst3 bundle folder.
      */
@@ -219,9 +224,9 @@ public final class ProgramParams {
     return out;
   }
 
-  /** The usage text after "Usage:", with Java "..." + "..." joins removed, up to the end of the string or line. */
+  /** The usage text after "Usage:" (up to 2000 characters: vst_render's is long), with Java "..." + "..." joins removed, up to the end of the string or line. */
   static String usageLine(String text, int from) {
-    String tail = text.substring(from, Math.min(text.length(), from + 800));
+    String tail = text.substring(from, Math.min(text.length(), from + 2000));
     tail = tail.replaceAll("\"\\s*\\+\\s*\"", "");
     int end = tail.length();
     int q = tail.indexOf('"');
@@ -345,6 +350,11 @@ public final class ProgramParams {
     if (drumMidi && p.flag && p.token.equals("--zip_mb")) {
       p.label = "Zips of at most this many MB each (zip implied)";
       p.hint = "empty: one zip; e.g. 5 makes part1of3, part2of3...";
+    }
+    // DrumMidi_CRT's drum sound library profile: Pulsekit gives its own when there is one.
+    if (drumMidi && p.flag && p.token.equals("--library")) {
+      p.label = "Drum sound library profile (kick and toms told apart by your library's sounds when no kit profile is given)";
+      p.hint = "empty: Pulsekit's drum-library.kit when the library has a ready kick and tom; none: not used";
     }
     if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
       p.label = "Zip folder (made when missing)";
@@ -696,15 +706,17 @@ public final class ProgramParams {
 
   /** vst_render's Params tabs: what it plays, what it writes, the plugins, and the test's settings. */
   public static final String INPUT = "Input", OUTPUT = "Output", PLUGINS = "Plugins", SETTINGS = "Settings";
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS};
+  public static final String FILES = PluginFiles.TAB;
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES};
 
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (t.equals("--note_map")) return FILES;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
-    if (t.startsWith("--plugin") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+    if (t.startsWith("--plugin") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
   }
@@ -739,7 +751,7 @@ public final class ProgramParams {
       p.hint = "a .mid; every channel is played";
       p.refs = true;
     } else if (p.token.equals("--plugin")) {
-      p.label = "Plugin (VST2 .dll / VST3 .vst3)";
+      p.label = "Plugin (VST2 .dll / VST3 .vst3) or SoundFont (.sf2 / .sfz)";
       p.ext = "any";
       p.plugin = true;
     } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3") || p.token.equals("--plugin4")) {
@@ -757,7 +769,7 @@ public final class ProgramParams {
       p.ext = "any";
       p.plugin = true;
     } else if (p.token.equals("--clap_id")) {
-      p.label = "CLAP plugin id (a .clap with several plugins; --scan lists them)";
+      p.label = "Plugin id: a .clap's plugin, or an LV2 bundle's (x42 AVL Drumkits: its kit, \"Red Zeppelin\"; Test lists them)";
       p.hint = "empty: the file's first plugin";
     } else if (p.token.equals("--drumgizmo")) {
       p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";
@@ -827,6 +839,8 @@ public final class ProgramParams {
       p.label = "No toms in the test (DrumMidi writes none, the report leaves them out)";
     } else if (p.token.equals("--snare-leak")) {
       p.label = "Snare leak in the test: DrumMidi leaves out hats a bright snare makes (fewer false hats, a few real ones lost)";
+    } else if (p.token.equals("--faded-opens")) {
+      p.label = "Faded opens in the test: DrumMidi writes open hats that fade like closed ones as closed (more closed hats right, some open ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
     } else if (p.token.equals("--compare_kits")) {
@@ -834,6 +848,15 @@ public final class ProgramParams {
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
       p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT, Artillery), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+    } else if (p.token.equals("--parts")) {
+      p.label = "Parts: the drums split between the plugin rows, played in one run and mixed into one WAV (kick=2: the kick by plugin 2)";
+      p.hint = "kick=2,snare=1,toms=1,cymbals=3 (also hats); the notes not named: plugin 1; empty: each plugin its own run";
+    } else if (p.token.equals("--chokes")) {
+      p.label = "Chokes: the plugin's choke notes (a cymbal = its choked one); Test plays them alone after the test beat and says what DrumMidi wrote there";
+      p.hint = "x42 AVL Drumkits: 49=50,51=52,57=58; empty: none";
+    } else if (p.token.equals("--note_map")) {
+      p.label = "Note map: the MIDI's notes sent to the plugin's pads (36=48: the kick on its pad 48; 41=none), or a text file of them ([plugin name] sections)";
+      p.hint = "empty: map.txt below (Edit), its lines for the plugin; pairs such as 36=48,38=50 or a file";
     } else if (p.token.equals("--no-map")) {
       p.label = "Test with no map (else, with --map empty, drum-kits.txt's section for the plugin is used when it has one)";
     } else if (p.token.equals("--map2") || p.token.equals("--map3") || p.token.equals("--map4")) {
@@ -861,6 +884,7 @@ public final class ProgramParams {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
     } else if (p.token.equals("--zip_outdir")) {
       p.dir = true;
+      p.typed = true;
       p.label = "Copy the run's zips (and the test results zip) into this folder too";
       p.hint = "empty: the zips stay beside the WAVs; % codes: %ddmmyyyy, run-%n (the next free number)";
     }

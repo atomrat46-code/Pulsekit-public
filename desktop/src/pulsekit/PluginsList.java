@@ -39,7 +39,7 @@ final class PluginsList {
     private PluginsList() {}
 
     static final String FAVOURITES_KEY = "vstFavourites";
-    static final String[] ENDS = {".vst3", ".dll", ".vst", ".component", ".so"};
+    static final String[] ENDS = {".vst3", ".dll", ".vst", ".component", ".so", ".sf2", ".sfz"};
     /** How deep the VST folders are looked through (makers keep their plugins in folders of their own). */
     static final int DEPTH = 4;
 
@@ -153,7 +153,7 @@ final class PluginsList {
     /** What Info says: the plugin's kind, file and date, and whether a kit or patch was saved for it. */
     static String info(File f) {
         String low = f.getName().toLowerCase(java.util.Locale.ROOT);
-        String kind = low.endsWith(".vst3") ? "VST3" : low.endsWith(".dll") || low.endsWith(".so") || low.endsWith(".vst") ? "VST2" : "Audio Unit";
+        String kind = DllInfo.isSoundFont(f) ? "SoundFont, played with Midi2Wav" : low.endsWith(".vst3") ? "VST3" : low.endsWith(".dll") || low.endsWith(".so") || low.endsWith(".vst") ? "VST2" : "Audio Unit";
         java.text.SimpleDateFormat day = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm");
         StringBuilder b = new StringBuilder(name(f)).append(" (").append(kind).append(f.isDirectory() ? ", a bundle folder" : "").append(")\n");
         b.append(f.getAbsolutePath()).append('\n');
@@ -283,14 +283,24 @@ final class PluginsList {
         final java.util.function.Consumer<Boolean> run = editFirst -> {
             File f = list.getSelectedValue();
             if (f == null) return;
+            // A .dll that is no plugin: said at once, nothing run.
+            String problem = DllInfo.problem(f);
+            if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
+                about.setText("\u2718 " + problem + "\n\n" + info(f));
+                return;
+            }
+            if (DllInfo.BRIDGED.equals(problem)) PyJav.carlaRack();
             for (JButton b : busy) b.setEnabled(false);
             stopTimer.setEnabled(editFirst);
             stopTimer.setText("Stop timer");
             about.setText(testing(f, editFirst));
+            final String head = testing(f, editFirst);
+            final javax.swing.Timer tick = ticker(p -> about.setText(head + "\n" + p));
             test(pj, f, editFirst, log -> {
+                tick.stop();
                 for (JButton b : busy) b.setEnabled(true);
                 stopTimer.setEnabled(false);
-                about.setText(summary(log) + "\n\n" + info(f));
+                about.setText(result(f, editFirst, log) + "\n\n" + info(f));
             });
         };
         use.addActionListener(e -> useIt.run());
@@ -376,6 +386,26 @@ final class PluginsList {
         return b;
     }
 
+    /**
+     * While a Test or Edit settings runs: every second, `show` gets the time it has taken and what it is
+     * doing (vst_render's last line): "0:24 · Working: playing each of its 5 pads alone". Stopped by the caller.
+     */
+    static javax.swing.Timer ticker(final java.util.function.Consumer<String> show) {
+        final long start = System.currentTimeMillis();
+        javax.swing.Timer t = new javax.swing.Timer(1000, e -> show.accept(progress(System.currentTimeMillis() - start, PythonRun.lastLine)));
+        t.setInitialDelay(0);
+        t.start();
+        return t;
+    }
+
+    /** "0:24 · what it does" (the line shortened to 110 characters). */
+    static String progress(long millis, String line) {
+        long s = millis / 1000;
+        String what = line == null ? "" : line.replaceFirst("^\\$ .*", "starting").trim();
+        if (what.length() > 110) what = what.substring(0, 107) + "\u2026";
+        return String.format(java.util.Locale.ROOT, "%d:%02d", s / 60, s % 60) + (what.length() > 0 ? " \u00b7 " + what : "");
+    }
+
     /** What the info says while a test or Edit runs. */
     static String testing(File f, boolean editFirst) {
         return editFirst ? "Edit settings: " + name(f) + "'s window opens (Windows and Mac). Load a kit or patch, then close it: "
@@ -387,10 +417,16 @@ final class PluginsList {
      * test beat opens in WAV ready; `done` gets the log on the window's thread.
      */
     static void test(final PyJav pj, final File f, final boolean editFirst, final java.util.function.Consumer<String> done) {
+        test(pj, f, editFirst, null, done);
+    }
+
+    /** The test with more arguments (`extra`: the row's --map, DrumMidi's jar for the kit's drums). */
+    static void test(final PyJav pj, final File f, final boolean editFirst, final List<String> extra, final java.util.function.Consumer<String> done) {
         new Thread(() -> {
             String src = ProgramFiles.bundledSource("vst_render.py");
             List<String> argv = new ArrayList<String>(Arrays.asList("--plugin", f.getAbsolutePath(), "--check"));
             if (editFirst) argv.add("--edit");
+            if (extra != null) argv.addAll(extra);
             PythonRun.Result r = src == null ? null : PythonRun.run(src, "vst_render.py", argv);
             String log = r == null ? "vst_render.py is not bundled." : r.log;
             lastTest = log;
@@ -414,13 +450,76 @@ final class PluginsList {
         return i;
     }
 
+    /**
+     * The Params' Test: whether the plugin plays drums. Its test beat played (vst_render --check) and, with
+     * DrumMidi's jar, the kit learned from it: which of the kick, toms and cymbals were heard. The verdict
+     * first (\u2714 plays drums, all heard; \u26a0 plays, some drums silent; \u2718 plays nothing), then the lines it rests on.
+     */
+    static String verdict(String name, String log) {
+        String kit = "", failed = "", check = "", sameKit = "";
+        for (String l : log.split("\n")) {
+            String t = l.trim();
+            if (t.startsWith("Kit: ") && (t.contains("kick") || t.contains("not learned") || t.contains("silent"))) kit = t;
+            if (t.startsWith("Failed")) failed = t;
+            if (t.startsWith("Plugin check")) check = t;
+            if (t.startsWith("Kit check:")) sameKit = "\u26a0 " + t.substring("Kit check: ".length());
+        }
+        boolean plays = check.contains("the test beat plays");
+        String head;
+        if (!plays && failed.length() > 0 && !failed.contains("plays nothing")) {
+            // It did not load or start (a 32-bit plugin without Carla, a .dll that is no plugin...): why.
+            head = "\u2718 " + name + " could not play: " + failed.replaceFirst("^Failed:\\s*", "");
+        } else if (!plays) {
+            head = "\u2718 " + name + " plays no drums" + (failed.length() > 0 ? ": " + failed.replaceFirst("^Failed:\\s*", "") : "");
+        } else if (kit.contains("not learned") || kit.contains("silent in this kit") || kit.contains("cymbals not heard") || kit.contains("no tom played")) {
+            StringBuilder what = new StringBuilder();
+            for (String part : kit.split(";")) {
+                String q = part.trim();
+                if (q.startsWith("silent in this kit") || q.startsWith("cymbals not heard") || q.startsWith("nothing to read") || q.contains("not learned")) what.append(what.length() == 0 ? "" : "; ").append(q);
+            }
+            head = "\u26a0 " + name + " plays, but some drums were not heard" + (what.length() > 0 ? ": " + what : "");
+        } else if (kit.length() > 0) {
+            head = "\u2714 " + name + " plays drums: the kick, toms and cymbals of the test beat were heard";
+        } else {
+            head = "\u2714 " + name + " plays (" + check.replaceFirst("^Plugin check:\\s*", "") + ")";
+        }
+        // The lines it rests on, without the Failed line the verdict says already.
+        StringBuilder rest = new StringBuilder();
+        for (String l : summary(log).split("\n")) if (!(l.trim().startsWith("Failed") && head.contains(l.trim().replaceFirst("^Failed:\\s*", "")))) rest.append(l).append('\n');
+        String lines = rest.toString().trim();
+        // The kit named, not changed (its test beat as another kit's): said right under the verdict.
+        if (sameKit.length() > 0) head += "\n" + sameKit;
+        return head + (lines.length() > 0 ? "\n\n" + lines : "") + (kit.length() > 0 && lines.indexOf(kit) < 0 ? "\n" + kit : "");
+    }
+
+    /**
+     * What Test or Edit settings came to, for the Plugins list, the Plugin browser and the Params: Test's
+     * verdict (plays drums, some not heard, could not play and why); Edit settings: why it did not open,
+     * else its lines. A 32-bit .dll's note (Carla's bridge) first.
+     */
+    static String result(File f, boolean editFirst, String log) {
+        String note = DllInfo.BRIDGED.equals(DllInfo.problem(f)) ? DllInfo.bridgedNote(f, PyJav.carlaRack()) + "\n\n" : "";
+        if (!editFirst) return note + verdict(f.getName(), log);
+        String failed = failed(log);
+        if (failed == null) return note + summary(log);
+        StringBuilder rest = new StringBuilder();
+        for (String l : summary(log).split("\n")) if (!l.trim().startsWith("Failed")) rest.append(l).append('\n');
+        return note + "\u2718 Edit settings did not open " + f.getName() + ": " + failed + (rest.toString().trim().length() > 0 ? "\n\n" + rest.toString().trim() : "");
+    }
+
+    /** A run's Failed line without "Failed: "; null when it did not fail. */
+    static String failed(String log) {
+        for (String l : log.split("\n")) if (l.trim().startsWith("Failed")) return l.trim().replaceFirst("^Failed:\\s*", "");
+        return null;
+    }
+
     /** What a test said, in short: its check line and how it ended (the lines that matter, not the setup). */
     static String summary(String log) {
         StringBuilder b = new StringBuilder();
         for (String l : log.split("\n")) {
             String t = l.trim();
-            if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
-                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
+            if (t.startsWith("Plugin check") || t.startsWith("Failed") || t.contains("is a 32-bit VST2") || t.startsWith("32-bit plugin:") || t.startsWith("Succeeded") || t.startsWith("Wrote ") || t.startsWith("Plugin:")
+                || t.contains("window is open") || t.contains("settings:") || t.startsWith("Kit load time") || t.startsWith("Note:") || t.startsWith("Notes:") || t.startsWith("Kit check:") || t.startsWith("Pads:") || t.startsWith("Note map:") || t.startsWith("Carla project:") || t.startsWith("Timer stopped") || t.startsWith("Script timed out")) b.append(t).append('\n');
         }
         return b.length() == 0 ? log.trim() : b.toString().trim();
     }
