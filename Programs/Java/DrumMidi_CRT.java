@@ -2508,6 +2508,14 @@ public class DrumMidi_CRT{
      * Studio 25% -> 68%, KVLT Vegan Tough Guy 68 -> 99, AVL Black Pearl 89 -> 98, Artillery 90 -> 96.
      */
     static final double KIT_SNARE_LIKE = 0.3;
+    /**
+     * A snare found whose sound reads as its nearest learned tom KIT_TOM_LIKE or more, and by more than
+     * KIT_TOM_OVER over the learned snare, is that tom. Toms found as snares read 0.85-0.96 (medians) as a
+     * tom; real snares 0.38-0.68. The margin alone took real snares in AVL Drumkits and Artillery (snares
+     * right 95 -> 86% and 98 -> 87%); with tom-likeness 0.9 too, of the snares found (about 100 songs a
+     * kit): Tight Studio 71 toms back for 9 snares, AVL 25 for 0, Artillery 22 for 13, KVLT Vegan 19 for 0.
+     */
+    static final double KIT_TOM_OVER = 0.4, KIT_TOM_LIKE = 0.9;
     static final double KIT_LO = 40, KIT_HI = 800;
     static final double[] KIT_WINDOW = new double[KIT_N];
     static {
@@ -3069,7 +3077,30 @@ public class DrumMidi_CRT{
          * Drums' fat snare was found as a floor tom on 505 of its 2043 snares (toms P27).
          */
         void sort(List<Hit> hits, double[] x, double sr) {
-            int moved = 0, snares = 0;
+            int moved = 0, snares = 0, toms = 0;
+            // A snare found whose sound reads as a learned tom by KIT_TOM_OVER more than as the snare: that
+            // tom (a bright studio tom is found as a snare; Tight Studio Drums).
+            int snareJ0 = notes.indexOf(Integer.valueOf(SNARE_NOTE));
+            for (int i = 0; snareJ0 >= 0 && i < hits.size(); i++) {
+                Hit h = hits.get(i);
+                if (h.note != SNARE_NOTE) continue;
+                double[] v = spectrum(x, sr, h.time);
+                if (v == null) continue;
+                int tom = -1;
+                double tomLike = -2;
+                for (int j = 0; j < notes.size(); j++) {
+                    int n = notes.get(j).intValue();
+                    if (n == KICK_NOTE || n == SNARE_NOTE) continue;
+                    double l = like(v, spectra.get(j));
+                    if (l > tomLike) {
+                        tomLike = l;
+                        tom = n;
+                    }
+                }
+                if (tom < 0 || tomLike < KIT_TOM_LIKE || tomLike - like(v, spectra.get(snareJ0)) <= KIT_TOM_OVER) continue;
+                hits.set(i, new Hit(h.time, tom <= 43 ? FLOOR_TOM : tom <= 47 ? MID_TOM : RACK_TOM, h.strength));
+                toms++;
+            }
             List<Double> snareAt = new ArrayList<Double>();
             for (Hit h : hits) if (h.note == SNARE_NOTE) snareAt.add(Double.valueOf(h.time));
             List<Hit> drop = new ArrayList<Hit>();
@@ -3113,7 +3144,7 @@ public class DrumMidi_CRT{
             }
             hits.removeAll(drop);
             note("Kit " + name + ": " + moved + " kick" + (moved == 1 ? "" : "s") + " and toms told apart again"
-                + (notes.contains(Integer.valueOf(SNARE_NOTE)) ? "; " + snares + " found as a kick or tom sound as its snare" : ""));
+                + (notes.contains(Integer.valueOf(SNARE_NOTE)) ? "; " + snares + " found as a kick or tom sound as its snare, " + toms + " found as a snare as a tom" : ""));
         }
 
         /**
