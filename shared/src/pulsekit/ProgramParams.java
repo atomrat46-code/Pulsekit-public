@@ -848,6 +848,9 @@ public final class ProgramParams {
     } else if (p.token.equals("--map")) {
       p.label = "Test: notes the plugin plays differently (45=46,41=none), or a text file of them ([plugin name] sections: one file for every plugin)";
       p.hint = "drum-kits.txt (Pulsekit's: Anarchy, Riot, KVLT, Artillery), pairs such as 45=46,41=none, or a file; empty: drum-kits.txt's section for the plugin, if it has one";
+    } else if (p.token.equals("--chokes")) {
+      p.label = "Chokes: the plugin's choke notes (a cymbal = its choked one); Test plays them alone after the test beat and says what DrumMidi wrote there";
+      p.hint = "x42 AVL Drumkits: 49=50,51=52,57=58; empty: none";
     } else if (p.token.equals("--note_map")) {
       p.label = "Note map: the MIDI's notes sent to the plugin's pads (36=48: the kick on its pad 48; 41=none), or a text file of them ([plugin name] sections)";
       p.hint = "empty: map.txt below (Edit), its lines for the plugin; pairs such as 36=48,38=50 or a file";

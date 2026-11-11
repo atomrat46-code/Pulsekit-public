@@ -10023,6 +10023,36 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v418: chokes. vst_render --chokes plays each cymbal and its choke alone after the test beat (a fake
+   * plugin: a crash on 49, the same crash cut at 120 ms on 50) and says what DrumMidi wrote for each;
+   * DrumMidi takes --chokes 49=50 (its Chokes line) and refuses a note without its pair.
+   */
+  void s246_chokes() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File work = new File(home, "chokes");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/drummidi_chokes.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--chokes")) label = p.label;
+    String dmLabel = "";
+    for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Java", "DrumMidi_CRT.java"), StandardCharsets.UTF_8))) if (p.token.equals("--chokes")) dmLabel = p.label;
+    this.out.append("labels: ").append(label).append(" | ").append(dmLabel).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("Working: playing each cymbal and its choke alone (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
+        && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
+        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
+        && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v415: a kit whose kick has no beater click (an 808's sine, Beat DRMR's): --learn-kit writes its
    * "kickclick" under KICK_CLICKLESS, and with that profile DrumMidi finds its kicks without a click (it
    * says so); a kick that clicks is learned over it and found as before.

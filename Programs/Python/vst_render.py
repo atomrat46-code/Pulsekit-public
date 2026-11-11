@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -117,6 +117,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   or a text file of them with [plugin name] sections, as --map. Empty: Pulsekit's
                   ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
                   The MIDI files themselves are not changed.
+  --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
+                  (x42 AVL Drumkits: 49=50,51=52,57=58). After the test beat a choke beat plays each
+                  cymbal and its choke alone, and DrumMidi (--chokes, with the kit profile) is asked what
+                  it hears there: the report says what each was written as.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
@@ -2181,6 +2185,54 @@ def same_kit_check(np, audio, rate, plugin, kit):
             "in its own window is saved)" % ", ".join("\"%s\"" % k for k in same))
 
 
+# The choke beat: each cymbal and its choke alone, this far apart, this many times each.
+CHOKE_GAP, CHOKE_HITS = 1.5, 3
+
+
+def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
+    """--chokes: each cymbal (a pair's first note) and its choke (the second) played alone, CHOKE_HITS
+    times each, through the plugin (its notes as they are: no note map), then DrumMidi with --chokes and
+    the kit profile on the render. Returns the lines saying what each was written as."""
+    import tempfile
+    pairs = dict((a, b) for a, b in pairs.items() if b is not None)
+    if not pairs:
+        return ["Chokes: no choke notes in --chokes"]
+    hits = []
+    t = 0.5
+    for plain, choked in sorted(pairs.items()):
+        for n in [plain] * CHOKE_HITS + [choked] * CHOKE_HITS:
+            hits.append((t, n))
+            t += CHOKE_GAP
+    work = tempfile.mkdtemp(prefix="vst-chokes-")
+    midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n in hits])
+    print("Working: playing each cymbal and its choke alone (--chokes %s)" % ", ".join("%d=%d" % kv for kv in sorted(pairs.items())))
+    sys.stdout.flush()
+    try:
+        audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
+    except ValueError as e:
+        return ["Chokes: the choke beat did not play (%s)" % e]
+    audio, _ = finish(np, audio, 100)
+    wav = os.path.join(work, "chokes.wav")
+    write_wav(wav, audio, rate, bits)
+    said = []
+    found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "chokes-dm.mid"),
+                      ["--chokes", ",".join("%d=%d" % kv for kv in sorted(pairs.items()))] + (["--kit", kit_file] if kit_file else []), said)
+    if isinstance(found, str):
+        return ["Chokes: %s" % found]
+    out = []
+    for plain, choked in sorted(pairs.items()):
+        for n, what in ((plain, "%d plain" % plain), (choked, "%d (%d choked)" % (choked, plain))):
+            written = {}
+            for a, m in hits:
+                if m != n:
+                    continue
+                got = sorted(set(k for u, k in found if abs(u - a) < 0.06))
+                key = "+".join(str(k) for k in got) or "missed"
+                written[key] = written.get(key, 0) + 1
+            out.append("Chokes: %s written as %s" % (what, ", ".join("%s %d of %d" % (k, c, CHOKE_HITS) for k, c in sorted(written.items()))))
+    return out + [l.strip() for l in said if l.startswith("Chokes")]
+
+
 def kit_missing(said):
     """The kick, toms and cymbals DrumMidi --learn-kit heard nothing (or next to nothing) of: how many
     (99 when it learned no tom, or failed)."""
@@ -2765,7 +2817,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
     switches = set()
     files = []
@@ -3085,6 +3137,7 @@ def main(argv):
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
     kit_file = None
+    choke_lines = []
     kit_said = "not learned (--no-kit, or no test beat)"
     # --test: the test beat as played and its times, kept beside the report (and zipped in check/).
     check_files = []
@@ -3222,6 +3275,15 @@ def main(argv):
                 kit_file = None
                 kit_said = "not learned (%s); the test went on without it" % said
                 print("Kit: not learned (%s); the test goes on without it" % said)
+        # The plugin's chokes (--chokes): played alone after the test beat, and what DrumMidi writes there.
+        if opts["--chokes"] and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
+            try:
+                pairs = map_for(opts["--chokes"])[0]
+            except ValueError as e:
+                fail("--chokes: %s" % e)
+            choke_lines = choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
+            for line in choke_lines:
+                print(line)
         if test and "--check" not in switches:
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
@@ -3346,6 +3408,7 @@ def main(argv):
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
                   "Note map (the notes sent to the plugin, --note_map or map.txt): " + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(chain.note_map.items())) if chain.note_map else "none"),
                   "Kit profile (the test beat's kick and toms): " + kit_said,
+                  ] + list(choke_lines) + [
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
         total = {}
         cymbals = [[0] * (len(CYMBAL_KINDS) + 1) for _ in CYMBAL_KINDS]

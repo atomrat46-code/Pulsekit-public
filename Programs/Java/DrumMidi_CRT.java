@@ -328,6 +328,90 @@ public class DrumMidi_CRT{
         double sampleRate;
     }
 
+    /**
+     * A choked cymbal: cut off by hand, its 3-16 kHz level CHOKE_LEVEL of its first 40 ms or less 200-300
+     * ms on (-30 dB; a crash left to ring keeps 0.2-0.5 there, a ride 0.1-0.3), with no other hit from 30 ms
+     * to CHOKE_CLEAR after it (another drum would hold the level up, or the next cymbal end it).
+     */
+    static final double CHOKE_LEVEL = 0.03, CHOKE_CLEAR = 0.32;
+
+    /** --chokes' notes: "49=50,51=52" (the cymbal found = the note a choked one is written as). */
+    static java.util.Map<Integer, Integer> chokeNotes(String text) {
+        java.util.Map<Integer, Integer> out = new java.util.LinkedHashMap<Integer, Integer>();
+        for (String pair : text.split("[,;\\s]+")) {
+            if (pair.trim().length() == 0) continue;
+            String[] ab = pair.split("=");
+            if (ab.length != 2) throw new IllegalArgumentException("--chokes takes note=note pairs (49=50,51=52): " + pair);
+            int a = Integer.parseInt(ab[0].trim()), b = Integer.parseInt(ab[1].trim());
+            if (a < 0 || a > 127 || b < 0 || b > 127) throw new IllegalArgumentException("--chokes: MIDI notes are 0 to 127: " + pair);
+            out.put(Integer.valueOf(a), Integer.valueOf(b));
+        }
+        return out;
+    }
+
+    static String chokeText(java.util.Map<Integer, Integer> m) {
+        StringBuilder b = new StringBuilder();
+        for (java.util.Map.Entry<Integer, Integer> e : m.entrySet()) b.append(b.length() == 0 ? "" : ",").append(e.getKey()).append('=').append(e.getValue());
+        return b.toString();
+    }
+
+    /** The level (RMS) of the signal's highs (its second difference: 3-16 kHz mostly) from a to b seconds. */
+    static double highLevel(double[] x, double sr, double a, double b, boolean peak) {
+        int i0 = Math.max(2, (int) (a * sr)), i1 = Math.min(x.length, (int) (b * sr));
+        int win = Math.max(1, (int) (0.01 * sr));
+        double best = 0, sum = 0;
+        int n = 0;
+        for (int i = i0; i + win <= i1; i += win) {
+            double e = 0;
+            for (int j = i; j < i + win; j++) {
+                double d = x[j] - 2 * x[j - 1] + x[j - 2];
+                e += d * d;
+            }
+            double r = Math.sqrt(e / win);
+            best = Math.max(best, r);
+            sum += r;
+            n++;
+        }
+        return peak ? best : n == 0 ? 0 : sum / n;
+    }
+
+    /** Crashes and rides cut off by hand (CHOKE_LEVEL) written as --chokes' notes for them. */
+    static void chokes(List<Hit> hits, double[] x, double sr, java.util.Map<Integer, Integer> notes) {
+        List<Hit> sorted = new ArrayList<Hit>(hits);
+        sorted.sort(Comparator.comparingDouble(new java.util.function.ToDoubleFunction<Hit>() {
+            public double applyAsDouble(Hit h) { return h.time; }
+        }));
+        java.util.Map<Integer, Integer> count = new java.util.TreeMap<Integer, Integer>();
+        int unknown = 0;
+        for (int i = 0; i < hits.size(); i++) {
+            Hit h = hits.get(i);
+            Integer to = notes.get(Integer.valueOf(h.note));
+            if (to == null) continue;
+            boolean clear = true;
+            for (Hit o : sorted) {
+                if (o == h) continue;
+                if (o.time > h.time + 0.03 && o.time < h.time + CHOKE_CLEAR) {
+                    clear = false;
+                    break;
+                }
+            }
+            if (!clear) {
+                unknown++;
+                continue;
+            }
+            double at = highLevel(x, sr, h.time, h.time + 0.04, true);
+            double later = highLevel(x, sr, h.time + 0.2, h.time + 0.3, false);
+            if (at <= 0 || later > CHOKE_LEVEL * at) continue;
+            hits.set(i, new Hit(h.time, to.intValue(), h.strength));
+            count.put(Integer.valueOf(h.note), Integer.valueOf((count.containsKey(Integer.valueOf(h.note)) ? count.get(Integer.valueOf(h.note)).intValue() : 0) + 1));
+        }
+        StringBuilder b = new StringBuilder();
+        for (java.util.Map.Entry<Integer, Integer> e : count.entrySet()) b.append(b.length() == 0 ? "" : ", ").append(e.getValue()).append(" of ").append(e.getKey())
+            .append(" as ").append(notes.get(e.getKey()));
+        note("Chokes (--chokes " + chokeText(notes) + "): " + (b.length() == 0 ? "none found" : b.toString()) + (unknown > 0 ? "; " + unknown + " not told (another hit within "
+            + num(CHOKE_CLEAR * 1000) + " ms)" : ""));
+    }
+
     static class Hit {
         final double time;
         final int note;
@@ -711,7 +795,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -736,6 +820,9 @@ public class DrumMidi_CRT{
         // The drum sound library's profile (Pulsekit's drum-library.kit, from many sounds): its kick and
         // toms tell the hits found apart where no kit profile is given.
         KitProfile library = null;
+        // Choked cymbals (--chokes 49=50,51=52,57=58: a crash or ride cut off by hand written as that note,
+        // as a kit with choke notes has them: x42 AVL Drumkits). Empty: written as any other hit.
+        java.util.Map<Integer, Integer> chokeNotes = new java.util.LinkedHashMap<Integer, Integer>();
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
             if ("--sens".equals(opt)) sens = Double.parseDouble(args[++i]);
@@ -751,6 +838,7 @@ public class DrumMidi_CRT{
             else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if ("--faded-opens".equals(opt)) fadedOpens = true;
             else if ("--no-cymbal-model".equals(opt)) cymModel = false;
+            else if ("--chokes".equals(opt)) chokeNotes = chokeNotes(args[++i]);
             else if ("--kit".equals(opt)) kit = KitProfile.read(new File(args[++i]));
             else if ("--library".equals(opt)) library = KitProfile.library(new File(args[++i]));
             else if (opt.startsWith("-")) throw new IllegalArgumentException("Unknown option: " + opt);
@@ -765,6 +853,7 @@ public class DrumMidi_CRT{
                 + " --hat " + num(hatSens) + " --tom " + num(tomSens) + " --ride " + num(rideSens) + " --crash " + num(crashSens)
                 + (bpmOverride > 0 ? " --bpm " + num(bpmOverride) : "") + (quant > 0 ? " --quantize " + quant : "")
                 + (hpss ? "" : " --no-hpss") + (cymbals ? "" : " --no-cymbals") + (writeToms ? "" : " --no-toms") + (snareLeak ? " --snare-leak" : "") + (fadedOpens ? " --faded-opens" : "") + (cymModel ? "" : " --no-cymbal-model")
+                + (chokeNotes.isEmpty() ? "" : " --chokes " + chokeText(chokeNotes))
                 + (kit != null ? " --kit " + kit.name : "") + (library != null ? " --library " + library.name : ""));
         if (library != null && kit != null) note("Library " + library.name + " not used: the kit profile " + kit.name + " is this kit's own");
         else if (library != null) note("Library " + library.name + ": kick and toms from " + library.said + " (its cymbals are not used)");
@@ -1120,6 +1209,7 @@ public class DrumMidi_CRT{
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
         if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr);
+        if (cymbals && !chokeNotes.isEmpty()) chokes(hits, audio.samples, sr, chokeNotes);
         progress(90);
         note("Hits: " + hits.size());
         if (hits.isEmpty()) {
