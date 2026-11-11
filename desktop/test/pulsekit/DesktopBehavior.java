@@ -10023,6 +10023,44 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v423: vst_render --parts: the drums split between plugin rows in one run and mixed (the same SoundFont
+   * as plugins 1 and 2, kick and cymbals by 2: it sounds as the whole kit by one); the notes each row
+   * plays; files named after both; bad --parts refused; Params' Parts row on the Plugins tab.
+   */
+  void s249_parts() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(44100), "Test kit"));
+    File work = new File(home, "parts");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_parts.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), sf2.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    String label = "", tab = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) if (p.token.equals("--parts")) {
+      label = p.label;
+      tab = p.tab;
+    }
+    this.out.append("row: ").append(label).append(" | ").append(tab).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("notes: 2 [35, 36] | 3 [42, 44, 46, 49, 51, 52, 53, 55, 57, 59] | 1 [37, 38, 39, 40, 41, 43, 45, 47, 48, 50]")
+        && all.contains("hats apart: 2 [42, 44, 46] | 3 [49, 51, 52, 53, 55, 57, 59]")
+        && all.contains("text: kick and cymbals and hats by B.sf2; the rest by A.vst3")
+        && all.contains("Parts: kick and cymbals and hats by kit-b.sf2; the rest by kit-a.sf2")
+        && all.contains("Kit: parts (--parts; --kit_name names it otherwise)")
+        && all.contains("parts: done") && all.contains("made: ['x-kit-a+kit-b (parts).wav']") && all.contains("same sound: True")
+        && all.contains("bad: 1") && all.contains("Failed: --parts takes part=plugin row pairs, the parts kick, snare, toms, hats, cymbals and the rows 1 to 4 (kick=2,cymbals=3): bells=2")
+        && all.contains("missing: 1") && all.contains("Failed: --parts names plugin 3 (--plugin3), which is not given")
+        && label.startsWith("Parts: the drums split between the plugin rows") && tab.equals(ProgramParams.PLUGINS);
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v420: a SoundFont as vst_render's plugin: Midi2Wav (in DrumMidi_CRT.jar) plays the MIDI with it into
    * the WAV, no DawDreamer or Carla; one in an LV2 bundle (AVL Drumkits' kits) the same; --edit refused;
    * Pulsekit's check lets it through, Info names it. v422: AVL Drumkits' kits get its built-in note map.

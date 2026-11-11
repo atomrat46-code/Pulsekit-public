@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -14,6 +14,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   --plugin's: <midi>-<plugin2>.wav and its own report. Each plays with the settings
                   last saved for it with --edit (--state is --plugin's). A plugin that fails is
                   reported and the next one goes on.
+  --parts parts   the drums split between the plugins above, all played in one run and mixed into one
+                  WAV: kick=2,snare=1,toms=1,cymbals=3 (the parts kick, snare, toms, hats, cymbals;
+                  the rows 1 --plugin to 4 --plugin4). Hats go with the cymbals unless given apart;
+                  the notes no part names, with plugin 1. Each plugin gets only its notes (then its own
+                  note map) with its own saved settings, its delay taken off. The files are named after
+                  them all (A+B (parts)); Test scores the mixed kit.
   --carla         a Carla project (.carxp, saved in Carla): its plugins play the MIDI, in the Carla-Rack
                   VST (found in the VST folders unless --plugin gives it). Carla hosts LV2, VST2, VST3,
                   SFZ and SoundFonts natively on Linux, and Windows plugins bridged with yabridge, so
@@ -2990,81 +2996,151 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
     return paths
 
 
-def main(argv):
+def make_chain(opts, switches, rate, soundfont, gizmo, name):
+    """The plugin's chain (DrumGizmo's program, Midi2Wav for a SoundFont, else DawDreamer), with the notes
+    sent to it (--note_map, else map.txt's lines for it, else a built-in map)."""
+    if gizmo:
+        chain = Gizmo(rate, opts)
+    elif soundfont:
+        chain = SoundFont(rate, opts)
+    else:
+        try:
+            import dawdreamer as daw
+        except ImportError as e:
+            fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
+        chain = Chain(daw, rate, opts, switches)
     try:
-        import signal
-        signal.signal(signal.SIGINT, ctrl_c)
-    except (ImportError, ValueError):
-        pass
-    opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
-            "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
-            "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
-            "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
-    switches = set()
-    files = []
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a in opts:
-            if i + 1 >= len(argv):
-                fail("%s needs a value" % a)
-            opts[a] = argv[i + 1]
-            i += 2
+        chain.note_map, said = pad_map(opts["--note_map"], name)
+    except (ValueError, OSError) as e:
+        fail("--note_map: %s" % e)
+    if said:
+        print(said)
+    return chain
+
+
+# --parts: the drums each plugin row (1 --plugin, 2 --plugin2...) plays in one run, mixed into one WAV.
+PART_NOTES = {"kick": (35, 36), "snare": (37, 38, 39, 40), "toms": (41, 43, 45, 47, 48, 50), "hats": (42, 44, 46),
+              "cymbals": (42, 44, 46, 49, 51, 52, 53, 55, 57, 59)}
+PART_ORDER = ("kick", "snare", "toms", "hats", "cymbals")
+ROW_SWITCH = {1: "--plugin", 2: "--plugin2", 3: "--plugin3", 4: "--plugin4"}
+
+
+def parse_parts(text):
+    """--parts' "kick=2,snare=1,toms=1,cymbals=3": {part: plugin row}. hats (42, 44, 46) go with cymbals
+    unless given apart."""
+    out = {}
+    for pair in re.split(r"[,;\s]+", text or ""):
+        if not pair:
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
-            switches.add(a)
-        elif a.startswith("--"):
-            fail("unknown switch %s" % a)
-        else:
-            files.append(a)
-        i += 1
-    if "--scan" in switches:
-        scan()
-        return
-    moved = lead_first(argv, opts)
-    if moved:
-        print(moved[1])
-        return main(moved[0])
-    # A map or kit name for a plugin not given (its row unticked in Params): left out, not a stop.
-    for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
-        if opts[m] and not opts[k]:
-            print("%s left out: it is the %s for %s, which is not given" % (m, "map" if m.startswith("--map") else "kit name", k))
-            opts[m] = None
-            argv = drop_switch(argv, m)
-    # --zip_outdir's % codes: filled in once for the whole run (all plugins' zips in one folder).
-    if opts["--zip_outdir"] and not ZIP_OUTDIR_EXPANDED[0]:
-        ZIP_OUTDIR_EXPANDED[0] = True
-        filled = expand_folder(opts["--zip_outdir"])
-        if filled != opts["--zip_outdir"]:
-            print("Zip folder: %s" % filled)
-            opts["--zip_outdir"] = filled
-            argv = list(argv)
-            argv[argv.index("--zip_outdir") + 1] = filled
-    more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
-    if more:
-        if not opts["--plugin"]:
-            fail("--plugin2 to --plugin4 add plugins to --plugin: give --plugin too")
-        if opts["--carla"] or opts["--drumgizmo"]:
-            fail("--plugin2 to --plugin4 are VST plugins played after --plugin; not with --carla or --drumgizmo")
-        if "--edit" in switches:
-            fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
-        runs = plugin_runs(argv, opts)
-        done = []
-        for k, (plug, one) in enumerate(runs):
-            print("== Plugin %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
+        m = re.match(r"^([a-z]+)=([1-4])$", pair.strip().lower())
+        if not m or m.group(1) not in PART_NOTES:
+            fail("--parts takes part=plugin row pairs, the parts %s and the rows 1 to 4 (kick=2,cymbals=3): %s" % (", ".join(PART_ORDER), pair))
+        out[m.group(1)] = int(m.group(2))
+    if not out:
+        fail("--parts: no part given (kick=2,cymbals=3)")
+    return out
+
+
+def parts_notes(parts, row):
+    """The notes the row plays: its parts' (hats with cymbals unless hats is given apart); None for row 1
+    when every note not named is its."""
+    notes = set()
+    for part, r in parts.items():
+        if r == row:
+            notes |= set(PART_NOTES[part])
+    # hats given apart: not with the cymbals' row.
+    if "hats" in parts and parts["hats"] != row:
+        notes -= set(PART_NOTES["hats"])
+    if "hats" not in parts and parts.get("cymbals") == row:
+        notes |= set(PART_NOTES["hats"])
+    return notes
+
+
+def parts_text(parts, names_of):
+    rows = {}
+    for part in PART_ORDER:
+        if part in parts:
+            rows.setdefault(parts[part], []).append(part)
+    if "hats" not in parts and "cymbals" in parts:
+        rows[parts["cymbals"]] = [("cymbals and hats" if p == "cymbals" else p) for p in rows[parts["cymbals"]]]
+    said = ["%s by %s" % (" and ".join(ps), names_of[r]) for r, ps in sorted(rows.items())]
+    if 1 not in rows:
+        said.append("the rest by %s" % names_of[1])
+    else:
+        said[0] += " (and the rest)"
+    return "; ".join(said)
+
+
+def parts_opts(opts, row):
+    """Options for a --parts plugin other than the first: its plugin, its own saved settings, nothing of the first's."""
+    sub = dict(opts)
+    for k in ("--carla", "--clap", "--state", "--effect", "--effect_state", "--wav", "--drumgizmo", "--bridged", "--note_map", "--clap_id"):
+        sub[k] = None
+    sub.pop("--bridged", None)
+    sub["--plugin"] = opts[ROW_SWITCH[row]]
+    return sub
+
+
+class Parts(object):
+    """--parts: the MIDI's drums played by several plugins at once, each getting only its notes (its own note
+    map after that), their audio mixed. Each plugin's delay is taken off by its own chain."""
+
+    note_map = None
+
+    def __init__(self, rate, members, first_notes):
+        self.rate = rate
+        # (chain, its notes, row); the first (notes None) plays every note no other one plays.
+        taken = set()
+        for _, notes, _ in members[1:]:
+            taken |= notes
+        self.members = [(c, (None if n is None else n), r, taken if n is None else None) for c, n, r in members]
+
+    def latency(self):
+        return 0
+
+    def maps_text(self):
+        """Each plugin's note map, for the report: "plugin 2: 48=47, 50=45; plugin 1: none"."""
+        return "; ".join("plugin %d: %s" % (row, ", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(c.note_map.items())) if c.note_map else "none")
+                         for c, _, row, _ in self.members)
+
+    def render(self, np, midi=None, wav=None, tail=2.0, raw=False):
+        import tempfile
+        if wav:
+            raise ValueError("--parts plays MIDI; --wav needs one effect plugin")
+        length, played = midi_notes(midi)[:2]
+        work = tempfile.mkdtemp(prefix="vst-parts-")
+        mix = None
+        try:
+            for k, (chain, notes, row, others) in enumerate(self.members):
+                keep = (lambda n: n not in others) if notes is None else (lambda n: n in notes)
+                if not any(keep(n) for _, n in played):
+                    continue
+                part = remap_midi(midi, dict((n, None) for n in range(128) if not keep(n)), os.path.join(work, "part%d.mid" % k))
+                audio, _, _ = chain.render(np, midi=part, tail=tail, raw=raw)
+                if mix is None:
+                    mix = audio
+                else:
+                    n = max(mix.shape[1], audio.shape[1])
+                    mix = np.pad(mix, ((0, 0), (0, n - mix.shape[1]))) + np.pad(audio, ((0, 0), (0, n - audio.shape[1])))
+        finally:
+            for f in os.listdir(work):
+                try:
+                    os.remove(os.path.join(work, f))
+                except OSError:
+                    pass
             try:
-                main(one)
-                done.append((plug, "done"))
-            except SystemExit as e:
-                done.append((plug, "failed" if e.code else "done"))
-            print("")
-        print("Plugins: " + ", ".join("%s %s" % (os.path.basename(os.path.normpath(p)), r) for p, r in done))
-        if all(r == "failed" for p, r in done):
-            sys.exit(1)
-        return
-    midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
-    out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
+                os.rmdir(work)
+            except OSError:
+                pass
+        if mix is None:
+            mix = np.zeros((2, int((length + tail) * self.rate)), dtype=np.float32)
+        return mix, length, 0
+
+
+def setup_plugin(opts, switches):
+    """One plugin made ready to play (opts changed for it): a CLAP or an LV2 plugin in Carla's rack, a 32-bit
+    VST2 bridged, a SoundFont, DrumGizmo. Returns (soundfont, gizmo, plugin, name): name, what its files are
+    named after (the Carla project, the CLAP plugin or the kit, not the rack)."""
     # A CLAP plugin given as --plugin: it plays in Carla's rack as --clap does.
     if opts["--plugin"] and opts["--plugin"].lower().rstrip("/\\").endswith(".clap"):
         if opts["--clap"]:
@@ -3139,6 +3215,105 @@ def main(argv):
     name = opts["--carla"] or opts["--clap"] or opts.get("--bridged") or plugin
     if gizmo and stem(gizmo).lower() == "drumkit":
         name = os.path.basename(os.path.dirname(os.path.abspath(gizmo))) or gizmo
+    return soundfont, gizmo, plugin, name
+
+def main(argv):
+    try:
+        import signal
+        signal.signal(signal.SIGINT, ctrl_c)
+    except (ImportError, ValueError):
+        pass
+    opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
+            "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
+            "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None}
+    switches = set()
+    files = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in opts:
+            if i + 1 >= len(argv):
+                fail("%s needs a value" % a)
+            opts[a] = argv[i + 1]
+            i += 2
+            continue
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check"):
+            switches.add(a)
+        elif a.startswith("--"):
+            fail("unknown switch %s" % a)
+        else:
+            files.append(a)
+        i += 1
+    if "--scan" in switches:
+        scan()
+        return
+    # --parts: the drums split between the plugin rows, all played in one run and mixed.
+    parts = parse_parts(opts["--parts"]) if (opts["--parts"] or "").strip() else None
+    if parts:
+        if not opts["--plugin"]:
+            fail("--parts: plugin 1 (--plugin) plays the parts not named to another: give it")
+        for r in sorted(set(parts.values())):
+            if not opts[ROW_SWITCH[r]]:
+                fail("--parts names plugin %d (%s), which is not given" % (r, ROW_SWITCH[r]))
+        if opts["--carla"] or opts["--drumgizmo"] or opts["--wav"] or opts["--effect"] or "--edit" in switches:
+            fail("--parts plays MIDI through several plugins at once: not with --carla, --drumgizmo, --wav, --effect or --edit (save each plugin's settings with its own run first)")
+        unused = [ROW_SWITCH[r] for r in (2, 3, 4) if opts[ROW_SWITCH[r]] and r not in parts.values()]
+        if unused:
+            print("--parts: %s not in it, left out" % ", ".join(unused))
+    moved = None if parts else lead_first(argv, opts)
+    if moved:
+        print(moved[1])
+        return main(moved[0])
+    # A map or kit name for a plugin not given (its row unticked in Params): left out, not a stop.
+    for k, m in [(k, m) for k, m, _ in MORE_PLUGINS] + [(k, n) for k, _, n in MORE_PLUGINS]:
+        if opts[m] and not opts[k]:
+            print("%s left out: it is the %s for %s, which is not given" % (m, "map" if m.startswith("--map") else "kit name", k))
+            opts[m] = None
+            argv = drop_switch(argv, m)
+    # --zip_outdir's % codes: filled in once for the whole run (all plugins' zips in one folder).
+    if opts["--zip_outdir"] and not ZIP_OUTDIR_EXPANDED[0]:
+        ZIP_OUTDIR_EXPANDED[0] = True
+        filled = expand_folder(opts["--zip_outdir"])
+        if filled != opts["--zip_outdir"]:
+            print("Zip folder: %s" % filled)
+            opts["--zip_outdir"] = filled
+            argv = list(argv)
+            argv[argv.index("--zip_outdir") + 1] = filled
+    more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
+    if more and not parts:
+        if not opts["--plugin"]:
+            fail("--plugin2 to --plugin4 add plugins to --plugin: give --plugin too")
+        if opts["--carla"] or opts["--drumgizmo"]:
+            fail("--plugin2 to --plugin4 are VST plugins played after --plugin; not with --carla or --drumgizmo")
+        if "--edit" in switches:
+            fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
+        runs = plugin_runs(argv, opts)
+        done = []
+        for k, (plug, one) in enumerate(runs):
+            print("== Plugin %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
+            try:
+                main(one)
+                done.append((plug, "done"))
+            except SystemExit as e:
+                done.append((plug, "failed" if e.code else "done"))
+            print("")
+        print("Plugins: " + ", ".join("%s %s" % (os.path.basename(os.path.normpath(p)), r) for p, r in done))
+        if all(r == "failed" for p, r in done):
+            sys.exit(1)
+        return
+    midi = next((f for f in files if f.lower().endswith((".mid", ".midi"))), None)
+    out = next((f for f in files if f.lower().endswith((".wav", ".wave"))), None)
+    soundfont, gizmo, plugin, name = setup_plugin(opts, switches)
+    lead_name = name
+    if parts:
+        # The files are named after all the plugins playing (their kit: "parts", unless --kit_name).
+        names_of = dict((r, os.path.basename(os.path.normpath(lead_name if r == 1 else opts[ROW_SWITCH[r]]))) for r in set(list(parts.values()) + [1]))
+        name = "+".join(stem(names_of[r]) for r in sorted(names_of))
+        parts_kit = not (opts["--kit_name"] or "").strip()
+        if parts_kit:
+            opts["--kit_name"] = "parts"
     folder = opts["--dir"]
     # One of SogniMusic's zips as --dir: it (and its other parts) unpacked beside it, and its MIDI files rendered.
     one_zip = None
@@ -3212,7 +3387,7 @@ def main(argv):
         opts["--kit_name"] = "saved kit" if opts["--state"] or saved else "default kit"
         print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
     elif opts["--kit_name"]:
-        print("Kit: %s (--kit_name)" % opts["--kit_name"])
+        print("Kit: %s (%s)" % (opts["--kit_name"], "--parts; --kit_name names it otherwise" if parts and parts_kit else "--kit_name"))
     tag = kit_tag(name, opts["--kit_name"])
     if test:
         if opts["--wav"]:
@@ -3222,7 +3397,23 @@ def main(argv):
             fail("--test needs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     nmap = {}
     map_part = None
-    if test and not (opts["--map"] or "").strip() and "--no-map" not in switches and (opts["--plugin"] or opts["--clap"]):
+    if parts and test and not (opts["--map"] or "").strip() and "--no-map" not in switches:
+        # --parts: each plugin's own drum-kits.txt section, for the notes it plays.
+        combined = {}
+        for r, n in sorted(names_of.items()):
+            known, part = default_map(n)
+            if not known:
+                continue
+            own = map_for(known, n)[0]
+            mine = parts_notes(parts, r) if r != 1 else None
+            others = set().union(*[parts_notes(parts, q) for q in set(parts.values()) if q != 1]) if r == 1 else set()
+            for a, b in own.items():
+                if (mine is not None and a in mine) or (mine is None and a not in others):
+                    combined[a] = b
+            print("Map: drum-kits.txt, section [%s], for plugin %d's notes" % (part, r))
+        if combined:
+            opts["--map"] = ",".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(combined.items()))
+    elif test and not (opts["--map"] or "").strip() and "--no-map" not in switches and (opts["--plugin"] or opts["--clap"]):
         # No --map given: the map Pulsekit keeps (drum-kits.txt) when it has a section for this plugin
         # (Anarchy, Riot, Ugritone/KVLT, Northern Artillery): what the plugin really plays for the MIDI's notes.
         known, part = default_map(name)
@@ -3326,23 +3517,18 @@ def main(argv):
         import numpy as np
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
-    if gizmo:
-        chain = Gizmo(rate, opts)
-    elif soundfont:
-        chain = SoundFont(rate, opts)
-    else:
-        try:
-            import dawdreamer as daw
-        except ImportError as e:
-            fail("DawDreamer is not installed (%s). Install it with: pip install dawdreamer" % e, 2)
-        chain = Chain(daw, rate, opts, switches)
-    # The notes sent to the plugin (--note_map, else map.txt's lines for it).
-    try:
-        chain.note_map, said = pad_map(opts["--note_map"], name)
-    except (ValueError, OSError) as e:
-        fail("--note_map: %s" % e)
-    if said:
-        print(said)
+    chain = make_chain(opts, switches, rate, soundfont, gizmo, lead_name)
+    if parts:
+        # --parts: each other plugin made ready as the first was, its own chain and note map; the first
+        # plays the parts not named. The files are named after them all.
+        members = [(chain, None, 1)]
+        for row in sorted(set(r for r in parts.values() if r != 1)):
+            sub = parts_opts(opts, row)
+            print("== Parts: plugin %d, %s" % (row, os.path.basename(os.path.normpath(sub["--plugin"]))))
+            s_font, s_gizmo, _, s_name = setup_plugin(sub, switches)
+            members.append((make_chain(sub, switches, rate, s_font, s_gizmo, s_name), parts_notes(parts, row), row))
+        chain = Parts(rate, members, parts_notes(parts, 1))
+        print("Parts: %s" % parts_text(parts, names_of))
     late = chain.latency()
     if late:
         print("Latency: %d samples (%.1f ms), taken off the start" % (late, 1000.0 * late / rate))
@@ -3425,7 +3611,7 @@ def main(argv):
             # Most drums silent: which notes its pads are on, what each sounds like, and a note map for them.
             # (With a note map in use, it is not suggested again: map.txt is edited instead.) Some drums
             # silent (no crash on 49, no ride on 51): those looked for on the plugin's other notes.
-            if not gizmo and not chain.note_map:
+            if not gizmo and not parts and not chain.note_map:
                 if len(silent) > len(heard):
                     print_suggestion(chain, np, rate, name)
                 elif (set(KEY_NOTES) | set(GM_TOMS)) & set(silent):
@@ -3615,8 +3801,9 @@ def main(argv):
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
                   "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
                                       ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
+                  ] + (["Parts (--parts %s): %s" % (opts["--parts"], parts_text(parts, names_of))] if parts else []) + [
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
-                  "Note map (the notes sent to the plugin, --note_map or map.txt): " + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(chain.note_map.items())) if chain.note_map else "none"),
+                  "Note map (the notes sent to the plugin, --note_map or map.txt): " + (chain.maps_text() if parts else ", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(chain.note_map.items())) if chain.note_map else "none"),
                   "Kit profile (the test beat's kick and toms): " + kit_said,
                   ] + list(choke_lines) + [
                   "P: DrumMidi's hits that were played, R: played hits DrumMidi found (within %d ms, after the best shift)" % (TOLERANCE * 1000), ""]
