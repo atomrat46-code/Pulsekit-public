@@ -39,7 +39,7 @@ for label, plugin, out in (('sf2', sf, 'x-sf.wav'), ('lv2 kit', os.path.join(bun
         print('%s: %s | %d Hz, %.1f s, peak %.2f' % (label, said, w.getframerate(), w.getnframes() / w.getframerate(), np.abs(a).max() / 32768))
     else:
         print('%s: %s | no WAV' % (label, said))
-print('avl: %s' % [vr.avl_kit(n) for n in ('avldrums', 'Black_Pearl_4_LV2', 'Red_Zeppelin_4_LV2.sf2', 'Blonde_Bop_HR_LV2', 'Black Pearl Drums', 'test-kit')])
+print('avl: %s' % [vr.avl_kit(n) for n in (os.path.join(work, 'LV2', 'avldrums.lv2'), os.path.join(work, 'Black_Pearl_4_LV2.sf2'), 'avldrums', 'Black_Pearl_4_LV2', 'Red_Zeppelin_4_LV2.sf2', 'Blonde_Bop_HR_LV2', 'Black Pearl Drums', 'test-kit')])
 print('avl map: %s' % (vr.pad_map(None, 'Black_Pearl_4_LV2')[1],))
 print('edit: %s' % run(['x.mid', '--plugin', sf, '--drummidi', jar, '--edit']))
 print('no jar: %s' % run(['x.mid', '--plugin', sf]))

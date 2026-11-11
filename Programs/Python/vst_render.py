@@ -1504,7 +1504,8 @@ AVL_NOTE_MAP = {48: 47, 50: 45}
 
 def avl_kit(plugin):
     """Whether the plugin is AVL Drumkits: avldrums (its LV2 bundle), or a kit's SoundFont (Black_Pearl_4_LV2)."""
-    low = re.sub(r"[^a-z0-9]", "", (plugin or "").lower())
+    # (Its name, not its folder: an LV2 plugin comes as its bundle's path, C:\\...\\avldrums.lv2.)
+    low = re.sub(r"[^a-z0-9]", "", os.path.basename(os.path.normpath(plugin or "")).lower())
     return low.startswith("avldrums") or ("lv2" in low and any(k in low for k in AVL_KITS))
 
 
