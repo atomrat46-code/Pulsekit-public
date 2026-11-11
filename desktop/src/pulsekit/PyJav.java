@@ -4163,6 +4163,8 @@ final class PyJav {
      * runs) and Plugin folders (where VST3 and VST2 plugins are looked for; Folders… changes them). A plugin
      * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
      */
+    static final String PICKS_TIP = "Favourites and Recently used: click a plugin to use it as plugin 1 to 4, or drag it onto a plugin row";
+
     JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
         PluginLibrary.load(PromptDb.dir());
         final String home = System.getProperty("user.home", ".");
@@ -4181,14 +4183,21 @@ final class PyJav {
                 for (String f : PluginLibrary.folders(type, false, home)) if (!folderModel.contains(f)) folderModel.addElement(f);
         };
         fill.run();
-        JPanel out = new JPanel(new GridLayout(1, 3, 8, 0));
+        JPanel lists = new JPanel(new GridLayout(1, 3, 8, 0));
+        // One line above the lists says what a click does (under each list, the form's last pixels cut it off).
+        JPanel out = new JPanel(new BorderLayout(0, 4));
         out.setName("params-plugin-picks");
-        out.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
-        out.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
+        JLabel tip = new JLabel(PICKS_TIP);
+        tip.setName("params-plugin-picks-tip");
+        tip.setFont(tip.getFont().deriveFont(11f));
+        out.add(tip, BorderLayout.NORTH);
+        out.add(lists, BorderLayout.CENTER);
+        lists.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
+        lists.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
         JPanel folders = new JPanel(new BorderLayout(0, 4));
         javax.swing.JList<String> folderList = new javax.swing.JList<String>(folderModel);
         folderList.setName("params-plugin-folders");
-        folderList.setVisibleRowCount(6);
+        folderList.setVisibleRowCount(5);
         folders.add(new JScrollPane(folderList), BorderLayout.CENTER);
         JButton change = new JButton("Folders\u2026");
         change.setName("params-plugin-folders-change");
@@ -4202,7 +4211,7 @@ final class PyJav {
         change.setMargin(new java.awt.Insets(0, 6, 0, 6));
         head.add(change, BorderLayout.EAST);
         folders.add(head, BorderLayout.NORTH);
-        out.add(folders);
+        lists.add(folders);
         return out;
     }
 
@@ -4368,10 +4377,20 @@ final class PyJav {
             File to = chooser.getSelectedFile();
             app.setNow(PluginFiles.write(to, text.getText()) ? "Saved a copy: " + to.getPath() : "Could not save " + to.getPath());
         });
+        JButton importMap = new JButton("Import\u2026");
+        importMap.setName("params-files-map-import");
+        importMap.setToolTipText("Another map file in place of map.txt (asks first; map.txt is kept as map-backup-<date>.txt)");
+        importMap.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(map.getParentFile());
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Map files", "txt"));
+            if (chooser.showOpenDialog(importMap) != JFileChooser.APPROVE_OPTION) return;
+            this.importNoteMap(importMap, text, chooser.getSelectedFile());
+        });
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         top.add(new JLabel(map.getPath()));
         top.add(notes);
         top.add(check);
+        top.add(importMap);
         top.add(copyAs);
         box.add(top, BorderLayout.NORTH);
         // Find and replace (case aside).
@@ -4443,6 +4462,37 @@ final class PyJav {
         lastMapEditor = box;
         return box;
     }
+
+    /**
+     * Import: a map file in place of map.txt, when it is one (note=note lines) and the user says so; map.txt
+     * is kept as map-backup-<date>.txt first, and the editor shows the map imported. What it said.
+     */
+    String importNoteMap(java.awt.Component at, javax.swing.JTextArea text, File from) {
+        final File home = new File(System.getProperty("user.home", "."));
+        String t = PluginFiles.read(from);
+        String why = PluginFiles.notAMap(t);
+        if (why != null) {
+            mapImportSaid = from.getName() + " is not a note map: " + why;
+            if (!pluginTestQuiet) JOptionPane.showMessageDialog(at, mapImportSaid, "Note map \u00b7 import", JOptionPane.WARNING_MESSAGE);
+            return mapImportSaid;
+        }
+        List<String> problems = PluginFiles.mapProblems(t);
+        String ask = "Replace your note map (map.txt) with " + from.getName() + "?\nYour map now is kept as a backup beside it (map-backup-<date>.txt)."
+            + (problems.isEmpty() ? "" : "\n\nThe check finds in it:\n" + String.join("\n", problems));
+        if (!pluginTestQuiet && JOptionPane.showConfirmDialog(at, ask, "Note map \u00b7 import", JOptionPane.YES_NO_OPTION,
+            problems.isEmpty() ? JOptionPane.QUESTION_MESSAGE : JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+            mapImportSaid = "Not imported";
+            return mapImportSaid;
+        }
+        File backup = PluginFiles.importMap(home, t);
+        text.setText(t);
+        text.setCaretPosition(0);
+        mapImportSaid = "Imported " + from.getName() + " as map.txt" + (backup != null ? "; the map before is kept as " + backup.getName() : "");
+        app.setNow(mapImportSaid);
+        return mapImportSaid;
+    }
+
+    static String mapImportSaid = "";
 
     /** The note map editor's right-click menu at `offset`: Cut, Copy, Paste, Select all; the section there. */
     javax.swing.JPopupMenu mapMenu(final javax.swing.JTextArea text, int offset) {
@@ -4548,7 +4598,7 @@ final class PyJav {
         box.add(new JLabel(title), BorderLayout.NORTH);
         final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
         list.setName(name);
-        list.setVisibleRowCount(6);
+        list.setVisibleRowCount(5);
         list.setToolTipText(empty);
         list.setCellRenderer(new javax.swing.DefaultListCellRenderer() {
             @Override
@@ -4582,9 +4632,6 @@ final class PyJav {
             }
         });
         box.add(new JScrollPane(list), BorderLayout.CENTER);
-        JLabel tip = new JLabel("Click: Use as plugin 1 to 4; or drag onto a plugin row");
-        tip.setFont(tip.getFont().deriveFont(11f));
-        box.add(tip, BorderLayout.SOUTH);
         return box;
     }
 
