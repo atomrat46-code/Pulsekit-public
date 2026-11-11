@@ -10023,9 +10023,39 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v420: a SoundFont as vst_render's plugin: Midi2Wav (in DrumMidi_CRT.jar) plays the MIDI with it into
+   * the WAV, no DawDreamer or Carla; one in an LV2 bundle (AVL Drumkits' kits) the same; --edit refused;
+   * Pulsekit's check lets it through, Info names it.
+   */
+  void s248_soundfont_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File sf2 = new File(home, "test-kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(AudioIo.buildVoices(22050), "Test kit"));
+    File work = new File(home, "sf");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_soundfont.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), sf2.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 300, null).trim()).append('\n');
+    this.out.append("app: ").append(DllInfo.problem(sf2)).append(" | ").append(PluginsList.isPlugin(sf2)).append(" | ").append(PluginsList.info(sf2).split("\n")[0]).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("SoundFont: test-kit.sf2, played with Pulsekit's Midi2Wav") && all.matches("(?s).*sf2: (done|0) \\| 44100 Hz, [0-9.]+ s, peak 0\\.[1-9].*")
+        && all.contains("Black_Pearl_4_LV2.sf2: a kit of the LV2 plugin avldrums.lv2, played here as a SoundFont (Midi2Wav)")
+        && all.matches("(?s).*lv2 kit: (done|0) \\| 44100 Hz, [0-9.]+ s, peak 0\\.[1-9].*")
+        && all.contains("edit: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Midi2Wav plays it; no --carla, --clap, --effect, --wav or --edit with it")
+        && all.contains("no jar: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Pulsekit's Midi2Wav plays it, in DrumMidi_CRT.jar")
+        && all.contains("app: null | true | test-kit (SoundFont, played with Midi2Wav)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v419: an LV2 plugin (x42 AVL Drumkits' bundle as Windows installs it): its .dll or its folder plays in
-   * Carla's rack, its kit picked by the plugin id (--clap_id); a SoundFont is refused, pointing at the
-   * bundle; Pulsekit's own check lets the .dll through and says what the SoundFont is.
+   * Carla's rack, its kit picked by the plugin id (--clap_id); (v420: its SoundFont plays with
+   * Midi2Wav, s248); Pulsekit's own check lets the .dll and the SoundFont through.
    */
   void s247_lv2_plugin() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10046,8 +10076,7 @@ public final class DesktopBehavior {
         && all.contains("bundle, Red: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Red Zeppelin in Carla-Rack | project avldrums-Red Zeppelin.carxp")
         && all.contains("avldrums.lv2 is an LV2 plugin: it plays in Carla's rack; its plugin: AVL Drumkits Black Pearl (the others, by --clap_id: AVL Drumkits Red Zeppelin)")
         && all.contains("<Type>LV2</Type>    <Name>AVL Drumkits Red Zeppelin</Name>    <URI>http://gareus.org/oss/lv2/avldrums#RedZeppelin</URI>")
-        && all.contains("Failed: Black_Pearl_4_LV2.sf2 is a SoundFont (a kit's samples), not a plugin: choose its LV2 plugin, the avldrums.lv2 folder")
-        && all.contains("app: dll null | lv2 true | sf2 Black_Pearl_4_LV2.sf2 is a SoundFont (a kit's samples), not a plugin: choose its LV2 plugin, the avldrums.lv2 folder");
+        && all.contains("app: dll null | lv2 true | sf2 null");
     if (!ok) throw new AssertionError(all);
   }
 

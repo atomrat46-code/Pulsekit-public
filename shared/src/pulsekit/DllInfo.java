@@ -85,13 +85,8 @@ public final class DllInfo {
   public static String problem(File f) {
     if (f == null) return null;
     String low = f.getName().toLowerCase(java.util.Locale.ROOT);
-    // A SoundFont is a kit's samples (x42 AVL Drumkits'), not a plugin: its LV2 plugin plays it.
-    if (low.endsWith(".sf2") || low.endsWith(".sfz")) {
-      File up = f.getAbsoluteFile().getParentFile();
-      boolean lv2 = up != null && up.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2");
-      return f.getName() + " is a SoundFont (a kit's samples), not a plugin" + (lv2 ? ": choose its LV2 plugin, the " + up.getName()
-          + " folder (or the .dll in it); Carla's rack plays it" : ": Midi2Wav plays a SoundFont");
-    }
+    // A SoundFont (x42 AVL Drumkits' kits too): vst_render plays it with Midi2Wav, no plugin needed.
+    if (isSoundFont(f)) return null;
     // An LV2 plugin's library (avldrums.lv2's avldrums.dll): vst_render plays it in Carla's rack.
     if (isLv2(f)) return null;
     if (!low.endsWith(".dll") || !f.isFile()) return null;
@@ -102,12 +97,20 @@ public final class DllInfo {
     return null;
   }
 
+  /** A SoundFont (.sf2, .sfz): vst_render plays it as its plugin with Midi2Wav (no DawDreamer or Carla). */
+  public static boolean isSoundFont(File f) {
+    String low = f.getName().toLowerCase(java.util.Locale.ROOT);
+    return low.endsWith(".sf2") || low.endsWith(".sfz");
+  }
+
+  public static final String SOUNDFONT = "A SoundFont: vst_render plays it with Midi2Wav (its drum kit: bank 128, else its first preset); no Carla or Edit settings";
+
   /** An LV2 plugin: a folder ending .lv2, or a file in one (vst_render plays it in Carla's rack). */
   public static boolean isLv2(File f) {
     File a = f.getAbsoluteFile();
     if (a.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2")) return true;
     File up = a.getParentFile();
-    return up != null && up.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2") && !a.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".sf2");
+    return up != null && up.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2") && !isSoundFont(a);
   }
 
   /** problem's word for a 32-bit VST2 (it plays through Carla's bridge). */

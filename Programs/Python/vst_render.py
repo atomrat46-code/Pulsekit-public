@@ -6,7 +6,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
   --plugin        the instrument: a VST2 (.dll, .so, .vst) or VST3 (.vst3) plugin. With --wav, an
-                  effect (an amp, a reverb) that the WAV is played through instead.
+                  effect (an amp, a reverb) that the WAV is played through instead. A SoundFont
+                  (.sf2, .sfz: x42 AVL Drumkits' kits too) plays with Midi2Wav (in --drummidi's jar),
+                  its drum kit (bank 128, else its first preset): no DawDreamer, Carla or --edit.
   --plugin2, --plugin3, --plugin4
                   more instruments: the whole run (renders, test, MP3s, zip) again with each, after
                   --plugin's: <midi>-<plugin2>.wav and its own report. Each plays with the settings
@@ -754,6 +756,58 @@ def midi_file(path, notes, bpm=120, tpq=480):
     ev += b"\x00\xff\x2f\x00"
     with open(path, "wb") as f:
         f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, tpq) + b"MTrk" + struct.pack(">I", len(ev)) + ev)
+
+
+class SoundFont:
+    """A SoundFont (.sf2, .sfz, a zipped SFZ kit) as the plugin: Pulsekit's Midi2Wav (in DrumMidi_CRT.jar)
+    plays each MIDI with it, its drum kit (bank 128, else its first preset); no DawDreamer or Carla."""
+
+    note_map = None
+
+    def __init__(self, rate, opts):
+        self.rate = rate
+        self.sf = opts["--plugin"]
+        self.java = opts["--java"]
+        self.jar = opts["--drummidi"]
+        if not self.jar or not os.path.isfile(self.jar):
+            fail("%s is a SoundFont: Pulsekit's Midi2Wav plays it, in DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own, and Test does)"
+                 % os.path.basename(self.sf))
+        print("SoundFont: %s, played with Pulsekit's Midi2Wav (its drum kit: bank 128, else its first preset)" % os.path.basename(self.sf))
+
+    def latency(self):
+        return 0
+
+    def render(self, np, midi=None, wav=None, tail=2.0, raw=False):
+        import subprocess
+        import tempfile
+        if wav:
+            raise ValueError("a SoundFont plays MIDI; --wav needs an effect plugin")
+        if not raw:
+            midi = sent_midi(midi, self.note_map)
+        length = midi_notes(midi)[0]
+        work = tempfile.mkdtemp(prefix="pulsekit-sf-")
+        out = os.path.join(work, "out.wav")
+        r = subprocess.run([self.java, "-cp", os.path.abspath(self.jar), "Midi2Wav", os.path.abspath(midi), out, "--sf2", os.path.abspath(self.sf),
+                            "--rate", str(self.rate)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=work)
+        if r.returncode != 0 or not os.path.isfile(out):
+            said = r.stdout.decode("utf-8", "replace").strip().splitlines()
+            raise ValueError("Midi2Wav: %s" % (said[-1] if said else "no WAV"))
+        audio, _ = read_wav(out, self.rate)
+        try:
+            os.remove(out)
+            os.rmdir(work)
+        except OSError:
+            pass
+        frames = int((length + tail) * self.rate)
+        if audio.shape[1] < frames:
+            audio = np.hstack([audio, np.zeros((2, frames - audio.shape[1]), dtype=audio.dtype)])
+        return audio[:, :frames], length, 0
+
+
+def is_soundfont(path):
+    """A SoundFont vst_render plays with Midi2Wav: .sf2, .sfz, or a zipped SFZ kit (kit.zip, kit.zip#folder/kit.sfz)."""
+    low = (path or "").lower()
+    return low.endswith((".sf2", ".sfz")) or ".zip#" in low or (low.endswith((".zip", ".tar.gz", ".tgz")) and os.path.isfile(path))
 
 
 class Gizmo:
@@ -2968,14 +3022,16 @@ def main(argv):
             fail("give the CLAP plugin once: --clap or --plugin")
         opts["--clap"], opts["--plugin"] = opts["--plugin"], None
     LV2_WANTED["id"] = opts["--clap_id"]
-    # A SoundFont is a plugin's samples (x42 AVL Drumkits' kits), not a plugin.
-    if opts["--plugin"] and opts["--plugin"].lower().endswith((".sf2", ".sfz")):
-        bundle = lv2_bundle(opts["--plugin"])
-        fail("%s is a SoundFont (a kit's samples), not a plugin%s" % (os.path.basename(opts["--plugin"]),
-             (": choose its LV2 plugin, the %s folder (or the .dll in it); Carla's rack plays it" % os.path.basename(bundle)) if bundle else
-             ": Midi2Wav plays a SoundFont, or choose the plugin that uses it"))
+    # A SoundFont (.sf2, .sfz: x42 AVL Drumkits' kits too) plays with Pulsekit's Midi2Wav, no plugin needed.
+    soundfont = bool(opts["--plugin"]) and is_soundfont(opts["--plugin"])
+    if soundfont:
+        if opts["--carla"] or opts["--clap"] or opts["--effect"] or opts["--wav"] or "--edit" in switches:
+            fail("%s is a SoundFont: Midi2Wav plays it; no --carla, --clap, --effect, --wav or --edit with it" % os.path.basename(opts["--plugin"]))
+        if lv2_bundle(opts["--plugin"]):
+            print("%s: a kit of the LV2 plugin %s, played here as a SoundFont (Midi2Wav); the plugin itself plays it through Carla"
+                  % (os.path.basename(opts["--plugin"]), os.path.basename(lv2_bundle(opts["--plugin"]))))
     # An LV2 plugin (its .lv2 folder, or the .dll in it): played in Carla's rack, as a 32-bit VST2 is.
-    if opts["--plugin"] and lv2_bundle(opts["--plugin"]):
+    if opts["--plugin"] and lv2_bundle(opts["--plugin"]) and not soundfont:
         rack = carla_rack()
         if not rack:
             fail("%s is an LV2 plugin: it plays in Carla's rack. Carla's rack (CarlaVstShell.dll or CarlaRack) was not found in: %s "
@@ -2987,7 +3043,7 @@ def main(argv):
         opts["--bridged"], opts["--plugin"] = lv2_bundle(opts["--plugin"]), rack
     # A .dll that is not a plugin for this Python: said plainly; a 32-bit VST2 plays in Carla's rack, bridged.
     # (Not Carla's rack an LV2 is played in.)
-    if opts["--plugin"] and not opts.get("--bridged"):
+    if opts["--plugin"] and not opts.get("--bridged") and not soundfont:
         problem = dll_problem(opts["--plugin"])
         if problem == "32":
             rack = carla_rack()
@@ -3218,6 +3274,8 @@ def main(argv):
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
     if gizmo:
         chain = Gizmo(rate, opts)
+    elif soundfont:
+        chain = SoundFont(rate, opts)
     else:
         try:
             import dawdreamer as daw
@@ -3244,7 +3302,7 @@ def main(argv):
         beat = check_midi(tempfile.mkdtemp(prefix="vst-check-"))
         # Every drum and cymbal played once first, unheard: a sampler that loads a sound when it is
         # first played (KVLT) has them all for the test beat.
-        if not gizmo and warm_up(chain, np):
+        if not gizmo and not soundfont and warm_up(chain, np):
             print("Warm-up: every drum and cymbal played once before the test beat (a plugin that loads a sound when it is first played has them now)")
         try:
             check_audio, _, _ = chain.render(np, midi=beat, tail=1.0)

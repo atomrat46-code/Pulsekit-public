@@ -1,7 +1,7 @@
 # vst_render and an LV2 plugin (x42 AVL Drumkits' bundle as Windows installs it: avldrums.lv2 with
 # avldrums.dll, its .ttl files and a SoundFont a kit): the bundle or its .dll plays in Carla's rack, its kit
 # (a plugin of its own) picked by --clap_id; its Carla project block; Edit settings' project per kit; a
-# SoundFont given is refused, pointing at the bundle. Used by DesktopBehavior s247.
+# SoundFont is not taken for the bundle (it plays with Midi2Wav: vst_soundfont.py). Used by DesktopBehavior s247.
 # Arguments: vst_render.py, a home folder.
 import importlib.util
 import os
@@ -83,4 +83,3 @@ for label, args in (('dll', ['x.mid', '--plugin', os.path.join(bundle, 'avldrums
                                                              os.path.basename(vr.bridged_project(seen['--bridged'])) if seen.get('--bridged') else '-'))
 vr.LV2_WANTED['id'] = 'Red'
 print('block: %s' % vr.bridged_carla_plugin(bundle).replace('\n', ' '))
-run(['x.mid', '--plugin', os.path.join(bundle, 'Black_Pearl_4_LV2.sf2')])

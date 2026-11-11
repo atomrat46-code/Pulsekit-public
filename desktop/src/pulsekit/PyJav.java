@@ -3278,7 +3278,7 @@ final class PyJav {
                     File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : lastVstFolder();
                     JFileChooser chooser = new JFileChooser(start);
                     chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-                    chooser.setDialogTitle("VST plugin (.dll, .vst3)");
+                    chooser.setDialogTitle("Plugin (.dll, .vst3, .clap, .lv2) or SoundFont (.sf2, .sfz)");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
@@ -4029,6 +4029,7 @@ final class PyJav {
     /** A .dll picked for a plugin row: said at once when it is a 32-bit plugin (Carla's bridge plays it) or no plugin. */
     void dllNotice(java.awt.Component at, File f) {
         String problem = DllInfo.problem(f);
+        if (problem == null && f != null && DllInfo.isSoundFont(f)) app.setNow(DllInfo.SOUNDFONT);
         if (problem == null) return;
         File rack = DllInfo.BRIDGED.equals(problem) ? carlaRack() : null;
         String text = DllInfo.BRIDGED.equals(problem) ? DllInfo.bridgedNote(f, rack) : "\u2718 " + problem;

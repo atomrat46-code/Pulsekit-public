@@ -39,7 +39,7 @@ final class PluginsList {
     private PluginsList() {}
 
     static final String FAVOURITES_KEY = "vstFavourites";
-    static final String[] ENDS = {".vst3", ".dll", ".vst", ".component", ".so"};
+    static final String[] ENDS = {".vst3", ".dll", ".vst", ".component", ".so", ".sf2", ".sfz"};
     /** How deep the VST folders are looked through (makers keep their plugins in folders of their own). */
     static final int DEPTH = 4;
 
@@ -153,7 +153,7 @@ final class PluginsList {
     /** What Info says: the plugin's kind, file and date, and whether a kit or patch was saved for it. */
     static String info(File f) {
         String low = f.getName().toLowerCase(java.util.Locale.ROOT);
-        String kind = low.endsWith(".vst3") ? "VST3" : low.endsWith(".dll") || low.endsWith(".so") || low.endsWith(".vst") ? "VST2" : "Audio Unit";
+        String kind = DllInfo.isSoundFont(f) ? "SoundFont, played with Midi2Wav" : low.endsWith(".vst3") ? "VST3" : low.endsWith(".dll") || low.endsWith(".so") || low.endsWith(".vst") ? "VST2" : "Audio Unit";
         java.text.SimpleDateFormat day = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm");
         StringBuilder b = new StringBuilder(name(f)).append(" (").append(kind).append(f.isDirectory() ? ", a bundle folder" : "").append(")\n");
         b.append(f.getAbsolutePath()).append('\n');

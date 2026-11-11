@@ -751,7 +751,7 @@ public final class ProgramParams {
       p.hint = "a .mid; every channel is played";
       p.refs = true;
     } else if (p.token.equals("--plugin")) {
-      p.label = "Plugin (VST2 .dll / VST3 .vst3)";
+      p.label = "Plugin (VST2 .dll / VST3 .vst3) or SoundFont (.sf2 / .sfz)";
       p.ext = "any";
       p.plugin = true;
     } else if (p.token.equals("--plugin2") || p.token.equals("--plugin3") || p.token.equals("--plugin4")) {
