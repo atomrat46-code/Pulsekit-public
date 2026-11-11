@@ -10023,6 +10023,23 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v426: the map suggestion with a fat studio snare that reads tom-like (Tight Studio Drums, run 25):
+   * the snare note is not left out and no tom goes to the snare's pad.
+   */
+  void s250_suggestion_keeps_snare() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_suggest_keep.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 120, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("38 kept: True | no tom to 38: True") && all.contains("(41, 47), (43, 47)");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v423: vst_render --parts: the drums split between plugin rows in one run and mixed (the same SoundFont
    * as plugins 1 and 2, kick and cymbals by 2: it sounds as the whole kit by one); the notes each row
    * plays; files named after both; bad --parts refused; Params' Parts row on the Plugins tab.

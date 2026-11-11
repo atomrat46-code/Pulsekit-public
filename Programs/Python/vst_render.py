@@ -2219,6 +2219,10 @@ def pad_kinds(pads):
     return kinds
 
 
+# The GM kick and snare notes (35-40): a map suggestion neither leaves them out nor sends a tom to them.
+KEEP_NOTES = (35, 36, 37, 38, 39, 40)
+
+
 def suggest_map(pads):
     """A note map from the pads' sounds ({note: features}): [(GM note, pad, why)]. A GM note that is a pad
     already playing its own kind of sound is left as it is; one landing on a pad of another kind with no
@@ -2245,7 +2249,9 @@ def suggest_map(pads):
         pick["ride"] = cymbals[1] if len(cymbals) > 1 else cymbals[0]
     if not pick.get("open"):
         pick.pop("open", None)
-    toms = sorted(of("tom"), key=lambda n: pads[n]["pitch"])
+    # (Not the GM kick and snare notes' own pads: a fat studio snare reads tom-like, and the songs' toms
+    # sent there played the snare; Tight Studio Drums.)
+    toms = sorted([n for n in of("tom") if n not in KEEP_NOTES], key=lambda n: pads[n]["pitch"])
     want = [(note, pick.get(role), role) for note, role in GM_ROLES]
     for i, note in enumerate(GM_TOMS):
         tom = toms[int(round(i * (len(toms) - 1) / 5.0))] if toms else None
@@ -2256,7 +2262,9 @@ def suggest_map(pads):
         fits = own is not None and (own == role or role.startswith(own) or (own == "hat" and role in ("closed", "open"))
                                     or (own == "cymbal" and role in ("crash", "ride", "open")))
         if pad is None:
-            if own is not None and not fits:
+            # The kick and snare notes are never left out: whatever their pads play, the songs need them
+            # (Tight Studio Drums' fat snare read tom-like, and 38=none silenced every snare).
+            if own is not None and not fits and note not in KEEP_NOTES:
                 out.append((note, None, "no %s found; %d plays a %s-like sound" % (role_word(role), note, own)))
             continue
         if pad == note or fits:
