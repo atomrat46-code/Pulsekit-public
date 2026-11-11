@@ -10025,7 +10025,7 @@ public final class DesktopBehavior {
   /**
    * v420: a SoundFont as vst_render's plugin: Midi2Wav (in DrumMidi_CRT.jar) plays the MIDI with it into
    * the WAV, no DawDreamer or Carla; one in an LV2 bundle (AVL Drumkits' kits) the same; --edit refused;
-   * Pulsekit's check lets it through, Info names it.
+   * Pulsekit's check lets it through, Info names it. v422: AVL Drumkits' kits get its built-in note map.
    */
   void s248_soundfont_plugin() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10048,6 +10048,9 @@ public final class DesktopBehavior {
         && all.matches("(?s).*lv2 kit: (done|0) \\| 44100 Hz, [0-9.]+ s, peak 0\\.[1-9].*")
         && all.contains("edit: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Midi2Wav plays it; no --carla, --clap, --effect, --wav or --edit with it")
         && all.contains("no jar: 1") && all.contains("Failed: test-kit.sf2 is a SoundFont: Pulsekit's Midi2Wav plays it, in DrumMidi_CRT.jar")
+        && all.contains("avl: [True, True, True, True, False, False]")
+        && all.contains("avl map: Note map: built in for AVL Drumkits (its 48 is the swish hat, 50 Crash 1 choked: the songs' toms there go to its tom; a [Black_Pearl_4_LV2] section in map.txt replaces it): 48=47 (B2), 50=45 (A2)")
+        && all.contains("Note map: built in for AVL Drumkits (its 48 is the swish hat, 50 Crash 1 choked: the songs' toms there go to its tom; a [Black_Pearl_4_LV2] section in map.txt replaces it): 48=47")
         && all.contains("app: null | true | test-kit (SoundFont, played with Midi2Wav)");
     if (!ok) throw new AssertionError(all);
   }

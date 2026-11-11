@@ -1489,21 +1489,38 @@ def note_map_home():
     return os.path.join(os.path.expanduser("~"), ".pulsekit", "maps", "map.txt")
 
 
+# x42 AVL Drumkits (its LV2 plugin avldrums, or its kits' SoundFonts: Black_Pearl_4_LV2.sf2...): two toms
+# only, 41/43 the floor tom (center, edge) and 45/47 the tom; its 48 is the swish hat and 50 Crash 1
+# choked. Unless map.txt has a section for it, the songs' toms 48 and 50 go to its tom (edge, center).
+AVL_KITS = ("blackpearl", "redzeppelin", "blondebop", "buskmansholiday")
+AVL_NOTE_MAP = {48: 47, 50: 45}
+
+
+def avl_kit(plugin):
+    """Whether the plugin is AVL Drumkits: avldrums (its LV2 bundle), or a kit's SoundFont (Black_Pearl_4_LV2)."""
+    low = re.sub(r"[^a-z0-9]", "", (plugin or "").lower())
+    return low.startswith("avldrums") or ("lv2" in low and any(k in low for k in AVL_KITS))
+
+
 def pad_map(given, plugin):
     """--note_map's notes for the plugin (the MIDI's note to the plugin's own), and a line saying where
-    they came from; ({}, None) when there are none. Empty: map.txt's lines for the plugin, if any."""
+    they came from; ({}, None) when there are none. Empty: map.txt's lines for the plugin, if any.
+    AVL Drumkits without a section of its own: its built-in map (AVL_NOTE_MAP) under map.txt's lines."""
     text = given
     if not (text or "").strip():
         text = note_map_home()
-        if not os.path.isfile(text):
-            return {}, None
-    nmap, part = map_for(map_file(text), plugin)
+    nmap, part = map_for(map_file(text), plugin) if os.path.isfile(map_file(text)) or (given or "").strip() else ({}, None)
     nmap = dict((a, b) for a, b in nmap.items() if a != b)
+    built_in = avl_kit(plugin) and not part
+    if built_in:
+        nmap = dict(list(AVL_NOTE_MAP.items()) + list(nmap.items()))
     if not nmap:
         return {}, None
     where = os.path.basename(text) if os.path.isfile(map_file(text)) else "--note_map"
     if part:
         where += ", section [%s]" % part
+    if built_in:
+        where = "built in for AVL Drumkits (its 48 is the swish hat, 50 Crash 1 choked: the songs' toms there go to its tom; a [%s] section in map.txt replaces it)" % os.path.splitext(os.path.basename(os.path.normpath(plugin)))[0]
     pairs = ", ".join("%d=%s" % (a, "none" if b is None else "%d (%s)" % (b, note_name(b))) for a, b in sorted(nmap.items()))
     return nmap, "Note map: %s: %s (the MIDI's notes sent to the plugin's)" % (where, pairs)
 
@@ -1676,6 +1693,11 @@ def drum_midi(java, jar, wav, mid, extra=(), said=None):
     try:
         # DrumMidi_CRT writes into its working folder: run it in the WAV's.
         where = os.path.dirname(os.path.abspath(mid))
+        # (A kit profile given by a path from here: in full, as DrumMidi runs there.)
+        extra = list(extra)
+        for i in range(len(extra) - 1):
+            if extra[i] == "--kit":
+                extra[i + 1] = os.path.abspath(extra[i + 1])
         r = subprocess.run([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(wav), os.path.basename(mid)] + list(extra),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
     except Exception as e:
@@ -2332,6 +2354,14 @@ def same_kit_check(np, audio, rate, plugin, kit):
 CHOKE_GAP, CHOKE_HITS = 1.5, 3
 
 
+CHOKE_PRIVATE = 100
+CHOKE_DRUMS = (35, 36, 37, 38, 39, 40, 41, 43, 45, 47, 48, 50)
+
+
+def chokes_text(pairs):
+    return ",".join("%d=%d" % kv for kv in sorted(pairs.items()))
+
+
 def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     """--chokes: each cymbal (a pair's first note) and its choke (the second) played alone, CHOKE_HITS
     times each, through the plugin (its notes as they are: no note map), then DrumMidi with --chokes and
@@ -2358,10 +2388,19 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     wav = os.path.join(work, "chokes.wav")
     write_wav(wav, audio, rate, bits)
     said = []
+    # DrumMidi writes the chokes on notes of their own (100 on), so a choke note that is a drum's too (AVL's
+    # 50, Crash 1 choked, is the songs' high tom) is told apart; drums written with a cymbal are left out
+    # (a sampled kit's cymbal carries the room's low end: alone, it can pass for a kick or a tom).
+    private = dict((plain, CHOKE_PRIVATE + i) for i, plain in enumerate(sorted(pairs)))
     found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "chokes-dm.mid"),
-                      ["--chokes", ",".join("%d=%d" % kv for kv in sorted(pairs.items()))] + (["--kit", kit_file] if kit_file else []), said)
+                      ["--chokes", ",".join("%d=%d" % kv for kv in sorted(private.items()))] + (["--kit", kit_file] if kit_file else []), said)
     if isinstance(found, str):
         return ["Chokes: %s" % found]
+    back = dict((v, pairs[k]) for k, v in private.items())
+    found = [(u, back.get(k, k)) for u, k in found if k in back or k not in CHOKE_DRUMS]
+    said = [l.replace(chokes_text(private), chokes_text(pairs)) for l in said]
+    for k, v in private.items():
+        said = [re.sub(r"\b%d as %d\b" % (k, v), "%d as %d" % (k, pairs[k]), l) for l in said]
     out = []
     for plain, choked in sorted(pairs.items()):
         for n, what in ((plain, "%d plain" % plain), (choked, "%d (%d choked)" % (choked, plain))):
@@ -2369,7 +2408,7 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
             for a, m in hits:
                 if m != n:
                     continue
-                got = sorted(set(k for u, k in found if abs(u - a) < 0.06))
+                got = sorted(set(k for u, k in found if -0.06 < u - a < 0.2))  # (a sampled crash swells: found up to ~150 ms on)
                 key = "+".join(str(k) for k in got) or "missed"
                 written[key] = written.get(key, 0) + 1
             out.append("Chokes: %s written as %s" % (what, ", ".join("%s %d of %d" % (k, c, CHOKE_HITS) for k, c in sorted(written.items()))))

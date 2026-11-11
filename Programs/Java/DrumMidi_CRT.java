@@ -329,11 +329,14 @@ public class DrumMidi_CRT{
     }
 
     /**
-     * A choked cymbal: cut off by hand, its 3-16 kHz level CHOKE_LEVEL of its first 40 ms or less 200-300
-     * ms on (-30 dB; a crash left to ring keeps 0.2-0.5 there, a ride 0.1-0.3), with no other hit from 30 ms
-     * to CHOKE_CLEAR after it (another drum would hold the level up, or the next cymbal end it).
+     * A choked cymbal: cut off by hand. Its highs (3-16 kHz) peak within CHOKE_SWELL of the hit (a sampled
+     * crash swells: AVL Drumkits' peak 110-180 ms on), and CHOKE_AFTER to CHOKE_END after that peak they
+     * are CHOKE_LEVEL of it or less. AVL's Black Pearl there: crashes left to ring 0.55-0.79, choked
+     * 0.007-0.034; its ride 0.13, choked 0.037. No other hit may come from 30 ms after it to CHOKE_END after
+     * its peak (another drum would hold the level up, or the next cymbal end it); the same cymbal found
+     * again within CHOKE_SWELL is the same hit (a swelling crash is).
      */
-    static final double CHOKE_LEVEL = 0.03, CHOKE_CLEAR = 0.32;
+    static final double CHOKE_LEVEL = 0.07, CHOKE_SWELL = 0.3, CHOKE_AFTER = 0.3, CHOKE_END = 0.4;
 
     /** --chokes' notes: "49=50,51=52" (the cymbal found = the note a choked one is written as). */
     static java.util.Map<Integer, Integer> chokeNotes(String text) {
@@ -382,34 +385,53 @@ public class DrumMidi_CRT{
             public double applyAsDouble(Hit h) { return h.time; }
         }));
         java.util.Map<Integer, Integer> count = new java.util.TreeMap<Integer, Integer>();
+        java.util.Set<Hit> same = new java.util.HashSet<Hit>();
+        java.util.Map<Hit, Integer> choked = new java.util.HashMap<Hit, Integer>();
         int unknown = 0;
-        for (int i = 0; i < hits.size(); i++) {
-            Hit h = hits.get(i);
+        for (Hit h : sorted) {
             Integer to = notes.get(Integer.valueOf(h.note));
-            if (to == null) continue;
-            boolean clear = true;
-            for (Hit o : sorted) {
-                if (o == h) continue;
-                if (o.time > h.time + 0.03 && o.time < h.time + CHOKE_CLEAR) {
-                    clear = false;
-                    break;
+            if (to == null || same.contains(h)) continue;
+            // Its peak: the loudest 10 ms of its highs within CHOKE_SWELL.
+            double peak = 0, peakAt = h.time;
+            for (double t = Math.max(0, h.time - 0.02); t < h.time + CHOKE_SWELL; t += 0.01) {
+                double l = highLevel(x, sr, t, t + 0.01, true);
+                if (l > peak) {
+                    peak = l;
+                    peakAt = t;
                 }
             }
+            List<Hit> again = new ArrayList<Hit>();
+            boolean clear = true;
+            for (Hit o : sorted) {
+                if (o == h || o.time <= h.time + 0.03) continue;
+                if (o.time >= peakAt + CHOKE_END) break;
+                if (o.note == h.note && o.time < h.time + CHOKE_SWELL) {
+                    again.add(o);
+                    continue;
+                }
+                clear = false;
+                break;
+            }
+            same.addAll(again);
             if (!clear) {
                 unknown++;
                 continue;
             }
-            double at = highLevel(x, sr, h.time, h.time + 0.04, true);
-            double later = highLevel(x, sr, h.time + 0.2, h.time + 0.3, false);
-            if (at <= 0 || later > CHOKE_LEVEL * at) continue;
-            hits.set(i, new Hit(h.time, to.intValue(), h.strength));
+            double later = highLevel(x, sr, peakAt + CHOKE_AFTER, peakAt + CHOKE_END, false);
+            if (peak <= 0 || later > CHOKE_LEVEL * peak) continue;
+            choked.put(h, to);
+            for (Hit o : again) choked.put(o, to);
             count.put(Integer.valueOf(h.note), Integer.valueOf((count.containsKey(Integer.valueOf(h.note)) ? count.get(Integer.valueOf(h.note)).intValue() : 0) + 1));
+        }
+        for (int i = 0; i < hits.size(); i++) {
+            Integer to = choked.get(hits.get(i));
+            if (to != null) hits.set(i, new Hit(hits.get(i).time, to.intValue(), hits.get(i).strength));
         }
         StringBuilder b = new StringBuilder();
         for (java.util.Map.Entry<Integer, Integer> e : count.entrySet()) b.append(b.length() == 0 ? "" : ", ").append(e.getValue()).append(" of ").append(e.getKey())
             .append(" as ").append(notes.get(e.getKey()));
         note("Chokes (--chokes " + chokeText(notes) + "): " + (b.length() == 0 ? "none found" : b.toString()) + (unknown > 0 ? "; " + unknown + " not told (another hit within "
-            + num(CHOKE_CLEAR * 1000) + " ms)" : ""));
+            + num(CHOKE_END * 1000) + " ms of its peak)" : ""));
     }
 
     static class Hit {
