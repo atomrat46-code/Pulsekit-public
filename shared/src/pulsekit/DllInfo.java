@@ -83,12 +83,31 @@ public final class DllInfo {
 
   /** What is in the way of a .dll playing: null when it plays as it is (not a .dll, or a 64-bit plugin). */
   public static String problem(File f) {
-    if (f == null || !f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".dll") || !f.isFile()) return null;
+    if (f == null) return null;
+    String low = f.getName().toLowerCase(java.util.Locale.ROOT);
+    // A SoundFont is a kit's samples (x42 AVL Drumkits'), not a plugin: its LV2 plugin plays it.
+    if (low.endsWith(".sf2") || low.endsWith(".sfz")) {
+      File up = f.getAbsoluteFile().getParentFile();
+      boolean lv2 = up != null && up.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2");
+      return f.getName() + " is a SoundFont (a kit's samples), not a plugin" + (lv2 ? ": choose its LV2 plugin, the " + up.getName()
+          + " folder (or the .dll in it); Carla's rack plays it" : ": Midi2Wav plays a SoundFont");
+    }
+    // An LV2 plugin's library (avldrums.lv2's avldrums.dll): vst_render plays it in Carla's rack.
+    if (isLv2(f)) return null;
+    if (!low.endsWith(".dll") || !f.isFile()) return null;
     DllInfo i = read(f);
     if (i.bits == 0) return f.getName() + " is not a Windows plugin file";
     if (!i.plugin()) return f.getName() + " is not a VST plugin: it has no VSTPluginMain (a VST2's start), so it is some other program's library";
     if (i.bits == 32) return BRIDGED;
     return null;
+  }
+
+  /** An LV2 plugin: a folder ending .lv2, or a file in one (vst_render plays it in Carla's rack). */
+  public static boolean isLv2(File f) {
+    File a = f.getAbsoluteFile();
+    if (a.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2")) return true;
+    File up = a.getParentFile();
+    return up != null && up.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".lv2") && !a.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".sf2");
   }
 
   /** problem's word for a 32-bit VST2 (it plays through Carla's bridge). */

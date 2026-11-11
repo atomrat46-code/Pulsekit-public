@@ -3373,7 +3373,7 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
-                            if (DllInfo.BRIDGED.equals(DllInfo.problem(plug))) carlaRack();
+                            if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
                             stopTimer.setText("Stop timer");
@@ -4076,7 +4076,7 @@ final class PyJav {
         }
         final File plug = new File(path);
         String problem = DllInfo.problem(plug);
-        if (DllInfo.BRIDGED.equals(problem)) carlaRack();
+        if (DllInfo.BRIDGED.equals(problem) || DllInfo.isLv2(plug)) carlaRack();
         if (problem != null && !DllInfo.BRIDGED.equals(problem)) {
             pluginTestSaid = "\u2718 " + problem;
             app.setNow(pluginTestSaid);

@@ -769,7 +769,7 @@ public final class ProgramParams {
       p.ext = "any";
       p.plugin = true;
     } else if (p.token.equals("--clap_id")) {
-      p.label = "CLAP plugin id (a .clap with several plugins; --scan lists them)";
+      p.label = "Plugin id: a .clap's plugin, or an LV2 bundle's (x42 AVL Drumkits: its kit, \"Red Zeppelin\"; Test lists them)";
       p.hint = "empty: the file's first plugin";
     } else if (p.token.equals("--drumgizmo")) {
       p.label = "DrumGizmo kit (its drumkit .xml): DrumGizmo plays it, no plugin needed (Linux)";

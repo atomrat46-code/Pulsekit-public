@@ -10023,6 +10023,35 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v419: an LV2 plugin (x42 AVL Drumkits' bundle as Windows installs it): its .dll or its folder plays in
+   * Carla's rack, its kit picked by the plugin id (--clap_id); a SoundFont is refused, pointing at the
+   * bundle; Pulsekit's own check lets the .dll through and says what the SoundFont is.
+   */
+  void s247_lv2_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File work = new File(home, "lv2");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_lv2.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 120, null).trim()).append('\n');
+    File bundle = new File(work, "LV2/avldrums.lv2");
+    this.out.append("app: dll ").append(DllInfo.problem(new File(bundle, "avldrums.dll"))).append(" | lv2 ").append(DllInfo.isLv2(new File(bundle, "avldrums.dll")))
+        .append(" | sf2 ").append(DllInfo.problem(new File(bundle, "Black_Pearl_4_LV2.sf2"))).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("plugins: [('http://gareus.org/oss/lv2/avldrums#BlackPearl', 'AVL Drumkits Black Pearl'), ('http://gareus.org/oss/lv2/avldrums#RedZeppelin', 'AVL Drumkits Red Zeppelin')]")
+        && all.contains("dll: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Black Pearl in Carla-Rack | project avldrums.carxp")
+        && all.contains("bundle, Red: chain | plugin CarlaVstShell.dll, bridged avldrums.lv2 | LV2 plugin: AVL Drumkits Red Zeppelin in Carla-Rack | project avldrums-Red Zeppelin.carxp")
+        && all.contains("avldrums.lv2 is an LV2 plugin: it plays in Carla's rack; its plugin: AVL Drumkits Black Pearl (the others, by --clap_id: AVL Drumkits Red Zeppelin)")
+        && all.contains("<Type>LV2</Type>    <Name>AVL Drumkits Red Zeppelin</Name>    <URI>http://gareus.org/oss/lv2/avldrums#RedZeppelin</URI>")
+        && all.contains("Failed: Black_Pearl_4_LV2.sf2 is a SoundFont (a kit's samples), not a plugin: choose its LV2 plugin, the avldrums.lv2 folder")
+        && all.contains("app: dll null | lv2 true | sf2 Black_Pearl_4_LV2.sf2 is a SoundFont (a kit's samples), not a plugin: choose its LV2 plugin, the avldrums.lv2 folder");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v418: chokes. vst_render --chokes plays each cymbal and its choke alone after the test beat (a fake
    * plugin: a crash on 49, the same crash cut at 120 ms on 50) and says what DrumMidi wrote for each;
    * DrumMidi takes --chokes 49=50 (its Chokes line) and refuses a note without its pair.

@@ -377,20 +377,98 @@ def dll_problem(path):
     return None
 
 
+def lv2_bundle(path):
+    """An LV2 plugin's bundle (a folder ending .lv2): the folder given, or the one a file given is in
+    (avldrums.lv2's avldrums.dll); None for anything else."""
+    if not path:
+        return None
+    p = os.path.normpath(os.path.abspath(path))
+    if os.path.isdir(p) and p.lower().endswith(".lv2"):
+        return p
+    up = os.path.dirname(p)
+    return up if up.lower().endswith(".lv2") and os.path.isdir(up) else None
+
+
+def lv2_plugins(bundle):
+    """The LV2 plugins in a bundle, [(uri, name)], from its .ttl files (x42 AVL Drumkits: a plugin a kit)."""
+    text = ""
+    for n in sorted(os.listdir(bundle)):
+        if n.lower().endswith(".ttl"):
+            text += open(os.path.join(bundle, n), encoding="utf-8", errors="replace").read() + "\n"
+    out = []
+    for m in re.finditer(r"<([^<>\s]+)>\s+a\s+[^;.]*lv2:Plugin", text):
+        uri = m.group(1)
+        if uri in [u for u, _ in out]:
+            continue
+        name = None
+        for k in re.finditer(re.escape("<" + uri + ">"), text):
+            # The statement about it: up to its end (" ." at a line's end; its URIs have dots of their own).
+            block = text[k.end():k.end() + 20000]
+            end = re.search(r"\s\.\s*(\n|$)", block)
+            nm = re.search(r"doap:name\s+\"([^\"]+)\"", block[:end.start()] if end else block)
+            if nm:
+                name = nm.group(1)
+                break
+        out.append((uri, name or uri.rsplit("#", 1)[-1].rsplit("/", 1)[-1]))
+    return out
+
+
+# The kit asked for (--clap_id: an LV2 plugin's URI, or part of its name: "Red Zeppelin").
+LV2_WANTED = {"id": None}
+
+
+def lv2_pick(bundle):
+    """The (uri, name) of the bundle's plugin to play: --clap_id's, else its first."""
+    plugins = lv2_plugins(bundle)
+    if not plugins:
+        fail("%s has no LV2 plugin in its .ttl files" % os.path.basename(bundle))
+    wanted = (LV2_WANTED["id"] or "").strip().lower()
+    if wanted:
+        for uri, name in plugins:
+            if wanted == uri.lower() or wanted in name.lower() or wanted in uri.lower():
+                return uri, name
+        fail("%s has no plugin %s; it has: %s" % (os.path.basename(bundle), LV2_WANTED["id"], "; ".join(n for _, n in plugins)))
+    return plugins[0]
+
+
+def lv2_carla_plugin(bundle):
+    """A Carla project's <Plugin> for an LV2 plugin: its URI (Carla finds it in the usual LV2 folders)."""
+    uri, name = lv2_pick(bundle)
+    return ("<Plugin>\n  <Info>\n   <Type>LV2</Type>\n   <Name>%s</Name>\n   <URI>%s</URI>\n  </Info>\n"
+            "  <Data>\n   <Active>Yes</Active>\n  </Data>\n </Plugin>") % (xml_text(name), xml_text(uri))
+
+
+def rack_said(path):
+    """The line saying how a plugin played in Carla's rack plays: an LV2's kit, or a 32-bit VST2 bridged."""
+    if lv2_bundle(path):
+        return "LV2 plugin: %s in Carla-Rack" % lv2_pick(lv2_bundle(path))[1]
+    return "32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(path)
+
+
 def bridged_carla_plugin(path):
-    """A Carla project's <Plugin> for a VST2 .dll: Carla runs a 32-bit one in its 32-bit bridge."""
+    """A Carla project's <Plugin> for a VST2 .dll: Carla runs a 32-bit one in its 32-bit bridge. An LV2
+    bundle's: its plugin by URI."""
+    if lv2_bundle(path):
+        return lv2_carla_plugin(lv2_bundle(path))
     return ("<Plugin>\n  <Info>\n   <Type>VST2</Type>\n   <Name>%s</Name>\n   <Binary>%s</Binary>\n   <UniqueID>0</UniqueID>\n  </Info>\n"
             "  <Data>\n   <Active>Yes</Active>\n  </Data>\n </Plugin>") % (xml_text(stem(path)), xml_text(os.path.abspath(path)))
 
 
 def bridged_state(proc, path):
     """Puts the 32-bit VST2 into the Carla-Rack VST (bridged); returns the line saying so."""
-    rack_load(proc, [bridged_carla_plugin(path)], "Carla did not load %s (%%d of %%d). Is Carla's 32-bit bridge installed (carla-bridge-win32)?" % os.path.basename(path))
-    return "32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(path)
+    rack_load(proc, [bridged_carla_plugin(path)], ("Carla did not load %s (%%d of %%d). Is it in an LV2 folder Carla looks in (%s)?" % (
+        os.path.basename(path), "; ".join(lv2_folders()) or "none found")) if lv2_bundle(path) else
+        "Carla did not load %s (%%d of %%d). Is Carla's 32-bit bridge installed (carla-bridge-win32)?" % os.path.basename(path))
+    return rack_said(path)
 
 
 def bridged_project(path):
-    """Where a 32-bit plugin's settings are kept: the Carla project Edit settings saves in Carla (~/.pulsekit/vst/<name>.carxp)."""
+    """Where a 32-bit plugin's settings are kept: the Carla project Edit settings saves in Carla (~/.pulsekit/vst/<name>.carxp).
+    An LV2's: its bundle's name and the kit asked for (avldrums-Red Zeppelin.carxp)."""
+    bundle = lv2_bundle(path)
+    if bundle:
+        kit = re.sub(r"[^A-Za-z0-9 _-]", "", LV2_WANTED["id"] or "").strip()
+        return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", stem(bundle)) + ("-" + kit if kit else "") + ".carxp"
     return os.path.splitext(state_home(path))[0] + ".carxp"
 
 
@@ -466,7 +544,8 @@ def carla_edit(path, rack):
                     + bridged_carla_plugin(path) + "\n</CARLA-PROJECT>\n")
     app = carla_app(rack)
     if not app:
-        fail("Carla's program (Carla.exe) was not found beside %s: a 32-bit plugin's own window opens in Carla. Open Carla, "
+        fail("Carla's program (Carla.exe) was not found beside %s: the window of a plugin Carla's rack plays (a 32-bit or LV2 one) opens in Carla "
+             "(Files & locations: Carla program). Or open Carla, "
              "open the project %s (the plugin is in it), load the kit, save the project and close Carla; then Test."
              % (rack, project))
     print("Plugin: %s's window opens in Carla (%s): double-click %s in Carla's rack for its window, load a kit or patch, "
@@ -2350,11 +2429,11 @@ class Chain(object):
         elif bridged and "--edit" in switches:
             # A 32-bit plugin's window: in Carla's own program (the rack plugin has no window of its own on Windows).
             print(carla_state(self.main, carla_edit(bridged, self.plugin)))
-            print("32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(bridged))
+            print(rack_said(bridged))
         elif bridged and os.path.isfile(bridged_project(bridged)):
             # Its settings: the Carla project saved in Edit settings (its kit with it).
             print(carla_state(self.main, bridged_project(bridged)))
-            print("32-bit plugin: %s in Carla-Rack, through Carla's 32-bit bridge" % os.path.basename(bridged))
+            print(rack_said(bridged))
         elif clap and "--edit" in switches:
             # The rack with the plugin in it; its settings are saved under the CLAP's name.
             print(put())
@@ -2888,8 +2967,27 @@ def main(argv):
         if opts["--clap"]:
             fail("give the CLAP plugin once: --clap or --plugin")
         opts["--clap"], opts["--plugin"] = opts["--plugin"], None
+    LV2_WANTED["id"] = opts["--clap_id"]
+    # A SoundFont is a plugin's samples (x42 AVL Drumkits' kits), not a plugin.
+    if opts["--plugin"] and opts["--plugin"].lower().endswith((".sf2", ".sfz")):
+        bundle = lv2_bundle(opts["--plugin"])
+        fail("%s is a SoundFont (a kit's samples), not a plugin%s" % (os.path.basename(opts["--plugin"]),
+             (": choose its LV2 plugin, the %s folder (or the .dll in it); Carla's rack plays it" % os.path.basename(bundle)) if bundle else
+             ": Midi2Wav plays a SoundFont, or choose the plugin that uses it"))
+    # An LV2 plugin (its .lv2 folder, or the .dll in it): played in Carla's rack, as a 32-bit VST2 is.
+    if opts["--plugin"] and lv2_bundle(opts["--plugin"]):
+        rack = carla_rack()
+        if not rack:
+            fail("%s is an LV2 plugin: it plays in Carla's rack. Carla's rack (CarlaVstShell.dll or CarlaRack) was not found in: %s "
+                 "(Files & locations: Carla rack plugin)" % (os.path.basename(lv2_bundle(opts["--plugin"])), "; ".join(carla_searched()) or "no folders"))
+        uri, kit = lv2_pick(lv2_bundle(opts["--plugin"]))
+        others = [n for u, n in lv2_plugins(lv2_bundle(opts["--plugin"])) if u != uri]
+        print("%s is an LV2 plugin: it plays in Carla's rack; its plugin: %s%s" % (os.path.basename(lv2_bundle(opts["--plugin"])), kit,
+              (" (the others, by --clap_id: %s)" % ", ".join(others)) if others else ""))
+        opts["--bridged"], opts["--plugin"] = lv2_bundle(opts["--plugin"]), rack
     # A .dll that is not a plugin for this Python: said plainly; a 32-bit VST2 plays in Carla's rack, bridged.
-    if opts["--plugin"]:
+    # (Not Carla's rack an LV2 is played in.)
+    if opts["--plugin"] and not opts.get("--bridged"):
         problem = dll_problem(opts["--plugin"])
         if problem == "32":
             rack = carla_rack()
@@ -2901,8 +2999,8 @@ def main(argv):
             opts["--bridged"], opts["--plugin"] = opts["--plugin"], rack
         elif problem:
             fail(problem)
-    if opts["--clap_id"] and not opts["--clap"]:
-        fail("--clap_id picks a plugin of --clap's file: give --clap too")
+    if opts["--clap_id"] and not opts["--clap"] and not lv2_bundle(opts.get("--bridged")):
+        fail("--clap_id picks a plugin of --clap's file (or an LV2 bundle's): give --clap too")
     if opts["--clap"]:
         if opts["--carla"] or opts["--drumgizmo"]:
             fail("--clap plays one CLAP plugin in Carla's rack: not with --carla or --drumgizmo")
