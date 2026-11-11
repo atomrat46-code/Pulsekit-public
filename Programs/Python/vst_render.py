@@ -2445,7 +2445,14 @@ def kit_times_text(nmap):
     lines = []
     for t, n, _, tag in kit_events():
         m = nmap.get(n, n)
-        if tag == "-" or m is None:
+        if m is None:
+            continue
+        if tag == "-" and n == 38 and m == 38:
+            # The groove's snares (struck with a hat): the kit's snare learned too, so a fat one found as a
+            # kick or tom is told to be the snare.
+            lines.append("%.4f %d\n" % (t, m))
+            continue
+        if tag == "-":
             continue
         if tag == "" and (m == 36 or m in TOMS or (n in KIT_CYMBALS and m in KIT_CYMBALS)):
             lines.append("%.4f %d\n" % (t, m))

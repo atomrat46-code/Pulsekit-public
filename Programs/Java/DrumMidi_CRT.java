@@ -2498,6 +2498,16 @@ public class DrumMidi_CRT{
      * the "kicks" can be toms, and the song alone does not say what this kit's kick sounds like.
      */
     static final int KIT_BANDS = 16, KIT_FRAMES = 2, KIT_N = 4096;
+    /** A snare written within this of a kick or tom sounding as the kit's snare: the same hit. */
+    static final double SNARE_SAME = 0.03;
+    /**
+     * A kick or tom found whose sound reads as like the learned snare as its nearest tom, less KIT_SNARE_LIKE,
+     * is the snare. Tight Studio Drums (95 songs): snares found as toms read -0.17 (median) under their
+     * nearest tom, real toms -0.67 and kicks -0.87; at 0.3, 409 of 489 such snares and 7 of 177 toms.
+     * Toms right of those written, without the snare learned and with it (about 100 songs each): Tight
+     * Studio 25% -> 68%, KVLT Vegan Tough Guy 68 -> 99, AVL Black Pearl 89 -> 98, Artillery 90 -> 96.
+     */
+    static final double KIT_SNARE_LIKE = 0.3;
     static final double KIT_LO = 40, KIT_HI = 800;
     static final double[] KIT_WINDOW = new double[KIT_N];
     static {
@@ -2819,7 +2829,9 @@ public class DrumMidi_CRT{
                     cymCount.put(ck, Integer.valueOf(cymCount.get(ck).intValue() + 1));
                     continue;
                 }
-                if (note != KICK_NOTE && !isTomNote(note)) continue;
+                // The snare too (struck with a hat in the test beat; the hat hardly reaches 40-800 Hz): a fat,
+                // low snare (Tight Studio Drums') is found as a kick or tom, and its sound tells it apart.
+                if (note != KICK_NOTE && !isTomNote(note) && note != SNARE_NOTE) continue;
                 double at = Double.parseDouble(w[0]);
                 // The hit as the plugin plays it: where its sound starts, up to 0.45 s after the note
                 // (a plugin may play some drums late), not the note's own time.
@@ -2877,6 +2889,7 @@ public class DrumMidi_CRT{
             StringBuilder sb = new StringBuilder("# DrumMidi kit profile (--learn-kit " + render.getName() + "): note, then its " + KIT_BANDS
                 + " band spectrum " + num(KIT_LO) + "-" + num(KIT_HI) + " Hz\n");
             List<String> kept = new ArrayList<String>(), left = new ArrayList<String>();
+            String snareSaid = "";
             for (Integer n : order) {
                 double[] s = sum.get(n);
                 int c = count.get(n).intValue();
@@ -2890,7 +2903,8 @@ public class DrumMidi_CRT{
                 sb.append(n);
                 for (int k = 0; k < KIT_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", s[k] / norm));
                 sb.append('\n');
-                kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
+                if (n.intValue() == SNARE_NOTE) snareSaid = "; snare " + n + (c > 1 ? " (" + c + " hits)" : "");
+                else kept.add(n + (c > 1 ? " (" + c + " hits)" : ""));
             }
             if (!clicks.isEmpty()) {
                 Collections.sort(clicks);
@@ -2975,7 +2989,7 @@ public class DrumMidi_CRT{
             java.nio.file.Files.write(out.toPath(), sb.toString().getBytes("UTF-8"));
             List<String> none = new ArrayList<String>();
             for (java.util.Map.Entry<Integer, String> e : unread.entrySet()) if (!sum.containsKey(e.getKey())) none.add(e.getKey() + " (" + e.getValue() + ")");
-            finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left))
+            finish("Wrote " + out.getName() + ": kick and toms " + String.join(", ", kept) + snareSaid + (left.isEmpty() ? "" : "; silent in this kit: " + String.join(", ", left))
                 + (none.isEmpty() ? "" : "; nothing to read: " + String.join(", ", none))
                 + (late > 0.03 ? "; hits up to " + Math.round(late * 1000) + " ms after their notes" : "")
                 + (kept.size() > 1 ? "" : "; no tom played: does the plugin's MIDI note map have its toms on 41-48 (or give a --map)?")
@@ -3048,9 +3062,17 @@ public class DrumMidi_CRT{
             return k;
         }
 
-        /** Each kick or tom found becomes the profile's nearest one: the kick, or a tom (written as DrumMidi's floor, mid or rack tom). */
+        /**
+         * Each kick or tom found becomes the profile's nearest one: the kick, or a tom (written as DrumMidi's
+         * floor, mid or rack tom). With the snare learned (profiles from v425 on), one nearest the snare is
+         * the snare: left out where a snare is written within SNARE_SAME, else written as one. Tight Studio
+         * Drums' fat snare was found as a floor tom on 505 of its 2043 snares (toms P27).
+         */
         void sort(List<Hit> hits, double[] x, double sr) {
-            int moved = 0;
+            int moved = 0, snares = 0;
+            List<Double> snareAt = new ArrayList<Double>();
+            for (Hit h : hits) if (h.note == SNARE_NOTE) snareAt.add(Double.valueOf(h.time));
+            List<Hit> drop = new ArrayList<Hit>();
             for (int i = 0; i < hits.size(); i++) {
                 Hit h = hits.get(i);
                 if (h.note != KICK_NOTE && h.note != FLOOR_TOM && h.note != MID_TOM && h.note != RACK_TOM) continue;
@@ -3065,13 +3087,33 @@ public class DrumMidi_CRT{
                         best = notes.get(j).intValue();
                     }
                 }
+                // Near enough to the snare (KIT_SNARE_LIKE of the nearest tom or nearer): the snare. Its sound
+                // reads close to a floor tom's; a real tom reads well under it.
+                int snareJ = notes.indexOf(Integer.valueOf(SNARE_NOTE));
+                if (snareJ >= 0 && best != KICK_NOTE && best != SNARE_NOTE) {
+                    double snareLike = like(v, spectra.get(snareJ));
+                    if (snareLike > top - KIT_SNARE_LIKE) best = SNARE_NOTE;
+                }
+                if (best == SNARE_NOTE) {
+                    boolean written = false;
+                    for (Double t : snareAt) written |= Math.abs(t.doubleValue() - h.time) < SNARE_SAME;
+                    if (written) drop.add(h);
+                    else {
+                        hits.set(i, new Hit(h.time, SNARE_NOTE, h.strength));
+                        snareAt.add(Double.valueOf(h.time));
+                    }
+                    snares++;
+                    continue;
+                }
                 int note = best == KICK_NOTE ? KICK_NOTE : best <= 43 ? FLOOR_TOM : best <= 47 ? MID_TOM : RACK_TOM;
                 if (note != h.note) {
                     hits.set(i, new Hit(h.time, note, h.strength));
                     moved++;
                 }
             }
-            note("Kit " + name + ": " + moved + " kick" + (moved == 1 ? "" : "s") + " and toms told apart again");
+            hits.removeAll(drop);
+            note("Kit " + name + ": " + moved + " kick" + (moved == 1 ? "" : "s") + " and toms told apart again"
+                + (notes.contains(Integer.valueOf(SNARE_NOTE)) ? "; " + snares + " found as a kick or tom sound as its snare" : ""));
         }
 
         /**

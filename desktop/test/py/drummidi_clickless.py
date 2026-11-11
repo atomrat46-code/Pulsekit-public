@@ -1,6 +1,7 @@
 # DrumMidi with a kit whose kick has no beater click (an 808's sine, Beat DRMR's) and with one whose
 # kick clicks: --learn-kit writes "kickclick" for each; with the 808 kit's profile its kicks are found
-# without a click; the clicking kit is found as before. Used by DesktopBehavior s245.
+# without a click; the clicking kit is found as before. v425: the test beat's snares learned too.
+# Used by DesktopBehavior s245.
 # Arguments: vst_render.py, DrumMidi_CRT.jar, a work folder.
 import importlib.util
 import os
@@ -68,7 +69,7 @@ def write(path, x):
 
 
 open('times.txt', 'w').write(''.join(vr.kit_times_text({})))
-beat = [(t, n) for t, n, _, tag in vr.kit_events() if tag in ('', 'k', 's', 'g')]
+beat = [(t, n) for t, n, _, tag in vr.kit_events() if tag in ('', 'k', 's', 'g', '-')]
 # A song: kicks on the beats and the offbeats, a snare on 2 and 4, hats on the eighths, 16 bars at 120 BPM.
 song = []
 for bar in range(16):
@@ -86,6 +87,7 @@ for kick in ('808', 'kick'):
     write('beat.wav', render(beat, kick, 40))
     r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', '--learn-kit', 'beat.wav', 'times.txt', kick + '.kit'], capture_output=True, text=True)
     line = [l for l in open(kick + '.kit') if l.startswith('kickclick')] if os.path.isfile(kick + '.kit') else []
+    print('%s: snare learned: %s' % (kick, [w for w in r.stdout.split(';') if w.strip().startswith('snare')][:1]))
     click = float(line[0].split()[1]) if line else -1
     write('song.wav', render(song, kick, 34))
     r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', 'song.wav', 'song.mid', '--kit', kick + '.kit'], capture_output=True, text=True)

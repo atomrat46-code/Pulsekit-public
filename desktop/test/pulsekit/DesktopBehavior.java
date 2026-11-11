@@ -10172,7 +10172,8 @@ public final class DesktopBehavior {
     cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
     this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("808: kickclick under, clickless, kicks 64 of 64 found, 64 written") && all.contains("kick: kickclick over, clicks, kicks 64 of 64 found, 64 written");
+    boolean ok = all.contains("808: kickclick under, clickless, kicks 64 of 64 found, 64 written") && all.contains("kick: kickclick over, clicks, kicks 64 of 64 found, 64 written")
+        && all.contains("808: snare learned: [' snare 38 (8 hits)']") && all.contains("kick: snare learned: [' snare 38 (8 hits)']");
     if (!ok) throw new AssertionError(all);
   }
 
