@@ -10023,6 +10023,94 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v427: the note map's Check (PluginFiles.mapProblems) says what vst_render says (map_problems) and what
+   * it prints at a run; map.txt in the results zip; the map editor's Check, Save copy as, Find, Replace,
+   * Replace all and its right-click menu with the section clicked (Copy, Cut, Paste after it, Delete);
+   * the Plugins tab's Folders… button beside its title.
+   */
+  void s251_note_map_tools() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final Pulsekit app = (Pulsekit) frame;
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    final String map = "# Note map\n[DigiDrum Pro]\n48=40 # tom-like\n\n[Drumatic 4 (x64)]\n45=43\n48=37\n50=37\n\n[Ugritone Drums]\n35=36\n50=48\n45=43\n45=48\n36=none\nnonsense\n60=Q9\n\n[drumatic 4 x64]\n";
+    File mapFile = new File(home, "map-in.txt");
+    Files.write(mapFile.toPath(), map.getBytes(StandardCharsets.UTF_8));
+    PluginFiles.loadNoteNames(home);
+    java.util.List<String> javaSaid = PluginFiles.mapProblems(map);
+    for (String p : javaSaid) this.out.append("java: ").append(p).append('\n');
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_map_check.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath(), mapFile.getAbsolutePath()));
+    String pyOut = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(pyOut).append('\n');
+    StringBuilder pySaid = new StringBuilder();
+    for (String l : pyOut.split("\n")) if (l.startsWith("py: ")) pySaid.append(l.substring(4)).append('\n');
+    boolean same = pySaid.toString().equals(String.join("\n", javaSaid) + "\n");
+    // Sections: found at an offset, cut, pasted after another, deleted.
+    int at = map.indexOf("45=43");
+    int[] sec = PluginFiles.sectionAt(map, at);
+    String name = PluginFiles.sectionName(map, sec);
+    String without = PluginFiles.withoutSection(map, sec);
+    int[] ugri = PluginFiles.sectionAt(without, without.indexOf("35=36"));
+    String moved = PluginFiles.pasteSection(without, ugri, map.substring(sec[0], sec[1]));
+    this.out.append("section: ").append(name).append(" | before any: ").append(PluginFiles.sectionAt(map, 2) == null).append(" | order after move: ");
+    for (String l : moved.split("\n")) if (l.startsWith("[")) this.out.append(l).append(' ');
+    this.out.append("| blank lines kept to one: ").append(!moved.contains("\n\n\n")).append('\n');
+    int[] n = new int[1];
+    String replaced = PluginFiles.replaceAll(map, "=37", "=45", n);
+    this.out.append("replace all: ").append(n[0]).append(", find wraps: ").append(PluginFiles.findNext(map, "[ugritone", map.length() - 3) == map.indexOf("[Ugritone"))
+        .append(", none left: ").append(!replaced.contains("=37")).append('\n');
+    // The editor: its buttons, the find row, and the menu for the section clicked.
+    final javax.swing.JPanel[] box = new javax.swing.JPanel[1];
+    final javax.swing.JTextArea text = new javax.swing.JTextArea(map);
+    edt(() -> box[0] = app.pyJav.mapEditor(text, new File(home, ".pulsekit/maps/map.txt")));
+    StringBuilder parts = new StringBuilder();
+    for (String c : new String[] {"params-files-map-check", "params-files-map-save-copy", "params-files-map-find", "params-files-map-find-next", "params-files-map-replace",
+      "params-files-map-replace-all", "params-files-map-pad-notes"}) parts.append(component(box[0], c) != null ? "" : "missing " + c + " ");
+    this.out.append("editor: ").append(parts.length() == 0 ? "all there" : parts.toString()).append('\n');
+    final StringBuilder items = new StringBuilder();
+    edt(() -> {
+      javax.swing.JPopupMenu m = app.pyJav.mapMenu(text, map.indexOf("50=48"));
+      for (java.awt.Component c : m.getComponents())
+        if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(((javax.swing.JMenuItem) c).isEnabled() ? "" : " (off)").append("; ");
+    });
+    this.out.append("menu: ").append(items).append('\n');
+    // Find next, then Replace all through the buttons.
+    edt(() -> {
+      ((javax.swing.JTextField) component(box[0], "params-files-map-find")).setText("=37");
+      ((javax.swing.JButton) component(box[0], "params-files-map-find-next")).doClick();
+    });
+    this.out.append("found: ").append(text.getSelectedText()).append(" at ").append(text.getSelectionStart() == map.indexOf("=37")).append('\n');
+    edt(() -> {
+      ((javax.swing.JTextField) component(box[0], "params-files-map-replace-with")).setText("=45");
+      ((javax.swing.JButton) component(box[0], "params-files-map-replace-all")).doClick();
+    });
+    this.out.append("replaced: ").append(((javax.swing.JLabel) component(box[0], "params-files-map-find-said")).getText()).append(", text has =37: ").append(text.getText().contains("=37")).append('\n');
+    // The Plugins tab's Folders… button: beside the title, above the list.
+    final javax.swing.JPanel[] picks = new javax.swing.JPanel[1];
+    edt(() -> picks[0] = app.pyJav.pluginPicks(new java.util.ArrayList<ProgramParams.Param>(), new String[0], new javax.swing.JLabel[0], new javax.swing.JCheckBox[0]));
+    java.awt.Component change = component(picks[0], "params-plugin-folders-change"), list = component(picks[0], "params-plugin-folders");
+    this.out.append("folders button above the list: ").append(javax.swing.SwingUtilities.isDescendingFrom(change, picks[0]) && change.getParent() != list.getParent().getParent()).append('\n');
+    String all = this.out.toString();
+    boolean ok = same && javaSaid.size() == 8
+        && all.contains("java: [Drumatic 4 (x64)] 48=37: the songs' tom 48 plays on 37, the side stick's note")
+        && all.contains("java: [DigiDrum Pro] 48=40: the songs' tom 48 plays on 40, the snare's note")
+        && all.contains("java: [Ugritone Drums] 45 is given twice (45=43, 45=48): the last is used")
+        && all.contains("java: [Ugritone Drums] 36=none: every kick of the songs is left out")
+        && all.contains("java: line 16: nonsense is not note=note") && all.contains("java: line 17: 60=Q9: no such note")
+        && all.contains("java: [drumatic 4 x64] is there twice (lines 5 and 19): their lines are read as one section")
+        && all.contains("run check: 8") && all.contains("results zip: ['map.txt', 'vst-test-X (default kit).txt']")
+        && all.contains("section: Drumatic 4 (x64) | before any: true | order after move: [DigiDrum Pro] [Ugritone Drums] [Drumatic 4 (x64)] [drumatic 4 x64] | blank lines kept to one: true")
+        && all.contains("replace all: 2, find wraps: true, none left: true") && all.contains("editor: all there")
+        && all.contains("menu: Cut (off); Copy (off); Paste; Select all; Copy section [Ugritone Drums]; Cut section [Ugritone Drums]; ")
+        && all.contains("Delete section [Ugritone Drums]\u2026;")
+        && all.contains("found: =37 at true") && all.contains("replaced: Replaced 2, text has =37: false")
+        && all.contains("folders button above the list: true");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v426: the map suggestion with a fat studio snare that reads tom-like (Tight Studio Drums, run 25):
    * the snare note is not left out and no tom goes to the snare's pad.
    */

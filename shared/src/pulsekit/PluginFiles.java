@@ -204,6 +204,153 @@ public final class PluginFiles {
     return write(map, withSection(mapText(map), s.section, s.lines));
   }
 
+  private static final String[] LETTERS = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+
+  /** A note given as a number (48) or a name in the naming chosen (C-4, C#3, Db3); -1 when it is neither. */
+  public static int noteNumber(String text) {
+    String t = text.trim();
+    if (t.matches("\\d+")) {
+      int n = Integer.parseInt(t);
+      return n <= 127 ? n : -1;
+    }
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([A-Ga-g])([#b]?)(-?\\d+)$").matcher(t);
+    if (!m.matches()) return -1;
+    int o = Engine.noteOctaveAt0;
+    int letter = java.util.Arrays.asList(LETTERS).indexOf(m.group(1).toUpperCase(java.util.Locale.ROOT));
+    // DigiDrum's naming writes its octave after a dash (C-4): a dash there is no minus.
+    int octave = o >= 0 ? Integer.parseInt(m.group(3).replace("-", "")) : Integer.parseInt(m.group(3));
+    int n = letter + ("#".equals(m.group(2)) ? 1 : "b".equals(m.group(2)) ? -1 : 0) + 12 * (octave - o);
+    return n >= 0 && n <= 127 ? n : -1;
+  }
+
+  /** A section's name to match on (as vst_render's map_key): letters and digits, lower case. */
+  static String mapKey(String name) {
+    return name.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+  }
+
+  private static final int[] TOM_NOTES = {41, 43, 45, 47, 48, 50};
+
+  private static String kickSnareName(int n) {
+    return n == 35 || n == 36 ? "kick" : n == 37 ? "side stick" : n == 39 ? "clap" : "snare";
+  }
+
+  /**
+   * Clear errors in a note map's text (map.txt), the ones vst_render prints at a run (map_problems): a line
+   * that is no note=note; a note that is no note; the kick or snare left out (36=none, 38=none); a song's
+   * tom sent to the kick's or snare's notes (50=38, 48=37); a note given twice in a section with different
+   * notes; a section twice (its lines are read as one).
+   */
+  public static java.util.List<String> mapProblems(String text) {
+    java.util.List<String> out = new java.util.ArrayList<String>();
+    java.util.Map<String, Integer> sections = new java.util.HashMap<String, Integer>();
+    java.util.Map<Integer, Integer> given = new java.util.HashMap<Integer, Integer>();
+    String section = null;
+    String[] lines = text.split("\n", -1);
+    for (int i = 0; i < lines.length; i++) {
+      String raw = lines[i];
+      int hash = raw.indexOf('#');
+      String line = (hash >= 0 ? raw.substring(0, hash) : raw).trim();
+      if (line.length() == 0) continue;
+      if (line.startsWith("[") && line.endsWith("]") && line.length() > 2) {
+        section = line.substring(1, line.length() - 1).trim();
+        given.clear();
+        String key = mapKey(section);
+        if (sections.containsKey(key)) out.add("[" + section + "] is there twice (lines " + sections.get(key) + " and " + (i + 1) + "): their lines are read as one section");
+        else sections.put(key, Integer.valueOf(i + 1));
+        continue;
+      }
+      String where = section != null ? "[" + section + "]" : "(every plugin)";
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([^=\\s]+)\\s*=\\s*([^=\\s]+)$").matcher(line);
+      if (!m.matches()) {
+        out.add("line " + (i + 1) + ": " + line + " is not note=note (36=48, or 41=none)");
+        continue;
+      }
+      int a = noteNumber(m.group(1));
+      boolean none = m.group(2).equalsIgnoreCase("none");
+      int b = none ? -2 : noteNumber(m.group(2));
+      if (a < 0 || b == -1) {
+        out.add("line " + (i + 1) + ": " + line + ": no such note (a number 0-127, or a name such as " + Engine.noteName(36) + ")");
+        continue;
+      }
+      Integer before = given.get(Integer.valueOf(a));
+      if (before != null && before.intValue() != b)
+        out.add(where + " " + a + " is given twice (" + a + "=" + (before.intValue() == -2 ? "none" : before.toString()) + ", " + a + "=" + (none ? "none" : String.valueOf(b)) + "): the last is used");
+      given.put(Integer.valueOf(a), Integer.valueOf(b));
+      boolean tom = false;
+      for (int t : TOM_NOTES) tom |= t == a;
+      if (none && (a == 36 || a == 38)) out.add(where + " " + a + "=none: every " + (a == 36 ? "kick" : "snare") + " of the songs is left out");
+      else if (tom && b >= 35 && b <= 40) out.add(where + " " + a + "=" + b + ": the songs' tom " + a + " plays on " + b + ", the " + kickSnareName(b) + "'s note");
+    }
+    return out;
+  }
+
+  /**
+   * The section (its [name] line to the line before the next section, or the end) the offset is in:
+   * {start, end} offsets in the text; null for the lines before any section.
+   */
+  public static int[] sectionAt(String text, int offset) {
+    int start = -1;
+    int pos = 0;
+    for (String line : text.split("\n", -1)) {
+      int end = pos + line.length() + 1;
+      String t = line.trim();
+      boolean head = t.startsWith("[") && t.endsWith("]") && t.length() > 2;
+      if (head) {
+        if (pos > offset && start >= 0) return new int[] {start, pos};
+        if (pos > offset) return null;
+        start = pos;
+      }
+      pos = end;
+    }
+    return start >= 0 ? new int[] {start, text.length()} : null;
+  }
+
+  /** The section's name at the start of {start, end} ("[Ugritone Drums]" without its brackets). */
+  public static String sectionName(String text, int[] at) {
+    String first = text.substring(at[0], Math.min(text.length(), at[1])).split("\n", 2)[0].trim();
+    return first.substring(1, first.length() - 1).trim();
+  }
+
+  /** Where `find` is next in the text from `from` on (case aside), wrapping round to the start; -1 when nowhere. */
+  public static int findNext(String text, String find, int from) {
+    if (find == null || find.length() == 0) return -1;
+    String low = text.toLowerCase(java.util.Locale.ROOT), f = find.toLowerCase(java.util.Locale.ROOT);
+    int at = low.indexOf(f, Math.max(0, Math.min(from, text.length())));
+    return at >= 0 ? at : low.indexOf(f);
+  }
+
+  /** The text with every `find` (case aside) replaced; and how many, in count[0]. */
+  public static String replaceAll(String text, String find, String with, int[] count) {
+    count[0] = 0;
+    if (find == null || find.length() == 0) return text;
+    StringBuilder b = new StringBuilder();
+    String low = text.toLowerCase(java.util.Locale.ROOT), f = find.toLowerCase(java.util.Locale.ROOT);
+    int from = 0;
+    for (int at; (at = low.indexOf(f, from)) >= 0; from = at + f.length()) {
+      b.append(text, from, at).append(with);
+      count[0]++;
+    }
+    return b.append(text.substring(from)).toString();
+  }
+
+  /** The text without the section at {start, end}, the blank lines around it kept to one. */
+  public static String withoutSection(String text, int[] at) {
+    String before = text.substring(0, at[0]).replaceAll("\n+$", "\n"), after = text.substring(at[1]).replaceAll("^\n+", "");
+    String out = before + (before.endsWith("\n\n") || before.length() == 0 || after.length() == 0 ? "" : "\n") + after;
+    return out.replaceAll("\n{3,}", "\n\n");
+  }
+
+  /**
+   * A section pasted (text copied with Copy section: its [name] line and lines) after the section at
+   * {start, end}, or at the end when `at` is null; a blank line between sections.
+   */
+  public static String pasteSection(String text, int[] at, String section) {
+    String clip = section.replaceAll("^\n+", "").replaceAll("\n+$", "") + "\n";
+    int where = at == null ? text.length() : at[1];
+    String before = text.substring(0, where).replaceAll("\n*$", ""), after = text.substring(where).replaceAll("^\n+", "");
+    return (before.length() == 0 ? "" : before + "\n\n") + clip + (after.length() == 0 ? "" : "\n" + after);
+  }
+
   public static String read(File f) {
     if (f == null || !f.isFile()) return null;
     try (InputStream in = new FileInputStream(f)) {
