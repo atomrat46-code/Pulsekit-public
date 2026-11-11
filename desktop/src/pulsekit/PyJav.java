@@ -4186,7 +4186,6 @@ final class PyJav {
         out.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
         out.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
         JPanel folders = new JPanel(new BorderLayout(0, 4));
-        folders.add(new JLabel("Plugin folders"), BorderLayout.NORTH);
         javax.swing.JList<String> folderList = new javax.swing.JList<String>(folderModel);
         folderList.setName("params-plugin-folders");
         folderList.setVisibleRowCount(6);
@@ -4197,9 +4196,12 @@ final class PyJav {
         change.addActionListener(e -> {
             if (PluginBrowser.foldersDialog(SwingUtilities.getWindowAncestor(change))) fill.run();
         });
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        south.add(change);
-        folders.add(south, BorderLayout.SOUTH);
+        // (Beside the title, not under the list: there the row's height hid it.)
+        JPanel head = new JPanel(new BorderLayout(6, 0));
+        head.add(new JLabel("Plugin folders"), BorderLayout.WEST);
+        change.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        head.add(change, BorderLayout.EAST);
+        folders.add(head, BorderLayout.NORTH);
         out.add(folders);
         return out;
     }
@@ -4312,28 +4314,211 @@ final class PyJav {
     /** What a Carla location's Browse said last (for the tests). */
     static String locationSaid = "";
 
-    /** The note map's editor: its text (the template when new), Save, Pads &amp; notes, Cancel. True when saved. */
+    /**
+     * The note map's editor: its text (the template when new); Pads &amp; notes, Check (the map's clear
+     * errors, as vst_render says them at a run), Save copy as…; Find, Replace and Replace all; a right-click
+     * menu (Cut, Copy, Paste, Select all, and the section clicked: Copy, Cut, Paste after it, Delete…).
+     * Save checks the map first and asks when it finds errors. True when saved.
+     */
     boolean editNoteMap(java.awt.Component at, File map) {
         final javax.swing.JTextArea text = new javax.swing.JTextArea(PluginFiles.mapText(map), 22, 70);
+        JPanel box = this.mapEditor(text, map);
+        while (true) {
+            int ans = JOptionPane.showOptionDialog(at, box, "Note map \u00b7 map.txt", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+                new Object[] {"Save", "Cancel"}, "Save");
+            if (ans != 0) return false;
+            List<String> problems = PluginFiles.mapProblems(text.getText());
+            if (!problems.isEmpty()) {
+                int go = JOptionPane.showOptionDialog(at, "The check found " + problems.size() + " problem" + (problems.size() == 1 ? "" : "s") + ":\n\n" + String.join("\n", problems),
+                    "Note map \u00b7 check", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE, null, new Object[] {"Back to editing", "Save anyway"}, "Back to editing");
+                if (go != 1) continue;
+            }
+            boolean ok = PluginFiles.write(map, text.getText());
+            app.setNow(ok ? "Saved " + map.getPath() : "Could not save " + map.getPath());
+            return ok;
+        }
+    }
+
+    /** The note map editor's panel around its text (see editNoteMap). */
+    JPanel mapEditor(final javax.swing.JTextArea text, final File map) {
         text.setName("params-files-map-text");
         text.setFont(new java.awt.Font(java.awt.Font.MONOSPACED, java.awt.Font.PLAIN, 13));
         JPanel box = new JPanel(new BorderLayout(0, 6));
+        box.setName("params-files-map-editor");
         box.add(new JScrollPane(text), BorderLayout.CENTER);
         JButton notes = new JButton(PluginFiles.PAD_NOTES);
         notes.setName("params-files-map-pad-notes");
         notes.addActionListener(e -> padNotesWindow(notes));
+        JButton check = new JButton("Check");
+        check.setName("params-files-map-check");
+        check.setToolTipText("Clear errors: a line that is no note=note, the kick or snare left out, a tom sent to the kick's or snare's notes, a note or section twice");
+        check.addActionListener(e -> {
+            List<String> problems = PluginFiles.mapProblems(text.getText());
+            mapCheckSaid = problems.isEmpty() ? "No clear errors found" : String.join("\n", problems);
+            JOptionPane.showMessageDialog(check, problems.isEmpty() ? "No clear errors found." : "The check found " + problems.size() + " problem" + (problems.size() == 1 ? "" : "s")
+                + ":\n\n" + mapCheckSaid, "Note map \u00b7 check", problems.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        });
+        JButton copyAs = new JButton("Save copy as\u2026");
+        copyAs.setName("params-files-map-save-copy");
+        copyAs.setToolTipText("The text as it is now into another file; map.txt stays as it was");
+        copyAs.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(map.getParentFile());
+            chooser.setSelectedFile(new File(map.getParentFile(), "map-copy.txt"));
+            if (chooser.showSaveDialog(copyAs) != JFileChooser.APPROVE_OPTION) return;
+            File to = chooser.getSelectedFile();
+            app.setNow(PluginFiles.write(to, text.getText()) ? "Saved a copy: " + to.getPath() : "Could not save " + to.getPath());
+        });
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         top.add(new JLabel(map.getPath()));
         top.add(notes);
+        top.add(check);
+        top.add(copyAs);
         box.add(top, BorderLayout.NORTH);
+        // Find and replace (case aside).
+        final javax.swing.JTextField find = new javax.swing.JTextField(12), with = new javax.swing.JTextField(12);
+        find.setName("params-files-map-find");
+        with.setName("params-files-map-replace-with");
+        final JLabel said = new JLabel(" ");
+        said.setName("params-files-map-find-said");
+        JButton next = new JButton("Find next");
+        next.setName("params-files-map-find-next");
+        final Runnable findNext = () -> {
+            int from = text.getSelectionEnd();
+            int found = PluginFiles.findNext(text.getText(), find.getText(), from);
+            if (found < 0) {
+                said.setText(find.getText().length() == 0 ? " " : "Not found");
+                return;
+            }
+            text.requestFocusInWindow();
+            text.select(found, found + find.getText().length());
+            said.setText(found < from ? "From the start again" : " ");
+        };
+        next.addActionListener(e -> findNext.run());
+        find.addActionListener(e -> findNext.run());
+        JButton replace = new JButton("Replace");
+        replace.setName("params-files-map-replace");
+        replace.addActionListener(e -> {
+            String sel = text.getSelectedText();
+            if (sel != null && sel.equalsIgnoreCase(find.getText()) && find.getText().length() > 0) text.replaceSelection(with.getText());
+            findNext.run();
+        });
+        JButton all = new JButton("Replace all");
+        all.setName("params-files-map-replace-all");
+        all.addActionListener(e -> {
+            int[] n = new int[1];
+            String now = PluginFiles.replaceAll(text.getText(), find.getText(), with.getText(), n);
+            if (n[0] > 0) text.setText(now);
+            said.setText(n[0] == 0 ? "Not found" : "Replaced " + n[0]);
+        });
+        JPanel findRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        findRow.add(new JLabel("Find"));
+        findRow.add(find);
+        findRow.add(next);
+        findRow.add(new JLabel("Replace with"));
+        findRow.add(with);
+        findRow.add(replace);
+        findRow.add(all);
+        findRow.add(said);
+        box.add(findRow, BorderLayout.SOUTH);
+        text.setComponentPopupMenu(null);
+        text.addMouseListener(new java.awt.event.MouseAdapter() {
+            void maybe(java.awt.event.MouseEvent ev) {
+                if (!ev.isPopupTrigger()) return;
+                int offset = text.viewToModel(ev.getPoint());
+                if (text.getSelectionStart() == text.getSelectionEnd() || offset < text.getSelectionStart() || offset > text.getSelectionEnd()) text.setCaretPosition(Math.max(0, offset));
+                mapMenu(text, offset).show(text, ev.getX(), ev.getY());
+            }
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent ev) {
+                maybe(ev);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent ev) {
+                maybe(ev);
+            }
+        });
         lastMapText = text;
-        int ans = JOptionPane.showOptionDialog(at, box, "Note map \u00b7 map.txt", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-            new Object[] {"Save", "Cancel"}, "Save");
-        if (ans != 0) return false;
-        boolean ok = PluginFiles.write(map, text.getText());
-        app.setNow(ok ? "Saved " + map.getPath() : "Could not save " + map.getPath());
-        return ok;
+        lastMapEditor = box;
+        return box;
     }
+
+    /** The note map editor's right-click menu at `offset`: Cut, Copy, Paste, Select all; the section there. */
+    javax.swing.JPopupMenu mapMenu(final javax.swing.JTextArea text, int offset) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        menu.setName("params-files-map-menu");
+        boolean selected = text.getSelectionStart() != text.getSelectionEnd();
+        javax.swing.JMenuItem cut = new javax.swing.JMenuItem("Cut"), copy = new javax.swing.JMenuItem("Copy"), paste = new javax.swing.JMenuItem("Paste"),
+            selectAll = new javax.swing.JMenuItem("Select all");
+        cut.setEnabled(selected);
+        copy.setEnabled(selected);
+        cut.addActionListener(e -> text.cut());
+        copy.addActionListener(e -> text.copy());
+        paste.addActionListener(e -> text.paste());
+        selectAll.addActionListener(e -> text.selectAll());
+        menu.add(cut);
+        menu.add(copy);
+        menu.add(paste);
+        menu.add(selectAll);
+        menu.addSeparator();
+        final int[] at = PluginFiles.sectionAt(text.getText(), offset);
+        final String name = at == null ? null : PluginFiles.sectionName(text.getText(), at);
+        String clip = clipboardText();
+        final boolean isSection = clip != null && clip.trim().startsWith("[") && clip.trim().split("\n", 2)[0].trim().endsWith("]");
+        javax.swing.JMenuItem copySec = new javax.swing.JMenuItem(name == null ? "Copy section" : "Copy section [" + name + "]");
+        javax.swing.JMenuItem cutSec = new javax.swing.JMenuItem(name == null ? "Cut section" : "Cut section [" + name + "]");
+        javax.swing.JMenuItem pasteSec = new javax.swing.JMenuItem(name == null ? "Paste section at the end" : "Paste section after [" + name + "]");
+        javax.swing.JMenuItem deleteSec = new javax.swing.JMenuItem(name == null ? "Delete section\u2026" : "Delete section [" + name + "]\u2026");
+        copySec.setEnabled(at != null);
+        cutSec.setEnabled(at != null);
+        deleteSec.setEnabled(at != null);
+        pasteSec.setEnabled(isSection);
+        copySec.addActionListener(e -> copyText(text.getText().substring(at[0], at[1])));
+        cutSec.addActionListener(e -> {
+            copyText(text.getText().substring(at[0], at[1]));
+            text.setText(PluginFiles.withoutSection(text.getText(), at));
+            text.setCaretPosition(Math.min(at[0], text.getText().length()));
+        });
+        pasteSec.addActionListener(e -> {
+            String c = clipboardText();
+            if (c != null) text.setText(PluginFiles.pasteSection(text.getText(), at, c));
+        });
+        deleteSec.addActionListener(e -> {
+            int lines = text.getText().substring(at[0], at[1]).trim().split("\n").length;
+            if (JOptionPane.showConfirmDialog(text, "Delete the section [" + name + "] (" + lines + " line" + (lines == 1 ? "" : "s") + ")?", "Note map \u00b7 delete section",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.OK_OPTION) return;
+            text.setText(PluginFiles.withoutSection(text.getText(), at));
+            text.setCaretPosition(Math.min(at[0], text.getText().length()));
+        });
+        menu.add(copySec);
+        menu.add(cutSec);
+        menu.add(pasteSec);
+        menu.add(deleteSec);
+        lastMapMenu = menu;
+        return menu;
+    }
+
+    static String clipboardText() {
+        try {
+            return (String) java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    static void copyText(String t) {
+        try {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(t), null);
+        } catch (Exception ex) {
+            // (no clipboard: nothing copied)
+        }
+    }
+
+    /** The map editor's panel and right-click menu shown last, and what Check said (for the tests). */
+    static JPanel lastMapEditor;
+    static javax.swing.JPopupMenu lastMapMenu;
+    static String mapCheckSaid = "";
 
     /** The note map editor's text shown last (for the tests). */
     static javax.swing.JTextArea lastMapText;

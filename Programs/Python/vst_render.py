@@ -1509,6 +1509,66 @@ def avl_kit(plugin):
     return low.startswith("avldrums") or ("lv2" in low and any(k in low for k in AVL_KITS))
 
 
+GM_KICK_SNARE = (35, 36, 37, 38, 39, 40)
+GM_TOM_NOTES = (41, 43, 45, 47, 48, 50)
+KICK_SNARE_NAMES = {35: "kick", 36: "kick", 37: "side stick", 38: "snare", 39: "clap", 40: "snare"}
+
+
+def map_problems(text):
+    """Clear errors in a note map's text (map.txt), as Pulsekit's Check says them (PluginFiles.mapProblems):
+    a line that is no note=note; a note that is no note; the kick or snare left out (36=none, 38=none);
+    a song's tom sent to the kick's or snare's notes (50=38); a note given twice in a section with
+    different notes; a section twice (its lines are read as one)."""
+    out, seen_sections = [], {}
+    section, given = None, {}
+    for i, raw in enumerate(text.splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        head = re.match(r"^\[(.+)\]$", line)
+        if head:
+            section, given = head.group(1).strip(), {}
+            key = map_key(section)
+            if key in seen_sections:
+                out.append("[%s] is there twice (lines %d and %d): their lines are read as one section" % (section, seen_sections[key], i))
+            else:
+                seen_sections[key] = i
+            continue
+        where = "[%s]" % section if section is not None else "(every plugin)"
+        m = re.match(r"^([^=\s]+)\s*=\s*([^=\s]+)$", line)
+        if not m:
+            out.append("line %d: %s is not note=note (36=48, or 41=none)" % (i, line))
+            continue
+        try:
+            a = note_number(m.group(1))
+            b = None if m.group(2).lower() == "none" else note_number(m.group(2))
+        except ValueError:
+            out.append("line %d: %s: no such note (a number 0-127, or a name such as %s)" % (i, line, note_name(36)))
+            continue
+        if a in given and given[a] != b:
+            out.append("%s %d is given twice (%d=%s, %d=%s): the last is used" % (where, a, a, "none" if given[a] is None else given[a], a, "none" if b is None else b))
+        given[a] = b
+        if b is None and a in (36, 38):
+            out.append("%s %d=none: every %s of the songs is left out" % (where, a, "kick" if a == 36 else "snare"))
+        elif a in GM_TOM_NOTES and b in GM_KICK_SNARE:
+            out.append("%s %d=%d: the songs' tom %d plays on %d, the %s's note" % (where, a, b, a, b, KICK_SNARE_NAMES[b]))
+    return out
+
+
+def check_note_map(given):
+    """map_problems for the note map in use (--note_map's file, else map.txt), printed; how many."""
+    path = map_file(given) if (given or "").strip() else note_map_home()
+    if not path or not os.path.isfile(path):
+        return 0
+    try:
+        found = map_problems(open(path, encoding="utf-8", errors="replace").read())
+    except OSError:
+        return 0
+    for p in found:
+        print("Note map check (%s): %s" % (os.path.basename(path), p))
+    return len(found)
+
+
 def pad_map(given, plugin):
     """--note_map's notes for the plugin (the MIDI's note to the plugin's own), and a line saying where
     they came from; ({}, None) when there are none. Empty: map.txt's lines for the plugin, if any.
@@ -2848,6 +2908,8 @@ def results_zip(dirs):
     if not files and not folders:
         return None
     path = os.path.join(dirs[0], RESULTS_ZIP)
+    # The note map (map.txt) as it is now: the reports' "Note map" lines came from it.
+    map_now = note_map_home()
     work = path + ".part"
     names = {}
     for p in files:
@@ -2857,6 +2919,8 @@ def results_zip(dirs):
         for f in sorted(os.listdir(h)):
             if os.path.isfile(os.path.join(h, f)) and names.setdefault(os.path.basename(h) + "/" + f, os.path.join(h, f)) == os.path.join(h, f):
                 hits += 1
+    if os.path.isfile(map_now):
+        names["map.txt"] = map_now
     kept = 0
     with zipfile.ZipFile(work, "w", zipfile.ZIP_DEFLATED) as z:
         if os.path.isfile(path):
@@ -2944,6 +3008,10 @@ def make_zip(where, plugin, argv, folder, played, wavs, dms, report, opts, bpm, 
         f = opts[key]
         if f and os.path.isfile(f):
             shared.append((f, arc("settings", f)))
+    # The note map as it was for the run (map.txt, or --note_map's file): what the plugin was sent.
+    nm = map_file(opts.get("--note_map")) if (opts.get("--note_map") or "").strip() else note_map_home()
+    if nm and os.path.isfile(nm):
+        shared.append((nm, arc("settings", nm)))
     if report and os.path.isfile(report):
         shared.append((report, arc("", report)))
     for f in check or []:
@@ -3533,6 +3601,7 @@ def main(argv):
         import numpy as np
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
+    check_note_map(opts["--note_map"])
     chain = make_chain(opts, switches, rate, soundfont, gizmo, lead_name)
     if parts:
         # --parts: each other plugin made ready as the first was, its own chain and note map; the first
