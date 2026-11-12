@@ -93,8 +93,8 @@ for run, (kit, bright) in enumerate((("Bright", 1.6), ("Dark", 0.7))):
     z.close()
 out = os.path.join(work, "out")
 try:
-    vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--model_a", "builtin", "--model_b", "all", "--leave_one_out",
-             "--loo_kits", "all", "--drummidi", jar, "--zip_outdir", os.path.join(work, "copies")])
+    vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", os.path.join(work, "unzip"), "--outdir", out, "--model_compare",
+             "--model_a", "builtin", "--model_b", "all", "--leave_one_out", "--loo_kits", "all", "--drummidi", jar, "--zip_outdir", os.path.join(work, "copies")])
 except SystemExit as e:
     print("exit", e.code)
 for f in sorted(os.listdir(out)):
@@ -104,14 +104,30 @@ for f in sorted(os.listdir(out)):
             for line in z.read("summary.txt").decode().splitlines():
                 print("  " + line)
 print("copies:", sorted(f.split("-2026")[0] for f in os.listdir(os.path.join(work, "copies"))))
+# The unzip folder: each kit's MIDI and report kept, its renders deleted once DrumMidi's results are kept.
+unz = os.path.join(work, "unzip")
+for k in sorted(os.listdir(unz)):
+    print("unzipped:", k, "renders", os.path.isdir(os.path.join(unz, k, "wav")), "midi", os.path.isdir(os.path.join(unz, k, "midi")))
+print("unzip folder outside the output folder:", not os.path.isdir(os.path.join(out, "cymbal-bench", "kits")))
+# Settings' Cymbal model comparison off: the tab's parts are not run.
+try:
+    vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--drummidi", jar])
+except SystemExit as e:
+    print("off: exit", e.code)
+# Run last: after the run (here it fails: no plugin), the comparison still goes; the run's exit code kept.
+try:
+    vr.main(["--cymbal_bench", "--cymbal_bench_when", "last", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out,
+             "--model_compare", "--drummidi", jar])
+except SystemExit as e:
+    print("last: exit", e.code)
 # Again: DrumMidi's results kept (no run of it this time).
 # (v434's way of giving the models still taken.)
 vr.main(["--dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "none,builtin", "--drummidi", jar])
 # Model A from the older kits (those before the new one), B from the first 2 kits; a wrong N said plainly.
-vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--model_a", "older", "--model_b", "kits", "--model_b_kits", "2",
+vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--model_a", "older", "--model_b", "kits", "--model_b_kits", "2",
          "--drummidi", jar])
 for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"], ["--leave_one_out", "--loo_kits", "named"]):
     try:
-        vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
+        vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
     except SystemExit as e:
         print("refused", e.code)

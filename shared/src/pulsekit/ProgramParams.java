@@ -737,7 +737,7 @@ public final class ProgramParams {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
-    if (t.equals("--bench_dir") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
+    if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
@@ -938,8 +938,20 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Input folder: the tests' zips (vst-render-*.zip), its subfolders too (the folder that holds the runs' folders, such as Claude/Samples)";
       p.hint = "empty: the Input tab's folder";
+    } else if (p.token.equals("--bench_unzip")) {
+      p.dir = true;
+      p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
+      p.hint = "empty: the kits folder in the bench's folder (below)";
+    } else if (p.token.equals("--cymbal_bench")) {
+      p.label = "Cymbal model comparison: the Cymbal model tab's Compare and Leave one out (off: not run)";
+    } else if (p.token.equals("--cymbal_bench_when")) {
+      p.label = "Cymbal model comparison: when";
+      p.dropdown = true;
+      p.showWhen = "--cymbal_bench";
+      p.choices = new String[] {"Run separately (no plugin played)", "Run last, after the run's renders and tests"};
+      p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--model_compare")) {
-      p.label = "Compare two cymbal models on the kits' tests (no plugin played: the run only benches); its zip goes into the output folder";
+      p.label = "Compare two cymbal models on the kits' tests; its zip goes into the output folder (Settings: Cymbal model comparison on)";
     } else if (p.token.equals("--model_a") || p.token.equals("--model_b")) {
       boolean a = p.token.equals("--model_a");
       p.label = a ? "Model A" : "Model B";

@@ -10091,7 +10091,9 @@ public final class DesktopBehavior {
     StringBuilder rows = new StringBuilder();
     java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
     for (ProgramParams.Param p : ps) if (ProgramParams.MODEL.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(' ');
-    this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n');
+    StringBuilder settings = new StringBuilder();
+    for (ProgramParams.Param p : ps) if (p.token.startsWith("--cymbal_bench")) settings.append(p.token).append(" on ").append(p.tab).append(p.dropdown ? " (list: " + String.join(" / ", p.choices) + ")" : "").append("; ");
+    this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n').append("settings: ").append(settings).append('\n');
     // The Params page: Model A's list, its number of kits row shown once Compare is ticked and "the first N kits" picked.
     call("showView", "py");
     call("selectListedProgram", "Python", "vst_render.py");
@@ -10129,6 +10131,11 @@ public final class DesktopBehavior {
       leave.setSelected(true);
       loo.setSelectedIndex(2);
       b.append(" | named: names shown ").append(names.isVisible());
+      java.awt.Component when = component(d, "params-dropdown:--cymbal_bench_when");
+      javax.swing.JCheckBox bench = (javax.swing.JCheckBox) component(d, "params-check:--cymbal_bench");
+      boolean hidden = !when.isVisible();
+      bench.setSelected(true);
+      b.append(" | when: hidden ").append(hidden).append(", ticked shown ").append(when.isVisible());
       ((javax.swing.JTextField) n).setText("30");
       ((javax.swing.JTextField) names).setText("Bucket");
       seen[0] = b.toString();
@@ -10152,8 +10159,13 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
         && all.contains("Cymbal model]")
+        && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
+        && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True") && all.contains("unzip folder outside the output folder: True")
+        && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
+        && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
+        && all.contains("when: hidden true, ticked shown true")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
         && all.contains("jar given: true")

@@ -835,7 +835,7 @@ public final class JavaRun {
    */
   /** vst_render.py runs DrumMidi_CRT.jar: --test, --mp3 (Wav2Mp3 is in it) and the cymbal model bench. */
   public static boolean needsDrumMidi(List<String> argv) {
-    return argv != null && (argv.contains("--test") || argv.contains("--mp3") || argv.contains("--model_compare") || argv.contains("--leave_one_out"));
+    return argv != null && (argv.contains("--test") || argv.contains("--mp3") || argv.contains("--model_compare") || argv.contains("--leave_one_out") || argv.contains("--cymbal_bench"));
   }
 
   public static List<String> withDrumMidi(String program, List<String> argv, File jar, byte[] jarBytes) {
