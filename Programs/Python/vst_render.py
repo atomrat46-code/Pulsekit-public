@@ -168,7 +168,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --cymbal_bench  runs it (Settings' Cymbal model comparison; off: the tab's parts are not run).
   --cymbal_bench_when
                   separately (the default: the run only compares, no plugin played) or last (after the
-                  run's renders and tests: its new kits' zips are compared too).
+                  run's renders and tests: its new kits' zips are compared too). With --zip_outdir's
+                  %n its zips go into the newest folder there (run last: the run's own), not a new one.
   --bench_dir     the folder with the tests' zips (vst-render-*.zip), its subfolders too (all the runs'
                   folders: Claude/Samples). A kit tested in several runs counts once (its newest run).
                   Not given: --dir.
@@ -2842,9 +2843,11 @@ def fill_codes(pattern, now, n):
     return "".join(out)
 
 
-def expand_folder(pattern, now=None):
+def expand_folder(pattern, now=None, newest=False):
     """--zip_outdir's % codes filled in for today; %n is the first number from 1 whose folder (the path up
-    to the part %n is in) is not there yet. No % codes: the path as it is."""
+    to the part %n is in) is not there yet. With `newest`, the last one that is there (the run's own:
+    the cymbal model comparison's zips go with the run, not into a folder of their own); none yet: 1.
+    No % codes: the path as it is."""
     import time
     if not pattern or "%" not in pattern:
         return pattern
@@ -2862,7 +2865,7 @@ def expand_folder(pattern, now=None):
             if k >= 0:
                 cut = min(cut, k)
         if not os.path.exists(path[:cut]):
-            return path
+            return fill_codes(pattern, now, n - 1) if newest and n > 1 else path
     return one
 
 
@@ -3905,7 +3908,8 @@ def model_bench(opts, switches):
     for z in made:
         print("Zip: %s" % z)
     if opts["--zip_outdir"]:
-        copy_zips(made, expand_folder(opts["--zip_outdir"]))
+        # %n: the newest run's folder there (run last: the one this run made), not a new one for two small zips.
+        copy_zips(made, expand_folder(opts["--zip_outdir"], newest=True))
     print("Succeeded: %d zip%s" % (len(made), "" if len(made) == 1 else "s"))
 
 

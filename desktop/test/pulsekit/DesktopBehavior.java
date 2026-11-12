@@ -10173,7 +10173,7 @@ public final class DesktopBehavior {
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
         && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True")
         && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Kits left out (1): Fake_Drums_Bright") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
-        && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
+        && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
         && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")

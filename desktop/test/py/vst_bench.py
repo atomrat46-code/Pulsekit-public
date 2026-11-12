@@ -104,6 +104,12 @@ for f in sorted(os.listdir(out)):
             for line in z.read("summary.txt").decode().splitlines():
                 print("  " + line)
 print("copies:", sorted(f.split("-2026")[0] for f in os.listdir(os.path.join(work, "copies"))))
+# --zip_outdir with %n: the newest numbered folder there gets the comparison's zip, no new one made.
+os.makedirs(os.path.join(work, "numbered", "1"))
+os.makedirs(os.path.join(work, "numbered", "2"))
+vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", os.path.join(work, "unzip"), "--outdir", out, "--model_compare",
+         "--model_b", "none", "--drummidi", jar, "--zip_outdir", os.path.join(work, "numbered", "%n")])
+print("numbered:", sorted(os.listdir(os.path.join(work, "numbered"))), [len(os.listdir(os.path.join(work, "numbered", d))) for d in ("1", "2")])
 # The unzip folder: each kit's MIDI and report kept, its renders deleted once DrumMidi's results are kept.
 unz = os.path.join(work, "unzip")
 for k in sorted(os.listdir(unz)):
