@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -175,6 +175,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --bench_unzip   where the kits' zips are unpacked (a drive with room, not the zips' own: a cloud
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
                   its MIDI and report stay. Not given: --bench_work's kits folder.
+  --bench_skip    kits left out (a bad run, another plugin's test): parts of their zips' names, comma-
+                  separated (Riot Default kit, Cardinal); nothing of theirs is unpacked or run.
   --model_compare two models, each kit's cymbals right with both and the change, the new kits' and the
                   others' totals (cymbal-compare-<A>-vs-<B>-<date>.zip: summary, every drum's score, the
                   models learned).
@@ -3759,6 +3761,18 @@ def model_bench(opts, switches):
     unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
     print("Unzip folder: %s; DrumMidi's results kept in %s" % (unzip, os.path.join(work, "data")))
     found = render_kits(folder, True)
+    # Kits left out (--bench_skip: a bad run, another plugin's test): by parts of their zips' names, before
+    # any of their work. A part that names no kit is said, not a stop.
+    # (Commas or lines between them; # comments left out: Params' Import puts a file's lines in.)
+    skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
+    if skip:
+        plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+        out = [k for k in found if any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
+        for p in skip:
+            if not any(plain(p) and plain(p) in plain(k[0]) for k in found):
+                print("Kits left out: no kit's zip name has %s in it" % p)
+        found = [k for k in found if k not in out]
+        print("Kits left out (%d): %s" % (len(out), ", ".join(k[0][len("vst-render-"):].strip("_") for k in out) or "none"))
     if len(found) < 2:
         fail("The cymbal model bench needs the zips of two kits' tests or more (vst-render-*.zip) in %s or its subfolders (found %d)" % (folder, len(found)))
     newest = found[-1][3]
@@ -3815,7 +3829,8 @@ def model_bench(opts, switches):
     stamp = time.strftime("%Y%m%d-%H%M%S")
     made = []
     width = max(len(k.name) for k in kits)
-    kit_list = "".join("%s\t%s\t%s\t%s\n" % (k.name, k.stamp, "new" if k.new else "", k.where) for k in kits)
+    # (Its zip's name too: what Kits left out matches.)
+    kit_list = "kit\tits zips' name\trun\tnew\tfolder\n" + "".join("%s\t%s\t%s\t%s\t%s\n" % (k.name, k.key[len("vst-render-"):].strip("_"), k.stamp, "new" if k.new else "", k.where) for k in kits)
     # Leave one out's kits checked first: a mistake there is said before the comparison's work.
     if "--leave_one_out" in switches:
         how = (opts["--loo_kits"] or "new").strip().lower()
@@ -3944,7 +3959,7 @@ def main(argv):
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
             "--plugin2": None, "--plugin3": None, "--plugin4": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
-            "--bench_dir": None, "--bench_unzip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
+            "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None}
     switches = set()
     files = []

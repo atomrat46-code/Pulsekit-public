@@ -10136,6 +10136,15 @@ public final class DesktopBehavior {
       boolean hidden = !when.isVisible();
       bench.setSelected(true);
       b.append(" | when: hidden ").append(hidden).append(", ticked shown ").append(when.isVisible());
+      javax.swing.JTextField skip = (javax.swing.JTextField) component(d, "params-field:--bench_skip");
+      File list = new File(System.getProperty("user.home"), "exclude.txt");
+      try {
+        Files.write(list.toPath(), "# bad runs\nRiot Default kit\nCardinal, Beat DRMR\n\n".getBytes(StandardCharsets.UTF_8));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      ((Pulsekit) frame).pyJav.importList(skip, list);
+      b.append(" | import button ").append(component(d, "params-import:--bench_skip") != null).append(", imported: ").append(skip.getText());
       ((javax.swing.JTextField) n).setText("30");
       ((javax.swing.JTextField) names).setText("Bucket");
       seen[0] = b.toString();
@@ -10159,13 +10168,14 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
         && all.contains("Cymbal model]")
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
-        && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True") && all.contains("unzip folder outside the output folder: True")
+        && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True")
+        && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Kits left out (1): Fake_Drums_Bright") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
         && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
-        && all.contains("when: hidden true, ticked shown true")
+        && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
         && all.contains("jar given: true")

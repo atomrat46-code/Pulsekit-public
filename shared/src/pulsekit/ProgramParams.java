@@ -95,6 +95,8 @@ public final class ProgramParams {
      * that row filled in), "--model_a=kits" (that row's value; "a|b" one of them); several joined by "&".
      */
     public String showWhen;
+    /** A list row with Import: a text file's lines (or comma-separated names; # comments left out) put into it (vst_render's Kits left out). */
+    public boolean importList;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -737,7 +739,7 @@ public final class ProgramParams {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
-    if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
+    if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
@@ -771,6 +773,17 @@ public final class ProgramParams {
       }
     }
     return true;
+  }
+
+  /** A list file's names (one a line, or comma-separated; # comments and empty lines left out) as a row's value: "A, B". */
+  public static String importedList(String text) {
+    List<String> out = new ArrayList<String>();
+    for (String line : (text == null ? "" : text).split("\r?\n")) {
+      int hash = line.indexOf('#');
+      if (hash >= 0) line = line.substring(0, hash);
+      for (String part : line.split(",")) if (part.trim().length() > 0) out.add(part.trim());
+    }
+    return String.join(", ", out);
   }
 
   /** The tabs the rows are on, in order (none: the page has no tabs). */
@@ -942,6 +955,10 @@ public final class ProgramParams {
       p.dir = true;
       p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
       p.hint = "empty: the kits folder in the bench's folder (below)";
+    } else if (p.token.equals("--bench_skip")) {
+      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
+      p.hint = "Riot Default kit, Cardinal; empty: every kit found";
+      p.importList = true;
     } else if (p.token.equals("--cymbal_bench")) {
       p.label = "Cymbal model comparison: the Cymbal model tab's Compare and Leave one out (off: not run)";
     } else if (p.token.equals("--cymbal_bench_when")) {

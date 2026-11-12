@@ -416,6 +416,20 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (p.importList) {
+        // A list row with Import (vst_render's Kits left out): a text file's lines into it.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(field, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Button load = new android.widget.Button(activity);
+        load.setText("Import");
+        load.setTag("params-import:" + p.token);
+        final EditText target = field;
+        load.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(load);
+        box.addView(row);
+        continue;
+      }
       if (ProgramParams.stylesFromFile(p)) {
         // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
         box.addView(field);
@@ -1375,6 +1389,14 @@ public final class PyJavParams {
         android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
         return;
       }
+      // An Import row (vst_render's Kits left out): the file's names, comma-separated.
+      if (String.valueOf(field.getTag()).startsWith("params-field:") && importRow(String.valueOf(field.getTag()).substring("params-field:".length()))) {
+        String list = ProgramParams.importedList(new String(out.toByteArray(), "UTF-8"));
+        field.setText(list);
+        int n = list.isEmpty() ? 0 : list.split(",").length;
+        android.widget.Toast.makeText(activity, n + (n == 1 ? " name" : " names") + " from " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
+        return;
+      }
       // SogniMusic's --styles: the file's styles as its list ("Funk|Hard Rock|Metal").
       if ("params-field:--styles".equals(field.getTag())) {
         String list = ProgramParams.styleList(text);
@@ -1462,6 +1484,13 @@ public final class PyJavParams {
   /** The choice of definitions shown last, for the tests. */
   static AlertDialog lastDefs;
   static String[] shownValues;
+
+  /** Whether the Params shown have this row as an Import row. */
+  static boolean importRow(String token) {
+    if (shownParams == null) return false;
+    for (ProgramParams.Param p : shownParams) if (p.token.equals(token) && p.importList) return true;
+    return false;
+  }
 
   /** The value in the Params shown of the row with this switch (a drop-down row's too), for the tests; null: no such row. */
   static String fieldsShown(String token) {

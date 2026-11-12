@@ -1741,6 +1741,18 @@ final class PyJav {
         }
     }
 
+    /** A list file's names into a row (Import: vst_render's Kits left out). */
+    void importList(JTextField field, File file) {
+        try {
+            String list = ProgramParams.importedList(new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+            field.setText(list);
+            int n = list.isEmpty() ? 0 : list.split(",").length;
+            app.setNow(n + (n == 1 ? " name" : " names") + " from " + file.getName());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
+        }
+    }
+
     /** A text file's contents into a prompt field (a prompt sheet gives its prompt). */
     void promptFrom(javax.swing.JTextArea area, File file) {
         try {
@@ -3598,6 +3610,23 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (p.importList) {
+                // A list row with Import (vst_render's Kits left out): a text file's lines into it.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                JButton load = new JButton("Import\u2026");
+                load.setName("params-import:" + p.token);
+                load.addActionListener(e -> {
+                    JFileChooser chooser = selectChooser();
+                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text"));
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                    selected(chooser.getSelectedFile());
+                    this.importList(field, chooser.getSelectedFile());
+                });
+                row.add(field, BorderLayout.CENTER);
+                row.add(load, BorderLayout.EAST);
+                form.add(row);
+                continue;
+            }
             if (ProgramParams.stylesFromFile(p)) {
                 // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
                 JPanel row = new JPanel(new BorderLayout(6, 0));

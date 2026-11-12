@@ -126,6 +126,12 @@ vr.main(["--dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare"
 # Model A from the older kits (those before the new one), B from the first 2 kits; a wrong N said plainly.
 vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--model_a", "older", "--model_b", "kits", "--model_b_kits", "2",
          "--drummidi", jar])
+# Kits left out by parts of their names: one kit is not enough to compare.
+try:
+    vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--drummidi", jar,
+             "--bench_skip", "fake drums bright\n# a comment\nNothing"])
+except SystemExit as e:
+    print("skip: exit", e.code)
 for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"], ["--leave_one_out", "--loo_kits", "named"]):
     try:
         vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
