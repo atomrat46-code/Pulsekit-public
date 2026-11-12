@@ -351,6 +351,42 @@ public final class PluginFiles {
     return (before.length() == 0 ? "" : before + "\n\n") + clip + (after.length() == 0 ? "" : "\n" + after);
   }
 
+  /**
+   * Whether a file's text is a note map to import: some note=note line, and none that is not one (or names
+   * no note). Null when it is; else why not.
+   */
+  public static String notAMap(String text) {
+    if (text == null) return "it could not be read";
+    boolean pair = false;
+    for (String raw : text.split("\n", -1)) {
+      int hash = raw.indexOf('#');
+      String line = (hash >= 0 ? raw.substring(0, hash) : raw).trim();
+      if (line.length() == 0 || line.startsWith("[") && line.endsWith("]")) continue;
+      pair = true;
+    }
+    if (!pair) return "it has no note=note line";
+    for (String p : mapProblems(text)) if (p.contains(" is not note=note") || p.contains(": no such note")) return p;
+    return null;
+  }
+
+  /** A backup of map.txt beside it: map-backup-<yyyyMMdd-HHmmss>.txt; null when there is no map.txt. */
+  public static File backupMap(File home) {
+    File map = noteMap(home);
+    String text = read(map);
+    if (text == null) return null;
+    String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT).format(new java.util.Date());
+    File to = new File(map.getParentFile(), "map-backup-" + stamp + ".txt");
+    for (int k = 2; to.exists(); k++) to = new File(map.getParentFile(), "map-backup-" + stamp + "-" + k + ".txt");
+    return write(to, text) ? to : null;
+  }
+
+  /** map.txt replaced with the text imported, a backup of it made first; the backup (null: there was no map.txt). */
+  public static File importMap(File home, String text) {
+    File backup = backupMap(home);
+    write(noteMap(home), text);
+    return backup;
+  }
+
   public static String read(File f) {
     if (f == null || !f.isFile()) return null;
     try (InputStream in = new FileInputStream(f)) {

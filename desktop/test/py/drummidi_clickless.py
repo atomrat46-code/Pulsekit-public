@@ -92,6 +92,7 @@ for kick in ('808', 'kick'):
     write('song.wav', render(song, kick, 34))
     r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', 'song.wav', 'song.mid', '--kit', kick + '.kit'], capture_output=True, text=True)
     said = [l for l in r.stdout.splitlines() if 'beater click' in l]
+    print('%s: toms from snares: %s' % (kick, any('found as a snare as a tom' in l for l in r.stdout.splitlines())))
     found = [t for t, n in vr.midi_notes('song.mid')[1] if n == 36] if os.path.isfile('song.mid') else []
     hit = sum(1 for t in kicks if any(abs(u - t) < 0.05 for u in found))
     print('%s: kickclick %s, %s, kicks %d of %d found, %d written' % (kick, 'under' if 0 <= click < 0.0001 else 'over' if click >= 0.0001 else 'none',

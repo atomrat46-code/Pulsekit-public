@@ -10023,6 +10023,126 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v428: the map editor's Import: a file that is no map refused (said why); a map taken in place of
+   * map.txt, the map before kept as map-backup-<date>.txt, the editor showing the map imported. The
+   * Plugins tab's lists: one line above them says what a click does (under them it was cut off).
+   */
+  void s252_note_map_import() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final Pulsekit app = (Pulsekit) frame;
+    PluginFiles.write(PluginFiles.noteMap(home), "[Old Kit]\n36=48\n");
+    File good = new File(home, "map-copy.txt"), bad = new File(home, "notes.txt"), empty = new File(home, "empty.txt");
+    PluginFiles.write(good, "# mine\n[Beat DRMR]\n48=45\n50=47\n");
+    PluginFiles.write(bad, "shopping list\nmilk\n");
+    PluginFiles.write(empty, "# only a comment\n[Section]\n");
+    this.out.append("not a map: ").append(PluginFiles.notAMap(PluginFiles.read(bad))).append(" | ").append(PluginFiles.notAMap(PluginFiles.read(empty)))
+        .append(" | good: ").append(PluginFiles.notAMap(PluginFiles.read(good))).append('\n');
+    final javax.swing.JTextArea text = new javax.swing.JTextArea(PluginFiles.mapText(PluginFiles.noteMap(home)));
+    final String[] said = new String[2];
+    PyJav.pluginTestQuiet = true;
+    try {
+      edt(() -> {
+        said[0] = app.pyJav.importNoteMap(text, text, bad);
+        said[1] = app.pyJav.importNoteMap(text, text, good);
+      });
+    } finally {
+      PyJav.pluginTestQuiet = false;
+    }
+    File[] backups = PluginFiles.noteMap(home).getParentFile().listFiles((dd, n) -> n.startsWith("map-backup-") && n.endsWith(".txt"));
+    this.out.append("bad: ").append(said[0]).append('\n').append("good: ").append(said[1].replaceAll("map-backup-[0-9-]+\\.txt", "map-backup-<date>.txt")).append('\n');
+    this.out.append("map.txt now: ").append(PluginFiles.read(PluginFiles.noteMap(home)).replace("\n", " | ")).append('\n');
+    this.out.append("backup: ").append(backups == null ? "none" : backups.length + " " + PluginFiles.read(backups[0]).replace("\n", " | ")).append('\n');
+    this.out.append("editor shows: ").append(text.getText().contains("[Beat DRMR]")).append('\n');
+    final javax.swing.JPanel[] box = new javax.swing.JPanel[1];
+    edt(() -> box[0] = app.pyJav.mapEditor(new javax.swing.JTextArea("x"), PluginFiles.noteMap(home)));
+    this.out.append("import button: ").append(component(box[0], "params-files-map-import") != null).append('\n');
+    final javax.swing.JPanel[] picks = new javax.swing.JPanel[1];
+    edt(() -> picks[0] = app.pyJav.pluginPicks(new java.util.ArrayList<ProgramParams.Param>(), new String[0], new javax.swing.JLabel[0], new javax.swing.JCheckBox[0]));
+    java.awt.Component tip = component(picks[0], "params-plugin-picks-tip");
+    int tips = 0;
+    java.util.Deque<java.awt.Component> todo = new java.util.ArrayDeque<java.awt.Component>(java.util.Collections.singleton((java.awt.Component) picks[0]));
+    while (!todo.isEmpty()) {
+      java.awt.Component c = todo.pop();
+      if (c instanceof javax.swing.JLabel && String.valueOf(((javax.swing.JLabel) c).getText()).contains("plugin 1 to 4")) tips++;
+      if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.push(k);
+    }
+    this.out.append("tip above the lists: ").append(tip != null && tip.getParent() == picks[0]).append(", tips: ").append(tips).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("not a map: line 1: shopping list is not note=note (36=48, or 41=none) | it has no note=note line | good: null")
+        && all.contains("bad: notes.txt is not a note map: line 1: shopping list is not note=note")
+        && all.contains("good: Imported map-copy.txt as map.txt; the map before is kept as map-backup-<date>.txt")
+        && all.contains("map.txt now: # mine | [Beat DRMR] | 48=45 | 50=47 | ") && all.contains("backup: 1 [Old Kit] | 36=48 | ")
+        && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 12112026: Sogni Params' Destination subfolder (--pk-subfolder) is taken off the program's arguments and
+   * kept with the run (read back after a restart, given back to Resume); %g, %c, %c1, %c2, %t1 and %t2 are
+   * the file's group, category and tags; an output name Img-%g.png is renamed Img-Trip.png once its ready
+   * dialog is over (its group and tags go with it); Move puts it in the picture folder's Trip/Holiday-sun.
+   */
+  void s253_destination_subfolder() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"), "destsub");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, list}) d.mkdirs();
+    java.util.List<String> args = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "a dog", DownloadMove.SUB_PARAM, "%g/%c1-%t2", "--output", "Img-%g.png"));
+    String taken = DownloadMove.takeSub(args);
+    this.out.append("taken: ").append(taken).append(" | left: ").append(args).append('\n');
+    DownloadMove.giveSub(args, taken);
+    this.out.append("given: ").append(args).append('\n');
+    String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);
+    ProgramParams.Param row = null;
+    for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals(DownloadMove.SUB_PARAM)) row = p;
+    this.out.append("params row: ").append(row != null && row.takesValue && row.label.startsWith("Destination subfolder")).append('\n');
+    this.out.append("needs: ").append(DownloadMove.needsChoices("%g")).append(DownloadMove.needsChoices("%t1")).append(DownloadMove.needsChoices("%ddmm-%n"))
+        .append(DownloadMove.needsChoices("100%%g")).append('\n');
+    File pic = new File(dl, "Img-%g.png");
+    Files.write(pic.toPath(), new byte[] {1, 2, 3, 4});
+    File pdir = PromptDb.dir();
+    FileGroups.load(pdir);
+    MediaTags.load(pdir);
+    FileGroups.set("Trip", MarkFile.mediaKey(pic.getName(), 4), true);
+    MediaTags.setCategory(MediaTags.key(pic.getName(), 4), "Photos / Holiday");
+    MediaTags.setTags(MediaTags.key(pic.getName(), 4), java.util.Arrays.asList("sea", "sun"));
+    DownloadMove.Choices ch = DownloadMove.choicesOf(pic.getName(), 4);
+    this.out.append("filled: ").append(DownloadMove.fillChoices("%g|%c|%c1|%c2|%t1|%t2|%%g|%n", ch)).append('\n');
+    this.out.append("names: ").append(DownloadMove.nameFor("Img-%g.png", ch)).append(' ').append(DownloadMove.nameFor("Img-%c2-%t1.png", ch))
+        .append(' ').append(DownloadMove.nameFor("%c2.png", ch)).append(' ').append(DownloadMove.nameFor("plain.png", ch)).append('\n');
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: " + pic.getName(), "saved " + pic.getAbsolutePath(), null);
+    SogniDownloads.subfolder(rn, taken);
+    SogniDownloads.done(rn);
+    SogniDownloads.init(null);
+    SogniDownloads.init(list);
+    this.out.append("kept: ").append(SogniDownloads.run(rn).subfolder).append(", waits: ").append(SogniDownloads.waitsForChoices(rn)).append('\n');
+    DownloadMove.load();
+    DownloadMove.on = false;
+    edt(() -> app.pyJav.afterReady(rn));
+    File renamed = new File(dl, "Img-Trip.png");
+    FileGroups.load(pdir);
+    this.out.append("renamed: ").append(renamed.isFile()).append(!pic.exists()).append(", its group: ").append(FileGroups.groupsOf(MarkFile.mediaKey("Img-Trip.png", 4)))
+        .append(", its tags: ").append(MediaTags.tags(MediaTags.key("Img-Trip.png", 4))).append('\n');
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    String said = DownloadsScreen.moveNow();
+    File at = new File(pics, "Trip/Holiday-sun/Img-Trip.png");
+    this.out.append("moved: ").append(said).append(" -> ").append(at.isFile()).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.save();
+    String all = this.out.toString();
+    boolean ok = all.contains("taken: %g/%c1-%t2 | left: [--prompt, a dog, --output, Img-%g.png]")
+        && all.contains("given: [--prompt, a dog, --output, Img-%g.png, --pk-subfolder, %g/%c1-%t2]") && all.contains("params row: true")
+        && all.contains("needs: truetruefalsefalse") && all.contains("filled: Trip|Holiday|Holiday||sea|sun|%%g|%n")
+        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("kept: %g/%c1-%t2, waits: true")
+        && all.contains("renamed: truetrue, its group: [Trip], its tags: [sea, sun]") && all.contains("moved: Moved 1 file -> true");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v427: the note map's Check (PluginFiles.mapProblems) says what vst_render says (map_problems) and what
    * it prints at a run; map.txt in the results zip; the map editor's Check, Save copy as, Find, Replace,
    * Replace all and its right-click menu with the section clicked (Copy, Cut, Paste after it, Delete);
@@ -10278,7 +10398,8 @@ public final class DesktopBehavior {
     this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("808: kickclick under, clickless, kicks 64 of 64 found, 64 written") && all.contains("kick: kickclick over, clicks, kicks 64 of 64 found, 64 written")
-        && all.contains("808: snare learned: [' snare 38 (8 hits)']") && all.contains("kick: snare learned: [' snare 38 (8 hits)']");
+        && all.contains("808: snare learned: [' snare 38 (8 hits)']") && all.contains("kick: snare learned: [' snare 38 (8 hits)']")
+        && all.contains("808: toms from snares: True") && all.contains("kick: toms from snares: True");
     if (!ok) throw new AssertionError(all);
   }
 

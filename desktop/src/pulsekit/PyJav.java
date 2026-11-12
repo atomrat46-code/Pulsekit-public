@@ -775,6 +775,8 @@ final class PyJav {
         boolean saving = false;
         while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
         this.saveRun = saving;
+        // Params' Destination subfolder: taken off too, kept with the run's download (Move puts its files there).
+        final String subPattern = DownloadMove.takeSub(runArgs);
         final boolean savingRun = saving;
         // PlayList --nogui without a list writes the Default playlist: its file given.
         final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
@@ -810,6 +812,7 @@ final class PyJav {
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
+            if (subPattern.length() > 0) SogniDownloads.subfolder(download, subPattern);
             live.download(download);
         }
         if (note != null) live.add(note + "\n");
@@ -897,6 +900,7 @@ final class PyJav {
                 if (again != null) {
                     this.reconnects++;
                     if (savingRun) again.add(PromptKeep.SAVE_RUN);
+                    DownloadMove.giveSub(again, subPattern);
                     String why = reconnectWhy(result.log);
                     this.reconnectNote = "Reconnecting to workflow " + JavaRun.workflowOf(again) + " (" + why + "; try " + this.reconnects + " of " + JavaRun.RECONNECTS + ")\u2026";
                     if (download != 0) SogniDownloads.reconnecting(download, this.reconnectNote);
@@ -1035,6 +1039,7 @@ final class PyJav {
                 // The top line's "Running…" ends with the run: its verdict, as the log under Run ends.
                 if (lastTop[0] != null && lastTop[0].equals(app.nowPlaying.getText())) app.setNow(verdict.length() > 0 ? name + ": " + verdict : name + ": done");
                 this.lastSheetVersion = 0;
+                final boolean[] moveAfterReady = {false};
                 String kept = this.keepInLibrary(name, result, argv);
                 if (kept.length() > 0 && app.pyLog != null) {
                     app.pyLog.append("\n" + kept);
@@ -1044,8 +1049,12 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
-                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
-                    if (!SogniDownloads.dropIfEmpty(download)) DownloadsScreen.finished(app);
+                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically
+                    // (a run whose Destination subfolder or file names have group, category or tag codes: after its ready dialogs).
+                    if (!SogniDownloads.dropIfEmpty(download)) {
+                        if (SogniDownloads.waitsForChoices(download)) moveAfterReady[0] = true;
+                        else DownloadsScreen.finished(app);
+                    }
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
@@ -1110,6 +1119,9 @@ final class PyJav {
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
+                // The ready dialogs closed (the group, category and tags picked): the files named with their codes
+                // renamed, and the move held for them made.
+                if (download != 0 && moveAfterReady[0]) this.afterReady(download);
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
                 // With --towav or --test it goes on to Midi2Wav (and its test) instead.
                 if (madeMidi != null && result.code == 0 && Midi2WavTest.fromGen(name, argv)) this.genToWav(madeMidi, argv);
@@ -1132,6 +1144,7 @@ final class PyJav {
                 java.util.List<String> resume = javaProg && !inBatch && result.log != null && result.log.indexOf("Failed") >= 0 ? JavaRun.resumeArgs(name, src, result.log, argv) : null;
                 if (resume != null) {
                     if (savingRun) resume.add(PromptKeep.SAVE_RUN);
+                    DownloadMove.giveSub(resume, subPattern);
                     Object[] options = {"Resume", "No"};
                     if (JOptionPane.showOptionDialog(app, JavaRun.resumeQuestion(result.log, resume), "Resume " + name + "?", JOptionPane.DEFAULT_OPTION,
                         JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0) {
@@ -1237,6 +1250,31 @@ final class PyJav {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
         }
+    }
+
+    /**
+     * After a run's ready dialogs (its files' group, category and tags picked there): its files named
+     * with choice codes (an output name such as Img-%g) renamed with them filled in, their tags and groups
+     * going along; then Move automatically, held for them, moves the run (its Destination subfolder's
+     * codes filled in the same way).
+     */
+    void afterReady(long download) {
+        FileGroups.load(PromptDb.dir());
+        MediaTags.load(PromptDb.dir());
+        for (SogniDownloads.Item item : SogniDownloads.namedWithChoices(download)) {
+            File f = new File(item.where);
+            if (!f.isFile()) continue;
+            long size = f.length();
+            String name = DownloadMove.nameFor(f.getName(), DownloadMove.choicesOf(f.getName(), size));
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", ""), ext = name.substring(stem.length());
+            File to = new File(f.getParentFile(), name);
+            for (int n = 1; to.exists(); n++) to = new File(f.getParentFile(), stem + " (" + n + ")" + ext);
+            if (!f.renameTo(to)) continue;
+            DownloadMove.carryChoices(f.getName(), to.getName(), size);
+            SogniDownloads.moved(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+            Playlist.repoint(PromptDb.dir(), java.util.Collections.singleton(f.getAbsolutePath()), to.getAbsolutePath());
+        }
+        DownloadsScreen.finished(app);
     }
 
     /** Picture ready's right click menu shown last (for the tests). */
@@ -4163,6 +4201,8 @@ final class PyJav {
      * runs) and Plugin folders (where VST3 and VST2 plugins are looked for; Folders… changes them). A plugin
      * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
      */
+    static final String PICKS_TIP = "Favourites and Recently used: click a plugin to use it as plugin 1 to 4, or drag it onto a plugin row";
+
     JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
         PluginLibrary.load(PromptDb.dir());
         final String home = System.getProperty("user.home", ".");
@@ -4181,14 +4221,21 @@ final class PyJav {
                 for (String f : PluginLibrary.folders(type, false, home)) if (!folderModel.contains(f)) folderModel.addElement(f);
         };
         fill.run();
-        JPanel out = new JPanel(new GridLayout(1, 3, 8, 0));
+        JPanel lists = new JPanel(new GridLayout(1, 3, 8, 0));
+        // One line above the lists says what a click does (under each list, the form's last pixels cut it off).
+        JPanel out = new JPanel(new BorderLayout(0, 4));
         out.setName("params-plugin-picks");
-        out.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
-        out.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
+        JLabel tip = new JLabel(PICKS_TIP);
+        tip.setName("params-plugin-picks-tip");
+        tip.setFont(tip.getFont().deriveFont(11f));
+        out.add(tip, BorderLayout.NORTH);
+        out.add(lists, BorderLayout.CENTER);
+        lists.add(this.pickList("Favourites", "params-favourites", favModel, ps, values, fileLabels, uses, "No favourites yet (Plugins list: Add to favourites)"));
+        lists.add(this.pickList("Recently used", "params-recent", recentModel, ps, values, fileLabels, uses, "None yet: the plugins of vst_render's runs"));
         JPanel folders = new JPanel(new BorderLayout(0, 4));
         javax.swing.JList<String> folderList = new javax.swing.JList<String>(folderModel);
         folderList.setName("params-plugin-folders");
-        folderList.setVisibleRowCount(6);
+        folderList.setVisibleRowCount(5);
         folders.add(new JScrollPane(folderList), BorderLayout.CENTER);
         JButton change = new JButton("Folders\u2026");
         change.setName("params-plugin-folders-change");
@@ -4202,7 +4249,7 @@ final class PyJav {
         change.setMargin(new java.awt.Insets(0, 6, 0, 6));
         head.add(change, BorderLayout.EAST);
         folders.add(head, BorderLayout.NORTH);
-        out.add(folders);
+        lists.add(folders);
         return out;
     }
 
@@ -4368,10 +4415,20 @@ final class PyJav {
             File to = chooser.getSelectedFile();
             app.setNow(PluginFiles.write(to, text.getText()) ? "Saved a copy: " + to.getPath() : "Could not save " + to.getPath());
         });
+        JButton importMap = new JButton("Import\u2026");
+        importMap.setName("params-files-map-import");
+        importMap.setToolTipText("Another map file in place of map.txt (asks first; map.txt is kept as map-backup-<date>.txt)");
+        importMap.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(map.getParentFile());
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Map files", "txt"));
+            if (chooser.showOpenDialog(importMap) != JFileChooser.APPROVE_OPTION) return;
+            this.importNoteMap(importMap, text, chooser.getSelectedFile());
+        });
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         top.add(new JLabel(map.getPath()));
         top.add(notes);
         top.add(check);
+        top.add(importMap);
         top.add(copyAs);
         box.add(top, BorderLayout.NORTH);
         // Find and replace (case aside).
@@ -4443,6 +4500,37 @@ final class PyJav {
         lastMapEditor = box;
         return box;
     }
+
+    /**
+     * Import: a map file in place of map.txt, when it is one (note=note lines) and the user says so; map.txt
+     * is kept as map-backup-<date>.txt first, and the editor shows the map imported. What it said.
+     */
+    String importNoteMap(java.awt.Component at, javax.swing.JTextArea text, File from) {
+        final File home = new File(System.getProperty("user.home", "."));
+        String t = PluginFiles.read(from);
+        String why = PluginFiles.notAMap(t);
+        if (why != null) {
+            mapImportSaid = from.getName() + " is not a note map: " + why;
+            if (!pluginTestQuiet) JOptionPane.showMessageDialog(at, mapImportSaid, "Note map \u00b7 import", JOptionPane.WARNING_MESSAGE);
+            return mapImportSaid;
+        }
+        List<String> problems = PluginFiles.mapProblems(t);
+        String ask = "Replace your note map (map.txt) with " + from.getName() + "?\nYour map now is kept as a backup beside it (map-backup-<date>.txt)."
+            + (problems.isEmpty() ? "" : "\n\nThe check finds in it:\n" + String.join("\n", problems));
+        if (!pluginTestQuiet && JOptionPane.showConfirmDialog(at, ask, "Note map \u00b7 import", JOptionPane.YES_NO_OPTION,
+            problems.isEmpty() ? JOptionPane.QUESTION_MESSAGE : JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+            mapImportSaid = "Not imported";
+            return mapImportSaid;
+        }
+        File backup = PluginFiles.importMap(home, t);
+        text.setText(t);
+        text.setCaretPosition(0);
+        mapImportSaid = "Imported " + from.getName() + " as map.txt" + (backup != null ? "; the map before is kept as " + backup.getName() : "");
+        app.setNow(mapImportSaid);
+        return mapImportSaid;
+    }
+
+    static String mapImportSaid = "";
 
     /** The note map editor's right-click menu at `offset`: Cut, Copy, Paste, Select all; the section there. */
     javax.swing.JPopupMenu mapMenu(final javax.swing.JTextArea text, int offset) {
@@ -4548,7 +4636,7 @@ final class PyJav {
         box.add(new JLabel(title), BorderLayout.NORTH);
         final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
         list.setName(name);
-        list.setVisibleRowCount(6);
+        list.setVisibleRowCount(5);
         list.setToolTipText(empty);
         list.setCellRenderer(new javax.swing.DefaultListCellRenderer() {
             @Override
@@ -4582,9 +4670,6 @@ final class PyJav {
             }
         });
         box.add(new JScrollPane(list), BorderLayout.CENTER);
-        JLabel tip = new JLabel("Click: Use as plugin 1 to 4; or drag onto a plugin row");
-        tip.setFont(tip.getFont().deriveFont(11f));
-        box.add(tip, BorderLayout.SOUTH);
         return box;
     }
 

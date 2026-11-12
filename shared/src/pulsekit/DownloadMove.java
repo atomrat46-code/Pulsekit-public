@@ -150,6 +150,158 @@ public final class DownloadMove {
     return clean.toString();
   }
 
+  /**
+   * Params' Destination subfolder (Sogni programs): Pulsekit takes it off the program's arguments and
+   * keeps it with the run (SogniDownloads.Run.subfolder); Move puts the run's files in it, under their
+   * type's folder (and its subfolder), made when missing.
+   */
+  public static final String SUB_PARAM = "--pk-subfolder";
+  public static final String SUB_PARAM_LABEL = "Destination subfolder: Downloads' Move puts this run's files in it, under their type's folder (made when missing)";
+  public static final String SUB_PARAM_HINT = "e.g. %g/%ddmmyyyy; % codes: g group, c or c1 category, c2 a second one, t1 first tag, t2 second; dd mm yyyy n as in Downloads";
+
+  /** The Destination subfolder taken off a run's arguments (the program never sees it); "" when there is none. */
+  public static String takeSub(List<String> args) {
+    String got = "";
+    for (int i = 0; args != null && i < args.size(); i++) {
+      if (!SUB_PARAM.equals(args.get(i))) continue;
+      args.remove(i);
+      if (i < args.size()) got = args.remove(i).trim();
+      i--;
+    }
+    return got;
+  }
+
+  /** The Destination subfolder put back on a run's arguments (run again, reconnect, resume). */
+  public static void giveSub(List<String> args, String pattern) {
+    if (args != null && pattern != null && pattern.trim().length() > 0) {
+      args.add(SUB_PARAM);
+      args.add(pattern.trim());
+    }
+  }
+
+  /**
+   * What a file was given in its ready dialog (or after): its groups, categories and tags, in their
+   * lists' order, for the codes %g, %c (%c1), %c2, %t1 and %t2.
+   */
+  public static final class Choices {
+    public final List<String> groups = new ArrayList<String>();
+    public final List<String> categories = new ArrayList<String>();
+    public final List<String> tags = new ArrayList<String>();
+  }
+
+  /** A file's choices by its name and size (FileGroups and MediaTags, loaded by the caller). */
+  public static Choices choicesOf(String name, long size) {
+    Choices c = new Choices();
+    c.groups.addAll(FileGroups.groupsOf(new String[] {MarkFile.mediaKey(name, size)}));
+    String key = MediaTags.key(name, size);
+    String cat = MediaTags.category(key);
+    if (cat != null && cat.trim().length() > 0) c.categories.add(cat.trim());
+    c.tags.addAll(MediaTags.tags(key));
+    return c;
+  }
+
+  /** Whether a pattern (a subfolder, an output name) has a choice code: %g, %c, %c1, %c2, %t1, %t2. */
+  public static boolean needsChoices(String pattern) {
+    if (pattern == null) return false;
+    for (int i = 0; i + 1 < pattern.length(); i++) {
+      if (pattern.charAt(i) != '%') continue;
+      char c = pattern.charAt(i + 1);
+      if (c == '%') {
+        i++;
+        continue;
+      }
+      if (c == 'g' || c == 'c' || (c == 't' && i + 2 < pattern.length() && (pattern.charAt(i + 2) == '1' || pattern.charAt(i + 2) == '2'))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The choice codes filled in: %g the file's group (its first), %c and %c1 its category (its
+   * last part: "Video / Clips" is "Clips"), %c2 a second one, %t1 its first tag, %t2 the second. One it
+   * does not have is left out ("" ). The date codes and %n stay for expand; %% stays as it is. A value's
+   * slashes and the signs a file name cannot have become "-".
+   */
+  public static String fillChoices(String pattern, Choices ch) {
+    if (pattern == null || pattern.indexOf('%') < 0) return pattern == null ? "" : pattern;
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < pattern.length(); i++) {
+      char c = pattern.charAt(i);
+      if (c != '%' || i + 1 >= pattern.length()) {
+        out.append(c);
+        continue;
+      }
+      char n = pattern.charAt(i + 1);
+      char d = i + 2 < pattern.length() ? pattern.charAt(i + 2) : ' ';
+      if (n == '%') {
+        out.append("%%");
+        i++;
+      } else if (n == 'g') {
+        out.append(part(ch == null ? null : first(ch.groups, 0)));
+        i++;
+      } else if (n == 'c' && (d == '1' || d == '2')) {
+        out.append(part(ch == null ? null : last(first(ch.categories, d - '1'))));
+        i += 2;
+      } else if (n == 'c') {
+        out.append(part(ch == null ? null : last(first(ch.categories, 0))));
+        i++;
+      } else if (n == 't' && (d == '1' || d == '2')) {
+        out.append(part(ch == null ? null : first(ch.tags, d - '1')));
+        i += 2;
+      } else {
+        out.append(c);
+      }
+    }
+    return out.toString();
+  }
+
+  private static String first(List<String> l, int i) {
+    return l == null || i >= l.size() ? null : l.get(i);
+  }
+
+  private static String last(String category) {
+    if (category == null) return null;
+    String[] p = category.split("\\s*/\\s*");
+    return p[p.length - 1];
+  }
+
+  private static String part(String v) {
+    return v == null ? "" : v.trim().replaceAll("[\\\\/:*?\"<>|]", "-");
+  }
+
+  /**
+   * The subfolder a file of a run goes to under its type's folder: the type's own subfolder, then the
+   * run's Destination subfolder with the file's choices filled in; the date codes and %n filled in last
+   * (`taken`: whether a folder under the type's folder is there). "" for the folder itself.
+   */
+  public static String subFor(String kind, String runPattern, Choices ch, java.util.function.Predicate<String> taken) {
+    String own = subOf(kind), run = fillChoices(runPattern == null ? "" : runPattern.trim(), ch);
+    String both = own.length() == 0 ? run : run.length() == 0 ? own : own + "/" + run;
+    return expand(both, java.util.Calendar.getInstance(), taken);
+  }
+
+  /**
+   * An output name made with choice codes (Img-%g.png), once the file's choices are made: its name with
+   * them filled in (Img-Trip.png); the same name when it has none. Separators a missing one leaves twice
+   * or at the ends ("Img-.png") are taken off.
+   */
+  public static String nameFor(String name, Choices ch) {
+    if (!needsChoices(name)) return name;
+    String filled = fillChoices(name, ch).replace("%%", "%");
+    String stem = filled.replaceAll("\\.[A-Za-z0-9]{1,5}$", ""), ext = filled.substring(stem.length());
+    stem = stem.replaceAll("([-_ .])[-_ .]+", "$1").replaceAll("^[-_ .]+|[-_ .]+$", "");
+    return (stem.length() == 0 ? "file" : stem) + ext;
+  }
+
+  /** A file renamed (its choice codes filled in): its tags, category and groups go with its new name. */
+  public static void carryChoices(String oldName, String newName, long size) {
+    MediaTags.renamed(MediaTags.key(oldName, size), MediaTags.key(newName, size));
+    String from = MarkFile.mediaKey(oldName, size), to = MarkFile.mediaKey(newName, size);
+    for (String g : FileGroups.groupsOf(from)) {
+      FileGroups.set(g, to, true);
+      FileGroups.set(g, from, false);
+    }
+  }
+
   /** The kind's subfolder pattern, or "". */
   public static synchronized String subOf(String kind) {
     String v = sub.get(kind);

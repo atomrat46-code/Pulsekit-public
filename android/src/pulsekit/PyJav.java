@@ -1299,6 +1299,8 @@ final class PyJav {
         // Params' Save this run into DB: taken off (the program never sees it), stored after the run.
         this.pkSaveRun = false;
         while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
+        // Params' Destination subfolder: taken off too, kept with the run's download (Downloads' Move uses it).
+        final String subPattern = pulsekit.DownloadMove.takeSub(argv);
         // A prompt sheet's run: its mode, reference files and output name (as on the desktop, only for a
         // .prompt: ImageUpscaler opened after one was given the sheet's files too).
         if (name.toLowerCase().endsWith(".prompt")) {
@@ -1367,6 +1369,7 @@ final class PyJav {
         Long downloadRun = this.pkPending == null ? null : DOWNLOAD_OF.get(this.pkPending);
         if (downloadRun != null) {
             pulsekit.SogniDownloads.argv(downloadRun.longValue(), argv);
+            if (subPattern.length() > 0) pulsekit.SogniDownloads.subfolder(downloadRun.longValue(), subPattern);
             live.download(downloadRun.longValue());
         }
         if (note != null) live.add(note + "\n");
@@ -1386,6 +1389,10 @@ final class PyJav {
         this.pkPending = pending;
         this.pkLastArgv = argv;
         this.pkSaveRun = saveRun;
+        // The run's Destination subfolder (kept with its download), given again to a reconnect or resume.
+        Long subRun = pending == null ? null : DOWNLOAD_OF.get(pending);
+        pulsekit.SogniDownloads.Run subOf = subRun == null ? null : pulsekit.SogniDownloads.run(subRun.longValue());
+        final String subPattern = subOf == null ? "" : subOf.subfolder;
         // Timed out (or the network went away) while the workflow goes on on Sogni: joined again.
         String log = result == null ? null : result.log;
         java.util.List<String> again = this.pkReconnects < pulsekit.JavaRun.RECONNECTS ? pulsekit.JavaRun.reconnectArgs(app.pyName, src, log, argv) : null;
@@ -1397,6 +1404,7 @@ final class PyJav {
         if (again != null) {
             this.pkReconnects++;
             if (saveRun) again.add(pulsekit.PromptKeep.SAVE_RUN);
+            pulsekit.DownloadMove.giveSub(again, subPattern);
             String note = "Reconnecting to workflow " + pulsekit.JavaRun.workflowOf(again) + " (" + pkReconnectWhy(log) + "; try " + this.pkReconnects + " of " + pulsekit.JavaRun.RECONNECTS + ")\u2026";
             pulsekit.PendingOps.done(pending);
             Long download = pending == null ? null : DOWNLOAD_OF.remove(pending);
@@ -1416,6 +1424,7 @@ final class PyJav {
         final java.util.List<String> resume = pulsekit.JavaRun.resumeArgs(app.pyName, src, log, argv);
         if (resume != null && log != null && log.indexOf("Failed") >= 0) {
             if (saveRun) resume.add(pulsekit.PromptKeep.SAVE_RUN);
+            pulsekit.DownloadMove.giveSub(resume, subPattern);
             // The run ended while Pulsekit's screen was closed (the phone locked, another app): no dialog on it.
             if (app.isFinishing() || (android.os.Build.VERSION.SDK_INT >= 17 && app.isDestroyed())) {
                 app.setNow("Failed; its workflow " + pulsekit.JavaRun.workflowOf(resume) + " can be resumed from File > Downloads");
@@ -2237,8 +2246,31 @@ final class PyJav {
         if (download != null) {
             pulsekit.SogniDownloads.done(download.longValue());
             // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
-            if (!pulsekit.SogniDownloads.dropIfEmpty(download.longValue())) DownloadsScreen.finished(app);
+            if (!pulsekit.SogniDownloads.dropIfEmpty(download.longValue())) {
+                // Group, category or tag codes in its Destination subfolder or names: after its ready dialogs.
+                if (pulsekit.SogniDownloads.waitsForChoices(download.longValue())) this.pkAfterReady(download.longValue());
+                else DownloadsScreen.finished(app);
+            }
         }
+    }
+
+    /**
+     * Once no ready dialog (Picture, Video, Sound ready) is open: the run's files renamed with their
+     * picked group, category and tags, then moved (Move automatically).
+     */
+    void pkAfterReady(final long download) {
+        app.handler.postDelayed(() -> {
+            if (readyOpen()) pkAfterReady(download);
+            else DownloadsScreen.afterReady(app, download);
+        }, 700);
+    }
+
+    /** A ready dialog (or a dialog opened from one: group, tags) is showing. */
+    static boolean readyOpen() {
+        if (PictureOffer.last != null && PictureOffer.last.isShowing()) return true;
+        if (AudioOffer.last != null && AudioOffer.last.isShowing()) return true;
+        VideoOffer.Player v = VideoOffer.last;
+        return v != null && v.dialog != null && v.dialog.isShowing();
     }
 
     /** The entry key of another program's run listed in Downloads (Also other programs' files). */
