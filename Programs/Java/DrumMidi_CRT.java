@@ -1230,6 +1230,7 @@ public class DrumMidi_CRT{
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
+        if (cymbals && System.getProperty("dm.cymFeatures") != null) CymModel.dump(hits, audio.samples, sr, System.getProperty("dm.cymFeatures"));
         if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr);
         if (cymbals && !chokeNotes.isEmpty()) chokes(hits, audio.samples, sr, chokeNotes);
         progress(90);
@@ -3369,6 +3370,86 @@ public class DrumMidi_CRT{
             w = rows.toArray(new double[0][]);
         }
 
+        /**
+         * The model's inputs (X) for each cymbal of `hits` (in time order, into `cym`): its features, the
+         * mean of the cymbals' within CM_CONTEXT s, log(1 + how many), the kind written (one-hot).
+         * `byTime`, when given, gets every hit in time order.
+         */
+        static List<double[]> inputs(List<Hit> hits, double[] x, double sr, List<Hit> cym, List<Hit> byTimeOut) {
+            List<Hit> byTime = new ArrayList<Hit>(hits);
+            Collections.sort(byTime, new java.util.Comparator<Hit>() {
+                public int compare(Hit p, Hit q) {
+                    return Double.compare(p.time, q.time);
+                }
+            });
+            if (byTimeOut != null) byTimeOut.addAll(byTime);
+            List<double[]> fs = new ArrayList<double[]>();
+            for (int i = 0; i < byTime.size(); i++) {
+                Hit h = byTime.get(i);
+                if (kind(h.note) < 0) continue;
+                double nxt = h.time + 2.0;
+                for (int j = i + 1; j < byTime.size(); j++) if (byTime.get(j).time > h.time + 0.005) {
+                    nxt = Math.min(nxt, byTime.get(j).time);
+                    break;
+                }
+                double[] f = feats(x, sr, h.time, nxt);
+                if (f == null) continue;
+                cym.add(h);
+                fs.add(f);
+            }
+            List<double[]> ins = new ArrayList<double[]>();
+            for (int i = 0; i < cym.size(); i++) {
+                Hit h = cym.get(i);
+                double[] in = new double[X];
+                System.arraycopy(fs.get(i), 0, in, 0, F);
+                int n = 0;
+                for (int j = 0; j < cym.size(); j++) {
+                    if (j == i || Math.abs(cym.get(j).time - h.time) > CM_CONTEXT) continue;
+                    for (int a = 0; a < F; a++) in[F + a] += fs.get(j)[a];
+                    n++;
+                }
+                if (n > 0) for (int a = 0; a < F; a++) in[F + a] /= n;
+                in[2 * F] = Math.log1p(n);
+                in[2 * F + 1 + kind(h.note)] = 1;
+                ins.add(in);
+            }
+            return ins;
+        }
+
+        /**
+         * -Ddm.cymFeatures=<file> (cymbal_bench.py): the hits as they are before the model (every one:
+         * "h <time> <note>"), each cymbal's model inputs ("c <hit's index> <X numbers>") and the built-in
+         * model ("mu", "sd", "b", "w" lines, as a model file, and "margin"), so the bench scores any model
+         * on the song without running DrumMidi again.
+         */
+        static void dump(List<Hit> hits, double[] x, double sr, String file) {
+            List<Hit> cym = new ArrayList<Hit>(), byTime = new ArrayList<Hit>();
+            List<double[]> ins = inputs(hits, x, sr, cym, byTime);
+            StringBuilder out = new StringBuilder("# DrumMidi_CRT cymbal model inputs 1\nmargin " + CM_MARGIN + "\n");
+            row(out, "mu", CM_MU);
+            row(out, "sd", CM_SD);
+            row(out, "b", CM_B);
+            for (double[] r : CM_W) row(out, "w", r);
+            java.util.Map<Hit, Integer> at = new java.util.IdentityHashMap<Hit, Integer>();
+            for (int i = 0; i < byTime.size(); i++) {
+                Hit h = byTime.get(i);
+                at.put(h, Integer.valueOf(i));
+                out.append("h ").append(String.format(java.util.Locale.ROOT, "%.6f", h.time)).append(' ').append(h.note).append('\n');
+            }
+            for (int i = 0; i < cym.size(); i++) row(out, "c " + at.get(cym.get(i)), ins.get(i));
+            try {
+                java.nio.file.Files.write(new File(file).toPath(), out.toString().getBytes("UTF-8"));
+            } catch (Exception ex) {
+                note("Cymbal model inputs not written: " + ex.getMessage());
+            }
+        }
+
+        static void row(StringBuilder out, String key, double[] v) {
+            out.append(key);
+            for (double a : v) out.append(' ').append(String.format(java.util.Locale.ROOT, "%.8g", a));
+            out.append('\n');
+        }
+
         static int kind(int note) {
             return note == CLOSED_HAT || note == PEDAL_HAT ? 0 : note == OPEN_HAT ? 1 : note == RIDE_NOTE || note == 53 || note == 59 ? 2 : isCymbalNote(note) ? 3 : -1;
         }
@@ -3513,43 +3594,14 @@ public class DrumMidi_CRT{
                 }
             }
             double margin = Double.parseDouble(System.getProperty("dm.cymMargin", String.valueOf(CM_MARGIN)));
-            List<Hit> byTime = new ArrayList<Hit>(hits);
-            Collections.sort(byTime, new java.util.Comparator<Hit>() {
-                public int compare(Hit p, Hit q) {
-                    return Double.compare(p.time, q.time);
-                }
-            });
             List<Hit> cym = new ArrayList<Hit>();
-            List<double[]> fs = new ArrayList<double[]>();
-            for (int i = 0; i < byTime.size(); i++) {
-                Hit h = byTime.get(i);
-                if (kind(h.note) < 0) continue;
-                double nxt = h.time + 2.0;
-                for (int j = i + 1; j < byTime.size(); j++) if (byTime.get(j).time > h.time + 0.005) {
-                    nxt = Math.min(nxt, byTime.get(j).time);
-                    break;
-                }
-                double[] f = feats(x, sr, h.time, nxt);
-                if (f == null) continue;
-                cym.add(h);
-                fs.add(f);
-            }
+            List<double[]> ins = inputs(hits, x, sr, cym, null);
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
             java.util.Map<Hit, Hit> to = new java.util.HashMap<Hit, Hit>();
             for (int i = 0; i < cym.size(); i++) {
                 Hit h = cym.get(i);
-                double[] in = new double[X];
-                System.arraycopy(fs.get(i), 0, in, 0, F);
-                int n = 0;
-                for (int j = 0; j < cym.size(); j++) {
-                    if (j == i || Math.abs(cym.get(j).time - h.time) > CM_CONTEXT) continue;
-                    for (int a = 0; a < F; a++) in[F + a] += fs.get(j)[a];
-                    n++;
-                }
-                if (n > 0) for (int a = 0; a < F; a++) in[F + a] /= n;
-                in[2 * F] = Math.log1p(n);
+                double[] in = ins.get(i);
                 int mine = kind(h.note);
-                in[2 * F + 1 + mine] = 1;
                 double[] z = new double[4];
                 double top = -1e300;
                 for (int c = 0; c < 4; c++) {

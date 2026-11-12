@@ -833,8 +833,13 @@ public final class JavaRun {
    * vst_render.py --test (and --mp3: the jar has Wav2Mp3 too): DrumMidi_CRT.jar (written to `jar`)
    * and this Java for it, unless the arguments give their own. Returns the arguments to run with.
    */
+  /** vst_render.py runs DrumMidi_CRT.jar: --test, --mp3 (Wav2Mp3 is in it) and the cymbal model bench. */
+  public static boolean needsDrumMidi(List<String> argv) {
+    return argv != null && (argv.contains("--test") || argv.contains("--mp3") || argv.contains("--model_compare") || argv.contains("--leave_one_out"));
+  }
+
   public static List<String> withDrumMidi(String program, List<String> argv, File jar, byte[] jarBytes) {
-    if (!"vst_render.py".equals(program) || argv == null || !(argv.contains("--test") || argv.contains("--mp3")) || argv.contains("--drummidi") || jarBytes == null) return argv;
+    if (!"vst_render.py".equals(program) || argv == null || !needsDrumMidi(argv) || argv.contains("--drummidi") || jarBytes == null) return argv;
     List<String> out = new ArrayList<String>(argv);
     try {
       jar.getParentFile().mkdirs();

@@ -719,12 +719,15 @@ public final class ProgramParams {
   /** vst_render's Params tabs: what it plays, what it writes, the plugins, and the test's settings. */
   public static final String INPUT = "Input", OUTPUT = "Output", PLUGINS = "Plugins", SETTINGS = "Settings";
   public static final String FILES = PluginFiles.TAB;
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES};
+  /** vst_render's cymbal model bench (--model_compare, --leave_one_out): its own tab, after the others. */
+  public static final String MODEL = "Cymbal model";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL};
 
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
+    if (t.equals("--model_compare") || t.equals("--leave_one_out") || t.equals("--new_kits") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
@@ -894,6 +897,19 @@ public final class ProgramParams {
       p.hint = "30 for a 30 MB chat limit; empty: one zip";
     } else if (p.token.equals("--zip_nowav")) {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
+    } else if (p.token.equals("--model_compare")) {
+      p.label = "Compare two cymbal models on the tests' zips (vst-render-*.zip) in the input folder (Recursive: every run's folder); no plugin played. Its zip goes into the output folder";
+      p.hint = "builtin,all (DrumMidi's own model vs one learned from every kit found) or 30,32 (learned from the first 30 kits vs 32); none: no model";
+    } else if (p.token.equals("--leave_one_out")) {
+      p.label = "Leave one out: each kit scored with a model learned from the other kits (it never saw the kit); its own zip into the output folder";
+      p.hint = "new (the newest run's kits), all, or parts of the kits' names: Bucket, Garage";
+    } else if (p.token.equals("--new_kits")) {
+      p.label = "Kits counted as new in the comparison's totals";
+      p.hint = "empty: the kits in the newest run's folder; else parts of their names: Bucket, Garage";
+    } else if (p.token.equals("--bench_work")) {
+      p.dir = true;
+      p.label = "Where the bench keeps the kits unpacked and DrumMidi's results (the next bench only runs DrumMidi on new kits)";
+      p.hint = "empty: cymbal-bench in the output folder";
     } else if (p.token.equals("--zip_outdir")) {
       p.dir = true;
       p.typed = true;

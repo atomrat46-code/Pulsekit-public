@@ -15661,7 +15661,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
     if (!ok) throw new AssertionError(out.toString());
   }
 

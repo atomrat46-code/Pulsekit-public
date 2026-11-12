@@ -1363,7 +1363,7 @@ public final class DesktopBehavior {
       }
       File saved = new File(home, ".pulsekit/sogni-House-wf7.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
-      for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, 20)).append('\n');
+      for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, Math.min(20, e.prompt.length()))).append('\n');
       for (int i = 0; i < 100 && !("DrumMidi_CRT.jar".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
       out.append("after Make drum MIDI: ").append(get("pyName")).append(", input ")
           .append(String.valueOf(get("pyInputPath")).replace(home.getAbsolutePath(), "~")).append('\n');
@@ -8939,7 +8939,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
-    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
@@ -10073,6 +10073,44 @@ public final class DesktopBehavior {
         && all.contains("good: Imported map-copy.txt as map.txt; the map before is kept as map-backup-<date>.txt")
         && all.contains("map.txt now: # mine | [Beat DRMR] | 48=45 | 50=47 | ") && all.contains("backup: 1 [Old Kit] | 36=48 | ")
         && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 12112026_2: vst_render's cymbal model bench. Params' Cymbal model tab has --model_compare, --leave_one_out,
+   * --new_kits and --bench_work; Pulsekit hands its DrumMidi_CRT.jar to a bench run as to a test. Two
+   * synthesized kits' test zips (the second a newer run's): the comparison (built-in vs learned from both)
+   * and the leave-one-out each in its own zip in the output folder, copied to the zip folder; DrumMidi
+   * (-Ddm.cymFeatures: its hits and cymbals' model inputs) runs once, the next bench reads what it kept.
+   */
+  void s254_cymbal_model_bench() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    StringBuilder rows = new StringBuilder();
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    for (ProgramParams.Param p : ps) if (ProgramParams.MODEL.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(' ');
+    this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n');
+    File jar = new File(home, "pyjav-in/DrumMidi_CRT.jar");
+    java.util.List<String> given = JavaRun.withDrumMidi("vst_render.py", new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", "x", "--model_compare", "builtin,all")), jar, new byte[] {1});
+    this.out.append("jar given: ").append(given.contains("--drummidi") && given.contains(jar.getAbsolutePath())).append('\n');
+    File work = new File(home, "bench");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_bench.py");
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    File dm = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), dm.getAbsolutePath(), work.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 280, null).trim();
+    this.out.append(said).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("model tab: --model_compare= --leave_one_out= --new_kits= --bench_work= |") && all.contains("Cymbal model]")
+        && all.contains("jar given: true")
+        && all.contains("zip: cymbal-compare-builtin-vs-2-kits ['details.txt', 'kits.txt', 'model-2-kits-java.txt', 'model-2-kits.txt', 'summary.txt']")
+        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
+        && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
+        && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
+        && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && !all.contains("Traceback");
     if (!ok) throw new AssertionError(all);
   }
 
