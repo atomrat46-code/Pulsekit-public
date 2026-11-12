@@ -775,6 +775,8 @@ final class PyJav {
         boolean saving = false;
         while (runArgs.remove(PromptKeep.SAVE_RUN)) saving = true;
         this.saveRun = saving;
+        // Params' Destination subfolder: taken off too, kept with the run's download (Move puts its files there).
+        final String subPattern = DownloadMove.takeSub(runArgs);
         final boolean savingRun = saving;
         // PlayList --nogui without a list writes the Default playlist: its file given.
         final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
@@ -810,6 +812,7 @@ final class PyJav {
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
+            if (subPattern.length() > 0) SogniDownloads.subfolder(download, subPattern);
             live.download(download);
         }
         if (note != null) live.add(note + "\n");
@@ -897,6 +900,7 @@ final class PyJav {
                 if (again != null) {
                     this.reconnects++;
                     if (savingRun) again.add(PromptKeep.SAVE_RUN);
+                    DownloadMove.giveSub(again, subPattern);
                     String why = reconnectWhy(result.log);
                     this.reconnectNote = "Reconnecting to workflow " + JavaRun.workflowOf(again) + " (" + why + "; try " + this.reconnects + " of " + JavaRun.RECONNECTS + ")\u2026";
                     if (download != 0) SogniDownloads.reconnecting(download, this.reconnectNote);
@@ -1035,6 +1039,7 @@ final class PyJav {
                 // The top line's "Running…" ends with the run: its verdict, as the log under Run ends.
                 if (lastTop[0] != null && lastTop[0].equals(app.nowPlaying.getText())) app.setNow(verdict.length() > 0 ? name + ": " + verdict : name + ": done");
                 this.lastSheetVersion = 0;
+                final boolean[] moveAfterReady = {false};
                 String kept = this.keepInLibrary(name, result, argv);
                 if (kept.length() > 0 && app.pyLog != null) {
                     app.pyLog.append("\n" + kept);
@@ -1044,8 +1049,12 @@ final class PyJav {
                     SogniDownloads.saved(download, kept, null);
                     SogniDownloads.stored(download, this.lastSheetVersion);
                     SogniDownloads.done(download);
-                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically.
-                    if (!SogniDownloads.dropIfEmpty(download)) DownloadsScreen.finished(app);
+                    // Another program's run that saved no file: off the list. Move downloaded media files to, automatically
+                    // (a run whose Destination subfolder or file names have group, category or tag codes: after its ready dialogs).
+                    if (!SogniDownloads.dropIfEmpty(download)) {
+                        if (SogniDownloads.waitsForChoices(download)) moveAfterReady[0] = true;
+                        else DownloadsScreen.finished(app);
+                    }
                 }
                 if (loaded) app.setNow("Script MIDI · " + name);
                 // A run of a batch (BatchRun): what it made stays on disk, not shown; the next run follows.
@@ -1110,6 +1119,9 @@ final class PyJav {
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
+                // The ready dialogs closed (the group, category and tags picked): the files named with their codes
+                // renamed, and the move held for them made.
+                if (download != 0 && moveAfterReady[0]) this.afterReady(download);
                 // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
                 // With --towav or --test it goes on to Midi2Wav (and its test) instead.
                 if (madeMidi != null && result.code == 0 && Midi2WavTest.fromGen(name, argv)) this.genToWav(madeMidi, argv);
@@ -1132,6 +1144,7 @@ final class PyJav {
                 java.util.List<String> resume = javaProg && !inBatch && result.log != null && result.log.indexOf("Failed") >= 0 ? JavaRun.resumeArgs(name, src, result.log, argv) : null;
                 if (resume != null) {
                     if (savingRun) resume.add(PromptKeep.SAVE_RUN);
+                    DownloadMove.giveSub(resume, subPattern);
                     Object[] options = {"Resume", "No"};
                     if (JOptionPane.showOptionDialog(app, JavaRun.resumeQuestion(result.log, resume), "Resume " + name + "?", JOptionPane.DEFAULT_OPTION,
                         JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0) {
@@ -1237,6 +1250,31 @@ final class PyJav {
                 app.setNow("Could not open a viewer for " + pictures.get(0).getName());
             }
         }
+    }
+
+    /**
+     * After a run's ready dialogs (its files' group, category and tags picked there): its files named
+     * with choice codes (an output name such as Img-%g) renamed with them filled in, their tags and groups
+     * going along; then Move automatically, held for them, moves the run (its Destination subfolder's
+     * codes filled in the same way).
+     */
+    void afterReady(long download) {
+        FileGroups.load(PromptDb.dir());
+        MediaTags.load(PromptDb.dir());
+        for (SogniDownloads.Item item : SogniDownloads.namedWithChoices(download)) {
+            File f = new File(item.where);
+            if (!f.isFile()) continue;
+            long size = f.length();
+            String name = DownloadMove.nameFor(f.getName(), DownloadMove.choicesOf(f.getName(), size));
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", ""), ext = name.substring(stem.length());
+            File to = new File(f.getParentFile(), name);
+            for (int n = 1; to.exists(); n++) to = new File(f.getParentFile(), stem + " (" + n + ")" + ext);
+            if (!f.renameTo(to)) continue;
+            DownloadMove.carryChoices(f.getName(), to.getName(), size);
+            SogniDownloads.moved(item, to.getName(), to.getAbsolutePath(), to.getAbsolutePath());
+            Playlist.repoint(PromptDb.dir(), java.util.Collections.singleton(f.getAbsolutePath()), to.getAbsolutePath());
+        }
+        DownloadsScreen.finished(app);
     }
 
     /** Picture ready's right click menu shown last (for the tests). */

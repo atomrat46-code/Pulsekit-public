@@ -196,6 +196,18 @@ public final class ProgramParams {
         p.choices = StyleDb.names();
       }
     }
+    // The Sogni programs that download pictures, videos and music: Destination subfolder (PyJav takes it off
+    // and keeps it with the run; Downloads' Move puts the run's files there).
+    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.SUB_PARAM)) {
+      Param sub = new Param();
+      sub.token = DownloadMove.SUB_PARAM;
+      sub.flag = true;
+      sub.takesValue = true;
+      sub.optional = true;
+      sub.label = DownloadMove.SUB_PARAM_LABEL;
+      sub.hint = DownloadMove.SUB_PARAM_HINT;
+      out.add(sub);
+    }
     // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
     if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
       Param save = new Param();
@@ -410,7 +422,7 @@ public final class ProgramParams {
     if (!p.flag && p.output && chat) {
       // SogniChat's output is a base name for everything it saves, not one file.
       p.label = "Output name";
-      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
@@ -668,7 +680,7 @@ public final class ProgramParams {
       p.label = "Output folder: the tracks, WAVs and zip go here";
       p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
     }
-    if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy";
+    if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy, Song-%g (its group, picked in its ready dialog; also %c, %t1)";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
@@ -1056,7 +1068,7 @@ public final class ProgramParams {
   private static void knownPedit(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-pedit-<first words>.png; % codes: Image%n, Image%ddmmyy";
+      p.hint = "optional; sogni-pedit-<first words>.png; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1096,7 +1108,7 @@ public final class ProgramParams {
   private static void knownPadd(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-padd-<first words>.png; % codes: Image%n, Image%ddmmyy";
+      p.hint = "optional; sogni-padd-<first words>.png; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--saveprompt")) p.label = "Save the prompt into DB (all its settings, reference and result files)";
@@ -1123,7 +1135,7 @@ public final class ProgramParams {
   private static void knownTextVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-textvideo-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
+      p.hint = "optional; sogni-textvideo-<first words>.mp4; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";
@@ -1156,7 +1168,7 @@ public final class ProgramParams {
   private static void knownVideo(Param p) {
     if (!p.flag && p.output) {
       p.label = "Output name";
-      p.hint = "optional; sogni-video-<first words>.mp4; % codes: Image%n, Image%ddmmyy";
+      p.hint = "optional; sogni-video-<first words>.mp4; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
     if (!p.flag || !p.takesValue) {
       if (p.token.equals("--no_audio")) p.label = "No sound (silent clip)";

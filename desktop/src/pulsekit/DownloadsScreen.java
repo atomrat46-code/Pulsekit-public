@@ -766,9 +766,25 @@ final class DownloadsScreen {
 
     /** The kind's folder for a move now: with its subfolder (the % codes filled in) when one is set; made by the move. */
     static File moveFolder(String kind) {
+        return moveFolder(kind, "", null);
+    }
+
+    /**
+     * As above, with a run's Destination subfolder after the kind's own (its group, category and tag codes
+     * filled in from the file's choices).
+     */
+    static File moveFolder(String kind, String runSub, DownloadMove.Choices ch) {
         final File base = new File(DownloadMove.folderOf(kind));
-        String sub = DownloadMove.subNow(kind, p -> new File(base, p).exists());
+        String sub = DownloadMove.subFor(kind, runSub, ch, p -> new File(base, p).exists());
         return sub.length() == 0 ? base : new File(base, sub);
+    }
+
+    /** A download's choices (its groups, category and tags), for its run's Destination subfolder codes. */
+    static DownloadMove.Choices choices(SogniDownloads.Item item) {
+        File f = new File(item.where);
+        FileGroups.load(PromptDb.dir());
+        MediaTags.load(PromptDb.dir());
+        return DownloadMove.choicesOf(f.getName(), f.length());
     }
 
     /** Move now going on (one at a time), what it says and how far it is (0-1000), and the views showing it. */
@@ -807,10 +823,14 @@ final class DownloadsScreen {
                 showMove();
                 // Gone (deleted once zipped, --zip_delete): left out.
                 if (!new File(item.where).isFile()) continue;
-                if (!into.containsKey(item.kind())) into.put(item.kind(), moveFolder(item.kind()));
-                File dir = into.get(item.kind());
+                // The run's Destination subfolder after the kind's (one folder for each filled-in pattern: %n counts once).
+                SogniDownloads.Run run = (SogniDownloads.Run) due.get(i)[0];
+                DownloadMove.Choices ch = run.subfolder.length() > 0 && DownloadMove.needsChoices(run.subfolder) ? choices(item) : null;
+                String key = item.kind() + "\n" + DownloadMove.fillChoices(run.subfolder, ch);
+                if (!into.containsKey(key)) into.put(key, moveFolder(item.kind(), run.subfolder, ch));
+                File dir = into.get(key);
                 if (!dir.isDirectory()) dir.mkdirs();
-                String said = put((SogniDownloads.Run) due.get(i)[0], item, dir, true);
+                String said = put(run, item, dir, true);
                 if (said.startsWith("Moved to ")) moved++;
                 else {
                     failed++;

@@ -592,6 +592,58 @@ final class DownloadsScreen {
         if (!shown) app.setNow("No preview for " + item.name);
     }
 
+    /** The download renamed where it is (Download's file or document); kept as its new name. */
+    static void renameItem(MainActivity app, SogniDownloads.Item item, String next) throws Exception {
+        Uri uri = uriFor(app, item.where);
+        String shown = item.shown.substring(0, item.shown.length() - item.name.length()) + next;
+        if (uri != null && DocumentsContract.isDocumentUri(app, uri)) {
+            Uri renamed = DocumentsContract.renameDocument(app.getContentResolver(), uri, next);
+            SogniDownloads.moved(item, next, renamed == null ? uri.toString() : renamed.toString(), shown);
+        } else if (uri != null) {
+            android.content.ContentValues v = new android.content.ContentValues();
+            v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, next);
+            if (app.getContentResolver().update(uri, v, null, null) < 1) throw new java.io.IOException("Download did not rename it");
+            SogniDownloads.moved(item, next, uri.toString(), shown);
+        } else {
+            File f = fileFor(item.where);
+            File to = new File(f.getParentFile(), next);
+            if (to.exists()) throw new java.io.IOException(next + " is there already");
+            if (!f.renameTo(to)) throw new java.io.IOException("could not rename it");
+            SogniDownloads.moved(item, next, to.getAbsolutePath(), shown);
+        }
+    }
+
+    /**
+     * A run's ready dialogs are closed (its group, category and tags picked): its files named with
+     * choice codes (an output name such as Img-%g) renamed with them, then Move automatically.
+     */
+    static void afterReady(MainActivity app, long download) {
+        FileGroups.load(app.getFilesDir());
+        MediaTags.load(app.getFilesDir());
+        for (SogniDownloads.Item item : SogniDownloads.namedWithChoices(download)) {
+            Uri uri = uriFor(app, item.where);
+            File file = uri == null ? fileFor(item.where) : null;
+            if (file != null && !file.exists()) continue;
+            long size = size(app, uri, file);
+            String name = DownloadMove.nameFor(item.name, DownloadMove.choicesOf(item.name, size));
+            if (name.equals(item.name)) continue;
+            java.util.Set<String> olds = olds(app, item.where);
+            String stem = name.replaceAll("\\.[A-Za-z0-9]{1,5}$", ""), ext = name.substring(stem.length());
+            String old = item.name;
+            for (int n = 0; n < 50; n++) {
+                try {
+                    renameItem(app, item, n == 0 ? name : stem + " (" + n + ")" + ext);
+                    DownloadMove.carryChoices(old, item.name, size);
+                    Playlist.repoint(app.getFilesDir(), olds, item.where);
+                    break;
+                } catch (Exception taken) {
+                    // the name is there already: the next " (n)"
+                }
+            }
+        }
+        finished(app);
+    }
+
     private static void rename(final MainActivity app, final LinearLayout col, final SogniDownloads.Item item) {
         final EditText field = new EditText(app);
         field.setSingleLine(true);
@@ -601,23 +653,7 @@ final class DownloadsScreen {
             String next = field.getText().toString().trim().replace('/', '_').replace('\\', '_');
             if (next.length() == 0 || next.equals(item.name)) return;
             try {
-                Uri uri = uriFor(app, item.where);
-                String shown = item.shown.substring(0, item.shown.length() - item.name.length()) + next;
-                if (uri != null && DocumentsContract.isDocumentUri(app, uri)) {
-                    Uri renamed = DocumentsContract.renameDocument(app.getContentResolver(), uri, next);
-                    SogniDownloads.moved(item, next, renamed == null ? uri.toString() : renamed.toString(), shown);
-                } else if (uri != null) {
-                    android.content.ContentValues v = new android.content.ContentValues();
-                    v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, next);
-                    if (app.getContentResolver().update(uri, v, null, null) < 1) throw new java.io.IOException("Download did not rename it");
-                    SogniDownloads.moved(item, next, uri.toString(), shown);
-                } else {
-                    File f = fileFor(item.where);
-                    File to = new File(f.getParentFile(), next);
-                    if (to.exists()) throw new java.io.IOException(next + " is there already");
-                    if (!f.renameTo(to)) throw new java.io.IOException("could not rename it");
-                    SogniDownloads.moved(item, next, to.getAbsolutePath(), shown);
-                }
+                renameItem(app, item, next);
                 app.setNow("Renamed · " + next);
             } catch (Exception ex) {
                 app.setNow("Could not rename " + item.name + (ex.getMessage() == null ? "" : ": " + ex.getMessage()));
@@ -920,10 +956,17 @@ final class DownloadsScreen {
             java.util.Map<String, String> subs = new java.util.HashMap<String, String>();
             for (int i = 0; i < due.size(); i++) {
                 SogniDownloads.Item item = (SogniDownloads.Item) due.get(i)[1];
+                SogniDownloads.Run run = (SogniDownloads.Run) due.get(i)[0];
                 String to = DownloadMove.folderOf(item.kind());
-                String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
-                if (!subs.containsKey(item.kind())) subs.put(item.kind(), MediaBrowser.subNow(app, item.kind(), origin));
-                String why = moveOne(app, item, origin, subs.get(item.kind()), i, due.size());
+                final String[] origin = to.startsWith("content://") ? new String[] {to, DocumentsContract.getTreeDocumentId(Uri.parse(to))} : new String[] {"", to};
+                // The run's Destination subfolder under the kind's own; its group, category and tag codes per file.
+                DownloadMove.Choices ch = run.subfolder.length() > 0 && DownloadMove.needsChoices(run.subfolder) ? choices(app, item) : null;
+                String key = item.kind() + "\n" + DownloadMove.fillChoices(run.subfolder, ch);
+                if (!subs.containsKey(key)) {
+                    String got = DownloadMove.subFor(item.kind(), run.subfolder, ch, p -> MediaBrowser.hasPath(app, origin, p));
+                    subs.put(key, got.length() == 0 ? null : got);
+                }
+                String why = moveOne(app, item, origin, subs.get(key), i, due.size());
                 if (why == null) moved++;
                 else if (why.equals(DownloadMove.GONE)) continue;
                 else {
@@ -942,6 +985,15 @@ final class DownloadsScreen {
             showMove(app);
             if (keeper) RunKeeper.stop(app);
         }
+    }
+
+    /** A download's group, category and tags (Destination subfolder's % codes). */
+    static DownloadMove.Choices choices(MainActivity app, SogniDownloads.Item item) {
+        FileGroups.load(app.getFilesDir());
+        MediaTags.load(app.getFilesDir());
+        Uri uri = uriFor(app, item.where);
+        File file = uri == null ? fileFor(item.where) : null;
+        return DownloadMove.choicesOf(item.name, size(app, uri, file));
     }
 
     /** Clear the list's question after Move now, shown last (for the tests). */

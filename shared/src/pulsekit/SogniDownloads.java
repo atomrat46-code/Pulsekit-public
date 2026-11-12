@@ -58,6 +58,11 @@ public final class SogniDownloads {
     public String workflow = "";
     /** The exact arguments it ran with (Resume download runs it with them and --workflow). */
     public final List<String> argv = new ArrayList<String>();
+    /**
+     * Params' Destination subfolder (DownloadMove.SUB_PARAM): Move puts the run's files in it, under their
+     * type's folder; its % codes are filled in for each file when it is moved. "" for none.
+     */
+    public String subfolder = "";
 
     /** "SogniPedit" for SogniPedit.java. */
     public String programName() {
@@ -169,6 +174,35 @@ public final class SogniDownloads {
     SogniHistory.started(r.workflow, r.program, System.currentTimeMillis());
   }
 
+  /**
+   * The run waits for its files' choices (group, category, tags: their ready dialogs) before Move
+   * automatically moves it, and before its files named with choice codes are renamed: its Destination
+   * subfolder or a file's name has their codes (%g, %c, %c1, %c2, %t1, %t2).
+   */
+  public static synchronized boolean waitsForChoices(long id) {
+    Run r = run(id);
+    if (r == null) return false;
+    if (DownloadMove.needsChoices(r.subfolder)) return true;
+    for (Item item : r.items) if (DownloadMove.needsChoices(item.name)) return true;
+    return false;
+  }
+
+  /** The run's files named with choice codes (an output name such as Img-%g), still to be renamed. */
+  public static synchronized List<Item> namedWithChoices(long id) {
+    List<Item> out = new ArrayList<Item>();
+    Run r = run(id);
+    if (r != null) for (Item item : r.items) if (!item.away && DownloadMove.needsChoices(item.name)) out.add(item);
+    return out;
+  }
+
+  /** The run's Destination subfolder (Params' DownloadMove.SUB_PARAM, taken off the program's arguments). */
+  public static synchronized void subfolder(long id, String pattern) {
+    Run r = run(id);
+    if (r == null) return;
+    r.subfolder = pattern == null ? "" : pattern.trim();
+    write();
+  }
+
   /** The exact arguments the run started with (Resume download). */
   public static synchronized void argv(long id, List<String> argv) {
     Run r = run(id);
@@ -206,6 +240,11 @@ public final class SogniDownloads {
     }
     out.add("--workflow");
     out.add(r.workflow);
+    // Its Destination subfolder stays with it (PyJav takes it off again).
+    if (r.subfolder.length() > 0) {
+      out.add(DownloadMove.SUB_PARAM);
+      out.add(r.subfolder);
+    }
     return out;
   }
 
@@ -581,6 +620,7 @@ public final class SogniDownloads {
     sb.append(F).append(clean(r.args));
     sb.append(F).append(clean(r.workflow)).append(F);
     for (int i = 0; i < r.argv.size(); i++) sb.append(i == 0 ? "" : String.valueOf(I)).append(clean(r.argv.get(i)));
+    sb.append(F).append(clean(r.subfolder));
     return sb.toString();
   }
 
@@ -616,6 +656,7 @@ public final class SogniDownloads {
     if (f.length > 10) r.args = f[10];
     if (f.length > 11) r.workflow = f[11];
     if (f.length > 12 && f[12].length() > 0) for (String a : f[12].split(String.valueOf(I), -1)) r.argv.add(a);
+    if (f.length > 13) r.subfolder = f[13];
     return r;
   }
 

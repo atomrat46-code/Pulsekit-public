@@ -10077,6 +10077,72 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 12112026: Sogni Params' Destination subfolder (--pk-subfolder) is taken off the program's arguments and
+   * kept with the run (read back after a restart, given back to Resume); %g, %c, %c1, %c2, %t1 and %t2 are
+   * the file's group, category and tags; an output name Img-%g.png is renamed Img-Trip.png once its ready
+   * dialog is over (its group and tags go with it); Move puts it in the picture folder's Trip/Holiday-sun.
+   */
+  void s253_destination_subfolder() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    File home = new File(System.getProperty("user.home"), "destsub");
+    File dl = new File(home, "dl"), pics = new File(home, "pics"), list = new File(home, "list");
+    for (File d : new File[] {dl, pics, list}) d.mkdirs();
+    java.util.List<String> args = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "a dog", DownloadMove.SUB_PARAM, "%g/%c1-%t2", "--output", "Img-%g.png"));
+    String taken = DownloadMove.takeSub(args);
+    this.out.append("taken: ").append(taken).append(" | left: ").append(args).append('\n');
+    DownloadMove.giveSub(args, taken);
+    this.out.append("given: ").append(args).append('\n');
+    String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/SogniPedit.java").toPath()), StandardCharsets.UTF_8);
+    ProgramParams.Param row = null;
+    for (ProgramParams.Param p : ProgramParams.parse(src)) if (p.token.equals(DownloadMove.SUB_PARAM)) row = p;
+    this.out.append("params row: ").append(row != null && row.takesValue && row.label.startsWith("Destination subfolder")).append('\n');
+    this.out.append("needs: ").append(DownloadMove.needsChoices("%g")).append(DownloadMove.needsChoices("%t1")).append(DownloadMove.needsChoices("%ddmm-%n"))
+        .append(DownloadMove.needsChoices("100%%g")).append('\n');
+    File pic = new File(dl, "Img-%g.png");
+    Files.write(pic.toPath(), new byte[] {1, 2, 3, 4});
+    File pdir = PromptDb.dir();
+    FileGroups.load(pdir);
+    MediaTags.load(pdir);
+    FileGroups.set("Trip", MarkFile.mediaKey(pic.getName(), 4), true);
+    MediaTags.setCategory(MediaTags.key(pic.getName(), 4), "Photos / Holiday");
+    MediaTags.setTags(MediaTags.key(pic.getName(), 4), java.util.Arrays.asList("sea", "sun"));
+    DownloadMove.Choices ch = DownloadMove.choicesOf(pic.getName(), 4);
+    this.out.append("filled: ").append(DownloadMove.fillChoices("%g|%c|%c1|%c2|%t1|%t2|%%g|%n", ch)).append('\n');
+    this.out.append("names: ").append(DownloadMove.nameFor("Img-%g.png", ch)).append(' ').append(DownloadMove.nameFor("Img-%c2-%t1.png", ch))
+        .append(' ').append(DownloadMove.nameFor("%c2.png", ch)).append(' ').append(DownloadMove.nameFor("plain.png", ch)).append('\n');
+    SogniDownloads.init(list);
+    long rn = SogniDownloads.started("SogniPedit.java", 9000L);
+    SogniDownloads.result(rn, "Succeeded: " + pic.getName(), "saved " + pic.getAbsolutePath(), null);
+    SogniDownloads.subfolder(rn, taken);
+    SogniDownloads.done(rn);
+    SogniDownloads.init(null);
+    SogniDownloads.init(list);
+    this.out.append("kept: ").append(SogniDownloads.run(rn).subfolder).append(", waits: ").append(SogniDownloads.waitsForChoices(rn)).append('\n');
+    DownloadMove.load();
+    DownloadMove.on = false;
+    edt(() -> app.pyJav.afterReady(rn));
+    File renamed = new File(dl, "Img-Trip.png");
+    FileGroups.load(pdir);
+    this.out.append("renamed: ").append(renamed.isFile()).append(!pic.exists()).append(", its group: ").append(FileGroups.groupsOf(MarkFile.mediaKey("Img-Trip.png", 4)))
+        .append(", its tags: ").append(MediaTags.tags(MediaTags.key("Img-Trip.png", 4))).append('\n');
+    DownloadMove.on = true;
+    DownloadMove.ticked.put("picture", true);
+    DownloadMove.setFolder("picture", pics.getAbsolutePath(), "pics");
+    String said = DownloadsScreen.moveNow();
+    File at = new File(pics, "Trip/Holiday-sun/Img-Trip.png");
+    this.out.append("moved: ").append(said).append(" -> ").append(at.isFile()).append('\n');
+    DownloadMove.on = false;
+    DownloadMove.save();
+    String all = this.out.toString();
+    boolean ok = all.contains("taken: %g/%c1-%t2 | left: [--prompt, a dog, --output, Img-%g.png]")
+        && all.contains("given: [--prompt, a dog, --output, Img-%g.png, --pk-subfolder, %g/%c1-%t2]") && all.contains("params row: true")
+        && all.contains("needs: truetruefalsefalse") && all.contains("filled: Trip|Holiday|Holiday||sea|sun|%%g|%n")
+        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("kept: %g/%c1-%t2, waits: true")
+        && all.contains("renamed: truetrue, its group: [Trip], its tags: [sea, sun]") && all.contains("moved: Moved 1 file -> true");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v427: the note map's Check (PluginFiles.mapProblems) says what vst_render says (map_problems) and what
    * it prints at a run; map.txt in the results zip; the map editor's Check, Save copy as, Find, Replace,
    * Replace all and its right-click menu with the section clicked (Copy, Cut, Paste after it, Delete);
