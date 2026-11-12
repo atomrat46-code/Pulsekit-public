@@ -3214,6 +3214,10 @@ final class PyJav {
                 form.add(check);
                 continue;
             }
+            if (p.dropdown && p.choices != null && p.choices.length > 0) {
+                form.add(this.dropdown(p, values[i], fields, i));
+                continue;
+            }
             if (p.dir && p.typed) {
                 // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked
                 // folder's full path in the field; % codes and the like can then be added to it.
@@ -3713,6 +3717,7 @@ final class PyJav {
         // A long form (vst_render's) scrolls: the dialog stays within the screen, its buttons on it.
         // (and as wide: long labels make it wider than a small screen).
         // vst_render's rows on tabs (Input, Output, Plugins, Settings): one page is not all of it at once.
+        this.showRows(form, rowStarts, ps, fields, checks);
         java.awt.Component formView = this.onTabs(form, rowStarts, ps, values, fileLabels, uses);
         javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(formView, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         formScroll.setName("params-scroll");
@@ -3998,6 +4003,97 @@ final class PyJav {
             if (b.isShowing()) m.show(b, 0, b.getHeight());
         });
         return b;
+    }
+
+    /**
+     * A drop-down row (vst_render's Model A, Model B...): its list picks the row's value, kept in a field
+     * that is not shown (fields[i], as the typed rows' are); the field set (Suggested, Defaults) moves the list.
+     */
+    javax.swing.JComboBox<String> dropdown(final ProgramParams.Param p, String value, JTextField[] fields, int i) {
+        final JTextField field = new JTextField(value == null ? "" : value.trim(), 10);
+        field.setName("params-field:" + p.token);
+        fields[i] = field;
+        final javax.swing.JComboBox<String> list = new javax.swing.JComboBox<String>(p.choices);
+        list.setName("params-dropdown:" + p.token);
+        final java.util.List<String> vals = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices);
+        final boolean[] syncing = {false};
+        list.setSelectedIndex(Math.max(0, vals.indexOf(field.getText().trim())));
+        list.addActionListener(e -> {
+            if (syncing[0]) return;
+            syncing[0] = true;
+            field.setText(p.choiceValue(Math.max(0, list.getSelectedIndex())));
+            syncing[0] = false;
+        });
+        field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void follow() {
+                if (syncing[0]) return;
+                syncing[0] = true;
+                list.setSelectedIndex(Math.max(0, vals.indexOf(field.getText().trim())));
+                syncing[0] = false;
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+        });
+        return list;
+    }
+
+    /**
+     * Rows shown only when other rows are so (ProgramParams.shown: Model A's number of kits when Model A is
+     * "the first N kits"): hidden or shown again as the switches are ticked and the values picked.
+     */
+    void showRows(JPanel form, int[] rowStarts, final List<ProgramParams.Param> ps, final JTextField[] fields, final javax.swing.JCheckBox[] checks) {
+        final java.awt.Component[] all = form.getComponents();
+        final java.util.List<Runnable> rows = new java.util.ArrayList<Runnable>();
+        final java.util.function.IntFunction<String> valueOf = j -> checks[j] != null ? (checks[j].isSelected() ? "on" : "") : fields[j] != null ? fields[j].getText() : "";
+        for (int i = 0; i < ps.size(); i++) {
+            final ProgramParams.Param p = ps.get(i);
+            if (p.showWhen == null) continue;
+            int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
+            final java.awt.Component[] mine = java.util.Arrays.copyOfRange(all, rowStarts[i], end);
+            rows.add(() -> {
+                boolean show = ProgramParams.shown(p, ps, valueOf);
+                for (java.awt.Component c : mine) {
+                    if (c.isVisible() == show) continue;
+                    c.setVisible(show);
+                    if (c.getParent() != null) {
+                        c.getParent().revalidate();
+                        c.getParent().repaint();
+                    }
+                }
+            });
+        }
+        if (rows.isEmpty()) return;
+        final Runnable update = () -> {
+            for (Runnable r : rows) r.run();
+        };
+        for (javax.swing.JCheckBox c : checks) if (c != null) c.addItemListener(e -> update.run());
+        for (JTextField f : fields) {
+            if (f == null) continue;
+            f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+
+                public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+
+                public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+            });
+        }
+        update.run();
     }
 
     /** The tab the Params page showed last (vst_render's), opened again next time. */

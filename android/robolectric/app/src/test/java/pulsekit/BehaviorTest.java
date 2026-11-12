@@ -15639,6 +15639,22 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf(PyJavParams.useMenu.getListView()).performItemClick(2);
     idle();
     String third = PyJavParams.shownValues[plugin3];
+    // The Cymbal model tab: Model A a drop-down list; its number of kits row shown once Compare is ticked and "the first N kits" picked.
+    vv.findViewWithTag("params-tab:" + ProgramParams.MODEL).performClick();
+    idle();
+    android.widget.Spinner modelA = (android.widget.Spinner) vv.findViewWithTag("params-dropdown:--model_a");
+    View aKits = vv.findViewWithTag("params-field:--model_a_kits");
+    String model = "A " + modelA.getAdapter().getCount() + " " + modelA.getSelectedItem() + " shown " + (modelA.getVisibility() == View.VISIBLE);
+    ((android.widget.CheckBox) vv.findViewWithTag("params-check:--model_compare")).setChecked(true);
+    idle();
+    model += " | ticked: shown " + (modelA.getVisibility() == View.VISIBLE) + ", N shown " + (aKits.getVisibility() == View.VISIBLE);
+    modelA.setSelection(4);
+    idle();
+    model += " | first N kits: N shown " + (aKits.getVisibility() == View.VISIBLE) + ", value " + PyJavParams.fieldsShown("--model_a");
+    vv.findViewWithTag("params-tab:" + ProgramParams.SETTINGS).performClick();
+    idle();
+    model += " | Settings tab: N shown " + (aKits.getVisibility() == View.VISIBLE);
+    out.append("model: ").append(model).append('\n');
     PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
     idle();
     PyJavParams.paramsTab = null;
@@ -15661,7 +15677,8 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }
 

@@ -93,8 +93,8 @@ for run, (kit, bright) in enumerate((("Bright", 1.6), ("Dark", 0.7))):
     z.close()
 out = os.path.join(work, "out")
 try:
-    vr.main(["--dir", os.path.join(work, "runs"), "--recursive", "--outdir", out, "--model_compare", "builtin,all", "--leave_one_out", "all",
-             "--drummidi", jar, "--zip_outdir", os.path.join(work, "copies")])
+    vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--model_a", "builtin", "--model_b", "all", "--leave_one_out",
+             "--loo_kits", "all", "--drummidi", jar, "--zip_outdir", os.path.join(work, "copies")])
 except SystemExit as e:
     print("exit", e.code)
 for f in sorted(os.listdir(out)):
@@ -105,4 +105,13 @@ for f in sorted(os.listdir(out)):
                 print("  " + line)
 print("copies:", sorted(f.split("-2026")[0] for f in os.listdir(os.path.join(work, "copies"))))
 # Again: DrumMidi's results kept (no run of it this time).
-vr.main(["--dir", os.path.join(work, "runs"), "--recursive", "--outdir", out, "--model_compare", "none,builtin", "--drummidi", jar])
+# (v434's way of giving the models still taken.)
+vr.main(["--dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "none,builtin", "--drummidi", jar])
+# Model A from the older kits (those before the new one), B from the first 2 kits; a wrong N said plainly.
+vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--model_a", "older", "--model_b", "kits", "--model_b_kits", "2",
+         "--drummidi", jar])
+for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"], ["--leave_one_out", "--loo_kits", "named"]):
+    try:
+        vr.main(["--bench_dir", os.path.join(work, "runs"), "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
+    except SystemExit as e:
+        print("refused", e.code)

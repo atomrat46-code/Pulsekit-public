@@ -10082,6 +10082,8 @@ public final class DesktopBehavior {
    * synthesized kits' test zips (the second a newer run's): the comparison (built-in vs learned from both)
    * and the leave-one-out each in its own zip in the output folder, copied to the zip folder; DrumMidi
    * (-Ddm.cymFeatures: its hits and cymbals' model inputs) runs once, the next bench reads what it kept.
+   * 12112026_3: the tab's own input folder; Model A, Model B, Leave one out's kits and Kits counted as new
+   * are drop-down lists, a row for a number or names shown only when its choice needs it.
    */
   void s254_cymbal_model_bench() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10090,6 +10092,53 @@ public final class DesktopBehavior {
     java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
     for (ProgramParams.Param p : ps) if (ProgramParams.MODEL.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(' ');
     this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n');
+    // The Params page: Model A's list, its number of kits row shown once Compare is ticked and "the first N kits" picked.
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = ProgramParams.MODEL;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    final String[] seen = new String[1];
+    edt(() -> {
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> a = (javax.swing.JComboBox<String>) component(d, "params-dropdown:--model_a");
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> loo = (javax.swing.JComboBox<String>) component(d, "params-dropdown:--loo_kits");
+      javax.swing.JCheckBox compare = (javax.swing.JCheckBox) component(d, "params-check:--model_compare");
+      javax.swing.JCheckBox leave = (javax.swing.JCheckBox) component(d, "params-check:--leave_one_out");
+      java.awt.Component n = component(d, "params-field:--model_a_kits"), names = component(d, "params-field:--loo_names");
+      StringBuilder b = new StringBuilder();
+      b.append("A: ").append(a.getItemCount()).append(" choices, ").append(a.getSelectedItem()).append(", shown ").append(a.isVisible());
+      compare.setSelected(true);
+      b.append(" | ticked: A shown ").append(a.isVisible()).append(", N shown ").append(n.isVisible());
+      a.setSelectedIndex(4);
+      b.append(" | first N kits: N shown ").append(n.isVisible());
+      leave.setSelected(true);
+      loo.setSelectedIndex(2);
+      b.append(" | named: names shown ").append(names.isVisible());
+      ((javax.swing.JTextField) n).setText("30");
+      ((javax.swing.JTextField) names).setText("Bucket");
+      seen[0] = b.toString();
+      find(d.getContentPane(), "OK").doClick();
+    });
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py"));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    this.out.append(seen[0]).append(" | kept: ").append(kept).append('\n');
     File jar = new File(home, "pyjav-in/DrumMidi_CRT.jar");
     java.util.List<String> given = JavaRun.withDrumMidi("vst_render.py", new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", "x", "--model_compare", "builtin,all")), jar, new byte[] {1});
     this.out.append("jar given: ").append(given.contains("--drummidi") && given.contains(jar.getAbsolutePath())).append('\n');
@@ -10103,14 +10152,19 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --model_compare= --leave_one_out= --new_kits= --bench_work= |") && all.contains("Cymbal model]")
+    boolean ok = all.contains("model tab: --bench_dir= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
+        && all.contains("Cymbal model]")
+        && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
+        && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
         && all.contains("jar given: true")
         && all.contains("zip: cymbal-compare-builtin-vs-2-kits ['details.txt', 'kits.txt', 'model-2-kits-java.txt', 'model-2-kits.txt', 'summary.txt']")
         && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
         && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
-        && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && !all.contains("Traceback");
+        && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && all.contains("cymbal-compare-1-older-kits-vs-2-kits")
+        && all.contains("Failed: Model B (--model_b): the first N kits needs how many (the row under it, --model_b_kits)")
+        && all.contains("Failed: Leave one out's kits: write parts of the kits' names") && !all.contains("Traceback");
     if (!ok) throw new AssertionError(all);
   }
 

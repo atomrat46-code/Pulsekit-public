@@ -386,6 +386,10 @@ public final class PyJavParams {
         }
         continue;
       }
+      if (p.dropdown && p.choices != null && p.choices.length > 0) {
+        box.addView(dropdown(activity, p, values[i], fields, i));
+        continue;
+      }
       EditText field = new EditText(activity);
       if (ProgramParams.longText(p)) {
         // A prompt or system text: wrapped over several lines, scrolling inside the field. The
@@ -555,7 +559,43 @@ public final class PyJavParams {
       }
       box.addView(field);
     }
+    // Rows shown only when other rows are so (vst_render's Model A's number of kits when Model A is "the first N kits").
+    final java.util.function.IntFunction<String> valueOf = j -> checks[j] != null ? (checks[j].isChecked() ? "on" : "") : fields[j] != null ? fields[j].getText().toString() : "";
+    final java.util.Map<android.view.View, ProgramParams.Param> conds = new java.util.HashMap<android.view.View, ProgramParams.Param>();
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).showWhen == null) continue;
+      int end = i + 1 < ps.size() ? rowStarts[i + 1] : box.getChildCount();
+      for (int k = rowStarts[i]; k < end; k++) conds.put(box.getChildAt(k), ps.get(i));
+    }
+    rowShown = v -> {
+      ProgramParams.Param c = conds.get(v);
+      return c == null || ProgramParams.shown(c, ps, valueOf);
+    };
+    refreshRows = () -> {
+      for (java.util.Map.Entry<android.view.View, ProgramParams.Param> e : conds.entrySet()) {
+        boolean tabOk = tabOf.get(e.getKey()) == null || tabOf.get(e.getKey()).equals(paramsTab);
+        e.getKey().setVisibility(tabOk && ProgramParams.shown(e.getValue(), ps, valueOf) ? android.view.View.VISIBLE : android.view.View.GONE);
+      }
+    };
+    tabOf.clear();
     onTabs(activity, box, rowStarts, ps, values, uses);
+    if (!conds.isEmpty()) {
+      android.text.TextWatcher again = new android.text.TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+        @Override
+        public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+        @Override
+        public void afterTextChanged(android.text.Editable t) {
+          refreshRows.run();
+        }
+      };
+      for (EditText f : fields) if (f != null) f.addTextChangedListener(again);
+      for (int i = 0; i < checks.length; i++) if (checks[i] != null && ps.get(i).clears == null) checks[i].setOnCheckedChangeListener((b, on) -> refreshRows.run());
+      refreshRows.run();
+    }
     if (SogniSections.shown(name)) {
       // Export (Save is the window's button): the rows Save keeps, written into a file picked.
       android.widget.Button export = new android.widget.Button(activity);
@@ -1422,8 +1462,64 @@ public final class PyJavParams {
   /** The choice of definitions shown last, for the tests. */
   static AlertDialog lastDefs;
   static String[] shownValues;
+
+  /** The value in the Params shown of the row with this switch (a drop-down row's too), for the tests; null: no such row. */
+  static String fieldsShown(String token) {
+    if (shownParams == null || shownFields == null) return null;
+    for (int i = 0; i < shownParams.size() && i < shownFields.length; i++) {
+      if (shownParams.get(i).token.equals(token) && shownFields[i] != null) return shownFields[i].getText().toString();
+    }
+    return null;
+  }
   /** The tab the Params page showed last (vst_render's), opened again next time. */
   static String paramsTab;
+
+  /** The Params page's rows: each view's tab (vst_render's), whether its showWhen lets it show, and showing them again. */
+  static final java.util.Map<android.view.View, String> tabOf = new java.util.HashMap<android.view.View, String>();
+  static java.util.function.Predicate<android.view.View> rowShown = v -> true;
+  static Runnable refreshRows = () -> {};
+
+  /**
+   * A drop-down row (vst_render's Model A, Model B...): its list picks the row's value, kept in a field that
+   * is not shown (fields[i], as the typed rows' are); the field set (Defaults, a section) moves the list.
+   */
+  static android.view.View dropdown(Activity activity, final ProgramParams.Param p, String value, EditText[] fields, int i) {
+    final EditText field = new EditText(activity);
+    field.setTag("params-field:" + p.token);
+    field.setText(value == null ? "" : value.trim());
+    fields[i] = field;
+    final android.widget.Spinner list = new android.widget.Spinner(activity);
+    list.setTag("params-dropdown:" + p.token);
+    android.widget.ArrayAdapter<String> items = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, p.choices);
+    items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    list.setAdapter(items);
+    final List<String> vals = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices);
+    list.setSelection(Math.max(0, vals.indexOf(field.getText().toString().trim())));
+    list.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+      @Override
+      public void onItemSelected(android.widget.AdapterView<?> parent, View v, int at, long id) {
+        String want = p.choiceValue(at);
+        if (!want.equals(field.getText().toString().trim())) field.setText(want);
+      }
+
+      @Override
+      public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+    });
+    field.addTextChangedListener(new android.text.TextWatcher() {
+      @Override
+      public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+      @Override
+      public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+      @Override
+      public void afterTextChanged(android.text.Editable t) {
+        int at = Math.max(0, vals.indexOf(t.toString().trim()));
+        if (list.getSelectedItemPosition() != at) list.setSelection(at);
+      }
+    });
+    return list;
+  }
 
   /**
    * vst_render's rows on tabs (Input, Output, Plugins, Settings): a strip of tab buttons above the
@@ -1439,7 +1535,10 @@ public final class PyJavParams {
     String last = names.get(names.size() - 1);
     for (int i = 0; i < ps.size(); i++) {
       int end = i + 1 < ps.size() ? rowStarts[i + 1] : total;
-      for (int k = rowStarts[i]; k < end; k++) on.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+      for (int k = rowStarts[i]; k < end; k++) {
+        on.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+        tabOf.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+      }
     }
     android.view.View picks = pluginPicks(activity, ps, values, uses);
     box.addView(picks);
@@ -1459,7 +1558,7 @@ public final class PyJavParams {
     final java.util.function.Consumer<String> show = t -> {
       paramsTab = t;
       PluginFiles.keep(tabKept, t);
-      for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) ? android.view.View.VISIBLE : android.view.View.GONE);
+      for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) && rowShown.test(e.getKey()) ? android.view.View.VISIBLE : android.view.View.GONE);
       for (android.widget.Button b : buttons) b.setAlpha(("params-tab:" + t).equals(b.getTag()) ? 1f : 0.55f);
     };
     for (final String t : names) {
