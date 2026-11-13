@@ -908,6 +908,8 @@ public final class ProgramParams {
       p.label = "Faded opens in the test: DrumMidi writes open hats that fade like closed ones as closed (more closed hats right, some open ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
+    } else if (p.token.equals("--no-cymbal-check")) {
+      p.label = "No cymbal check in the test (else each crash and ride is struck alone and with a kick after the test beat, and the report says what DrumMidi wrote)";
     } else if (p.token.equals("--compare_kits")) {
       p.label = "Compare kit profiles in the test: DrumMidi again with none, Pulsekit's reference and each earlier kit's vst-kit-*.kit (slower)";
     } else if (p.token.equals("--map")) {

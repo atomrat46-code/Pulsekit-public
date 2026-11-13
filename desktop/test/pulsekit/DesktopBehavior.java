@@ -10077,6 +10077,45 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 13112026: map.txt's "chokes 49=50, 51=52" lines: each plugin's own choke notes for the choke check after
+   * the test beat (its section's, else the lines before any section; AVL Drumkits' built in), not read as
+   * note pairs; Check (PluginFiles.mapProblems) and vst_render's map_problems say the same of a bad one.
+   */
+  void s255_choke_notes_in_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String map = "chokes 49=50\n[Ugritone Drums]\n35=36\nchokes 49=50, 57=58 # crash 1, crash 2\n[Riot Drums]\nchoke: 52=53\n[Bad]\nchokes 49=x, 51\nchokes\n";
+    File mapFile = new File(home, "map.txt");
+    Files.write(mapFile.toPath(), map.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> javaSaid = PluginFiles.mapProblems(map);
+    for (String p : javaSaid) this.out.append("java: ").append(p).append('\n');
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_chokes_map.py");
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), mapFile.getAbsolutePath()));
+    String pyOut = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(pyOut).append('\n');
+    StringBuilder pySaid = new StringBuilder();
+    for (String l : pyOut.split("\n")) if (l.startsWith("py: ")) pySaid.append(l.substring(4)).append('\n');
+    boolean same = pySaid.toString().equals(String.join("\n", javaSaid) + "\n");
+    this.out.append("same words: ").append(same).append(" | template: ").append(PluginFiles.TEMPLATE.contains("chokes 49=50, 51=52 in a section")).append('\n');
+    // The cymbal check after the test beat: each crash and ride alone and with a kick, a silent one and one --map leaves out.
+    File work = new File(home, "cymbal-check");
+    work.mkdirs();
+    java.util.List<String> cc = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cc.addAll(java.util.Arrays.asList(new File(System.getProperty("pulsekit.test.dir"), "py/vst_cymbal_check.py").getAbsolutePath(), script.getAbsolutePath(),
+        new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cc, 280, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = same && all.contains("chokes Ugritone Drums.vst3: 49=50,57=58 from 'Ugritone Drums'") && all.contains("chokes Riot Drums.vst3: 52=53 from 'Riot Drums'")
+        && all.contains("chokes avldrums.lv2: 49=50 from ''") && all.contains("note map Ugritone: [(35, 36)]") && all.contains("avl built in: 49=50,51=52,57=58 True")
+        && all.contains("java: line 8: chokes: 49=x is not note=note") && all.contains("java: line 8: chokes: 51 is not note=note") && all.contains("java: line 9: chokes has no notes")
+        && javaSaid.size() == 3 && all.contains("template: true")
+        && all.matches("(?s).*Cymbal check: 49 \\(crash 1\\) written as: alone .* of 6.*; with a kick .* of 6.*") && all.contains("Cymbal check: 59 (ride 2) is silent in this plugin: left out")
+        && !all.contains("Cymbal check: 55") && all.matches("(?s).*Cymbal check: right crashes \\d+ of 36, rides \\d+ of 24 .*") && !all.contains("Traceback");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 12112026_2: vst_render's cymbal model bench. Params' Cymbal model tab has --model_compare, --leave_one_out,
    * --new_kits and --bench_work; Pulsekit hands its DrumMidi_CRT.jar to a bench run as to a test. Two
    * synthesized kits' test zips (the second a newer run's): the comparison (built-in vs learned from both)

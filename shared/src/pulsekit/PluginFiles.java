@@ -97,6 +97,9 @@ public final class PluginFiles {
     return found != null ? "Not set (found: " + found.getPath() + ")" : "Not set: vst_render looks for it itself";
   }
 
+  /** A section's choke notes line (vst_render's choke check plays them): "chokes 49=50, 51=52". */
+  public static final java.util.regex.Pattern CHOKES_LINE = java.util.regex.Pattern.compile("(?i)^chokes?\\b\\s*:?\\s*(.*)$");
+
   /** A new map.txt's text: how its lines go, with an example section. */
   public static final String TEMPLATE = "# Note map: the notes vst_render sends to a plugin (Files & locations: Edit).\n"
       + "# A line is the MIDI's note=the plugin's note: 36=48 plays the MIDI's kick on the plugin's pad 48.\n"
@@ -104,6 +107,8 @@ public final class PluginFiles {
       + "# lines before any section are for every plugin. The MIDI files are not changed.\n"
       + "# A note can be a number or a name in the Note names chosen (36=C-4 for DigiDrum's naming).\n"
       + "# Test (Plugins tab) says which notes a plugin plays.\n"
+      + "# chokes 49=50, 51=52 in a section: the plugin's own choke notes (a cymbal's note=its choked one),\n"
+      + "# played alone after the test beat (AVL Drumkits' 49=50, 51=52, 57=58 are built in).\n"
       + "\n"
       + "[DigiDrum Pro]\n"
       + "# 36=48\n";
@@ -260,6 +265,19 @@ public final class PluginFiles {
         continue;
       }
       String where = section != null ? "[" + section + "]" : "(every plugin)";
+      java.util.regex.Matcher ch = CHOKES_LINE.matcher(line);
+      if (ch.matches()) {
+        // chokes 49=50, 51=52: each a cymbal's note and its choked one, notes both.
+        String pairs = ch.group(1).trim();
+        if (pairs.length() == 0) out.add("line " + (i + 1) + ": chokes has no notes (chokes 49=50, 51=52)");
+        for (String pair : pairs.split("[,;\\s]+")) {
+          if (pair.length() == 0) continue;
+          java.util.regex.Matcher pm = java.util.regex.Pattern.compile("^([^=\\s]+)=([^=\\s]+)$").matcher(pair);
+          if (!pm.matches() || noteNumber(pm.group(1)) < 0 || noteNumber(pm.group(2)) < 0)
+            out.add("line " + (i + 1) + ": chokes: " + pair + " is not note=note (a cymbal's note=its choked one, 49=50)");
+        }
+        continue;
+      }
       java.util.regex.Matcher m = java.util.regex.Pattern.compile("^([^=\\s]+)\\s*=\\s*([^=\\s]+)$").matcher(line);
       if (!m.matches()) {
         out.add("line " + (i + 1) + ": " + line + " is not note=note (36=48, or 41=none)");

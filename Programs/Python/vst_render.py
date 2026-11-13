@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -126,9 +126,14 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
                   The MIDI files themselves are not changed.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
-                  (x42 AVL Drumkits: 49=50,51=52,57=58). After the test beat a choke beat plays each
+                  (x42 AVL Drumkits: 49=50,51=52,57=58, built in for it). A "chokes 49=50, 51=52" line in
+                  the plugin's map.txt section (--note_map's file) is used over this: each plugin its own. After the test beat a choke beat plays each
                   cymbal and its choke alone, and DrumMidi (--chokes, with the kit profile) is asked what
                   it hears there: the report says what each was written as.
+  --no-cymbal-check
+                  with --test: no cymbal check. Else after the test beat each crash and ride the songs use
+                  (49, 57, 52, 55, 51, 59, 53, through the note map) is struck 6 times alone and 6 times
+                  with a kick, and the report says what DrumMidi wrote and how many were right.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
@@ -1440,7 +1445,7 @@ def map_for(text, plugin=None):
                 if head:
                     at = head.group(1).strip()
                     parts.setdefault(at, [])
-                elif line:
+                elif line and not CHOKES_LINE.match(line):
                     (parts[at] if at is not None else common).append(line)
         want = map_key(os.path.splitext(os.path.basename(os.path.normpath(plugin)))[0]) if plugin else ""
         pick = None
@@ -1522,6 +1527,39 @@ def named_list(notes):
     return ", ".join(out)
 
 
+# A map.txt section's choke notes: "chokes 49=50, 51=52" (the plugin's own notes: a cymbal = its choked one).
+CHOKES_LINE = re.compile(r"(?i)^chokes?\b\s*:?\s*(.*)$")
+# x42 AVL Drumkits' chokes: Crash 1 (49) choked on 50, the ride (51) on 52, Crash 2 (57) on 58.
+AVL_CHOKES = {49: 50, 51: 52, 57: 58}
+
+
+def plugin_chokes(path, plugin):
+    """The plugin's choke notes from map.txt: the "chokes" line of its section (else of the lines before any
+    section); ({}, None) when there is none. The second: the section's name ("" for the lines before any)."""
+    if not path or not os.path.isfile(path):
+        return {}, None
+    common, parts, at = None, {}, None
+    with open(path) as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            head = re.match(r"^\[(.+)\]$", line)
+            if head:
+                at = head.group(1).strip()
+                continue
+            m = CHOKES_LINE.match(line)
+            if m:
+                if at is None:
+                    common = m.group(1)
+                else:
+                    parts[at] = m.group(1)
+    want = map_key(os.path.splitext(os.path.basename(os.path.normpath(plugin)))[0]) if plugin else ""
+    for name, text in parts.items():
+        k = map_key(name)
+        if want and k and (k in want or want in k):
+            return map_for(text)[0], name
+    return (map_for(common)[0], "") if common else ({}, None)
+
+
 def note_map_home():
     """Pulsekit's note map (Files & locations: Edit): ~/.pulsekit/maps/map.txt."""
     return os.path.join(os.path.expanduser("~"), ".pulsekit", "maps", "map.txt")
@@ -1567,6 +1605,21 @@ def map_problems(text):
                 seen_sections[key] = i
             continue
         where = "[%s]" % section if section is not None else "(every plugin)"
+        ch = CHOKES_LINE.match(line)
+        if ch:
+            # chokes 49=50, 51=52: each a cymbal's note and its choked one, notes both.
+            for pair in [x for x in re.split(r"[,;\s]+", ch.group(1).strip()) if x]:
+                cm = re.match(r"^([^=\s]+)=([^=\s]+)$", pair)
+                try:
+                    if not cm:
+                        raise ValueError(pair)
+                    if not all(0 <= note_number(cm.group(k)) <= 127 for k in (1, 2)):
+                        raise ValueError(pair)
+                except ValueError:
+                    out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
+            if not ch.group(1).strip():
+                out.append("line %d: chokes has no notes (chokes 49=50, 51=52)" % i)
+            continue
         m = re.match(r"^([^=\s]+)\s*=\s*([^=\s]+)$", line)
         if not m:
             out.append("line %d: %s is not note=note (36=48, or 41=none)" % (i, line))
@@ -2458,7 +2511,7 @@ def same_kit_check(np, audio, rate, plugin, kit):
 
 
 # The choke beat: each cymbal and its choke alone, this far apart, this many times each.
-CHOKE_GAP, CHOKE_HITS = 1.5, 3
+CHOKE_GAP, CHOKE_HITS = 1.5, 6
 
 
 CHOKE_PRIVATE = 100
@@ -2520,6 +2573,79 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
                 written[key] = written.get(key, 0) + 1
             out.append("Chokes: %s written as %s" % (what, ", ".join("%s %d of %d" % (k, c, CHOKE_HITS) for k, c in sorted(written.items()))))
     return out + [l.strip() for l in said if l.startswith("Chokes")]
+
+
+# The cymbal check after the test beat (--test; --no-cymbal-check leaves it out): the songs' crashes and rides
+# (GM notes, through the note map as the songs), each struck alone and with a kick, CYMBAL_CHECK_HITS times
+# each, CYMBAL_CHECK_GAP s apart; DrumMidi (with the kit profile) is asked what it hears.
+CYMBAL_CHECK_NOTES = ((49, "crash 1", 49), (57, "crash 2", 49), (52, "china", 49), (55, "splash", 49),
+                      (51, "ride", 51), (59, "ride 2", 51), (53, "ride bell", 51))
+CYMBAL_CHECK_HITS, CYMBAL_CHECK_GAP = 6, 2.0
+CYMBAL_CRASH_NOTES, CYMBAL_RIDE_NOTES = (49, 52, 55, 57), (51, 53, 59)
+
+
+def cymbal_check(chain, np, rate, bits, opts, kit_file, nmap, extra):
+    """The cymbal check: lines saying what each crash and ride (alone, with a kick) was written as, and how
+    many were right (a crash written as a crash, a ride as a ride). A note --map leaves out, or one silent in
+    the plugin, is said and left out of the counts."""
+    import tempfile
+    hits, t = [], 0.5
+    for note, _, _ in CYMBAL_CHECK_NOTES:
+        if nmap.get(note, note) is None:
+            continue
+        for with_kick in (False, True):
+            for _ in range(CYMBAL_CHECK_HITS):
+                hits.append((t, note, with_kick))
+                t += CYMBAL_CHECK_GAP
+    if not hits:
+        return ["Cymbal check: no crash or ride the plugin plays (--map leaves them out)"]
+    work = tempfile.mkdtemp(prefix="vst-cymbals-")
+    midi = notes_midi(os.path.join(work, "cymbals.mid"), sorted([(a, n, 110) for a, n, _ in hits] + [(a, 36, 110) for a, _, k in hits if k]))
+    print("Working: the cymbal check (each crash and ride %d times alone and %d times with a kick)" % (CYMBAL_CHECK_HITS, CYMBAL_CHECK_HITS))
+    sys.stdout.flush()
+    try:
+        audio, _, _ = chain.render(np, midi=midi, tail=2.0)
+    except ValueError as e:
+        return ["Cymbal check: it did not play (%s)" % e]
+    audio, _ = finish(np, audio, 100)
+    wav = os.path.join(work, "cymbals.wav")
+    write_wav(wav, audio, rate, bits)
+    mono = np.abs(audio).max(axis=0) if audio.ndim > 1 else np.abs(audio)
+    peak = float(mono.max()) if mono.size else 0.0
+    found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "cymbals-dm.mid"), list(extra) + (["--kit", kit_file] if kit_file else []))
+    if isinstance(found, str):
+        return ["Cymbal check: %s" % found]
+    out, right, total = [], {}, {}
+    for note, label, want in CYMBAL_CHECK_NOTES:
+        mine = [(a, k) for a, n, k in hits if n == note]
+        if not mine:
+            continue
+        # Silent in this plugin (the kick aside): what the alone strikes sound like.
+        alone = [a for a, k in mine if not k]
+        loud = max(float(mono[int(a * rate):int((a + 0.3) * rate)].max()) for a in alone) if alone else 0.0
+        if peak <= 0 or loud < 0.01 * peak:
+            out.append("Cymbal check: %d (%s) is silent in this plugin: left out" % (note, label))
+            continue
+        kind = "crash" if want == 49 else "ride"
+        ok_notes = CYMBAL_CRASH_NOTES if want == 49 else CYMBAL_RIDE_NOTES
+        parts = []
+        for with_kick in (False, True):
+            written = {}
+            for a, k in mine:
+                if k != with_kick:
+                    continue
+                got = sorted(set(n for u, n in found if -0.06 < u - a < 0.2 and n not in CHOKE_DRUMS))
+                key = "+".join(str(n) for n in got) or "missed"
+                written[key] = written.get(key, 0) + 1
+                ok = any(n in ok_notes for n in got)
+                right[kind] = right.get(kind, 0) + ok
+                total[kind] = total.get(kind, 0) + 1
+            parts.append("%s %s" % ("with a kick" if with_kick else "alone", ", ".join("%s %d of %d" % (w, c, CYMBAL_CHECK_HITS) for w, c in sorted(written.items()))))
+        out.append("Cymbal check: %d (%s) written as: %s" % (note, label, "; ".join(parts)))
+    if total:
+        out.append("Cymbal check: right %s (a crash written as a crash, a ride as a ride)"
+                   % ", ".join("%s %d of %d" % ({"crash": "crashes", "ride": "rides"}[k], right[k], total[k]) for k in ("crash", "ride") if k in total))
+    return out
 
 
 def kit_missing(said):
@@ -3977,7 +4103,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -4422,15 +4548,34 @@ def main(argv):
                 kit_file = None
                 kit_said = "not learned (%s); the test went on without it" % said
                 print("Kit: not learned (%s); the test goes on without it" % said)
-        # The plugin's chokes (--chokes): played alone after the test beat, and what DrumMidi writes there.
-        if opts["--chokes"] and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
+        # The plugin's chokes: played alone after the test beat, and what DrumMidi writes there. Its own
+        # notes: map.txt's "chokes" line for it, else --chokes, else AVL Drumkits' (built in).
+        choke_file = map_file(opts["--note_map"]) if (opts["--note_map"] or "").strip() else note_map_home()
+        try:
+            pairs, part = plugin_chokes(choke_file, plugin)
+        except ValueError as e:
+            fail("map.txt's chokes: %s" % e)
+        if pairs:
+            choke_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % part if part else "")
+        elif opts["--chokes"]:
             try:
                 pairs = map_for(opts["--chokes"])[0]
             except ValueError as e:
                 fail("--chokes: %s" % e)
-            choke_lines = choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
+            choke_from = "--chokes"
+        elif avl_kit(plugin):
+            pairs, choke_from = dict(AVL_CHOKES), "built in for AVL Drumkits"
+        if pairs and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
+            choke_lines = ["Chokes from %s: %s" % (choke_from, chokes_text(pairs))] + choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
             for line in choke_lines:
                 print(line)
+        # The cymbal check: the crashes and rides, each struck alone and with a kick, as the songs play them.
+        if test and "--no-cymbal-check" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
+            extra = (["--no-toms"] if "--no-toms" in switches else []) + (["--snare-leak"] if "--snare-leak" in switches else []) + (["--faded-opens"] if "--faded-opens" in switches else [])
+            cym_lines = cymbal_check(chain, np, rate, bits, opts, kit_file, nmap, extra)
+            for line in cym_lines:
+                print(line)
+            choke_lines = list(choke_lines) + cym_lines
         if test and "--check" not in switches:
             where = opts["--outdir"] or "."
             if not os.path.isdir(where):
