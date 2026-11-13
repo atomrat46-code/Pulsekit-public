@@ -17,7 +17,7 @@ public final class DrumMidiArgs {
     "Sensitivity", "Hi-hat", "Toms", "Ride", "Crash", "BPM", "Quantize", "No HPSS", "Kick, snare and toms only", "No toms (kick, snare and cymbals only)",
     "Snare leak: fewer false hats on a bright snare (a few real ones may go)",
     "Faded opens: open hats that fade like closed ones written closed (many more closed hats right, some open ones lost)",
-    "No cymbal model: cymbals as found, not told apart again by their sound in the song (learned from 32 kits)",
+    "No cymbal model: cymbals as found, not told apart again by their sound in the song (learned from 44 kits)",
     "Chokes: a crash or ride cut off by hand written as its choke note (x42 AVL Drumkits: 49=50,51=52,57=58)"
   };
   /** The program's own values, shown as hints in empty fields. */
