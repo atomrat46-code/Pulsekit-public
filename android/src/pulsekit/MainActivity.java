@@ -330,6 +330,16 @@ public class MainActivity extends UiKit {
         this.styleLibrary.loadStyle("house", false);
         this.setContentView(this.buildUi());
         this.persistence.restoreSession();
+        // File > Downloads' list read now, in the background: each run's line is opened with the phone's
+        // keystore, which on the screen's thread (at the first Run) kept it busy for seconds.
+        final java.io.File downloadsDir = this.getFilesDir();
+        new Thread(() -> {
+            try {
+                pulsekit.SogniDownloads.init(downloadsDir);
+            } catch (Throwable ignored) {
+                // read again when it is first shown
+            }
+        }, "pulsekit-downloads-read").start();
         this.styleChosen = false;
         this.styleLibrary.refreshStyles();
         this.styleLibrary.refreshFills();
