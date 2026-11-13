@@ -3374,6 +3374,49 @@ public class DrumMidi_CRT{
             w = rows.toArray(new double[0][]);
         }
 
+        /** A run of hats and rides: the next more than RUN_GAP s on ends it; RUN_MIN hits at least. */
+        static final double RUN_GAP = 0.6;
+        static final int RUN_MIN = 4;
+        /** The run's mean ride share that makes it a ride run (1 - this: a hat run), and how unsure a hit must be to follow it. */
+        static final double RUN_SURE = 0.7, RUN_UNSURE = 0.4;
+
+        /**
+         * A groove's ride (or hat) pattern is one cymbal: in each run of closed hats and rides (as the model
+         * left them) whose mean ride share (the model's) is RUN_SURE or more, the hits the model was unsure of
+         * (ride share RUN_UNSURE or more) become rides; at 1 - RUN_SURE or less, the rides it was unsure of
+         * become closed hats. On the songs of 32 kits: +363 cymbals right (the studio kits +35 to +70).
+         */
+        static void runs(List<Hit> cym, double[] rideShare, java.util.Map<Hit, Hit> to, java.util.Map<String, Integer> moves) {
+            List<Integer> at = new ArrayList<Integer>();
+            for (int i = 0; i < cym.size(); i++) {
+                Hit h = to.containsKey(cym.get(i)) ? to.get(cym.get(i)) : cym.get(i);
+                int k = kind(h.note);
+                if (k == 0 || k == 2) at.add(Integer.valueOf(i));
+            }
+            int start = 0;
+            for (int j = 1; j <= at.size(); j++) {
+                if (j < at.size() && cym.get(at.get(j)).time - cym.get(at.get(j - 1)).time <= RUN_GAP) continue;
+                List<Integer> run = at.subList(start, j);
+                start = j;
+                if (run.size() < RUN_MIN) continue;
+                double mean = 0;
+                for (int i : run) mean += rideShare[i];
+                mean /= run.size();
+                for (int i : run) {
+                    Hit h = cym.get(i);
+                    Hit now = to.containsKey(h) ? to.get(h) : h;
+                    int want;
+                    if (mean >= RUN_SURE && rideShare[i] >= RUN_UNSURE) want = RIDE_NOTE;
+                    else if (mean <= 1 - RUN_SURE && rideShare[i] <= 1 - RUN_UNSURE && now.note == RIDE_NOTE) want = CLOSED_HAT;
+                    else continue;
+                    if (now.note == want || want == CLOSED_HAT && now.note == PEDAL_HAT) continue;
+                    to.put(h, new Hit(h.time, want, h.strength));
+                    String key = cymName(now.note) + " to " + cymName(want) + " (its run)";
+                    moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
+                }
+            }
+        }
+
         /**
          * The model's inputs (X) for each cymbal of `hits` (in time order, into `cym`): its features, the
          * mean of the cymbals' within CM_CONTEXT s, log(1 + how many), the kind written (one-hot).
@@ -3602,6 +3645,8 @@ public class DrumMidi_CRT{
             List<double[]> ins = inputs(hits, x, sr, cym, null);
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
             java.util.Map<Hit, Hit> to = new java.util.HashMap<Hit, Hit>();
+            // Each cymbal's ride share against the closed hat (the model's p(ride) / (p(ride) + p(hat))), for the runs below.
+            double[] rideShare = new double[cym.size()];
             for (int i = 0; i < cym.size(); i++) {
                 Hit h = cym.get(i);
                 double[] in = ins.get(i);
@@ -3615,6 +3660,7 @@ public class DrumMidi_CRT{
                 }
                 double sum = 0;
                 for (int c = 0; c < 4; c++) sum += (z[c] = Math.exp(z[c] - top));
+                rideShare[i] = z[2] / (z[2] + z[0] + 1e-300);
                 int best = 0;
                 for (int c = 0; c < 4; c++) if (z[c] > z[best]) best = c;
                 if (best == mine || (z[best] - z[mine]) / sum <= margin) continue;
@@ -3622,6 +3668,7 @@ public class DrumMidi_CRT{
                 String key = cymName(h.note) + " to " + cymName(NOTE[best]);
                 moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
             }
+            runs(cym, rideShare, to, moves);
             for (int i = 0; i < hits.size(); i++) if (to.containsKey(hits.get(i))) hits.set(i, to.get(hits.get(i)));
             StringBuilder said = new StringBuilder();
             for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());

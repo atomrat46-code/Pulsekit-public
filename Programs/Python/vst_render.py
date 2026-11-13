@@ -3710,6 +3710,7 @@ class BenchKit(object):
         DrumMidi moves them (None: as found, no model)."""
         import numpy as np
         new = self.wrote if model is None else bench_relabel(model, self.X, self.wrote, self.margin)
+        share = None if model is None else bench_ride_share(model, self.X)
         sums = dict((f, [0, 0, 0]) for f, _ in FAMILIES)
         for played, found, shift, first, cyms in self.songs:
             notes = list(found)
@@ -3717,6 +3718,8 @@ class BenchKit(object):
                 if new[j] != self.wrote[j]:
                     i = int(self.cym_i[j]) - first
                     notes[i] = (notes[i][0], BENCH_NOTE[new[j] - 1])
+            if share is not None:
+                bench_runs(notes, [(int(self.cym_i[j]) - first, share[j]) for j in cyms])
             for name, which in FAMILIES:
                 t = sorted(x for x, n in played if n in which)
                 f = sorted(x for x, n in notes if n in which)
@@ -3725,6 +3728,44 @@ class BenchKit(object):
                 v[1] += len(f)
                 v[2] += matched(t, f, shift)
         return [(f, sums[f][0], sums[f][1], sums[f][2]) for f, _ in FAMILIES]
+
+
+# DrumMidi's runs of hats and rides (CymModel.runs): RUN_GAP, RUN_MIN, RUN_SURE, RUN_UNSURE.
+BENCH_RUN = (0.6, 4, 0.7, 0.4)
+
+
+def bench_ride_share(model, X):
+    """Each cymbal's ride share against the closed hat: the model's p(ride) / (p(ride) + p(hat))."""
+    import numpy as np
+    mu, sd, W, b = model
+    z = ((X - mu) / sd) @ W + b
+    z -= z.max(1, keepdims=True)
+    p = np.exp(z)
+    return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
+
+
+def bench_runs(notes, cyms):
+    """As DrumMidi's CymModel.runs: in each run of closed hats and rides (`cyms`: each cymbal's index in
+    `notes` and its ride share, in time order) the hits the model was unsure of follow the run."""
+    gap, least, sure, unsure = BENCH_RUN
+    at = [(i, r) for i, r in cyms if notes[i][1] in (42, 44, 51, 53, 59)]
+    runs, cur = [], []
+    for i, r in at:
+        if cur and notes[i][0] - notes[cur[-1][0]][0] > gap:
+            runs.append(cur)
+            cur = []
+        cur.append((i, r))
+    if cur:
+        runs.append(cur)
+    for run in runs:
+        if len(run) < least:
+            continue
+        mean = sum(r for _, r in run) / len(run)
+        for i, r in run:
+            if mean >= sure and r >= unsure:
+                notes[i] = (notes[i][0], 51)
+            elif mean <= 1 - sure and r <= 1 - unsure and notes[i][1] == 51:
+                notes[i] = (notes[i][0], 42)
 
 
 def bench_relabel(model, X, wrote, margin):
