@@ -3369,6 +3369,7 @@ final class PyJav {
                     this.editRow = rowEdit[0];
                     this.dllNotice(pick, chooser.getSelectedFile());
                     this.editRow = null;
+                    this.kitForPlugin(pick, p.token, values[index]);
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
@@ -3440,6 +3441,7 @@ final class PyJav {
                             this.editRow = rowEdit[0];
                             this.dllNotice(plugins, picked);
                             this.editRow = null;
+                            this.kitForPlugin(plugins, p.token, values[index]);
                         });
                         picks.add(plugins);
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
@@ -4954,6 +4956,52 @@ final class PyJav {
             if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
             if (uses[i] != null) uses[i].setSelected(true);
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
+            this.kitForPlugin(fileLabels[i], token, path);
+        }
+    }
+
+    /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */
+    static Boolean kitAskYes;
+    static String lastKitAsk;
+
+    /**
+     * A plugin chosen for a row (Choose plugin, Plugins list, Favourites or Recently used, dropped): its
+     * kit row (--kit_name for --plugin, --kit_name2 for --plugin2...) set from the kits named for it
+     * before (VstLists.kitsFor). None but the saved kit: left blank (vst_render names it). One: that
+     * one. More: asked whether the most recently used is the one loaded (No: blank, unless the row's
+     * kit is one of the plugin's already).
+     */
+    void kitForPlugin(java.awt.Component at, String pluginToken, String path) {
+        java.util.List<ProgramParams.Param> ps = this.shownParams;
+        JTextField[] fields = this.shownFields;
+        if (ps == null || fields == null || path == null || path.isEmpty() || !pluginToken.matches("--plugin\\d?")) return;
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        int row = -1;
+        for (int i = 0; i < ps.size() && i < fields.length; i++) if (ps.get(i).token.equals(kitToken) && fields[i] != null) row = i;
+        if (row < 0) return;
+        JTextField field = fields[row];
+        java.util.List<String> kits = VstLists.kitsFor(path);
+        String now = field.getText().trim();
+        String plug = plugName(path).replaceAll("\\.(?i:vst3|dll|clap|lv2|so|component)$", "");
+        if (kits.isEmpty()) {
+            field.setText("");
+            app.setNow(plug + ": no kit named for it before; Kit loaded left blank (vst_render names it saved or default kit)");
+        } else if (kits.size() == 1) {
+            field.setText(kits.get(0));
+            app.setNow(plug + ": Kit loaded set to " + kits.get(0) + " (the only kit named for it)");
+        } else {
+            String recent = kits.get(0);
+            lastKitAsk = plug + " has " + kits.size() + " kits named for it before:\n" + String.join(", ", kits)
+                + "\n\nIs the most recently used, " + recent + ", the kit loaded in it now?";
+            boolean yes = kitAskYes != null ? kitAskYes.booleanValue()
+                : JOptionPane.showConfirmDialog(at, lastKitAsk, "Kit loaded", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+            if (yes) {
+                field.setText(recent);
+                app.setNow(plug + ": Kit loaded set to " + recent);
+            } else if (!kits.contains(now)) {
+                field.setText("");
+                app.setNow(plug + ": Kit loaded left blank: name the kit loaded in it (its list has " + kits.size() + ")");
+            }
         }
     }
 

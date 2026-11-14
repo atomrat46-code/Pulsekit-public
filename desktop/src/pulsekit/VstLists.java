@@ -92,13 +92,70 @@ final class VstLists {
         return kept(KITS_KEY).toArray(new String[0]);
     }
 
-    /** The kit names in the run's arguments (--kit_name, --kit_name2 to --kit_name4), kept for the list. */
+    /**
+     * The kit names in the run's arguments (--kit_name, --kit_name2 to --kit_name4), kept for the list; and
+     * each with its plugin (--plugin with --kit_name, --plugin2 with --kit_name2...), for kitsFor.
+     */
     static void rememberKits(String args) {
         List<String> words = JavaRun.split(args == null ? "" : args);
+        java.util.Map<String, String> plugins = new java.util.HashMap<String, String>(), kits = new java.util.HashMap<String, String>();
         for (int i = 0; i + 1 < words.size(); i++) {
             String w = words.get(i);
-            if (w.equals("--kit_name") || w.equals("--kit_name2") || w.equals("--kit_name3") || w.equals("--kit_name4")) remember(KITS_KEY, words.get(i + 1));
+            if (w.equals("--kit_name") || w.equals("--kit_name2") || w.equals("--kit_name3") || w.equals("--kit_name4")) {
+                remember(KITS_KEY, words.get(i + 1));
+                kits.put(w.substring("--kit_name".length()), words.get(i + 1));
+            }
+            if (w.matches("--plugin\\d?")) plugins.put(w.substring("--plugin".length()), words.get(i + 1));
         }
+        for (java.util.Map.Entry<String, String> e : kits.entrySet()) {
+            String plugin = plugins.get(e.getKey());
+            if (plugin != null && pluginKey(plugin).length() > 0) remember(PLUGIN_KITS_KEY, pluginKey(plugin) + "\t" + e.getValue().trim(), PLUGIN_KITS_KEEP);
+        }
+    }
+
+    static final String PLUGIN_KITS_KEY = "vstPluginKits";
+    /** At most this many plugin and kit pairs are kept, the last used first. */
+    static final int PLUGIN_KITS_KEEP = 100;
+    /** The names vst_render gives a kit not named (not kits of their own to pick). */
+    static final java.util.Set<String> NOT_KITS = new java.util.HashSet<String>(java.util.Arrays.asList("saved kit", "default kit", "parts"));
+
+    /** A plugin's key: its file's name without the extension, letters and digits only, lower case ("ugritonedrums"). */
+    static String pluginKey(String path) {
+        String n = new File(path == null ? "" : path.replace('\\', '/')).getName();
+        int dot = n.lastIndexOf('.');
+        if (dot > 0) n = n.substring(0, dot);
+        return n.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    /**
+     * The kits named for a plugin before, the last used first: the runs' (--kit_name with its plugin), then
+     * vst_render's own list (~/.pulsekit/kit-names.txt: each kit name and the plugin it was last given for).
+     * "saved kit" and "default kit" left out (vst_render names a kit so when none is given).
+     */
+    static List<String> kitsFor(String plugin) {
+        String key = pluginKey(plugin);
+        List<String> out = new ArrayList<String>();
+        if (key.length() == 0) return out;
+        for (String line : kept(PLUGIN_KITS_KEY)) {
+            int tab = line.indexOf('\t');
+            if (tab <= 0 || !line.substring(0, tab).equals(key)) continue;
+            String kit = line.substring(tab + 1).trim();
+            if (kit.length() > 0 && !NOT_KITS.contains(kit.toLowerCase(java.util.Locale.ROOT)) && !out.contains(kit)) out.add(kit);
+        }
+        File names = new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "kit-names.txt");
+        if (names.isFile()) {
+            try {
+                for (String line : new String(Files.readAllBytes(names.toPath()), "UTF-8").split("\n")) {
+                    int tab = line.indexOf('\t');
+                    if (tab <= 0 || !pluginKey(line.substring(tab + 1).trim()).equals(key)) continue;
+                    String kit = line.substring(0, tab).trim();
+                    if (!NOT_KITS.contains(kit.toLowerCase(java.util.Locale.ROOT)) && !out.contains(kit)) out.add(kit);
+                }
+            } catch (Exception ignored) {
+                // the runs' list only
+            }
+        }
+        return out;
     }
 
     /** The run's plugins (--plugin to --plugin4, --effect): first among the recently used (Params' Plugins tab). */
@@ -115,11 +172,15 @@ final class VstLists {
     }
 
     static void remember(String key, String value) {
+        remember(key, value, KEEP);
+    }
+
+    static void remember(String key, String value, int keep) {
         if (value == null || value.trim().isEmpty()) return;
         List<String> now = kept(key);
         now.remove(value.trim());
         now.add(0, value.trim());
-        while (now.size() > KEEP) now.remove(now.size() - 1);
+        while (now.size() > keep) now.remove(now.size() - 1);
         java.util.prefs.Preferences.userNodeForPackage(PyJav.class).put(key, String.join("\n", now));
     }
 

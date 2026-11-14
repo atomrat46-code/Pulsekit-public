@@ -10099,6 +10099,61 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 14112026: a plugin chosen for a row sets its kit row from the kits named for it before (the runs'
+   * --kit_name with its plugin, and vst_render's ~/.pulsekit/kit-names.txt): none but the saved kit, blank;
+   * one, that one; more, asked whether the most recently used is loaded (No: blank).
+   */
+  void s257_kit_for_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final Pulsekit app = (Pulsekit) frame;
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"KVLT_Mexico 1998\" --plugin2 \"C:/VST3/Riot Drums.vst3\" --kit_name2 \"saved kit\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums: Noob Metal\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Anarchy Drums.vst3\" --kit_name \"Anarchy_default kit\"");
+    File pk = new File(home, ".pulsekit");
+    pk.mkdirs();
+    Files.write(new File(pk, "kit-names.txt").toPath(), "Black Pearl\tavldrums\n".getBytes(StandardCharsets.UTF_8));
+    final String src = ProgramFiles.bundledSource("vst_render.py");
+    final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    final javax.swing.JTextField[] fields = new javax.swing.JTextField[ps.size()];
+    int k1 = -1, k2 = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--kit_name")) k1 = i;
+      if (ps.get(i).token.equals("--kit_name2")) k2 = i;
+      if (ps.get(i).token.startsWith("--kit_name")) fields[i] = new javax.swing.JTextField("Total Studio Drums: Kind of metal");
+    }
+    final int one = k1, two = k2;
+    edt(() -> {
+      app.pyJav.shownParams = ps;
+      app.pyJav.shownFields = fields;
+      app.pyJav.kitForPlugin(null, "--plugin2", "C:/VST3/Riot Drums.vst3");
+      out.append("Riot (saved kit only): '").append(fields[two].getText()).append("'\n");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Anarchy Drums.vst3");
+      out.append("Anarchy (one kit): '").append(fields[one].getText()).append("'\n");
+      app.pyJav.kitForPlugin(null, "--plugin2", "C:/LV2/avldrums.lv2");
+      out.append("avldrums (vst_render's list): '").append(fields[two].getText()).append("'\n");
+      PyJav.kitAskYes = true;
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, Yes: '").append(fields[one].getText()).append("' | asked: ").append(PyJav.lastKitAsk.replace("\n", " / ")).append('\n');
+      PyJav.kitAskYes = false;
+      fields[one].setText("Anarchy_default kit");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, No: '").append(fields[one].getText()).append("'\n");
+      fields[one].setText("KVLT_Mexico 1998");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, No, one of its own: '").append(fields[one].getText()).append("'\n");
+      PyJav.kitAskYes = null;
+      app.pyJav.kitForPlugin(null, "--plugin3", "C:/VST3/Fresh Drums.vst3");
+      out.append("Fresh (no kit row field): ok\n");
+    });
+    String all = out.toString();
+    boolean ok = all.contains("Riot (saved kit only): ''") && all.contains("Anarchy (one kit): 'Anarchy_default kit'") && all.contains("avldrums (vst_render's list): 'Black Pearl'")
+        && all.contains("Ugritone, Yes: 'Tight Studio Drums: Noob Metal' | asked: Ugritone Drums has 2 kits named for it before: / Tight Studio Drums: Noob Metal, KVLT_Mexico 1998")
+        && all.contains("Is the most recently used, Tight Studio Drums: Noob Metal, the kit loaded in it now?")
+        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 14112026: map.txt's "hats closed=42 pedal=44 semiopen=46 open=32" lines: each plugin's own hi-hat notes for
    * the hi-hat check after the test beat (its section's, else the lines before any section; AVL Drumkits'
    * built in), not read as note pairs; Check and vst_render's map_problems say the same of a bad one. The
