@@ -462,7 +462,15 @@ public final class PluginLibrary {
     return s == null ? "" : s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ').replace(',', ' ').trim();
   }
 
+  /** Told after the library is saved (a favourite, a category changed): a list showing the favourites fills again. */
+  public static final List<Runnable> changed = new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
+
   private static void save() {
+    saveOnly();
+    for (Runnable r : changed) r.run();
+  }
+
+  private static void saveOnly() {
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, Entry> me : entries.entrySet()) {
       Entry e = me.getValue();

@@ -13794,6 +13794,20 @@ public class BehaviorTest {
     dv.findViewWithTag("params-export-section").performClick();
     idle();
     out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPedit", "Prompt: first kite\n");
+    vault.addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
+    PyJavParams.lastExportAsk = null;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    AlertDialog exportAsk = PyJavParams.lastExportAsk;
+    out.append("export asks: ").append(exportAsk == null ? "no" : exportAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText() + " | " + exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append('\n');
+    File allFile = new File(app.getCacheDir(), "all.txt");
+    PyJavParams.exportTo = allFile;
+    if (exportAsk != null) exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("export all: ").append(PyJavParams.clipSaid).append('\n').append(allFile.isFile() ? new String(java.nio.file.Files.readAllBytes(allFile.toPath()), StandardCharsets.UTF_8) : "none");
     PyJavParams.sendTo = null;
     PyJavParams.exportTo = null;
     d.dismiss();
@@ -13803,7 +13817,9 @@ public class BehaviorTest {
     boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
         && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
         && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
-        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7");
+        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7")
+        && text.contains("export asks: This entry | All SogniPedit sections (2)")
+        && text.contains("export all: Exported the 2 SogniPedit sections into all.txt\nApp: SogniPedit\nPrompt: second kite\nLoras: kite-style:0.5\n----\nPrompt: first kite\n");
     if (!ok) throw new AssertionError(text);
   }
   /** vst_render's Files & locations tab: map.txt's Edit (saved), Pads & notes beside it; a recent plugin's long press: Use as plugin. */

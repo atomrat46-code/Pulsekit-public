@@ -10067,12 +10067,27 @@ public final class DesktopBehavior {
       if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.push(k);
     }
     this.out.append("tip above the lists: ").append(tip != null && tip.getParent() == picks[0]).append(", tips: ").append(tips).append('\n');
+    // 14112026: a plugin made a favourite while the Params are open shows in Favourites at once.
+    File plug = new File(home, "Fresh Drums.vst3");
+    plug.mkdirs();
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<String> favList = (javax.swing.JList<String>) component(picks[0], "params-favourites");
+    final int before = favList.getModel().getSize();
+    PluginLibrary.setFavourite(plug, true);
+    idle();
+    boolean listed = false;
+    for (int k = 0; k < favList.getModel().getSize(); k++) listed |= favList.getModel().getElementAt(k).equals(plug.getAbsolutePath());
+    this.out.append("favourite added while open: ").append(listed).append(", ").append(before).append(" -> ").append(favList.getModel().getSize()).append('\n');
+    PluginLibrary.setFavourite(plug, false);
+    idle();
+    this.out.append("taken off: ").append(favList.getModel().getSize() == before).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("not a map: line 1: shopping list is not note=note (36=48, or 41=none) | it has no note=note line | good: null")
         && all.contains("bad: notes.txt is not a note map: line 1: shopping list is not note=note")
         && all.contains("good: Imported map-copy.txt as map.txt; the map before is kept as map-backup-<date>.txt")
         && all.contains("map.txt now: # mine | [Beat DRMR] | 48=45 | 50=47 | ") && all.contains("backup: 1 [Old Kit] | 36=48 | ")
-        && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1");
+        && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1")
+        && all.contains("favourite added while open: true, 0 -> 1") && all.contains("taken off: true");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -10105,6 +10120,9 @@ public final class DesktopBehavior {
     boolean ok = same && all.contains("hats Ugritone Drums.vst3: closed=42 pedal=44 semiopen=46 open=32 from 'Ugritone Drums'")
         && all.contains("hats Riot Drums.vst3: closed=42 semiopen=45 open=46 from 'Riot Drums'") && all.contains("hats Other.vst3: closed=42 open=46 from ''")
         && all.contains("note map Ugritone: [(35, 36)]") && all.contains("avl built in: closed=42 pedal=44 semiopen=46 open=48")
+        && all.contains("built in Riot Drums.vst3: chokes 49=54,52=50,57=56, hats closed=42 pedal=44 semiopen=45 open=46 (built in for Riot Drums)")
+        && all.contains("built in Northern Artillery Drums.vst3: chokes 49=50,51=62,57=58,59=64, hats closed=42 pedal=44 semiopen=46 open=32 (built in for Northern Artillery)")
+        && all.contains("built in Other.vst3: chokes none, hats none (None)")
         && all.contains("java: line 8: hats: closed=x is not kind=note") && all.contains("java: line 8: hats: wide=46 is not kind=note") && all.contains("java: line 8: hats: 44 is not kind=note")
         && all.contains("java: line 9: hats has no notes") && javaSaid.size() == 4 && all.contains("template: true")
         && all.matches("(?s).*Hi-hat check: closed hat 42 written as: alone .* of 6.*; with a kick .* of 6.*") && all.contains("Hi-hat check: pedal hat 44 is silent in this plugin: left out")
@@ -13784,6 +13802,23 @@ public final class DesktopBehavior {
       PyJav.exportTo = out;
       ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
       seen.append("export: ").append(PyJav.clipSaid).append('\n');
+      // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
+      try {
+        PromptDb.vault().addSogniSection("SogniPedit", "Prompt: first kite\n");
+        PromptDb.vault().addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
+        PyJav.exportTo = new File(out.getParentFile(), "all sections.txt");
+        PyJav.exportAll = true;
+        ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+        seen.append("export all: ").append(PyJav.clipSaid).append('\n').append(new String(Files.readAllBytes(PyJav.exportTo.toPath()), StandardCharsets.UTF_8));
+        PyJav.exportTo = new File(out.getParentFile(), "this entry.txt");
+        PyJav.exportAll = false;
+        ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+        seen.append("export this: ").append(PyJav.clipSaid).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      } finally {
+        PyJav.exportAll = null;
+      }
     };
     answers.add("Cancel");
     call("openParams");
@@ -13800,7 +13835,10 @@ public final class DesktopBehavior {
         && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
         && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")
         && loraTargets.equals(java.util.Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java"))
-        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n");
+        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n")
+        && all.contains("export all: Exported the 2 SogniPedit sections into all sections.txt\nApp: SogniPedit\nPrompt: second kite\nLoras: kite-style:0.5\n----\nPrompt: first kite\n")
+        && all.contains("export this: Exported the SogniPedit section into this entry.txt")
+        && ParamsClip.exportAllLabel("SogniPedit", 2).equals("All SogniPedit sections (2)");
     if (!ok) throw new AssertionError(all);
   }
 

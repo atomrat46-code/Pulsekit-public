@@ -20,6 +20,10 @@ for plugin in ("C:/VST3/Ugritone Drums.vst3", "C:/VST3/Riot Drums.vst3", "C:/VST
     print("hats %s: %s from %r" % (os.path.basename(plugin), vr.hats_text(hats) if hats else "none", part))
 print("note map Ugritone:", sorted(vr.map_for(path, "C:/VST3/Ugritone Drums.vst3")[0].items()))
 print("avl built in:", vr.hats_text(vr.AVL_HATS))
+for plugin in ("C:/VST3/Riot Drums.vst3", "C:/VST3/Northern Artillery Drums.vst3", "C:/VST3/Other.vst3"):
+    c, cw = vr.built_in_notes(plugin, vr.PLUGIN_CHOKES, vr.AVL_CHOKES)
+    h, hw = vr.built_in_notes(plugin, vr.PLUGIN_HATS, vr.AVL_HATS)
+    print("built in %s: chokes %s, hats %s (%s)" % (os.path.basename(plugin), vr.chokes_text(c) if c else "none", vr.hats_text(h) if h else "none", hw))
 for p in vr.map_problems(open(path).read()):
     print("py: " + p)
 os.chdir(work)

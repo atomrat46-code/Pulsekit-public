@@ -126,7 +126,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
                   The MIDI files themselves are not changed.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
-                  (x42 AVL Drumkits: 49=50,51=52,57=58, built in for it). A "chokes 49=50, 51=52" line in
+                  (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
+                  Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
+                  too: used when neither map.txt nor this gives any). A "chokes 49=50, 51=52" line in
                   the plugin's map.txt section (--note_map's file) is used over this: each plugin its own. After the test beat a choke beat plays each
                   cymbal and its choke alone, and DrumMidi (--chokes, with the kit profile) is asked what
                   it hears there: the report says what each was written as.
@@ -1613,6 +1615,35 @@ def note_map_home():
 # choked. Unless map.txt has a section for it, the songs' toms 48 and 50 go to its tom (edge, center).
 AVL_KITS = ("blackpearl", "redzeppelin", "blondebop", "buskmansholiday")
 AVL_NOTE_MAP = {48: 47, 50: 45}
+
+
+# Other plugins' own choke and hi-hat notes (their windows say them), used when map.txt has no line for one:
+# a part of the plugin's file name (letters and digits only, lower case) and its notes.
+PLUGIN_CHOKES = (
+    ("ugritone", {49: 50, 57: 58}),
+    ("northernartillery", {49: 50, 57: 58, 51: 62, 59: 64}),
+    ("riotdrums", {49: 54, 57: 56, 52: 50}),
+    ("anarchydrums", {49: 54, 57: 56, 52: 50}),
+)
+PLUGIN_HATS = (
+    ("ugritone", {"closed": 42, "pedal": 44, "semiopen": 46, "open": 32}),
+    ("northernartillery", {"closed": 42, "pedal": 44, "semiopen": 46, "open": 32}),
+    ("riotdrums", {"closed": 42, "pedal": 44, "semiopen": 45, "open": 46}),
+    ("anarchydrums", {"closed": 42, "pedal": 44, "semiopen": 45, "open": 46}),
+)
+
+
+def built_in_notes(plugin, table, avl):
+    """The plugin's built-in chokes or hats (AVL Drumkits' `avl`, else the table's), and the words saying
+    whose: ({}, None) when none is known."""
+    if avl_kit(plugin):
+        return dict(avl), "built in for AVL Drumkits"
+    low = re.sub(r"[^a-z0-9]", "", os.path.basename(os.path.normpath(plugin or "")).lower())
+    for key, notes in table:
+        if key in low:
+            return dict(notes), "built in for %s" % {"ugritone": "Ugritone", "northernartillery": "Northern Artillery",
+                                                      "riotdrums": "Riot Drums", "anarchydrums": "Anarchy Drums"}[key]
+    return {}, None
 
 
 def avl_kit(plugin):
@@ -4738,8 +4769,8 @@ def main(argv):
             except ValueError as e:
                 fail("--chokes: %s" % e)
             choke_from = "--chokes"
-        elif avl_kit(plugin):
-            pairs, choke_from = dict(AVL_CHOKES), "built in for AVL Drumkits"
+        elif built_in_notes(plugin, PLUGIN_CHOKES, AVL_CHOKES)[0]:
+            pairs, choke_from = built_in_notes(plugin, PLUGIN_CHOKES, AVL_CHOKES)
         if pairs and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
             choke_lines = ["Chokes from %s: %s" % (choke_from, chokes_text(pairs))] + choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
             for line in choke_lines:
@@ -4756,8 +4787,8 @@ def main(argv):
             except ValueError as e:
                 fail("map.txt's hats: %s" % e)
             hat_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % hat_part if hat_part else "") if hats else None
-            if not hats and avl_kit(plugin):
-                hats, hat_from = dict(AVL_HATS), "built in for AVL Drumkits"
+            if not hats:
+                hats, hat_from = built_in_notes(plugin, PLUGIN_HATS, AVL_HATS)
             if hats:
                 kick = nmap.get(36, 36)
                 hat_lines = ["Hats from %s: %s" % (hat_from, hats_text(hats))] + hihat_check(chain, np, rate, bits, opts, kit_file, hats, 36 if kick is None else kick, extra)

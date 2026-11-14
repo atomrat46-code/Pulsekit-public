@@ -705,13 +705,52 @@ public final class PyJavParams {
   }
 
   /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
-  static void exportSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+  static void exportSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields) {
+    // Sections saved for the program: this entry, or all of them (asked).
+    java.util.List<PromptVault.SogniSection> saved = java.util.Collections.emptyList();
+    try {
+      saved = PromptVault.open(activity.getFilesDir()).sogniSections(program);
+    } catch (Exception ignored) {
+      // none to offer
+    }
+    if (!saved.isEmpty()) {
+      final java.util.List<PromptVault.SogniSection> all = saved;
+      if (exportAll != null) {
+        if (exportAll.booleanValue()) exportAllSections(activity, program, all);
+        else exportEntry(activity, program, ps, fields);
+        return;
+      }
+      lastExportAsk = new AlertDialog.Builder(activity)
+          .setTitle(ParamsClip.EXPORT)
+          .setMessage(ParamsClip.EXPORT_ASK)
+          .setPositiveButton(ParamsClip.EXPORT_THIS, (d, w) -> exportEntry(activity, program, ps, fields))
+          .setNeutralButton(ParamsClip.exportAllLabel(program, all.size()), (d, w) -> exportAllSections(activity, program, all))
+          .setNegativeButton("Cancel", null)
+          .show();
+      return;
+    }
+    exportEntry(activity, program, ps, fields);
+  }
+
+  /** The tests: Export's answer when the program has saved sections (true: all of them), else asked; the question shown last. */
+  static Boolean exportAll;
+  static AlertDialog lastExportAsk;
+
+  static void exportAllSections(Activity activity, String program, java.util.List<PromptVault.SogniSection> all) {
+    writeExport(activity, ParamsClip.exportAllName(program), ParamsClip.exportAllText(program, all), "the " + all.size() + " " + program + " sections");
+  }
+
+  static void exportEntry(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
     java.util.Map<String, String> now = sectionFields(ps, fields);
     if (now.isEmpty()) {
       clipSay(activity, "Nothing to export: the prompt and the other rows are empty");
       return;
     }
-    String text = ParamsClip.exportText(now);
+    writeExport(activity, ParamsClip.exportName(program, now), ParamsClip.exportText(now), "the " + program + " section");
+  }
+
+  /** Export's file written: the one the tests give, else the system's save dialog (the name suggested). */
+  static void writeExport(Activity activity, String name, String text, String what) {
     if (exportTo != null) {
       try {
         java.io.FileOutputStream out = new java.io.FileOutputStream(exportTo);
@@ -720,13 +759,13 @@ public final class PyJavParams {
         } finally {
           out.close();
         }
-        clipSay(activity, "Exported the " + program + " section into " + exportTo.getName());
+        clipSay(activity, "Exported " + what + " into " + exportTo.getName());
       } catch (Exception ex) {
-        clipSay(activity, "Could not export the section: " + ex.getMessage());
+        clipSay(activity, "Could not export " + what + ": " + ex.getMessage());
       }
       return;
     }
-    SaveText.save((MainActivity) activity, ParamsClip.exportName(program, now), text);
+    SaveText.save((MainActivity) activity, name, text);
   }
 
   /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's field. */

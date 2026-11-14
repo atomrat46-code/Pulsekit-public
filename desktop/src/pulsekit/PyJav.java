@@ -1368,6 +1368,8 @@ final class PyJav {
 
     /** The tests: Export's file (else a file picker), Paste's answer (true: replace), Send's program and answer. */
     static File exportTo;
+    /** The tests: Export's answer when the program has saved sections (true: all of them), else asked. */
+    static Boolean exportAll;
     static Boolean pasteReplace;
     static String sendTo;
     static Boolean sendYes;
@@ -1381,25 +1383,52 @@ final class PyJav {
     /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
     void exportSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
         java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        // Sections saved for the program: this entry, or all of them (asked).
+        java.util.List<PromptVault.SogniSection> saved = java.util.Collections.emptyList();
+        try {
+            saved = PromptDb.vault().sogniSections(program);
+        } catch (Exception ignored) {
+            // none to offer
+        }
+        if (!saved.isEmpty()) {
+            boolean all;
+            if (exportAll != null) {
+                all = exportAll.booleanValue();
+            } else {
+                Object[] options = {ParamsClip.EXPORT_THIS, ParamsClip.exportAllLabel(program, saved.size()), "Cancel"};
+                int ans = JOptionPane.showOptionDialog(at, ParamsClip.EXPORT_ASK, ParamsClip.EXPORT, JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (ans != 0 && ans != 1) return;
+                all = ans == 1;
+            }
+            if (all) {
+                this.exportText(at, program, ParamsClip.exportAllName(program), ParamsClip.exportAllText(program, saved), "the " + saved.size() + " " + program + " sections");
+                return;
+            }
+        }
         if (now.isEmpty()) {
             this.clipSay("Nothing to export: the prompt and the other rows are empty");
             return;
         }
+        this.exportText(at, program, ParamsClip.exportName(program, now), ParamsClip.exportText(now), "the " + program + " section");
+    }
+
+    /** Export's file written: the one the tests give, else one picked (its name suggested). */
+    private void exportText(java.awt.Component at, String program, String name, String text, String what) {
         File to = exportTo;
         if (to == null) {
             JFileChooser chooser = selectChooser();
-            chooser.setDialogTitle(ParamsClip.EXPORT + " the " + program + " section");
-            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), ParamsClip.exportName(program, now)));
+            chooser.setDialogTitle(ParamsClip.EXPORT + " " + what);
+            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), name));
             if (chooser.showSaveDialog(at) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
             to = chooser.getSelectedFile();
             if (to.isFile() && JOptionPane.showConfirmDialog(at, to.getName() + " is there already. Replace it?", ParamsClip.EXPORT, JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
             selected(to);
         }
         try {
-            Files.write(to.toPath(), ParamsClip.exportText(now).getBytes(StandardCharsets.UTF_8));
-            this.clipSay("Exported the " + program + " section into " + to.getName());
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Exported " + what + " into " + to.getName());
         } catch (Exception ex) {
-            this.clipSay("Could not export the section: " + ex.getMessage());
+            this.clipSay("Could not export " + what + ": " + ex.getMessage());
         }
     }
 
@@ -4406,7 +4435,47 @@ final class PyJav {
         head.add(change, BorderLayout.EAST);
         folders.add(head, BorderLayout.NORTH);
         lists.add(folders);
+        // A plugin made a favourite (or a run made recent) while the Params are open, in the Plugin Browser
+        // or the Plugins list: the lists again each time the Params window comes back to the front.
+        final Runnable refresh = () -> SwingUtilities.invokeLater(() -> refreshPicks(favModel, recentModel, fill));
+        PluginLibrary.changed.add(refresh);
+        out.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & (java.awt.event.HierarchyEvent.SHOWING_CHANGED | java.awt.event.HierarchyEvent.DISPLAYABILITY_CHANGED)) == 0) return;
+            if (out.isShowing()) {
+                if (!PluginLibrary.changed.contains(refresh)) PluginLibrary.changed.add(refresh);
+                java.awt.Window w = SwingUtilities.getWindowAncestor(out);
+                if (w != null && !Boolean.TRUE.equals(out.getClientProperty("picks-refresh"))) {
+                    out.putClientProperty("picks-refresh", Boolean.TRUE);
+                    // Back to the front (from the Plugin Browser, a run): Recently used may have changed too.
+                    w.addWindowListener(new java.awt.event.WindowAdapter() {
+                        @Override
+                        public void windowActivated(java.awt.event.WindowEvent we) {
+                            refreshPicks(favModel, recentModel, fill);
+                        }
+
+                        @Override
+                        public void windowClosed(java.awt.event.WindowEvent we) {
+                            PluginLibrary.changed.remove(refresh);
+                        }
+                    });
+                }
+            } else if (!out.isDisplayable()) {
+                PluginLibrary.changed.remove(refresh);
+            }
+        });
         return out;
+    }
+
+    /** The Plugins tab's lists again, when what they show changed (the list's selection kept otherwise). */
+    static void refreshPicks(javax.swing.DefaultListModel<String> favModel, javax.swing.DefaultListModel<String> recentModel, Runnable fill) {
+        java.util.List<String> fav = java.util.Collections.list(favModel.elements()), recent = java.util.Collections.list(recentModel.elements());
+        javax.swing.DefaultListModel<String> f2 = new javax.swing.DefaultListModel<String>();
+        for (String f : PluginLibrary.favouritePaths()) {
+            PluginLibrary.Type t = PluginLibrary.typeOf(new File(f));
+            if (t != null && (PluginLibrary.VST3.equals(t.name) || PluginLibrary.VST2.equals(t.name))) f2.addElement(f);
+        }
+        if (fav.equals(java.util.Collections.list(f2.elements())) && recent.equals(PluginLibrary.recent())) return;
+        fill.run();
     }
 
     /**
