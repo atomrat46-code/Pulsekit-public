@@ -1236,7 +1236,7 @@ public class DrumMidi_CRT{
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
         if (cymbals && System.getProperty("dm.cymFeatures") != null) CymModel.dump(hits, audio.samples, sr, System.getProperty("dm.cymFeatures"));
-        if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr, kit);
+        if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr);
         if (cymbals && !chokeNotes.isEmpty()) chokes(hits, audio.samples, sr, chokeNotes);
         progress(90);
         note("Hits: " + hits.size());
@@ -3645,19 +3645,6 @@ public class DrumMidi_CRT{
         }
 
         static void apply(List<Hit> hits, double[] x, double sr) {
-            apply(hits, x, sr, null);
-        }
-
-        /**
-         * An open hat the model would close stays open where its look is nearer the kit's learned open hat
-         * than its closed one by OPEN_KEEP or more (the kit profile knows this kit's hats; the model, the
-         * songs' hats of many kits, where an open one is rare).
-         */
-        static double OPEN_KEEP = Double.parseDouble(System.getProperty("dm.openKeep", "0.3"));
-
-        static void apply(List<Hit> hits, double[] x, double sr, KitProfile kit) {
-            double[] openLook = kit == null ? null : kit.look(OPEN_HAT), closedLook = kit == null ? null : kit.look(CLOSED_HAT);
-            int kept = 0;
             String file = System.getProperty("dm.cymModelFile");
             if (file != null) {
                 try {
@@ -3690,14 +3677,6 @@ public class DrumMidi_CRT{
                 int best = 0;
                 for (int c = 0; c < 4; c++) if (z[c] > z[best]) best = c;
                 if (best == mine || (z[best] - z[mine]) / sum <= margin) continue;
-                if (NOTE[mine] == OPEN_HAT && NOTE[best] == CLOSED_HAT && openLook != null && closedLook != null) {
-                    double[] f = cymFeature(x, sr, h.time);
-                    if (System.getProperty("dm.dbg") != null && f != null) System.err.println(String.format(java.util.Locale.ROOT, "OPENNEAR %.3f %.3f", h.time, cymNear(f, openLook) - cymNear(f, closedLook)));
-                    if (f != null && cymNear(f, openLook) - cymNear(f, closedLook) >= OPEN_KEEP) {
-                        kept++;
-                        continue;
-                    }
-                }
                 to.put(h, new Hit(h.time, NOTE[best], h.strength));
                 String key = cymName(h.note) + " to " + cymName(NOTE[best]);
                 moves.put(key, Integer.valueOf(moves.containsKey(key) ? moves.get(key).intValue() + 1 : 1));
@@ -3706,8 +3685,7 @@ public class DrumMidi_CRT{
             for (int i = 0; i < hits.size(); i++) if (to.containsKey(hits.get(i))) hits.set(i, to.get(hits.get(i)));
             StringBuilder said = new StringBuilder();
             for (java.util.Map.Entry<String, Integer> e : moves.entrySet()) said.append(said.length() == 0 ? "" : ", ").append(e.getValue()).append(' ').append(e.getKey());
-            note("Cymbals by their sound in the song (the cymbal model): " + (said.length() == 0 ? "none changed" : said)
-                + (kept > 0 ? "; " + kept + " open hat" + (kept == 1 ? "" : "s") + " kept open (nearer the kit's open hat)" : ""));
+            note("Cymbals by their sound in the song (the cymbal model): " + (said.length() == 0 ? "none changed" : said));
         }
     }
 
@@ -4242,7 +4220,12 @@ public class DrumMidi_CRT{
      * One that was a hat before rideOrHats is the hat again. Not where a bass line plays: there a ride
      * is often heard only on the beat.
      */
-    static double RESTORE_HAT = Double.parseDouble(System.getProperty("dm.restoreHat", "0"));
+    /**
+     * A ride lonely on the kicks that was a hat before rideOrHats is the hat again only when its hat
+     * onset is at least this strong (a kick's click in the hat band is weaker): on 40 songs of KVLT,
+     * Anarchy, Noob Metal and Riot, +28 cymbals right (+45 with any, but 28 hats more written wrong).
+     */
+    static final double RESTORE_HAT = 1.0;
 
     static void lonelyRides(List<Hit> hits) {
         List<Double> beat = new ArrayList<Double>();
