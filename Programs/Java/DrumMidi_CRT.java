@@ -4242,6 +4242,8 @@ public class DrumMidi_CRT{
      * One that was a hat before rideOrHats is the hat again. Not where a bass line plays: there a ride
      * is often heard only on the beat.
      */
+    static double RESTORE_HAT = Double.parseDouble(System.getProperty("dm.restoreHat", "0"));
+
     static void lonelyRides(List<Hit> hits) {
         List<Double> beat = new ArrayList<Double>();
         for (Hit h : hits) if (h.note == KICK_NOTE || h.note == SNARE_NOTE) beat.add(Double.valueOf(h.time));
@@ -4260,7 +4262,7 @@ public class DrumMidi_CRT{
             if (near >= RIDE_ALONE) continue;
             // A hat found as one, made a ride by the cymbals around it: the hat it was (hats struck with a
             // kick on every eighth have no clean hats of their own to vote).
-            if (h.fromHat) hits.set(hits.indexOf(h), new Hit(h.time, CLOSED_HAT, h.strength));
+            if (h.fromHat && h.strength >= RESTORE_HAT) hits.set(hits.indexOf(h), new Hit(h.time, CLOSED_HAT, h.strength));
             else hits.remove(h);
         }
     }
