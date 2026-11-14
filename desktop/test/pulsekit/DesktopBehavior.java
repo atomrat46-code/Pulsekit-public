@@ -10077,6 +10077,42 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 14112026: map.txt's "hats closed=42 pedal=44 semiopen=46 open=32" lines: each plugin's own hi-hat notes for
+   * the hi-hat check after the test beat (its section's, else the lines before any section; AVL Drumkits'
+   * built in), not read as note pairs; Check and vst_render's map_problems say the same of a bad one. The
+   * check strikes each hat alone and with a kick and says what DrumMidi wrote; a silent hat is left out.
+   */
+  void s256_hat_notes_in_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String map = "hats closed=42 open=46\n[Ugritone Drums]\n35=36\nhats closed=42 pedal=44 semiopen=46 open=32 # its own\n[Riot Drums]\nhat: closed=42, semi-open=45, open=46\n[Bad]\nhats closed=x wide=46 44\nhats\n";
+    File mapFile = new File(home, "map-hats.txt");
+    Files.write(mapFile.toPath(), map.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> javaSaid = PluginFiles.mapProblems(map);
+    for (String p : javaSaid) this.out.append("java: ").append(p).append('\n');
+    File work = new File(home, "hat-check");
+    work.mkdirs();
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(new File(System.getProperty("pulsekit.test.dir"), "py/vst_hats_map.py").getAbsolutePath(), script.getAbsolutePath(),
+        mapFile.getAbsolutePath(), new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath(), work.getAbsolutePath()));
+    String pyOut = PythonRun.runFor(cmd, 280, null).trim();
+    this.out.append(pyOut).append('\n');
+    StringBuilder pySaid = new StringBuilder();
+    for (String l : pyOut.split("\n")) if (l.startsWith("py: ")) pySaid.append(l.substring(4)).append('\n');
+    boolean same = pySaid.toString().equals(String.join("\n", javaSaid) + "\n");
+    this.out.append("same words: ").append(same).append(" | template: ").append(PluginFiles.TEMPLATE.contains("hats closed=42 pedal=44 semiopen=46 open=32 in a section")).append('\n');
+    String all = this.out.toString();
+    boolean ok = same && all.contains("hats Ugritone Drums.vst3: closed=42 pedal=44 semiopen=46 open=32 from 'Ugritone Drums'")
+        && all.contains("hats Riot Drums.vst3: closed=42 semiopen=45 open=46 from 'Riot Drums'") && all.contains("hats Other.vst3: closed=42 open=46 from ''")
+        && all.contains("note map Ugritone: [(35, 36)]") && all.contains("avl built in: closed=42 pedal=44 semiopen=46 open=48")
+        && all.contains("java: line 8: hats: closed=x is not kind=note") && all.contains("java: line 8: hats: wide=46 is not kind=note") && all.contains("java: line 8: hats: 44 is not kind=note")
+        && all.contains("java: line 9: hats has no notes") && javaSaid.size() == 4 && all.contains("template: true")
+        && all.matches("(?s).*Hi-hat check: closed hat 42 written as: alone .* of 6.*; with a kick .* of 6.*") && all.contains("Hi-hat check: pedal hat 44 is silent in this plugin: left out")
+        && all.matches("(?s).*Hi-hat check: right closed \\d+ of 12, open \\d+ of 12 \\(closed as 42, pedal as 44, open as 46\\); semi-open written as .* of 12.*") && !all.contains("Traceback");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 13112026: map.txt's "chokes 49=50, 51=52" lines: each plugin's own choke notes for the choke check after
    * the test beat (its section's, else the lines before any section; AVL Drumkits' built in), not read as
    * note pairs; Check (PluginFiles.mapProblems) and vst_render's map_problems say the same of a bad one.

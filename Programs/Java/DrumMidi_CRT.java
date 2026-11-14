@@ -1068,6 +1068,9 @@ public class DrumMidi_CRT{
         for (Integer p : pickPeaks(kickOnset, BASE_DELTA)) if (jump(kickLevel, p.intValue()) >= KICK_JUMP) mark(busy, p.intValue(), 2);
         // HAT_DELTA of the onset threshold: soft hats among loud ones (their mean over 16 frames each way)
         // are found too.
+        // The kicks found (a frame either side): a cymbal struck with one has the kick's click in its bands.
+        boolean[] onKick = new boolean[kick.length];
+        for (Integer p : kickFrames) mark(onKick, p.intValue(), 1);
         List<Integer> hatPeaks = cymbals ? pickPeaks(hat, (BASE_DELTA * HAT_DELTA) / Math.max(0.05, hatSens), 3) : new ArrayList<Integer>();
         // A snare's noise (or a kick's click) reaches the hat band, so a hat under one is taken only
         // where it keeps the time of the hats around it (hats on both sides at the same spacing, or
@@ -1081,7 +1084,7 @@ public class DrumMidi_CRT{
         boolean[] snareLike = new boolean[nHats];
         for (int i = 0; i < nHats; i++) {
             int t = hatPeaks.get(i).intValue();
-            if (isCrash(ride, top, rideEnergy, topEnergy, t) || ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) {
+            if (isCrash(ride, top, rideEnergy, topEnergy, t, onKick[t]) || ride[t] >= hat[t] * 0.85 && rideRings(rideEnergy, t) && snareBody[t] < ride[t]) {
                 maybeCymbal[i] = true;
                 continue;
             }
@@ -1125,7 +1128,7 @@ public class DrumMidi_CRT{
         for (int i = 0; i < ridePeaks.size(); i++) {
             int t = ridePeaks.get(i).intValue();
             if (!rideRings(rideEnergy, t)) continue;
-            if (isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
+            if (isCrash(ride, top, rideEnergy, topEnergy, t, onKick[t])) continue;
             if (snareBody[t] > ride[t] && snareBody[t] > 0.8) continue;
             if (hat[t] > ride[t] * 1.35) continue;
             hits.add(new Hit(t * (double) HOP / sr, RIDE_NOTE, ride[t]));
@@ -1137,7 +1140,7 @@ public class DrumMidi_CRT{
         List<Integer> crashPeaks = cymbals && !openLikeCrash ? pickPeaks(crash, (BASE_DELTA * 1.7) / Math.max(0.05, crashSens), 32) : new ArrayList<Integer>();
         for (int i = 0; i < crashPeaks.size(); i++) {
             int t = crashPeaks.get(i).intValue();
-            if (!isCrash(ride, top, rideEnergy, topEnergy, t)) continue;
+            if (!isCrash(ride, top, rideEnergy, topEnergy, t, onKick[t])) continue;
             if (!crashAttack(ride, top, t)) continue;
             hits.add(new Hit(t * (double) HOP / sr, CRASH_NOTE, crash[t]));
         }
@@ -2162,12 +2165,20 @@ public class DrumMidi_CRT{
         return tailFloor(energy, a, b) > now * 0.22;
     }
 
+    /**
+     * A crash struck with a kick: the kick's beater click lifts the ride band's onset (Ugritone's studio
+     * kits: the top band 0.42-0.50 of it, a crash alone 0.7-1), so the top band needs only this much of it.
+     * Its wash still decides (a kick alone has none).
+     */
+    static final double CRASH_ON_KICK = 0.35;
+
     /** A crash hits the ride band and the top band together, and both keep washing. */
-    static boolean isCrash(double[] ride, double[] top, double[] rideEnergy, double[] topEnergy, int t) {
+    static boolean isCrash(double[] ride, double[] top, double[] rideEnergy, double[] topEnergy, int t, boolean onKick) {
         double r = ride[t], h = top[t];
         if (r < 0.58 || h < 0.58) return false;
         double hi = Math.max(r, h), lo = Math.min(r, h);
-        if (lo < hi * 0.62) return false;
+        // On a kick its beater click lifts the ride band's onset: the top band is then CRASH_ON_KICK of it.
+        if (lo < hi * (onKick && r > h ? CRASH_ON_KICK : 0.62)) return false;
         return crashWash(rideEnergy, t) && crashWash(topEnergy, t);
     }
 

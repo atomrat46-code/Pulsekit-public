@@ -134,6 +134,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   with --test: no cymbal check. Else after the test beat each crash and ride the songs use
                   (49, 57, 52, 55, 51, 59, 53, through the note map) is struck 6 times alone and 6 times
                   with a kick, and the report says what DrumMidi wrote and how many were right.
+                  The plugin's hats too: a "hats closed=42 pedal=44 semiopen=46 open=32" line in its
+                  map.txt section (its own notes; AVL Drumkits' 42, 44, 46 and 48 built in) has each hat
+                  struck 6 times alone and 6 times with a kick (the hi-hat check), and the report says
+                  what DrumMidi wrote: right is closed as 42, pedal as 44, open as 46 (no semi-open note).
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
@@ -1445,7 +1449,7 @@ def map_for(text, plugin=None):
                 if head:
                     at = head.group(1).strip()
                     parts.setdefault(at, [])
-                elif line and not CHOKES_LINE.match(line):
+                elif line and not CHOKES_LINE.match(line) and not HATS_LINE.match(line):
                     (parts[at] if at is not None else common).append(line)
         want = map_key(os.path.splitext(os.path.basename(os.path.normpath(plugin)))[0]) if plugin else ""
         pick = None
@@ -1533,11 +1537,36 @@ CHOKES_LINE = re.compile(r"(?i)^chokes?\b\s*:?\s*(.*)$")
 AVL_CHOKES = {49: 50, 51: 52, 57: 58}
 
 
-def plugin_chokes(path, plugin):
-    """The plugin's choke notes from map.txt: the "chokes" line of its section (else of the lines before any
-    section); ({}, None) when there is none. The second: the section's name ("" for the lines before any)."""
+# A map.txt section's hi-hat notes: "hats closed=42 pedal=44 semiopen=46 open=32" (the plugin's own notes).
+HATS_LINE = re.compile(r"(?i)^hats?\b\s*:?\s*(.*)$")
+HAT_KINDS = ("closed", "pedal", "semiopen", "open")
+# x42 AVL Drumkits' hats: closed 42, pedal 44, semi-open 46, open (its swish) 48.
+AVL_HATS = {"closed": 42, "pedal": 44, "semiopen": 46, "open": 48}
+
+
+def hats_pairs(text):
+    """A hats line's notes: {"closed": 42, ...}; ValueError on a word that is no kind=note."""
+    out = {}
+    for pair in [x for x in re.split(r"[,;\s]+", (text or "").strip()) if x]:
+        m = re.match(r"^([A-Za-z-]+)=([^=\s]+)$", pair)
+        kind = re.sub(r"[^a-z]", "", m.group(1).lower()) if m else ""
+        if kind == "semi":
+            kind = "semiopen"
+        if not m or kind not in HAT_KINDS:
+            raise ValueError("%s is not kind=note (closed=42, pedal=44, semiopen=46, open=46)" % pair)
+        n = note_number(m.group(2))
+        if not 0 <= n <= 127:
+            raise ValueError("%s: no such note" % pair)
+        out[kind] = n
+    return out
+
+
+def plugin_line(path, plugin, pattern):
+    """The text after a map.txt line matching `pattern` (chokes, hats) in the plugin's section, else in the
+    lines before any section; (None, None) when there is none. The second: the section's name ("" for the
+    lines before any)."""
     if not path or not os.path.isfile(path):
-        return {}, None
+        return None, None
     common, parts, at = None, {}, None
     with open(path) as f:
         for line in f:
@@ -1546,7 +1575,7 @@ def plugin_chokes(path, plugin):
             if head:
                 at = head.group(1).strip()
                 continue
-            m = CHOKES_LINE.match(line)
+            m = pattern.match(line)
             if m:
                 if at is None:
                     common = m.group(1)
@@ -1556,8 +1585,22 @@ def plugin_chokes(path, plugin):
     for name, text in parts.items():
         k = map_key(name)
         if want and k and (k in want or want in k):
-            return map_for(text)[0], name
-    return (map_for(common)[0], "") if common else ({}, None)
+            return text, name
+    return (common, "") if common else (None, None)
+
+
+def plugin_hats(path, plugin):
+    """The plugin's hi-hat notes from map.txt: the "hats" line of its section (else of the lines before any
+    section); ({}, None) when there is none. The second: the section's name."""
+    text, part = plugin_line(path, plugin, HATS_LINE)
+    return (hats_pairs(text), part) if text is not None else ({}, None)
+
+
+def plugin_chokes(path, plugin):
+    """The plugin's choke notes from map.txt: the "chokes" line of its section (else of the lines before any
+    section); ({}, None) when there is none. The second: the section's name ("" for the lines before any)."""
+    text, part = plugin_line(path, plugin, CHOKES_LINE)
+    return (map_for(text)[0], part) if text is not None else ({}, None)
 
 
 def note_map_home():
@@ -1619,6 +1662,17 @@ def map_problems(text):
                     out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
             if not ch.group(1).strip():
                 out.append("line %d: chokes has no notes (chokes 49=50, 51=52)" % i)
+            continue
+        hl = HATS_LINE.match(line)
+        if hl:
+            # hats closed=42 pedal=44 semiopen=46 open=32: each kind the plugin's note.
+            if not hl.group(1).strip():
+                out.append("line %d: hats has no notes (hats closed=42 pedal=44 semiopen=46 open=46)" % i)
+            for pair in [x for x in re.split(r"[,;\s]+", hl.group(1).strip()) if x]:
+                try:
+                    hats_pairs(pair)
+                except ValueError:
+                    out.append("line %d: hats: %s is not kind=note (closed, pedal, semiopen or open=a note, closed=42)" % (i, pair))
             continue
         m = re.match(r"^([^=\s]+)\s*=\s*([^=\s]+)$", line)
         if not m:
@@ -2645,6 +2699,86 @@ def cymbal_check(chain, np, rate, bits, opts, kit_file, nmap, extra):
     if total:
         out.append("Cymbal check: right %s (a crash written as a crash, a ride as a ride)"
                    % ", ".join("%s %d of %d" % ({"crash": "crashes", "ride": "rides"}[k], right[k], total[k]) for k in ("crash", "ride") if k in total))
+    return out
+
+
+# The hi-hat check after the test beat (--test, with a "hats" line in the plugin's map.txt section, or AVL
+# Drumkits' built in; --no-cymbal-check leaves it out): each hat the plugin has (closed, pedal, semi-open,
+# open: its own notes, no note map) struck CYMBAL_CHECK_HITS times alone and as many with a kick,
+# CYMBAL_CHECK_GAP s apart; DrumMidi (with the kit profile) is asked what it hears. Right: closed as 42,
+# pedal as 44, open as 46. DrumMidi has no semi-open note: what it writes there is said, not counted.
+HAT_LABELS = {"closed": "closed hat", "pedal": "pedal hat", "semiopen": "semi-open hat", "open": "open hat"}
+HAT_WANT = {"closed": 42, "pedal": 44, "open": 46}
+HAT_NOTES = (42, 44, 46)
+
+
+def hats_text(hats):
+    """A hats line's notes as said: closed=42 pedal=44 semiopen=46 open=32."""
+    return " ".join("%s=%d" % (k, hats[k]) for k in HAT_KINDS if k in hats)
+
+
+def hihat_check(chain, np, rate, bits, opts, kit_file, hats, kick, extra):
+    """The hi-hat check: lines saying what each hat (alone, with a kick) was written as, and how many were
+    right. `hats`: the plugin's notes ({"closed": 42, ...}); `kick`: its kick's note. A hat silent in the
+    plugin is said and left out of the counts."""
+    import tempfile
+    kinds = [k for k in HAT_KINDS if k in hats]
+    hits, t = [], 0.5
+    for kind in kinds:
+        for with_kick in (False, True):
+            for _ in range(CYMBAL_CHECK_HITS):
+                hits.append((t, kind, with_kick))
+                t += CYMBAL_CHECK_GAP
+    if not hits:
+        return ["Hi-hat check: no hats in the hats line"]
+    work = tempfile.mkdtemp(prefix="vst-hats-")
+    midi = notes_midi(os.path.join(work, "hats.mid"), sorted([(a, hats[k], 110) for a, k, _ in hits] + [(a, kick, 110) for a, _, w in hits if w]))
+    print("Working: the hi-hat check (%s: each %d times alone and %d times with a kick)" % (hats_text(hats), CYMBAL_CHECK_HITS, CYMBAL_CHECK_HITS))
+    sys.stdout.flush()
+    try:
+        audio, _, _ = chain.render(np, midi=midi, tail=2.0, raw=True)
+    except ValueError as e:
+        return ["Hi-hat check: it did not play (%s)" % e]
+    audio, _ = finish(np, audio, 100)
+    wav = os.path.join(work, "hats.wav")
+    write_wav(wav, audio, rate, bits)
+    mono = np.abs(audio).max(axis=0) if audio.ndim > 1 else np.abs(audio)
+    peak = float(mono.max()) if mono.size else 0.0
+    found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "hats-dm.mid"), list(extra) + (["--kit", kit_file] if kit_file else []))
+    if isinstance(found, str):
+        return ["Hi-hat check: %s" % found]
+    out, right, total, semi = [], {}, {}, {}
+    for kind in kinds:
+        mine = [(a, w) for a, k, w in hits if k == kind]
+        alone = [a for a, w in mine if not w]
+        loud = max(float(mono[int(a * rate):int((a + 0.3) * rate)].max()) for a in alone) if alone else 0.0
+        if peak <= 0 or loud < 0.01 * peak:
+            out.append("Hi-hat check: %s %d is silent in this plugin: left out" % (HAT_LABELS[kind], hats[kind]))
+            continue
+        parts = []
+        for with_kick in (False, True):
+            written = {}
+            for a, w in mine:
+                if w != with_kick:
+                    continue
+                got = sorted(set(n for u, n in found if -0.06 < u - a < 0.2 and n not in CHOKE_DRUMS))
+                key = "+".join(str(n) for n in got) or "missed"
+                written[key] = written.get(key, 0) + 1
+                if kind in HAT_WANT:
+                    right[kind] = right.get(kind, 0) + (HAT_WANT[kind] in got)
+                    total[kind] = total.get(kind, 0) + 1
+                else:
+                    hat = [n for n in got if n in HAT_NOTES]
+                    k = str(hat[-1]) if hat else "no hat"
+                    semi[k] = semi.get(k, 0) + 1
+            parts.append("%s %s" % ("with a kick" if with_kick else "alone", ", ".join("%s %d of %d" % (x, c, CYMBAL_CHECK_HITS) for x, c in sorted(written.items()))))
+        out.append("Hi-hat check: %s %d written as: %s" % (HAT_LABELS[kind], hats[kind], "; ".join(parts)))
+    if total or semi:
+        said = ["%s %d of %d" % (k, right[k], total[k]) for k in ("closed", "pedal", "open") if k in total]
+        line = "Hi-hat check: right %s (closed as 42, pedal as 44, open as 46)" % ", ".join(said) if said else "Hi-hat check:"
+        if semi:
+            line += "%s semi-open written as %s" % (";" if said else "", ", ".join("%s %d of %d" % (k, c, sum(semi.values())) for k, c in sorted(semi.items())))
+        out.append(line)
     return out
 
 
@@ -4616,6 +4750,20 @@ def main(argv):
             cym_lines = cymbal_check(chain, np, rate, bits, opts, kit_file, nmap, extra)
             for line in cym_lines:
                 print(line)
+            # The hi-hat check: the plugin's own hats (map.txt's "hats" line for it, else AVL Drumkits' built in).
+            try:
+                hats, hat_part = plugin_hats(choke_file, plugin)
+            except ValueError as e:
+                fail("map.txt's hats: %s" % e)
+            hat_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % hat_part if hat_part else "") if hats else None
+            if not hats and avl_kit(plugin):
+                hats, hat_from = dict(AVL_HATS), "built in for AVL Drumkits"
+            if hats:
+                kick = nmap.get(36, 36)
+                hat_lines = ["Hats from %s: %s" % (hat_from, hats_text(hats))] + hihat_check(chain, np, rate, bits, opts, kit_file, hats, 36 if kick is None else kick, extra)
+                for line in hat_lines:
+                    print(line)
+                cym_lines = list(cym_lines) + hat_lines
             choke_lines = list(choke_lines) + cym_lines
         if test and "--check" not in switches:
             where = opts["--outdir"] or "."
