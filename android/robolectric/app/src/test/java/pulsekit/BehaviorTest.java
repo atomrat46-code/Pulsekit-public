@@ -7387,6 +7387,37 @@ public class BehaviorTest {
     if (!"SogniPedit.java".equals(get("pyName")) || !"SogniPedit.java".equals(PyJavParams.shownFor)) throw new AssertionError("Return: " + out);
     ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
+    // 14112026: a picture not 4:7 (640x480 here): Preview asks first, Upscale, Crop or Just preview.
+    File wide = new File(app.getCacheDir(), "wide.png");
+    Files.write(wide.toPath(), png.toByteArray());
+    args.setText("--prompt Hi --image " + wide.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog withWide = (AlertDialog) ShadowDialog.getLatestDialog();
+    View wv = withWide.getWindow().getDecorView();
+    PyJavParams.lastPreviewAsk = null;
+    PyJavParams.lastParamsPreview = null;
+    ((android.widget.Button) wv.findViewWithTag("params-preview:--image")).performClick();
+    idle();
+    AlertDialog ask = PyJavParams.lastPreviewAsk;
+    out.append("preview asks: ").append(ask == null ? "no" : ask.getButton(DialogInterface.BUTTON_POSITIVE).getText() + " | " + ask.getButton(DialogInterface.BUTTON_NEUTRAL).getText() + " | "
+        + ask.getButton(DialogInterface.BUTTON_NEGATIVE).getText() + " | " + ((TextView) ask.findViewById(android.R.id.message)).getText().toString().replace("\n", " ")).append('\n');
+    if (ask == null) throw new AssertionError("no Preview question: " + out);
+    ask.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("just preview: ").append(PyJavParams.lastParamsPreview != null && PyJavParams.lastParamsPreview.isShowing()).append('\n');
+    PyJavParams.lastParamsPreview.dismiss();
+    CropLayer.last = null;
+    ((android.widget.Button) wv.findViewWithTag("params-preview:--image")).performClick();
+    idle();
+    PyJavParams.lastPreviewAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("crop: ").append(CropLayer.last != null && CropLayer.last.cropping()).append('\n');
+    PyJavParams.lastParamsPreview.dismiss();
+    withWide.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    if (!out.toString().contains("preview asks: Upscale | Crop | Just preview | wide.png is 640×480: not 4:7 (it is 4:3).  Upscale it (ImageUpscaler), crop it, or just preview it?")
+        || !out.toString().contains("just preview: true") || !out.toString().contains("crop: true")) throw new AssertionError("Preview question: " + out);
     DbImport.store(app, "suit.png", png.toByteArray(), false);
     DbImport.store(app, "picture", png.toByteArray(), true);
     DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);

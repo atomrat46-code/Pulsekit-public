@@ -363,7 +363,23 @@ public final class PyJavParams {
             public void onTextChanged(CharSequence t, int a, int b, int c) {}
             public void afterTextChanged(android.text.Editable e) { paintPreview.run(); }
           });
-          preview.setOnClickListener(v -> previewPicture(activity, values[index]));
+          // Not 4:7, or smaller than the picture ImageUpscaler made last: asked first whether to upscale or crop it.
+          preview.setOnClickListener(v -> {
+            String q = activity instanceof MainActivity ? previewAsk(activity, values[index]) : null;
+            if (q == null) {
+              previewPicture(activity, values[index]);
+              return;
+            }
+            final MainActivity app = (MainActivity) activity;
+            final String path = values[index];
+            lastPreviewAsk = new AlertDialog.Builder(activity)
+                .setTitle("Preview")
+                .setMessage(q)
+                .setPositiveButton(UpscaleCheck.PREVIEW_UPSCALE, (d, w) -> upscalePreview(app, path))
+                .setNeutralButton(UpscaleCheck.PREVIEW_CROP, (d, w) -> cropPicture(app, path, (cropName, file) -> assign(activity, values, index, chosen, file.getAbsolutePath(), null)))
+                .setNegativeButton(UpscaleCheck.PREVIEW_ONLY, (d, w) -> previewPicture(activity, path))
+                .show();
+          });
           // Recent: the reference pictures used last as small thumbnails, beside Preview.
           android.widget.Button recent = new android.widget.Button(activity);
           recent.setText(RecentRefs.RECENT);
@@ -1215,6 +1231,25 @@ public final class PyJavParams {
   }
 
   static final String UPSCALE_PREVIEW = "Upscale";
+
+  /** The Preview question shown last (Upscale, Crop, Just preview), for the tests. */
+  static AlertDialog lastPreviewAsk;
+
+  /** Preview's question for the picture (UpscaleCheck.previewQuestion), or null. */
+  static String previewAsk(Activity activity, String path) {
+    try {
+      InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
+    } catch (Exception ignored) {
+      // asked of what is there
+    }
+    try {
+      java.io.File f = new java.io.File(path);
+      if (!f.isFile()) return null;
+      return UpscaleCheck.previewQuestion(activity.getFilesDir(), f.getName(), MediaDir.head(f));
+    } catch (Exception ex) {
+      return null;
+    }
+  }
 
   /**
    * Preview's Upscale: the Params closed (what was picked kept), then ImageUpscaler with the picture as

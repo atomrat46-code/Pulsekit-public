@@ -3515,7 +3515,20 @@ final class PyJav {
                     preview.setName("params-preview:" + p.token);
                     preview.setEnabled(ProgramParams.isPicture(values[i]));
                     chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
-                    preview.addActionListener(e -> this.previewPicture(values[index]));
+                    // Not 4:7, or smaller than the picture ImageUpscaler made last: asked first whether to upscale or crop it.
+                    preview.addActionListener(e -> {
+                        String q = previewAsk(values[index]);
+                        int ans = 2;
+                        if (q != null) {
+                            Object[] options = {UpscaleCheck.PREVIEW_UPSCALE, UpscaleCheck.PREVIEW_CROP, UpscaleCheck.PREVIEW_ONLY};
+                            ans = previewAnswer != null ? previewAnswer.intValue()
+                                : JOptionPane.showOptionDialog(preview, q, "Preview", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[2]);
+                            if (ans < 0) return;
+                        }
+                        if (ans == 0) this.upscalePreview(values[index], preview);
+                        else if (ans == 1) this.cropPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null));
+                        else this.previewPicture(values[index]);
+                    });
                     // Crop: the picture with the crop frame on; its menu has Use the crop in this row (upscale asked when needed).
                     final JButton crop = new JButton(CropBox.CROP_ROW);
                     crop.setName("params-crop:" + p.token);
@@ -3999,6 +4012,23 @@ final class PyJav {
     }
 
     static final String UPSCALE_PREVIEW = "Upscale";
+
+    /** The tests: the Preview question's answer (0 Upscale, 1 Crop, 2 Just preview), else asked; its text shown last. */
+    static Integer previewAnswer;
+    static String lastPreviewAsk;
+
+    /** Preview's question for the picture (UpscaleCheck.previewQuestion), or null. */
+    static String previewAsk(String path) {
+        lastPreviewAsk = null;
+        try {
+            File f = new File(path);
+            if (!f.isFile()) return null;
+            lastPreviewAsk = UpscaleCheck.previewQuestion(PromptDb.dir(), f.getName(), MediaDir.head(f));
+        } catch (Exception ex) {
+            lastPreviewAsk = null;
+        }
+        return lastPreviewAsk;
+    }
 
     /**
      * Preview's Upscale: the Preview and the Params closed (what was picked kept, as with the window's X),
