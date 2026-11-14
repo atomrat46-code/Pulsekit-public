@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -140,6 +140,12 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   map.txt section (its own notes; AVL Drumkits' 42, 44, 46 and 48 built in) has each hat
                   struck 6 times alone and 6 times with a kick (the hi-hat check), and the report says
                   what DrumMidi wrote: right is closed as 42, pedal as 44, open as 46 (no semi-open note).
+  --results_no_beats
+                  with --test: the test results zip without the test beats (and their times files):
+                  they stay on disk beside it. Earlier runs' test beats in it go too.
+  --results_no_hits
+                  with --test: the test results zip without the hits folders (vst-hits-*, the test
+                  beats' hits cut for the drum sound library: most of its size); they stay on disk.
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
@@ -3191,7 +3197,7 @@ def copy_zips(zips, folder):
     return out
 
 
-def results_zip(dirs):
+def results_zip(dirs, beats=True, hit_folders=True):
     """--test: every test's report, test beat (its MP3, else its WAV), times and kit profile in the folders
     (vst-test-*.txt, vst-check-*, vst-kit-*.kit; not in subfolders) into one zip, RESULTS_ZIP, in the first
     folder. The zip is added to, not made anew: what it holds stays, a file of the same name is replaced,
@@ -3199,7 +3205,11 @@ def results_zip(dirs):
     deleted (they are in the zip); the kit profiles stay (--kit, --compare_kits). A test beat goes only
     with its times file (a --check WAV has none and stays). The test beats' hits (vst-hits-*/ with its
     hits.txt) go in as their folders, and stay on disk too: the drum sound library links to them. Its
-    path, or None when there was nothing."""
+    path, or None when there was nothing.
+
+    --results_no_beats: the test beats (and their times) stay out of it, on disk; --results_no_hits: the
+    hits folders too (most of its size: 120 MB of 190 for 50 kits). What earlier runs put in it of
+    those goes too."""
     import zipfile
     files, loose = [], []
     for d in dirs:
@@ -3214,6 +3224,8 @@ def results_zip(dirs):
             kit = low.startswith("vst-kit-") and low.endswith(".kit")
             times = low.startswith("vst-check-") and low.endswith("-times.txt")
             beat = low.startswith("vst-check-") and low.endswith((".mp3", ".wav")) and os.path.isfile(p[:-4] + "-times.txt")
+            if (beat or times) and not beats:
+                continue
             if beat and low.endswith(".wav") and os.path.isfile(p[:-4] + ".mp3"):
                 loose.append(p)
                 continue
@@ -3223,16 +3235,17 @@ def results_zip(dirs):
                     loose.append(p)
     # The hits folders: each file under its folder's name (vst-hits-<plugin>/<file>).
     folders = []
-    for d in dirs:
+    for d in (dirs if hit_folders else []):
         if not os.path.isdir(d):
             continue
         for f in sorted(os.listdir(d)):
             h = os.path.join(d, f)
             if f.lower().startswith("vst-hits-") and os.path.isfile(os.path.join(h, "hits.txt")) and h not in folders:
                 folders.append(h)
-    if not files and not folders:
-        return None
     path = os.path.join(dirs[0], RESULTS_ZIP)
+    # Nothing new: no zip (one there is taken anew only when something is to be left out of it).
+    if not files and not folders and (beats and hit_folders or not os.path.isfile(path)):
+        return None
     # The note map (map.txt) as it is now: the reports' "Note map" lines came from it.
     map_now = note_map_home()
     work = path + ".part"
@@ -3252,6 +3265,9 @@ def results_zip(dirs):
             try:
                 with zipfile.ZipFile(path) as old:
                     for info in old.infolist():
+                        n = info.filename.lower()
+                        if not hit_folders and n.startswith("vst-hits-") or not beats and n.startswith("vst-check-"):
+                            continue
                         if info.filename not in names:
                             z.writestr(info, old.read(info.filename))
                             kept += 1
@@ -3267,10 +3283,11 @@ def results_zip(dirs):
             removed += 1
         except OSError:
             pass
-    print("Results zip: %s (%d files: the tests' reports, test beats, times and kit profiles%s%s; %.1f MB); %d loose file%s deleted, the kit profiles%s kept"
-          % (path, len(names) + kept, ", %d in %d hits folder%s" % (hits, len(folders), "" if len(folders) == 1 else "s") if folders else "",
+    print("Results zip: %s (%d files: the tests' reports, %skit profiles%s%s; %.1f MB); %d loose file%s deleted, the kit profiles%s kept%s"
+          % (path, len(names) + kept, "test beats, times and " if beats else "", ", %d in %d hits folder%s" % (hits, len(folders), "" if len(folders) == 1 else "s") if folders else "",
              ", %d from earlier runs" % kept if kept else "", os.path.getsize(path) / float(ZIP_MB), removed, "" if removed == 1 else "s",
-             " and hits folders" if folders else ""))
+             " and hits folders" if folders else "",
+             "; left out: " + " and ".join(w for w, on in (("the test beats", beats), ("the hits folders", hit_folders)) if not on) if not (beats and hit_folders) else ""))
     return path
 
 
@@ -4309,7 +4326,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -5072,7 +5089,7 @@ def main(argv):
     else:
         ready = []
     if test:
-        results = results_zip([d for d in (where, opts["--outdir"] or ".") if d])
+        results = results_zip([d for d in (where, opts["--outdir"] or ".") if d], "--results_no_beats" not in switches, "--results_no_hits" not in switches)
         if results:
             ready.append(results)
     if opts["--zip_outdir"]:

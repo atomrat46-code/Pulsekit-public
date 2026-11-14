@@ -742,7 +742,7 @@ public final class ProgramParams {
     if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
-        || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
+        || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
     if (t.startsWith("--plugin") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
@@ -908,6 +908,10 @@ public final class ProgramParams {
       p.label = "Faded opens in the test: DrumMidi writes open hats that fade like closed ones as closed (more closed hats right, some open ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
+    } else if (p.token.equals("--results_no_beats")) {
+      p.label = "Test results zip without the test beats (they stay on disk beside it): a smaller zip to sync";
+    } else if (p.token.equals("--results_no_hits")) {
+      p.label = "Test results zip without the hits folders (the test beats' hits for the drum sound library, most of its size; they stay on disk)";
     } else if (p.token.equals("--no-cymbal-check")) {
       p.label = "No cymbal check in the test (else each crash and ride, and each hat of map.txt's hats line, is struck alone and with a kick after the test beat, and the report says what DrumMidi wrote)";
     } else if (p.token.equals("--compare_kits")) {

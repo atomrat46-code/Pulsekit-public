@@ -8271,13 +8271,19 @@ public final class DesktopBehavior {
         + "buf = io.StringIO()\n"
         + "with contextlib.redirect_stdout(buf): z = vr.results_zip([d])\n"
         + "names = zipfile.ZipFile(z).namelist()\n"
-        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n";
+        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n"
+        // 14112026: --results_no_beats and --results_no_hits: the zip again without them (earlier runs' too), the report kept.
+        + "buf2 = io.StringIO()\n"
+        + "with contextlib.redirect_stdout(buf2): z2 = vr.results_zip([d], False, False)\n"
+        + "names2 = zipfile.ZipFile(z2).namelist()\n"
+        + "sys.stderr.write('ZIP2 %s | %s | said %s\\n' % (' '.join(sorted(names2)), 'hits folder kept ' + str(os.path.isfile(os.path.join(hits, 'hits.txt'))), 'left out: the test beats and the hits folders' in buf2.getvalue()))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", make, script.getAbsolutePath(), dir.getAbsolutePath(), javaBin, jar.getAbsolutePath()));
     String all = PythonRun.runFor(cmd, 120, null).trim();
     String zipSaid = all.contains("ZIP ") ? all.substring(all.indexOf("ZIP ")).split("\n")[0] : "no zip";
-    String log = all.replace(zipSaid, "").trim();
-    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n');
+    String zip2 = all.contains("ZIP2 ") ? all.substring(all.indexOf("ZIP2 ")).split("\n")[0] : "no second zip";
+    String log = all.replace(zipSaid, "").replace(zip2, "").trim();
+    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n').append(zip2).append('\n');
     File hits = new File(dir, "vst-hits-Kit");
     String[] names = hits.list();
     java.util.Arrays.sort(names);
@@ -8301,6 +8307,7 @@ public final class DesktopBehavior {
     boolean ok = text.contains("(Cut 10 hits into vst-hits-Kit (hits.txt); 1 not played by the kit (too quiet))")
         && text.contains("ZIP Results zip: ~" + File.separator + "vst-test-results.zip (14 files: the tests' reports, test beats, times and kit profiles, 11 in 1 hits folder;")
         && text.contains("the kit profiles and hits folders kept | 11 in vst-hits-Kit/, hits.txt True | folder kept True")
+        && text.contains("ZIP2 vst-test-Kit.txt | hits folder kept True | said True")
         && text.contains("folder: closed hat alone 01.wav, closed hat alone 02.wav, closed hat groove 01.wav, closed hat groove 02.wav, closed hat groove 03.wav, closed hat kick 01.wav, floor tom alone 01.wav, floor tom alone 02.wav, hits.txt, kick alone 01.wav, kick alone 02.wav")
         && text.contains("after the run: Drum sound library: Added 10 test beat hits of Kit")
         && text.contains("Closed hat · closed hat kick 01.wav (Kit) (with a kick) · ready") && text.contains("Closed hat · closed hat groove 02.wav (Kit) (in eighths) · ready")
