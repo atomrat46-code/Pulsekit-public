@@ -4774,8 +4774,10 @@ def main(argv):
         # The plugin's chokes: played alone after the test beat, and what DrumMidi writes there. Its own
         # notes: map.txt's "chokes" line for it, else --chokes, else AVL Drumkits' (built in).
         choke_file = map_file(opts["--note_map"]) if (opts["--note_map"] or "").strip() else note_map_home()
+        # The plugin itself: an LV2 plugin's bundle (avldrums.lv2), not Carla's rack that plays it.
+        own = opts.get("--bridged") or plugin
         try:
-            pairs, part = plugin_chokes(choke_file, plugin)
+            pairs, part = plugin_chokes(choke_file, own)
         except ValueError as e:
             fail("map.txt's chokes: %s" % e)
         if pairs:
@@ -4786,8 +4788,8 @@ def main(argv):
             except ValueError as e:
                 fail("--chokes: %s" % e)
             choke_from = "--chokes"
-        elif built_in_notes(plugin, PLUGIN_CHOKES, AVL_CHOKES)[0]:
-            pairs, choke_from = built_in_notes(plugin, PLUGIN_CHOKES, AVL_CHOKES)
+        elif built_in_notes(own, PLUGIN_CHOKES, AVL_CHOKES)[0]:
+            pairs, choke_from = built_in_notes(own, PLUGIN_CHOKES, AVL_CHOKES)
         if pairs and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
             choke_lines = ["Chokes from %s: %s" % (choke_from, chokes_text(pairs))] + choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
             for line in choke_lines:
@@ -4800,12 +4802,12 @@ def main(argv):
                 print(line)
             # The hi-hat check: the plugin's own hats (map.txt's "hats" line for it, else AVL Drumkits' built in).
             try:
-                hats, hat_part = plugin_hats(choke_file, plugin)
+                hats, hat_part = plugin_hats(choke_file, own)
             except ValueError as e:
                 fail("map.txt's hats: %s" % e)
             hat_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % hat_part if hat_part else "") if hats else None
             if not hats:
-                hats, hat_from = built_in_notes(plugin, PLUGIN_HATS, AVL_HATS)
+                hats, hat_from = built_in_notes(own, PLUGIN_HATS, AVL_HATS)
             if hats:
                 kick = nmap.get(36, 36)
                 hat_lines = ["Hats from %s: %s" % (hat_from, hats_text(hats))] + hihat_check(chain, np, rate, bits, opts, kit_file, hats, 36 if kick is None else kick, extra)
