@@ -10130,10 +10130,12 @@ public final class DesktopBehavior {
         && all.contains("built in Riot Drums.vst3: chokes 49=54,52=50,57=56, hats closed=42 pedal=44 semiopen=45 open=46 (built in for Riot Drums)")
         && all.contains("built in Northern Artillery Drums.vst3: chokes 49=50,51=62,57=58,59=64, hats closed=42 pedal=44 semiopen=46 open=32 (built in for Northern Artillery)")
         && all.contains("built in Other.vst3: chokes none, hats none (None)")
+        && all.contains("guard 1: None") && all.contains("guard 2: None")
+        && all.contains("guard 3: Kit name check: \"Kind of metal\" was last given for Ugritone Drums, not avldrums: is it the kit loaded in avldrums?")
         && all.contains("java: line 8: hats: closed=x is not kind=note") && all.contains("java: line 8: hats: wide=46 is not kind=note") && all.contains("java: line 8: hats: 44 is not kind=note")
         && all.contains("java: line 9: hats has no notes") && javaSaid.size() == 4 && all.contains("template: true")
-        && all.matches("(?s).*Hi-hat check: closed hat 42 written as: alone .* of 6.*; with a kick .* of 6.*") && all.contains("Hi-hat check: pedal hat 44 is silent in this plugin: left out")
-        && all.matches("(?s).*Hi-hat check: right closed \\d+ of 12, open \\d+ of 12 \\(closed as 42, pedal as 44, open as 46\\); semi-open written as .* of 12.*") && !all.contains("Traceback");
+        && all.matches("(?s).*Hi-hat check: closed hat 42 written as: alone .* of 8.*; with a kick .* of 8.*") && all.contains("Hi-hat check: pedal hat 44 is silent in this plugin: left out")
+        && all.matches("(?s).*Hi-hat check: right closed \\d+ of 16, open \\d+ of 16 \\(closed as 42, pedal as 44, open as 46\\); semi-open written as .* of 16.*") && !all.contains("Traceback");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -10591,7 +10593,7 @@ public final class DesktopBehavior {
     for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Java", "DrumMidi_CRT.java"), StandardCharsets.UTF_8))) if (p.token.equals("--chokes")) dmLabel = p.label;
     this.out.append("labels: ").append(label).append(" | ").append(dmLabel).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("Working: playing each cymbal and its choke alone (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
+    boolean ok = all.contains("Working: playing each cymbal and its choke 8 times, 1.0 s apart (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
         && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
         && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
         && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");

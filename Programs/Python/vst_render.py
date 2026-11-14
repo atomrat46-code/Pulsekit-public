@@ -130,16 +130,17 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
                   too: used when neither map.txt nor this gives any). A "chokes 49=50, 51=52" line in
                   the plugin's map.txt section (--note_map's file) is used over this: each plugin its own. After the test beat a choke beat plays each
-                  cymbal and its choke alone, and DrumMidi (--chokes, with the kit profile) is asked what
-                  it hears there: the report says what each was written as.
+                  cymbal and then its choke 8 times, a second apart, and DrumMidi (--chokes, with the kit
+                  profile) is asked what it hears there: the report says what each was written as.
   --no-cymbal-check
                   with --test: no cymbal check. Else after the test beat each crash and ride the songs use
                   (49, 57, 52, 55, 51, 59, 53, through the note map) is struck 6 times alone and 6 times
                   with a kick, and the report says what DrumMidi wrote and how many were right.
                   The plugin's hats too: a "hats closed=42 pedal=44 semiopen=46 open=32" line in its
                   map.txt section (its own notes; AVL Drumkits' 42, 44, 46 and 48 built in) has each hat
-                  struck 6 times alone and 6 times with a kick (the hi-hat check), and the report says
-                  what DrumMidi wrote: right is closed as 42, pedal as 44, open as 46 (no semi-open note).
+                  played 8 times in eighths, the others among closed hats (closed, closed, closed, open),
+                  alone and then with a kick (the hi-hat check), and the report says what DrumMidi wrote:
+                  right is closed as 42, pedal as 44, open as 46 (no semi-open note).
   --results_no_beats
                   with --test: the test results zip without the test beats (and their times files):
                   they stay on disk beside it. Earlier runs' test beats in it go too.
@@ -149,7 +150,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --no-map        with --test: no map. Without --map, a plugin drum-kits.txt has a section for
                   (Anarchy, Riot, Ugritone/KVLT, Northern Artillery) is tested with that section.
   --kit_name NAME the kit loaded in the plugin (KVLT's "Finnish Metal 2000"): plugins do not say it,
-                  so it is given here. It goes in the files' names after the plugin's
+                  so it is given here. A name last given for another plugin is warned of (one left in
+                  the Params from an earlier run; ~/.pulsekit/kit-names.txt keeps them). It goes in the files' names after the plugin's
                   (<midi>-Ugritone Drums (Finnish Metal 2000).wav, the report, the kit profile and
                   the zip) and in the report. --kit_name2 to --kit_name4: --plugin2's to --plugin4's.
                   Left blank: "default kit" (the plugin's own; Anarchy and Riot have one), or
@@ -1652,6 +1654,41 @@ def built_in_notes(plugin, table, avl):
     return {}, None
 
 
+# The kit names given with --kit_name and the plugin each was last given for (~/.pulsekit/kit-names.txt):
+# a name last given for another plugin is most likely one left in the Params from an earlier run.
+KIT_NAMES = "kit-names.txt"
+
+
+def kit_name_guard(kit, plugin, home=None):
+    """--kit_name's check: a warning when the kit name was last given for another plugin (None otherwise);
+    the name is kept for this plugin now."""
+    plug = os.path.splitext(os.path.basename(os.path.normpath(plugin or "")))[0]
+    if not kit or not plug:
+        return None
+    path = os.path.join(home or os.path.join(os.path.expanduser("~"), ".pulsekit"), KIT_NAMES)
+    names = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                k, _, p = line.rstrip("\n").partition("\t")
+                if k and p:
+                    names[k] = p
+    except OSError:
+        pass
+    before = names.get(kit)
+    names[kit] = plug
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("".join("%s\t%s\n" % kv for kv in sorted(names.items())))
+    except OSError:
+        pass
+    if before and map_key(before) != map_key(plug):
+        return ("Kit name check: \"%s\" was last given for %s, not %s: is it the kit loaded in %s? (Else change Kit loaded "
+                "in the plugin: the files, the report and the kit profile are named after it.)" % (kit, before, plug, plug))
+    return None
+
+
 def avl_kit(plugin):
     """Whether the plugin is AVL Drumkits: avldrums (its LV2 bundle), or a kit's SoundFont (Black_Pearl_4_LV2)."""
     # (Its name, not its folder: an LV2 plugin comes as its bundle's path, C:\\...\\avldrums.lv2.)
@@ -2602,7 +2639,9 @@ def same_kit_check(np, audio, rate, plugin, kit):
 
 
 # The choke beat: each cymbal and its choke alone, this far apart, this many times each.
-CHOKE_GAP, CHOKE_HITS = 1.5, 6
+# The choke beat: each cymbal CHOKE_HITS times CHOKE_GAP s apart, a steady pulse (half notes at 120 BPM; DrumMidi
+# tells a choke only with no other hit within 0.4 s of it), CHOKE_PAUSE s between the cymbals.
+CHOKE_GAP, CHOKE_HITS, CHOKE_PAUSE = 1.0, 8, 1.5
 
 
 CHOKE_PRIVATE = 100
@@ -2624,12 +2663,14 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     hits = []
     t = 0.5
     for plain, choked in sorted(pairs.items()):
-        for n in [plain] * CHOKE_HITS + [choked] * CHOKE_HITS:
-            hits.append((t, n))
-            t += CHOKE_GAP
+        for n in (plain, choked):
+            for _ in range(CHOKE_HITS):
+                hits.append((t, n))
+                t += CHOKE_GAP
+            t += CHOKE_PAUSE - CHOKE_GAP
     work = tempfile.mkdtemp(prefix="vst-chokes-")
     midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n in hits])
-    print("Working: playing each cymbal and its choke alone (--chokes %s)" % ", ".join("%d=%d" % kv for kv in sorted(pairs.items())))
+    print("Working: playing each cymbal and its choke %d times, %.1f s apart (--chokes %s)" % (CHOKE_HITS, CHOKE_GAP, ", ".join("%d=%d" % kv for kv in sorted(pairs.items()))))
     sys.stdout.flush()
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
@@ -2747,6 +2788,12 @@ def cymbal_check(chain, np, rate, bits, opts, kit_file, nmap, extra):
 HAT_LABELS = {"closed": "closed hat", "pedal": "pedal hat", "semiopen": "semi-open hat", "open": "open hat"}
 HAT_WANT = {"closed": 42, "pedal": 44, "open": 46}
 HAT_NOTES = (42, 44, 46)
+# The hi-hat check plays each hat as a song does: in eighths at 120 BPM (HAT_CHECK_GAP s apart), the closed
+# hat HAT_CHECK_HITS times, each other hat HAT_CHECK_HITS times as every fourth eighth among closed ones
+# (closed, closed, closed, open...; only it counted); alone, then with a kick on each hat counted,
+# HAT_CHECK_PAUSE s between them. (A lone hat every few seconds has no time for DrumMidi to keep: its
+# snare-like noise is taken for one then.)
+HAT_CHECK_HITS, HAT_CHECK_GAP, HAT_CHECK_PAUSE = 8, 0.25, 1.5
 
 
 def hats_text(hats):
@@ -2760,17 +2807,25 @@ def hihat_check(chain, np, rate, bits, opts, kit_file, hats, kick, extra):
     plugin is said and left out of the counts."""
     import tempfile
     kinds = [k for k in HAT_KINDS if k in hats]
-    hits, t = [], 0.5
+    # `hits`: the hats counted; `fill`: the closed hats between them (played, not counted).
+    hits, fill, t = [], [], 0.5
+    closed = hats.get("closed")
     for kind in kinds:
         for with_kick in (False, True):
-            for _ in range(CYMBAL_CHECK_HITS):
+            for _ in range(HAT_CHECK_HITS):
+                if kind != "closed" and closed is not None:
+                    for _ in range(3):
+                        fill.append(t)
+                        t += HAT_CHECK_GAP
                 hits.append((t, kind, with_kick))
-                t += CYMBAL_CHECK_GAP
+                t += HAT_CHECK_GAP
+            t += HAT_CHECK_PAUSE - HAT_CHECK_GAP
     if not hits:
         return ["Hi-hat check: no hats in the hats line"]
     work = tempfile.mkdtemp(prefix="vst-hats-")
-    midi = notes_midi(os.path.join(work, "hats.mid"), sorted([(a, hats[k], 110) for a, k, _ in hits] + [(a, kick, 110) for a, _, w in hits if w]))
-    print("Working: the hi-hat check (%s: each %d times alone and %d times with a kick)" % (hats_text(hats), CYMBAL_CHECK_HITS, CYMBAL_CHECK_HITS))
+    midi = notes_midi(os.path.join(work, "hats.mid"), sorted([(a, hats[k], 110) for a, k, _ in hits] + [(a, closed, 100) for a in fill]
+                                                             + [(a, kick, 110) for a, _, w in hits if w]))
+    print("Working: the hi-hat check (%s: each %d times in eighths, the others among closed hats; alone and with a kick)" % (hats_text(hats), HAT_CHECK_HITS))
     sys.stdout.flush()
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=2.0, raw=True)
@@ -2788,7 +2843,7 @@ def hihat_check(chain, np, rate, bits, opts, kit_file, hats, kick, extra):
     for kind in kinds:
         mine = [(a, w) for a, k, w in hits if k == kind]
         alone = [a for a, w in mine if not w]
-        loud = max(float(mono[int(a * rate):int((a + 0.3) * rate)].max()) for a in alone) if alone else 0.0
+        loud = max(float(mono[int(a * rate):int((a + HAT_CHECK_GAP) * rate)].max()) for a in alone) if alone else 0.0
         if peak <= 0 or loud < 0.01 * peak:
             out.append("Hi-hat check: %s %d is silent in this plugin: left out" % (HAT_LABELS[kind], hats[kind]))
             continue
@@ -2798,7 +2853,8 @@ def hihat_check(chain, np, rate, bits, opts, kit_file, hats, kick, extra):
             for a, w in mine:
                 if w != with_kick:
                     continue
-                got = sorted(set(n for u, n in found if -0.06 < u - a < 0.2 and n not in CHOKE_DRUMS))
+                # (Up to half the eighth on: the next hat's own hits are its.)
+                got = sorted(set(n for u, n in found if -0.06 < u - a < HAT_CHECK_GAP / 2 and n not in CHOKE_DRUMS))
                 key = "+".join(str(n) for n in got) or "missed"
                 written[key] = written.get(key, 0) + 1
                 if kind in HAT_WANT:
@@ -2808,7 +2864,7 @@ def hihat_check(chain, np, rate, bits, opts, kit_file, hats, kick, extra):
                     hat = [n for n in got if n in HAT_NOTES]
                     k = str(hat[-1]) if hat else "no hat"
                     semi[k] = semi.get(k, 0) + 1
-            parts.append("%s %s" % ("with a kick" if with_kick else "alone", ", ".join("%s %d of %d" % (x, c, CYMBAL_CHECK_HITS) for x, c in sorted(written.items()))))
+            parts.append("%s %s" % ("with a kick" if with_kick else "alone", ", ".join("%s %d of %d" % (x, c, HAT_CHECK_HITS) for x, c in sorted(written.items()))))
         out.append("Hi-hat check: %s %d written as: %s" % (HAT_LABELS[kind], hats[kind], "; ".join(parts)))
     if total or semi:
         said = ["%s %d of %d" % (k, right[k], total[k]) for k in ("closed", "pedal", "open") if k in total]
@@ -4479,6 +4535,7 @@ def main(argv):
     test = "--test" in switches
     # The plugin's name in the output files, with the kit loaded in it (--kit_name). Left blank, a
     # plugin's kit is named for what it plays: the kit saved for it (--edit, --state), else its default.
+    kit_warn = None
     if not (opts["--kit_name"] or "").strip() and (opts["--plugin"] or opts["--clap"]) and not opts["--carla"] and not opts["--drumgizmo"]:
         # A CLAP or bridged plugin's settings are kept under its own name (not the rack's).
         plug = opts["--clap"] or opts.get("--bridged") or opts["--plugin"]
@@ -4487,6 +4544,10 @@ def main(argv):
         print("Kit: %s (no --kit_name given)" % opts["--kit_name"])
     elif opts["--kit_name"]:
         print("Kit: %s (%s)" % (opts["--kit_name"], "--parts; --kit_name names it otherwise" if parts and parts_kit else "--kit_name"))
+        if not (parts and parts_kit):
+            kit_warn = kit_name_guard(opts["--kit_name"], opts["--clap"] or opts.get("--bridged") or opts["--plugin"] or name)
+            if kit_warn:
+                print(kit_warn)
     tag = kit_tag(name, opts["--kit_name"])
     if test:
         if opts["--wav"]:
@@ -4936,7 +4997,7 @@ def main(argv):
         report = ["vst_render --test: DrumMidi_CRT on each render, its hits against the MIDI played",
                   "Plugin: %s%s%s" % (os.path.basename(os.path.normpath(name)), ", kit " + opts["--kit_name"] if opts["--kit_name"] else "",
                                       ", effect " + os.path.basename(os.path.normpath(opts["--effect"])) if opts["--effect"] else ""),
-                  ] + (["Parts (--parts %s): %s" % (opts["--parts"], parts_text(parts, names_of))] if parts else []) + [
+                  ] + ([kit_warn] if kit_warn else []) + (["Parts (--parts %s): %s" % (opts["--parts"], parts_text(parts, names_of))] if parts else []) + [
                   "Notes mapped (--map%s): " % ("" if map_part is None else ", section [%s]" % map_part if map_part else ", no section for this plugin") + (", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(nmap.items())) if nmap else "none"),
                   "Note map (the notes sent to the plugin, --note_map or map.txt): " + (chain.maps_text() if parts else ", ".join("%d=%s" % (a, "none" if b is None else b) for a, b in sorted(chain.note_map.items())) if chain.note_map else "none"),
                   "Kit profile (the test beat's kick and toms): " + kit_said,

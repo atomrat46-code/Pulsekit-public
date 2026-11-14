@@ -24,6 +24,10 @@ for plugin in ("C:/VST3/Riot Drums.vst3", "C:/VST3/Northern Artillery Drums.vst3
     c, cw = vr.built_in_notes(plugin, vr.PLUGIN_CHOKES, vr.AVL_CHOKES)
     h, hw = vr.built_in_notes(plugin, vr.PLUGIN_HATS, vr.AVL_HATS)
     print("built in %s: chokes %s, hats %s (%s)" % (os.path.basename(plugin), vr.chokes_text(c) if c else "none", vr.hats_text(h) if h else "none", hw))
+guard = os.path.join(work, "guard")
+print("guard 1:", vr.kit_name_guard("Kind of metal", "C:/VST3/Ugritone Drums.vst3", guard))
+print("guard 2:", vr.kit_name_guard("Kind of metal", "C:/VST3/Ugritone Drums.vst3", guard))
+print("guard 3:", vr.kit_name_guard("Kind of metal", "C:/LV2/avldrums.lv2", guard))
 for p in vr.map_problems(open(path).read()):
     print("py: " + p)
 os.chdir(work)
