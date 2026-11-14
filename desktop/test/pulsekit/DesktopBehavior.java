@@ -14792,6 +14792,46 @@ public final class DesktopBehavior {
     out.append(seen);
     if (seen.indexOf("Preview --image enabled true, --image2 (none picked) false") < 0 || seen.indexOf("image true") < 0 || seen.indexOf("after Clear, Preview enabled false") < 0)
       throw new AssertionError("Preview: " + seen);
+    // 14112026: the Preview's Upscale: the Params closed, ImageUpscaler with the picture, its Params open; Return to SogniPedit.
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final StringBuilder up = new StringBuilder();
+    inspectNext = d -> {
+      ((javax.swing.JButton) component(d, "params-preview:--image")).doClick();
+      try {
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
+        javax.swing.JButton b = (javax.swing.JButton) component(shown.getContentPane(), "params-preview-upscale");
+        up.append("preview's upscale: ").append(b == null ? "none" : b.getText()).append('\n');
+        if (b != null) b.doClick();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    Thread.sleep(800);
+    idle();
+    up.append("upscaling: ").append(get("pyName")).append(", input ").append(get("pyInputPath")).append('\n');
+    Object ret = pyJav.getClass().getDeclaredField("pyReturn").get(pyJav);
+    up.append("return: ").append(ret instanceof javax.swing.AbstractButton ? ((javax.swing.AbstractButton) ret).getText() + " " + ((java.awt.Component) ret).isVisible() : "none").append('\n');
+    out.append(up);
+    if (up.indexOf("preview's upscale: Upscale") < 0 || up.indexOf("upscaling: ImageUpscaler.java, input " + me.getAbsolutePath()) < 0 || up.indexOf("return: Return to SogniPedit true") < 0)
+      throw new AssertionError("Preview's Upscale: " + up);
+    answers.add("Cancel");
+    edt(() -> {
+      try {
+        java.lang.reflect.Method m = pyJav.getClass().getDeclaredMethod("doReturn");
+        m.setAccessible(true);
+        m.invoke(pyJav);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    });
+    idle();
+    Thread.sleep(500);
+    idle();
+    out.append("returned: ").append(get("pyName")).append('\n');
+    if (!"SogniPedit.java".equals(get("pyName"))) throw new AssertionError("Return: " + out);
     PromptDb db = (PromptDb) get("promptDb");
     byte[] png = java.nio.file.Files.readAllBytes(me.toPath());
     PromptDb.vault().addLibraryFile("suit.png", png, "Imported", 1);

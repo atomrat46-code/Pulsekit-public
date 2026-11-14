@@ -1166,8 +1166,35 @@ public final class PyJavParams {
         }
       }
       dialog.setView(image);
+      if (activity instanceof MainActivity) {
+        // Upscale: ImageUpscaler with this picture, its Params open; Return opens this program's Params again.
+        final MainActivity app = (MainActivity) activity;
+        dialog.setNeutralButton(UPSCALE_PREVIEW, (d, w) -> upscalePreview(app, path));
+      }
     }
     lastParamsPreview = dialog.show();
+  }
+
+  static final String UPSCALE_PREVIEW = "Upscale";
+
+  /**
+   * Preview's Upscale: the Params closed (what was picked kept), then ImageUpscaler with the picture as
+   * its input, its Params open; Return to the program opens its Params again.
+   */
+  static void upscalePreview(final MainActivity app, String path) {
+    final String program = app.pyName;
+    // Cancelled (as Back does): what was picked is saved.
+    AlertDialog d = shown;
+    if (d != null && d.isShowing()) d.cancel();
+    app.openKitView("py");
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    app.pyJav.pkUseInputPath(path);
+    if (program != null) app.pyJav.pkSetReturn("Return to " + program.replaceAll("\\.java$", ""), () -> {
+      app.openKitView("py");
+      app.programMenus.selectProgram("Java", program);
+      app.pyJav.pkOpenParams();
+    });
+    app.pyJav.pkOpenParams();
   }
 
   /**

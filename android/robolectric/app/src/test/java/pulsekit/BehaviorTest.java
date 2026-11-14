@@ -7364,6 +7364,29 @@ public class BehaviorTest {
     if (preview.isEnabled()) throw new AssertionError("Preview still enabled");
     d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
+    // 14112026: the Preview's Upscale: ImageUpscaler with the picture, its Params open; Return opens SogniPedit's Params.
+    args.setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog again = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((android.widget.Button) again.getWindow().getDecorView().findViewWithTag("params-preview:--image")).performClick();
+    idle();
+    android.widget.Button up = PyJavParams.lastParamsPreview.getButton(DialogInterface.BUTTON_NEUTRAL);
+    out.append("preview's upscale: ").append(up != null ? up.getText() : "none").append('\n');
+    up.performClick();
+    idle();
+    out.append("upscaling: ").append(get("pyName")).append(", params of ").append(PyJavParams.shownFor).append(", input ").append(get("pkPyInputPath"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append('\n');
+    if (!"ImageUpscaler.java".equals(get("pyName")) || !"ImageUpscaler.java".equals(PyJavParams.shownFor) || !picture.getAbsolutePath().equals(get("pkPyInputPath"))
+        || !"Return to SogniPedit".contentEquals(((TextView) get("pkReturnBtn")).getText())) throw new AssertionError("Preview's Upscale: " + out);
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    idle();
+    out.append("returned: ").append(get("pyName")).append(", params of ").append(PyJavParams.shownFor).append('\n');
+    if (!"SogniPedit.java".equals(get("pyName")) || !"SogniPedit.java".equals(PyJavParams.shownFor)) throw new AssertionError("Return: " + out);
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
     DbImport.store(app, "suit.png", png.toByteArray(), false);
     DbImport.store(app, "picture", png.toByteArray(), true);
     DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);

@@ -3951,13 +3951,44 @@ final class PyJav {
             JLabel size = new JLabel(image.getWidth() + " \u00d7 " + image.getHeight());
             JPanel box = new JPanel(new BorderLayout(0, 6));
             box.add(thumb, BorderLayout.CENTER);
-            box.add(size, BorderLayout.SOUTH);
+            // Upscale: ImageUpscaler with this picture, its Params open; Return opens this program's Params again.
+            JButton upscale = new JButton(UPSCALE_PREVIEW);
+            upscale.setName("params-preview-upscale");
+            upscale.addActionListener(e -> this.upscalePreview(path, upscale));
+            JPanel foot = new JPanel(new BorderLayout(8, 0));
+            foot.add(size, BorderLayout.WEST);
+            foot.add(upscale, BorderLayout.EAST);
+            box.add(foot, BorderLayout.SOUTH);
             pane = new JOptionPane(box, JOptionPane.PLAIN_MESSAGE);
         }
         javax.swing.JDialog dialog = pane.createDialog(app, new File(path).getName());
         dialog.setModal(false);
         this.lastParamsPreview = dialog;
         dialog.setVisible(true);
+    }
+
+    static final String UPSCALE_PREVIEW = "Upscale";
+
+    /**
+     * Preview's Upscale: the Preview and the Params closed (what was picked kept, as with the window's X),
+     * then ImageUpscaler with the picture as its input, its Params open; Return to the program opens its Params.
+     */
+    void upscalePreview(String path, java.awt.Component from) {
+        final String program = app.pyName;
+        java.awt.Window preview = SwingUtilities.getWindowAncestor(from);
+        if (preview != null) preview.dispose();
+        for (java.awt.Window w : java.awt.Window.getWindows()) {
+            if (w instanceof javax.swing.JDialog && w.isShowing() && String.valueOf(((javax.swing.JDialog) w).getTitle()).startsWith("Parameters \u00b7 ")) w.dispose();
+        }
+        final Runnable back = program == null ? null : () -> {
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", program);
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+        };
+        SwingUtilities.invokeLater(() -> {
+            RefImages.upscale(app, new File(path), null, null);
+            if (back != null) this.setReturn("Return to " + program.replaceAll("\\.java$", ""), back);
+        });
     }
 
     /** Clear: a file picked by mistake leaves the row (a second reference image, say). */
