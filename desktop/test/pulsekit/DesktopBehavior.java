@@ -10299,6 +10299,11 @@ public final class DesktopBehavior {
     this.out.append("filled: ").append(DownloadMove.fillChoices("%g|%c|%c1|%c2|%t1|%t2|%%g|%n", ch)).append('\n');
     this.out.append("names: ").append(DownloadMove.nameFor("Img-%g.png", ch)).append(' ').append(DownloadMove.nameFor("Img-%c2-%t1.png", ch))
         .append(' ').append(DownloadMove.nameFor("%c2.png", ch)).append(' ').append(DownloadMove.nameFor("plain.png", ch)).append('\n');
+    // 14112026: a code may end with a % of its own (%g%): it is left out of the name.
+    java.util.Calendar on = java.util.Calendar.getInstance();
+    on.set(2026, 10, 14);
+    this.out.append("closed codes: ").append(DownloadMove.nameFor("Img-%g%.png", ch)).append(' ').append(DownloadMove.fillChoices("%g%-%c1%/%t1%", ch))
+        .append(' ').append(DownloadMove.expand(DownloadMove.fillChoices("%g%/%ddmm%-x", ch), on, null)).append(' ').append(DownloadMove.fillChoices("%g%c", ch)).append('\n');
     SogniDownloads.init(list);
     long rn = SogniDownloads.started("SogniPedit.java", 9000L);
     SogniDownloads.result(rn, "Succeeded: " + pic.getName(), "saved " + pic.getAbsolutePath(), null);
@@ -10326,7 +10331,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("taken: %g/%c1-%t2 | left: [--prompt, a dog, --output, Img-%g.png]")
         && all.contains("given: [--prompt, a dog, --output, Img-%g.png, --pk-subfolder, %g/%c1-%t2]") && all.contains("params row: true")
         && all.contains("needs: truetruefalsefalse") && all.contains("filled: Trip|Holiday|Holiday||sea|sun|%%g|%n")
-        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("kept: %g/%c1-%t2, waits: true")
+        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("closed codes: Img-Trip.png Trip-Holiday/sea Trip/1411-x TripHoliday") && all.contains("kept: %g/%c1-%t2, waits: true")
         && all.contains("renamed: truetrue, its group: [Trip], its tags: [sea, sun]") && all.contains("moved: Moved 1 file -> true");
     if (!ok) throw new AssertionError(all);
   }
