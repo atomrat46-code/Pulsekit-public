@@ -7391,6 +7391,7 @@ public class BehaviorTest {
     File wide = new File(app.getCacheDir(), "wide.png");
     Files.write(wide.toPath(), png.toByteArray());
     args.setText("--prompt Hi --image " + wide.getAbsolutePath());
+    PyJavParams.store(app, "SogniPedit.java", "--prompt Hi --image " + wide.getAbsolutePath());
     call("pkOpenParams");
     idle();
     AlertDialog withWide = (AlertDialog) ShadowDialog.getLatestDialog();
