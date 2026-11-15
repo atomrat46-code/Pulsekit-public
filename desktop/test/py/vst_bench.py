@@ -15,6 +15,8 @@ spec = importlib.util.spec_from_file_location('vr', os.path.abspath(sys.argv[1])
 vr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vr)
 jar, work = os.path.abspath(sys.argv[2]), os.path.abspath(sys.argv[3])
+# vst_render's ~/.pulsekit (kit-names.txt) in the work folder, not the real one.
+os.environ['HOME'] = os.environ['USERPROFILE'] = work
 R = 44100
 
 

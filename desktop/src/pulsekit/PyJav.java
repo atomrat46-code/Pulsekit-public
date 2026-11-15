@@ -3251,6 +3251,8 @@ final class PyJav {
                 }
             }
             props.setProperty(program, args);
+            // vst_render's kit names typed in the Params are listed (with their plugin) from now on, not only after a run.
+            if ("vst_render.py".equals(program)) VstLists.rememberKits(args);
             f.getParentFile().mkdirs();
             try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
                 props.store(out, "PyJav Params per program");
@@ -5198,10 +5200,44 @@ final class PyJav {
     javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
         javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
         m.setName("params-use-menu");
+        // The plugin's drum packs and sets (KitChooser.kits): a set picked sets the row's plugin and its Kit loaded.
+        java.util.Map<String, java.util.List<String>> packs = new java.util.LinkedHashMap<String, java.util.List<String>>();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : KitPacks.packs(KitChooser.kits(path)).entrySet()) {
+            java.util.List<String> sets = new java.util.ArrayList<String>();
+            for (String set : e.getValue()) if (!VstLists.NOT_KITS.contains(set.toLowerCase(java.util.Locale.ROOT))) sets.add(set);
+            if (!sets.isEmpty()) packs.put(e.getKey(), sets);
+        }
         for (final String token : ProgramParams.pluginRows(ps)) {
-            javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+            if (packs.isEmpty() || !token.matches("--plugin\\d?")) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+                item.setName("params-use-as:" + token);
+                item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+                m.add(item);
+                continue;
+            }
+            javax.swing.JMenu item = new javax.swing.JMenu(ProgramParams.useAs(token));
             item.setName("params-use-as:" + token);
-            item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            javax.swing.JMenuItem plain = new javax.swing.JMenuItem("The plugin only (Kit loaded as before)");
+            plain.setName("params-use-plain:" + token);
+            plain.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            item.add(plain);
+            item.addSeparator();
+            for (java.util.Map.Entry<String, java.util.List<String>> e : packs.entrySet()) {
+                final String pack = e.getKey();
+                javax.swing.JComponent into = item;
+                if (!KitPacks.NO_PACK.equals(pack) || packs.size() > 1) {
+                    javax.swing.JMenu sub = new javax.swing.JMenu(pack);
+                    sub.setName("params-use-pack:" + token + ":" + pack);
+                    item.add(sub);
+                    into = sub;
+                }
+                for (final String set : e.getValue()) {
+                    javax.swing.JMenuItem one = new javax.swing.JMenuItem(set);
+                    one.setName("params-use-kit:" + token + ":" + KitPacks.join(pack, set));
+                    one.addActionListener(ev -> this.usePluginKit(ps, values, fileLabels, uses, token, path, KitPacks.join(pack, set)));
+                    into.add(one);
+                }
+            }
             m.add(item);
         }
         MenuCancel.add(m);
@@ -5222,6 +5258,23 @@ final class PyJav {
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
             this.kitForPlugin(fileLabels[i], token, path);
         }
+    }
+
+    /** A plugin put on a row with the kit loaded in it (a pack's set picked in Use as plugin's menu): its Kit loaded set. */
+    void usePluginKit(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path, String kit) {
+        String kitToken = "--kit_name" + token.substring("--plugin".length());
+        for (int i = 0; i < ps.size(); i++) {
+            if (ps.get(i).token.equals(token)) {
+                values[i] = path;
+                if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+                if (uses[i] != null) uses[i].setSelected(true);
+            }
+            if (ps.get(i).token.equals(kitToken)) {
+                if (this.shownFields != null && i < this.shownFields.length && this.shownFields[i] != null) this.shownFields[i].setText(kit);
+                values[i] = kit;
+            }
+        }
+        app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7) + ", its Kit loaded " + kit);
     }
 
     /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */

@@ -21,7 +21,9 @@ import javax.swing.ListSelectionModel;
 /**
  * vst_render's Kit loaded row's Choose: the row's plugin's packs on the left, the sets of the pack picked on
  * the right (KitPacks: the kits run with the plugin and maps/kits.txt's). Use puts "Pack: Set" (a kit of its
- * own: its name) in the row; Edit list… opens kits.txt. Without a plugin on the row, every kit named before.
+ * own: its name) in the row; Add new… names a set (under the pack picked) and a set dragged onto a pack goes
+ * under it, both written into kits.txt; Edit list… opens kits.txt. Without a plugin on the row, every kit
+ * named before.
  */
 final class KitChooser {
     final JDialog dialog;
@@ -41,14 +43,24 @@ final class KitChooser {
         return c.chosen;
     }
 
-    /** The kits for the plugin: the runs' and the list file's (every kit named before when no plugin is given). */
+    /**
+     * The kits for the plugin: the runs' (and the kit names kept before they were kept with a plugin), then
+     * the list file's, which puts a set under its pack (every kit named before when no plugin is given).
+     */
     static List<String> kits(String plugin) {
         List<String> out = new ArrayList<String>();
         boolean any = plugin != null && plugin.trim().length() > 0;
-        if (any) out.addAll(VstLists.kitsFor(plugin));
-        else for (String k : VstLists.kitNames()) if (!out.contains(k)) out.add(k);
-        if (any) for (String k : KitPacks.listed(PluginFiles.read(KitPacks.file(new File(System.getProperty("user.home", ".")))), plugin)) if (!out.contains(k)) out.add(k);
-        return out;
+        if (!any) {
+            for (String k : VstLists.kitNames()) if (!out.contains(k)) out.add(k);
+            return out;
+        }
+        List<String> run = new ArrayList<String>(VstLists.kitsFor(plugin));
+        for (String k : VstLists.unplacedKits()) if (!run.contains(k)) run.add(k);
+        return KitPacks.merged(run, KitPacks.listed(PluginFiles.read(listFile()), plugin));
+    }
+
+    static File listFile() {
+        return KitPacks.file(new File(System.getProperty("user.home", ".")));
     }
 
     private KitChooser(java.awt.Component at, String plugin, String current) {
@@ -63,6 +75,39 @@ final class KitChooser {
         this.setList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         this.packList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) this.fillSets(null);
+        });
+        // A set dragged onto a pack: under that pack (written into kits.txt).
+        this.setList.setDragEnabled(true);
+        this.setList.setTransferHandler(new javax.swing.TransferHandler() {
+            @Override
+            public int getSourceActions(javax.swing.JComponent c) {
+                return MOVE;
+            }
+
+            @Override
+            protected java.awt.datatransfer.Transferable createTransferable(javax.swing.JComponent c) {
+                String v = KitChooser.this.setList.getSelectedValue();
+                return v == null ? null : new java.awt.datatransfer.StringSelection(v);
+            }
+        });
+        this.packList.setDropMode(javax.swing.DropMode.ON);
+        this.packList.setTransferHandler(new javax.swing.TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport s) {
+                return KitChooser.this.plugin != null && s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor);
+            }
+
+            @Override
+            public boolean importData(TransferSupport s) {
+                try {
+                    int at = ((JList.DropLocation) s.getDropLocation()).getIndex();
+                    if (at < 0 || at >= KitChooser.this.packModel.size()) return false;
+                    String set = String.valueOf(s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor));
+                    return KitChooser.this.moveTo(set, KitChooser.this.packModel.get(at));
+                } catch (Exception ex) {
+                    return false;
+                }
+            }
         });
         this.setList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
@@ -82,6 +127,11 @@ final class KitChooser {
         edit.setName("kit-edit");
         edit.setToolTipText("maps/kits.txt: a [plugin] section a plugin, a kit a line (Pack: Set)");
         edit.addActionListener(e -> this.editList());
+        JButton add = new JButton("Add new…");
+        add.setName("kit-add");
+        add.setToolTipText("A drum set of this plugin's: its name, under the pack picked (Pack: Set), into kits.txt");
+        add.setEnabled(plugin != null && !plugin.trim().isEmpty());
+        add.addActionListener(e -> this.addNew());
         JButton use = new JButton("Use");
         use.setName("kit-use");
         use.addActionListener(e -> this.use());
@@ -89,6 +139,8 @@ final class KitChooser {
         cancel.addActionListener(e -> this.dialog.dispose());
         JPanel buttons = new JPanel(new BorderLayout());
         JPanel west = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)), east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        west.add(add);
+        west.add(javax.swing.Box.createHorizontalStrut(6));
         west.add(edit);
         east.add(cancel);
         east.add(use);
@@ -134,6 +186,39 @@ final class KitChooser {
         this.dialog.dispose();
     }
 
+    /** Add new…'s answer for the tests (null: asked). */
+    static String addAnswer;
+
+    /** Add new…: a set's name ("Pack: Set", the pack picked filled in) into kits.txt; it is picked. */
+    void addNew() {
+        String pack = this.packList.getSelectedValue();
+        String start = pack == null || KitPacks.NO_PACK.equals(pack) ? "" : pack + ": ";
+        String kit = addAnswer != null ? addAnswer
+            : (String) JOptionPane.showInputDialog(this.dialog, "The drum set: Pack: Set (a kit without a pack: its name alone)", "Add new", JOptionPane.PLAIN_MESSAGE, null, null, start);
+        if (kit == null) return;
+        kit = kit.trim();
+        String[] p = KitPacks.split(kit);
+        if (p[1].isEmpty()) return;
+        kit = KitPacks.join(p[0], p[1]);
+        if (this.write(kit)) this.reload(kit);
+    }
+
+    /** A set moved under a pack (dropped on it): written into kits.txt; false when it could not be. */
+    boolean moveTo(String set, String pack) {
+        if (set == null || set.trim().isEmpty() || pack == null) return false;
+        String kit = KitPacks.join(pack, set.trim());
+        if (!this.write(kit)) return false;
+        this.reload(kit);
+        return true;
+    }
+
+    boolean write(String kit) {
+        File f = listFile();
+        if (PluginFiles.write(f, KitPacks.put(PluginFiles.read(f), this.plugin, kit))) return true;
+        JOptionPane.showMessageDialog(this.dialog, f.getPath() + " could not be written.");
+        return false;
+    }
+
     /** The tests: a pack and a set picked as a click would. */
     void pick(String pack, String set) {
         this.packList.setSelectedValue(pack, true);
@@ -142,7 +227,7 @@ final class KitChooser {
 
     /** Edit list…: maps/kits.txt's text (its template when there is none yet); OK saves it. */
     void editList() {
-        File f = KitPacks.file(new File(System.getProperty("user.home", ".")));
+        File f = listFile();
         String text = PluginFiles.read(f);
         javax.swing.JTextArea area = new javax.swing.JTextArea(text != null && text.length() > 0 ? text : KitPacks.TEMPLATE, 18, 60);
         area.setName("kit-list-text");

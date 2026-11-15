@@ -1689,6 +1689,48 @@ def kit_name_guard(kit, plugin, home=None):
     return None
 
 
+REPORT_KIT = re.compile(r"^Plugin: (.+?), kit (.+)$", re.M)
+
+
+def kit_names_learn(reports, home=None):
+    """The kit names the tests' reports name (their "Plugin: X, kit Y" line) put back into kit-names.txt
+    with their plugin (Pulsekit's Kit loaded lists come from it): only those it has not got; a plugin's
+    saved or default kit left out. How many were added."""
+    path = os.path.join(home or os.path.join(os.path.expanduser("~"), ".pulsekit"), KIT_NAMES)
+    names = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                k, _, p = line.rstrip("\n").partition("\t")
+                if k and p:
+                    names[k] = p
+    except OSError:
+        pass
+    added = 0
+    for report in reports:
+        try:
+            with open(report, encoding="utf-8", errors="replace") as f:
+                m = REPORT_KIT.search(f.read(4000))
+        except OSError:
+            continue
+        if not m:
+            continue
+        plug = os.path.splitext(os.path.basename(os.path.normpath(m.group(1).strip())))[0]
+        kit = m.group(2).strip()
+        if not plug or not kit or kit.lower() in ("saved kit", "default kit", "parts") or kit in names:
+            continue
+        names[kit] = plug
+        added += 1
+    if added:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("".join("%s\t%s\n" % kv for kv in sorted(names.items())))
+        except OSError:
+            return 0
+    return added
+
+
 def avl_kit(plugin):
     """Whether the plugin is AVL Drumkits: avldrums (its LV2 bundle), or a kit's SoundFont (Black_Pearl_4_LV2)."""
     # (Its name, not its folder: an LV2 plugin comes as its bundle's path, C:\\...\\avldrums.lv2.)
@@ -4188,6 +4230,7 @@ def model_bench(opts, switches):
     sig = hashlib.sha1(open(jar, "rb").read()).hexdigest()[:12]
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
+    reports = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
@@ -4195,6 +4238,7 @@ def model_bench(opts, switches):
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
+        reports.append(info["report"])
         d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs)
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         if ran:
@@ -4206,6 +4250,11 @@ def model_bench(opts, switches):
         kits.append(k)
         print("Kit %d of %d: %s (%s): %d songs, %d cymbals%s" % (n + 1, len(found), k.name, stamp, len(k.songs), len(k.label),
                                                             ", DrumMidi ran on each" if ran else ", from the last bench"), flush=True)
+    # The kit names the reports give, with their plugins, back in kit-names.txt (Kit loaded's lists).
+    learned = kit_names_learn(reports)
+    if learned:
+        print("Kit names: %d kit name%s and %s plugin%s from the tests' reports kept for Kit loaded's lists (~/.pulsekit/%s)"
+              % (learned, "" if learned == 1 else "s", "its" if learned == 1 else "their", "" if learned == 1 else "s", KIT_NAMES))
     if len(kits) < 2:
         fail("--model_compare and --leave_one_out need two kits or more")
     # The kits counted as new: the newest run's (its folder), the newest N runs', named ones, or none.

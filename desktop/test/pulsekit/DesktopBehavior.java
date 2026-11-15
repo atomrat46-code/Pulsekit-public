@@ -10215,7 +10215,8 @@ public final class DesktopBehavior {
   /**
    * 15112026: the Kit loaded row's Choose: the plugin's packs and their sets, from the kits run with it and
    * maps/kits.txt ("Pack: Set"; a name without a pack under "(no pack)"); the kit there picked; Use gives
-   * "Pack: Set".
+   * "Pack: Set". 16112026: names kept before their plugin was, "Pack:Set", a kit saved in the Params; Add
+   * new… and a set dropped on a pack (kits.txt); Use as plugin's menu of packs and sets.
    */
   void s259_kit_packs() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10237,8 +10238,58 @@ public final class DesktopBehavior {
     });
     idle();
     out.append("chosen: ").append(got[0]).append('\n');
+    // 16112026: a kit name kept before plugins were (no plugin to it), "Pack:Set" without a space, and one typed
+    // in the Params (saved, no run): listed; Add new… and a set dragged onto a pack write into kits.txt.
+    VstLists.rememberKits("--kit_name \"Tight Studio Drums:Ringy Studio Kit\"");
+    call("saveParams", "vst_render.py", "--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums:A taste of Compression\"");
+    call("saveParams", "vst_render.py", "");
+    out.append("more: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"))).append('\n');
+    KitChooser.last = null;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> KitChooser.choose(frame, "C:/VST3/Ugritone Drums.vst3", ""));
+    for (int i = 0; i < 100 && (KitChooser.last == null || !KitChooser.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final KitChooser c2 = KitChooser.last;
+    edt(() -> {
+      c2.pick("Total Studio Drums", null);
+      KitChooser.addAnswer = "Total Studio Drums: Smells like Nashville";
+      c2.addNew();
+      KitChooser.addAnswer = null;
+      out.append("added: ").append(c2.packList.getSelectedValue()).append(" / ").append(c2.setList.getSelectedValue()).append('\n');
+      c2.moveTo("KVLT_Mexico 1998", "Tight Studio Drums");
+      out.append("moved: ").append(c2.packs).append('\n');
+      c2.dialog.dispose();
+    });
+    idle();
+    out.append("kits.txt: ").append(PluginFiles.read(KitPacks.file(home)).replace("\n", " | ")).append('\n');
+    // Use as plugin's menu: the plugin's packs and sets; a set picked sets the plugin and its Kit loaded.
+    final PyJav pj = (PyJav) get("pyJav");
+    final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"));
+    final String[] values = new String[ps.size()];
+    final javax.swing.JLabel[] labels = new javax.swing.JLabel[ps.size()];
+    final javax.swing.JCheckBox[] uses = new javax.swing.JCheckBox[ps.size()];
+    final StringBuilder menu = new StringBuilder();
+    edt(() -> {
+      javax.swing.JPopupMenu m = pj.useMenu(ps, values, labels, uses, "C:/VST3/Ugritone Drums.vst3");
+      javax.swing.JMenu one = (javax.swing.JMenu) m.getComponent(0);
+      for (Component x : one.getMenuComponents()) if (x instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) x).getText()).append(x instanceof javax.swing.JMenu ? ">" : "").append("; ");
+      javax.swing.JMenu tight = null;
+      for (Component x : one.getMenuComponents()) if (x instanceof javax.swing.JMenu && ((javax.swing.JMenu) x).getText().equals("Tight Studio Drums")) tight = (javax.swing.JMenu) x;
+      for (Component x : tight.getMenuComponents()) if (((javax.swing.JMenuItem) x).getText().equals("Ringy Studio Kit")) ((javax.swing.JMenuItem) x).doClick();
+    });
+    int pl = -1, kn = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--plugin")) pl = i;
+      if (ps.get(i).token.equals("--kit_name")) kn = i;
+    }
+    out.append("menu: ").append(menu).append("\nused: ").append(values[pl]).append(" / ").append(values[kn]).append('\n');
     String all = out.toString();
-    boolean ok = all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
+    boolean ok = all.contains("more: {Tight Studio Drums=[A taste of Compression, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits], (no pack)=[KVLT_Mexico 1998]}")
+        && all.contains("added: Total Studio Drums / Smells like Nashville")
+        && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
+        && all.contains("kits.txt: [Ugritone Drums] | Total Studio Drums: Pop Hits | Tight Studio Drums: Noob Metal # one more | Total Studio Drums: Smells like Nashville | Tight Studio Drums: KVLT_Mexico 1998 | [Riot Drums] | Default kit | ")
+        && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Studio Drums>; ")
+        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums: Ringy Studio Kit")
+        && all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
         && all.contains("chosen: Total Studio Drums: Pop Hits");
     if (!ok) throw new AssertionError(all);
@@ -10486,6 +10537,7 @@ public final class DesktopBehavior {
         && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("Kit names: 2 kit names and their plugins from the tests' reports kept for Kit loaded's lists")
         && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
         && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && all.contains("cymbal-compare-1-older-kits-vs-2-kits")
         && all.contains("Failed: Model B (--model_b): the first N kits needs how many (the row under it, --model_b_kits)")
