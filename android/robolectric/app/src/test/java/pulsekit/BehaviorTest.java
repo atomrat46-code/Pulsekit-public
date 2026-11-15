@@ -15124,7 +15124,7 @@ public class BehaviorTest {
     idle();
     int left = vault.sogniSections("SogniPedit").size();
     out.append("sections: menu ").append(menu).append(" | edited ").append(edited.replace("\n", "\\n")).append(" | remove asked ").append(removeAsk.startsWith("Remove this section?")).append(", left ").append(left).append('\n');
-    boolean sectionsOk = menu.equals("Load | Edit section | Remove section") && edited.equals("Prompt: a dog\nLoras: fur 1.0\n") && removeAsk.startsWith("Remove this section?") && left == 0;
+    boolean sectionsOk = menu.equals("Load | Edit section | Remove section | Mark as final | Mark as favourite \u2605 | Add to group\u2026") && edited.equals("Prompt: a dog\nLoras: fur 1.0\n") && removeAsk.startsWith("Remove this section?") && left == 0;
     // Select file: opens where the last file was.
     android.net.Uri lastFile = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FParannetut(1)(1)%2Fa.txt");
     PyJavParams.pickedLast(app, lastFile);
