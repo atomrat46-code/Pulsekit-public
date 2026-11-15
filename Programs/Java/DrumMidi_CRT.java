@@ -95,6 +95,23 @@ public class DrumMidi_CRT{
      * (--kit) says so: under KICK_CLICKLESS.
      */
     static final double KICK_CLICKLESS = 0.0001;
+    /**
+     * A kit's toms over the ring of the hit before (its profile's "tomjump": the tom band's level jump at
+     * the test beat's 2nd and 3rd hit of each tom, half a second after the one before): a ringy, roomy
+     * kit's toms jump less, and the tom's level jump asked for (TOM_JUMP) is lowered to match. Under
+     * TOMJUMP_LOW (a boomy room: much in the tom band moves) 0.2, under TOMJUMP_MID 0.15, under TOMJUMP_HIGH 0.25.
+     */
+    static final double TOMJUMP_LOW = 0.63, TOMJUMP_MID = 0.85, TOMJUMP_HIGH = 0.95;
+    static final double TOMJUMP_WINDOW_BEFORE = 0.02, TOMJUMP_WINDOW_AFTER = 0.08;
+
+    /** The tom level jump asked for with a kit profile's "tomjump" (TOM_JUMP without one). */
+    static double tomJumpFor(double tomJump) {
+        if (tomJump < 0) return TOM_JUMP;
+        if (tomJump < TOMJUMP_LOW) return 0.2;
+        if (tomJump < TOMJUMP_MID) return 0.15;
+        if (tomJump < TOMJUMP_HIGH) return 0.25;
+        return TOM_JUMP;
+    }
     static final double TOM_ATTACK_GATE = 0.5, TOM_ATTACK = 0.6, TOM_RISE = 0.5;
     /**
      * A tom raises its band's level (70-320 Hz, linear) by TOM_JUMP, and its stick noise dies at
@@ -965,6 +982,10 @@ public class DrumMidi_CRT{
 
         // Kick onsets only count where the beater clicks. Bass notes have no click. A kit whose kick has
         // none (its profile says so: an 808's) has its kicks found by the kick band alone.
+        // A ringy, roomy kit's toms jump less over the ring before them (its profile's tomjump).
+        final double tomJumpAsked = tomJumpFor(kit == null ? -1 : kit.tomJump);
+        if (tomJumpAsked != TOM_JUMP) note("Kit " + kit.name + ": its toms jump less over the ring before them (" + String.format(java.util.Locale.ROOT, "%.2f", kit.tomJump)
+            + "): a tom's level jump of " + num(tomJumpAsked) + " is enough");
         if (clickless) note("Kit " + kit.name + ": its kick has no beater click (" + String.format(java.util.Locale.ROOT, "%.5f", kit.kickClick)
             + "): kicks are found without one");
         double[] kickOnset = new double[kick.length];
@@ -1173,7 +1194,7 @@ public class DrumMidi_CRT{
             // A tom is struck as hard as a snare and its low-mid jumps. Bass notes fail one or both.
             // Its band's level jumps (a hat's leak into it rises from near silence in log terms only),
             // and its body is a tone without wires. Over a band, bass notes are told apart by the stick.
-            if (jump(tomLevel, t) < TOM_JUMP / Math.max(0.05, tomSens) || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
+            if (jump(tomLevel, t) < tomJumpAsked / Math.max(0.05, tomSens) || wiresLeft(noiseLevel, t) >= TOM_WIRES) continue;
             if (!quietBefore(tomLevel, t) && (near(attack, t) < TOM_ATTACK || near(tomRise, t) < TOM_RISE)) continue;
             if (jump(bodyLevel, t) >= TOM_SNARE_BODY) {
                 hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
@@ -2675,6 +2696,11 @@ public class DrumMidi_CRT{
         double[] rideCut;
         /** How much the kick clicks ("kickclick v": kickClick's ratio, the median of its hits); -1 when not learned. */
         double kickClick = -1;
+        /** The kick's and toms' looks in the cymbal band, each alone (lines "c<note>d"). */
+        final List<Integer> drumNotes = new ArrayList<Integer>();
+        final List<double[]> drumLooks = new ArrayList<double[]>();
+        /** The toms' level jump over the hit before ("tomjump v", see tomJumpFor); -1 when not learned. */
+        double tomJump = -1;
 
         KitProfile(String name) {
             this.name = name;
@@ -2775,6 +2801,33 @@ public class DrumMidi_CRT{
             return s;
         }
 
+        /**
+         * The tom band's level jump (as the song's detection reads it: the whole render's level, normalized)
+         * at each tom hit with the same tom half a second before, the median; -1 without such hits.
+         */
+        static double tomJump(Audio audio, List<double[]> toms) {
+            double sr = audio.sampleRate;
+            if (toms.isEmpty() || audio.samples.length < FFT_SIZE * 4) return -1;
+            float[][] mag = spectrogram(audio.samples, sr);
+            int maxBin = mag[0].length - 1;
+            double[] level = bandMean(mag, bin(FLOOR_LO, sr, maxBin), bin(RACK_HI, sr, maxBin));
+            normalize(level);
+            List<Double> jumps = new ArrayList<Double>();
+            for (double[] h : toms) {
+                boolean after = false;
+                for (double[] o : toms) if (o[1] == h[1] && h[0] - o[0] > 0.3 && h[0] - o[0] < 0.7) after = true;
+                if (!after) continue;
+                int a = (int) Math.max(0, Math.round((h[0] - TOMJUMP_WINDOW_BEFORE) * sr / HOP));
+                int b = (int) Math.min(level.length - 1, Math.round((h[0] + TOMJUMP_WINDOW_AFTER) * sr / HOP));
+                double j = 0;
+                for (int t = a; t <= b; t++) j = Math.max(j, jump(level, t));
+                jumps.add(Double.valueOf(j));
+            }
+            if (jumps.isEmpty()) return -1;
+            Collections.sort(jumps);
+            return jumps.get(jumps.size() / 2).doubleValue();
+        }
+
         /** --learn-kit: the kick's and toms' spectra from the test beat's render, its notes' times in `times`. */
         static void learn(File render, File times, File out) throws Exception {
             Audio audio = readAudio(render);
@@ -2803,6 +2856,12 @@ public class DrumMidi_CRT{
             List<Double> cymShifts = new ArrayList<Double>();
             // How much the kick clicks, each kick alone (kickClick): an 808's does not.
             List<Double> clicks = new ArrayList<Double>();
+            // The toms' times and notes, for the tom level jump over the hit before (tomjump).
+            List<double[]> tomTimes = new ArrayList<double[]>();
+            // The kick's and each tom's look in the cymbal band, each alone ("c<note>d"): a hat found on a
+            // lone kick or tom whose look is the drum's own is the drum's bright end, not a hat.
+            java.util.Map<Integer, double[]> drumLookSum = new java.util.TreeMap<Integer, double[]>();
+            java.util.Map<Integer, Integer> drumLookCount = new java.util.HashMap<Integer, Integer>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
@@ -2859,6 +2918,20 @@ public class DrumMidi_CRT{
                 // (a plugin may play some drums late), not the note's own time.
                 double onset = onset(audio.samples, audio.sampleRate, at);
                 if (note == KICK_NOTE && onset >= 0) clicks.add(Double.valueOf(kickClick(audio.samples, audio.sampleRate, onset)));
+                if (isTomNote(note)) tomTimes.add(new double[] {at, note});
+                if ((note == KICK_NOTE || isTomNote(note)) && onset >= 0) {
+                    double[] dl = cymFeature(audio.samples, audio.sampleRate, onset);
+                    if (dl != null) {
+                        Integer dk = Integer.valueOf(note);
+                        if (!drumLookSum.containsKey(dk)) {
+                            drumLookSum.put(dk, new double[CYM_BANDS + 2]);
+                            drumLookCount.put(dk, Integer.valueOf(0));
+                        }
+                        double[] ds = drumLookSum.get(dk);
+                        for (int k = 0; k < CYM_BANDS + 2; k++) ds[k] += dl[k];
+                        drumLookCount.put(dk, Integer.valueOf(drumLookCount.get(dk).intValue() + 1));
+                    }
+                }
                 if (onset - at > late) late = onset - at;
                 double[] v = onset < 0 ? null : spectrum(audio.samples, audio.sampleRate, onset);
                 if (v == null) {
@@ -2932,6 +3005,19 @@ public class DrumMidi_CRT{
                 Collections.sort(clicks);
                 sb.append(String.format(java.util.Locale.ROOT, "kickclick %.6f\n", clicks.get(clicks.size() / 2).doubleValue()));
             }
+            for (java.util.Map.Entry<Integer, double[]> e : drumLookSum.entrySet()) {
+                double[] ds = e.getValue();
+                int c = drumLookCount.get(e.getKey()).intValue();
+                double norm = 0;
+                for (int k = 0; k < CYM_BANDS; k++) norm += ds[k] * ds[k];
+                norm = Math.sqrt(norm);
+                if (norm <= 0) continue;
+                sb.append('c').append(e.getKey()).append('d');
+                for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ds[k] / norm));
+                sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ds[CYM_BANDS] / c)).append('\n');
+            }
+            double tomJump = tomJump(audio, tomTimes);
+            if (tomJump >= 0) sb.append(String.format(java.util.Locale.ROOT, "tomjump %.4f\n", tomJump));
             // The cymbals: "c<note>", its spectrum and its fade.
             double loudest = 0;
             for (java.util.Map.Entry<Integer, double[]> e : cymSum.entrySet()) loudest = Math.max(loudest, e.getValue()[CYM_BANDS + 1] / cymCount.get(e.getKey()).intValue());
@@ -3051,6 +3137,14 @@ public class DrumMidi_CRT{
             KitProfile k = new KitProfile(f.getName());
             for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
+                if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+d")) {
+                    // The kick's or a tom's look in the cymbal band, alone.
+                    double[] c = new double[CYM_BANDS + 1];
+                    for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
+                    k.drumNotes.add(Integer.valueOf(w[0].substring(1, w[0].length() - 1)));
+                    k.drumLooks.add(c);
+                    continue;
+                }
                 if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+[ksg]?")) {
                     double[] c = new double[CYM_BANDS + 1];
                     for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
@@ -3064,6 +3158,10 @@ public class DrumMidi_CRT{
                         k.cymNotes.add(Integer.valueOf(w[0].substring(1)));
                         k.cymLooks.add(c);
                     }
+                    continue;
+                }
+                if (w.length == 2 && w[0].equals("tomjump")) {
+                    k.tomJump = Double.parseDouble(w[1]);
                     continue;
                 }
                 if (w.length == 2 && w[0].equals("kickclick")) {
