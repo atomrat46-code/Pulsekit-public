@@ -178,6 +178,37 @@ public final class KitPacks {
     return t;
   }
 
+  /**
+   * Kit loaded's suggestions as a name is typed: {shown, the field's text when picked}. Before a ":", the
+   * packs starting with the text ("T": Tight Studio Drums, Total Studio Drums; picked: "Pack: ") and the
+   * kits without a pack; after one, that pack's sets starting with what follows it. Case aside; none
+   * for an empty text or one a suggestion already is.
+   */
+  public static List<String[]> suggest(Map<String, List<String>> packs, String typed) {
+    List<String[]> out = new ArrayList<String[]>();
+    String t = typed == null ? "" : typed.replaceAll("\\s+", " ").replaceAll("^ ", "");
+    if (t.trim().isEmpty() || packs == null) return out;
+    int colon = t.indexOf(':');
+    if (colon < 0) {
+      String low = t.trim().toLowerCase(java.util.Locale.ROOT);
+      for (Map.Entry<String, List<String>> e : packs.entrySet()) {
+        if (NO_PACK.equals(e.getKey())) {
+          for (String set : e.getValue()) if (set.toLowerCase(java.util.Locale.ROOT).startsWith(low) && !set.equalsIgnoreCase(t.trim())) out.add(new String[] {set, set});
+        } else if (e.getKey().toLowerCase(java.util.Locale.ROOT).startsWith(low)) out.add(new String[] {e.getKey() + " (" + e.getValue().size() + ")", e.getKey() + ": "});
+      }
+      return out;
+    }
+    String pack = t.substring(0, colon).trim(), part = t.substring(colon + 1).trim().toLowerCase(java.util.Locale.ROOT);
+    for (Map.Entry<String, List<String>> e : packs.entrySet()) {
+      if (NO_PACK.equals(e.getKey()) || !packKey(e.getKey()).equals(packKey(pack))) continue;
+      for (String set : e.getValue()) {
+        String low = set.toLowerCase(java.util.Locale.ROOT);
+        if (low.startsWith(part) && !low.equals(part)) out.add(new String[] {set, e.getKey() + ": " + set});
+      }
+    }
+    return out;
+  }
+
   /** The kit's full name from a pack and a set ("Pack: Set"; the set alone for NO_PACK). */
   public static String join(String pack, String set) {
     return pack == null || pack.isEmpty() || NO_PACK.equals(pack) ? set : pack + ": " + set;

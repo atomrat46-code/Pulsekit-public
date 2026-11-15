@@ -3904,6 +3904,14 @@ final class PyJav {
                     if (picked >= 0) field.setText(p.choiceValue(picked));
                 });
                 row.add(field, BorderLayout.CENTER);
+                if (p.token.startsWith("--kit_name")) {
+                    // Typed: the row's plugin's packs, then the pack's sets, offered under the field (KitSuggest).
+                    final String plugToken = "--plugin" + p.token.substring("--kit_name".length());
+                    KitSuggest.attach(field, () -> {
+                        for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) return values[k];
+                        return "";
+                    });
+                }
                 if (p.token.startsWith("--map")) {
                     // vst_render's map: one of its files above, or another text file.
                     JButton browse = new JButton("Browse");

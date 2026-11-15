@@ -10303,11 +10303,21 @@ public final class DesktopBehavior {
       if (ps.get(i).token.equals("--kit_name")) kn = i;
     }
     out.append("menu: ").append(menu).append("\nused: ").append(values[pl]).append(" / ").append(values[kn]).append('\n');
+    // 16112026: Kit loaded's suggestions as a name is typed: packs ("Pack: " picked), then the pack's sets.
+    java.util.Map<String, java.util.List<String>> pk = KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"));
+    java.util.function.Function<String, String> sug = t -> {
+      StringBuilder b = new StringBuilder();
+      for (String[] g : KitPacks.suggest(pk, t)) b.append(g[0]).append(" -> ").append(g[1]).append("; ");
+      return b.toString();
+    };
+    out.append("suggest T: ").append(sug.apply("T")).append("| Ti: ").append(sug.apply("ti")).append("| Tig: ").append(sug.apply("Tigx")).append("| set: ").append(sug.apply("Tight Studio Drums: r"))
+        .append("| empty: ").append(sug.apply("")).append('\n');
     String all = out.toString();
     boolean ok = all.contains("more: {Tight Studio Drums=[A taste of Compression, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("packs added: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville], Speed Metal Drums=[], KVLT=[]}, picked KVLT")
         && all.contains("edited: {Tight Studio Drums=[A taste of Compression, Noob Metal 2, Ringy Studio Kit], Speed Metal Drums=[], KVLT=[], Total Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
         && all.contains("pack row: Tight Studio Drums (3)")
+        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums: ; Total Drums (3) -> Total Drums: ; | Ti: Tight Studio Drums (3) -> Tight Studio Drums: ; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums: Ringy Studio Kit; | empty: \n")
         && all.contains("kits.txt: [Ugritone Drums] | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums: Noob Metal 2 | -KVLT_Mexico 1998 | Total Drums: Kind of metal | Total Drums: Pop Hits | Total Drums: Smells like Nashville | [Riot Drums] | Default kit | ")
         && all.contains("added: Total Studio Drums / Smells like Nashville")
         && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
@@ -10562,6 +10572,7 @@ public final class DesktopBehavior {
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
         && all.contains("Kit names: 2 kit names and their plugins from the tests' reports kept for Kit loaded's lists")
+        && all.contains("named again: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000')]")
         && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
         && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && all.contains("cymbal-compare-1-older-kits-vs-2-kits")
         && all.contains("Failed: Model B (--model_b): the first N kits needs how many (the row under it, --model_b_kits)")

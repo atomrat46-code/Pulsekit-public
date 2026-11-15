@@ -145,3 +145,9 @@ for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"],
         vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
     except SystemExit as e:
         print("refused", e.code)
+# A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
+again = os.path.join(work, "again")
+os.makedirs(again, exist_ok=True)
+for n in ("vst-render-Ugritone_Drums_KVLT_Mexico_1998_-20261101-100000.zip", "vst-render-Ugritone_Drums_KVLT__Mexico_1998_-20261116-100000.zip"):
+    open(os.path.join(again, n), "w").write("x")
+print("named again:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])

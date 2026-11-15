@@ -190,7 +190,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   run's renders and tests: its new kits' zips are compared too). With --zip_outdir's
                   %n its zips go into the newest folder there (run last: the run's own), not a new one.
   --bench_dir     the folder with the tests' zips (vst-render-*.zip), its subfolders too (all the runs'
-                  folders: Claude/Samples). A kit tested in several runs counts once (its newest run).
+                  folders: Claude/Samples). A kit tested in several runs counts once (its newest run;
+                  its name's case, spaces and punctuation aside: KVLT_Mexico 1998 is KVLT: Mexico 1998).
                   Not given: --dir.
   --bench_unzip   where the kits' zips are unpacked (a drive with room, not the zips' own: a cloud
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
@@ -3756,21 +3757,25 @@ def render_kits(folder, recursive):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
     zips (the same zip in two folders counts once)."""
-    runs = {}
+    # A kit's zips by its name in them, case, spaces and punctuation aside: a kit named again ("KVLT_Mexico
+    # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then).
+    runs, named = {}, {}
     for root, dirs, names in os.walk(folder):
         dirs.sort()
         for n in sorted(names):
             m = RENDER_ZIP.match(n)
             if m:
-                at = runs.setdefault(m.group(1), {}).setdefault(m.group(2), {})
+                same = re.sub(r"[^a-z0-9]", "", m.group(1).lower())
+                at = runs.setdefault(same, {}).setdefault(m.group(2), {})
                 at.setdefault(n, os.path.join(root, n))
+                named.setdefault(same, {})[m.group(2)] = m.group(1)
         if not recursive:
             break
     out = []
-    for key, by_stamp in runs.items():
+    for same, by_stamp in runs.items():
         stamp = max(by_stamp)
         zips = [by_stamp[stamp][n] for n in sorted(by_stamp[stamp])]
-        out.append((key, stamp, zips, os.path.dirname(zips[0])))
+        out.append((named[same][stamp], stamp, zips, os.path.dirname(zips[0])))
     return sorted(out, key=lambda k: (k[1], k[0]))
 
 
