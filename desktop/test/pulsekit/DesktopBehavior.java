@@ -5655,7 +5655,8 @@ public final class DesktopBehavior {
 
   /**
    * 15112026: the Params Process as a reference opened have Back: they close unsaved, the program's Params
-   * as they were before the picture went in, and the program is picked again (once: opened again, no Back).
+   * as they were before the picture went in, and the program is picked again. The Params closed, the
+   * program page has Back too; used once, it is gone (opened again, no Back).
    */
   void s119b_process_ref_back() throws Exception {
     final PyJav pj = (PyJav) get("pyJav");
@@ -5678,14 +5679,21 @@ public final class DesktopBehavior {
       seen.append("saved with the picture: ").append(String.valueOf(pj.loadParams("SogniPedit.java")).contains("look.png")).append('\n');
       javax.swing.JButton back = (javax.swing.JButton) component(params, "params-back");
       seen.append("Back button: ").append(back != null).append('\n');
-      ProcessRefDialog.last = null;
-      if (back != null) back.doClick();
     };
     inspectNext = watch[0];
-    answers.add("(keep)");
+    answers.add("Cancel");
     edt(() -> ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick());
+    idle();
+    Thread.sleep(300);
+    idle();
+    // The Params cancelled: the program page's Back is there, and takes the program back.
+    final javax.swing.JComponent pageBack = (javax.swing.JComponent) get("pyBack");
+    seen.append("page Back: ").append(pageBack.isVisible()).append('\n');
+    ProcessRefDialog.last = null;
+    edt(() -> ((javax.swing.AbstractButton) pageBack).doClick());
     for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
-    seen.append("program asked again: ").append(ProcessRefDialog.last != null && ProcessRefDialog.last != d).append(", saved now ").append(pj.loadParams("SogniPedit.java")).append('\n');
+    seen.append("program asked again: ").append(ProcessRefDialog.last != null && ProcessRefDialog.last != d).append(", saved now ").append(pj.loadParams("SogniPedit.java"))
+        .append(", page Back after: ").append(pageBack.isVisible()).append('\n');
     if (ProcessRefDialog.last != null) edt(() -> ProcessRefDialog.last.dialog.dispose());
     idle();
     final boolean[] noBack = {false};
@@ -5696,7 +5704,8 @@ public final class DesktopBehavior {
     seen.append("Params again, no Back: ").append(noBack[0]).append('\n');
     out.append(seen);
     String t = seen.toString();
-    if (!t.contains("saved with the picture: true") || !t.contains("Back button: true") || !t.contains("program asked again: true, saved now --image old.png --steps 4")
+    if (!t.contains("saved with the picture: true") || !t.contains("Back button: true") || !t.contains("page Back: true")
+        || !t.contains("program asked again: true, saved now --image old.png --steps 4, page Back after: false")
         || !t.contains("Params again, no Back: true")) throw new AssertionError(t);
   }
 

@@ -271,6 +271,9 @@ final class PyJav {
         boolean prompt = app.pyName != null && app.pyName.toLowerCase().endsWith(".prompt");
         // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
         if (this.pkReturn != null && !String.valueOf(app.pyName).equals(this.pkReturnFor)) this.pkSetReturn(null);
+        // So is Process as a reference's Back.
+        if (pulsekit.PyJavParams.back != null && !String.valueOf(app.pyName).equals(pulsekit.PyJavParams.backFor)) pulsekit.PyJavParams.setBack(null, null);
+        this.pkShowBack();
         // Another program: the prompt sheet's report, reference files and invented output name go.
         if (!prompt) {
             this.pkPromptReport = null;
@@ -516,6 +519,12 @@ final class PyJav {
         this.pkReturnBtn.setVisibility(this.pkReturn == null ? 8 : 0);
         app.pyPane.addView(this.pkReturnBtn, slot);
         slot = slot + 1;
+        // Back (Process as a reference): the program picked was not the one: its Params as before, the program asked again.
+        this.pkBackBtn = app.action("Back: pick another program", ELEV, FG, v -> pulsekit.PyJavParams.runBack(app));
+        this.pkBackBtn.setTag("pyjav-back");
+        app.pyPane.addView(this.pkBackBtn, slot);
+        slot = slot + 1;
+        this.pkShowBack();
         // Stop batch: BatchRun's runs end after the one in progress.
         this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
         this.pkBatchStopBtn.setTag("pyjav-batch-stop");
@@ -694,6 +703,14 @@ final class PyJav {
     /** What Return opens (the Media browser that started ImageUpscaler), or null: the button is hidden. */
     Runnable pkReturn;
     android.view.View pkReturnBtn;
+    android.view.View pkBackBtn;
+
+    /** The program page's Back: shown while Process as a reference's Back is for the program loaded. */
+    void pkShowBack() {
+        if (this.pkBackBtn == null) return;
+        boolean on = pulsekit.PyJavParams.back != null && String.valueOf(app.pyName).equals(pulsekit.PyJavParams.backFor);
+        this.pkBackBtn.setVisibility(on ? 0 : 8);
+    }
     String pkReturnFor;
 
     public void pkSetReturn(Runnable back) {

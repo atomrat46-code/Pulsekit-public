@@ -612,10 +612,9 @@ public final class PyJavParams {
       for (int i = 0; i < checks.length; i++) if (checks[i] != null && ps.get(i).clears == null) checks[i].setOnCheckedChangeListener((b, on) -> refreshRows.run());
       refreshRows.run();
     }
-    // Opened by Process as a reference: Back (once) closes these Params unsaved and picks the program again.
+    // Opened by Process as a reference: Back closes these Params unsaved and picks the program again
+    // (there until used or another program is loaded; the program page has it too).
     final Runnable goBack = name.equals(backFor) ? back : null;
-    back = null;
-    backFor = null;
     final AlertDialog[] self = new AlertDialog[1];
     if (goBack != null) {
       android.widget.Button backButton = new android.widget.Button(activity);
@@ -624,7 +623,7 @@ public final class PyJavParams {
       backButton.setAllCaps(false);
       backButton.setOnClickListener(v -> {
         if (self[0] != null) self[0].dismiss();
-        goBack.run();
+        runBack(activity);
       });
       box.addView(backButton, 0);
     }
@@ -2071,6 +2070,15 @@ public final class PyJavParams {
   static void setBack(String program, Runnable r) {
     back = r;
     backFor = program;
+  }
+
+  /** Back (in the Params or on the program page): used once, then gone; the program page's button hidden. */
+  static void runBack(Activity activity) {
+    Runnable r = back;
+    back = null;
+    backFor = null;
+    if (activity instanceof MainActivity && ((MainActivity) activity).pyJav != null) ((MainActivity) activity).pyJav.pkShowBack();
+    if (r != null) r.run();
   }
 
   static void store(Activity activity, String program, String args) {

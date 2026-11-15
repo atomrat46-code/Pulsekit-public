@@ -3459,9 +3459,19 @@ public class BehaviorTest {
     out.append("picture in the arguments: ").append(pj.pkPyArgs.getText().toString().contains("tall.png")).append('\n');
     View back = PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back");
     out.append("Back button: ").append(back != null).append('\n');
+    // Params closed (Cancel): the program page has Back too, and the Params opened again still have it.
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    View pageBack = (View) get("pkBackBtn");
+    out.append("page Back: ").append(pageBack.getVisibility() == View.VISIBLE).append('\n');
+    call("pkOpenParams");
+    idle();
+    back = PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back");
+    out.append("Params again, Back: ").append(back != null).append('\n');
     ProcessRefDialog.last = null;
     back.performClick();
     idle();
+    out.append("page Back after: ").append(((View) get("pkBackBtn")).getVisibility() == View.VISIBLE).append('\n');
     out.append("Back: Params closed ").append(!PyJavParams.shown.isShowing()).append(", program asked again ").append(ProcessRefDialog.last != null && ProcessRefDialog.last.dialog.isShowing())
         .append(", saved now ").append(PyJavParams.load(app, "SogniPedit.java")).append('\n');
     ProcessRefDialog.last.dialog.dismiss();
@@ -3475,7 +3485,7 @@ public class BehaviorTest {
     write("s137b_process_ref_from_downloads_and_back", out.toString());
     String t = out.toString();
     if (!t.contains("Open: downloads closed true, view py, program SogniPedit.java, Return to Downloads, Params of SogniPedit.java") || !t.contains("picture in the arguments: true")
-        || !t.contains("Back button: true") || !t.contains("Back: Params closed true, program asked again true, saved now --steps 4") || !t.contains("Params again, no Back: true")
+        || !t.contains("Back button: true") || !t.contains("page Back: true") || !t.contains("page Back after: false") || !t.contains("Params again, Back: true") || !t.contains("Back: Params closed true, program asked again true, saved now --steps 4") || !t.contains("Params again, no Back: true")
         || !t.contains("Return ran: true")) throw new AssertionError(t);
   }
 

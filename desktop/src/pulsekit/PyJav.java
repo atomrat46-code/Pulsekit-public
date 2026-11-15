@@ -158,6 +158,11 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
+        // Back (Process as a reference): the program picked was not the one: its Params as before, the program asked again.
+        this.pyBack = app.action("Back: pick another program", ELEV, FG, () -> this.runParamsBack());
+        this.pyBack.setName("pyjav-back");
+        this.pyBack.setVisible(false);
+        controls.add(this.pyBack);
         // Stop batch: BatchRun's runs end after the one in progress.
         this.pyBatchStop = app.action("Stop batch", ELEV, FG, () -> this.stopBatch());
         this.pyBatchStop.setName("pyjav-batch-stop");
@@ -3118,6 +3123,9 @@ final class PyJav {
         this.pyHintPlain = status == null ? "" : status;
         // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
         if (this.returnTo != null && !String.valueOf(app.pyName).equals(this.returnFor)) this.setReturn(null);
+        // So is Process as a reference's Back.
+        if (this.paramsBack != null && !String.valueOf(app.pyName).equals(this.paramsBackFor)) this.setParamsBack(null, null);
+        else this.showParamsBack();
         // The audio input carries over to a program that takes a sound (not to SogniPedit, which
         // would name its picture after it).
         if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
@@ -3213,7 +3221,22 @@ final class PyJav {
 
     void setParamsBack(String program, Runnable back) {
         this.paramsBack = back;
-        this.paramsBackFor = program;
+        this.paramsBackFor = back == null ? null : program;
+        this.showParamsBack();
+    }
+
+    /** The program page's Back: shown while Process as a reference's Back is for the program loaded. */
+    javax.swing.JComponent pyBack;
+
+    void showParamsBack() {
+        if (this.pyBack != null) this.pyBack.setVisible(this.paramsBack != null && String.valueOf(app.pyName).equals(this.paramsBackFor));
+    }
+
+    /** Back (in the Params or on the program page): used once, then gone. */
+    void runParamsBack() {
+        Runnable r = this.paramsBack;
+        this.setParamsBack(null, null);
+        if (r != null) r.run();
     }
 
     static final String PARAMS_BACK = "Back";
@@ -3366,9 +3389,8 @@ final class PyJav {
         }
         final String extra = this.pyExtra != null ? this.pyExtra.getText() : "";
         // Opened by Process as a reference: Back (once) closes these Params unsaved and picks the program again.
+        // There until used or another program is loaded (the program page has it too).
         final Runnable back = program.equals(this.paramsBackFor) ? this.paramsBack : null;
-        this.paramsBack = null;
-        this.paramsBackFor = null;
         final boolean[] wentBack = {false};
         final String[] values = ProgramParams.values(ps, this.loadParams(program), extra);
         for (int i = 0; i < ps.size(); i++) {
@@ -4018,7 +4040,7 @@ final class PyJav {
         }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (wentBack[0]) {
-            SwingUtilities.invokeLater(back);
+            SwingUtilities.invokeLater(() -> this.runParamsBack());
             return;
         }
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.

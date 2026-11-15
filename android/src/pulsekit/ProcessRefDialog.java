@@ -259,6 +259,7 @@ final class ProcessRefDialog {
             PyJavParams.restore(app, program + ProgramParams.OFF_KEY, beforeOff);
             open(app, picture, from, null, null, myBack, label);
         });
+        pj.pkShowBack();
         this.app.setNow(this.program + " · " + this.picture.getName() + " as Reference file " + this.slot + ": Run starts it");
         // Its Params, with the picture in its slot.
         pj.pkOpenParams();
