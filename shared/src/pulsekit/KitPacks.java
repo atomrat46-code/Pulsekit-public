@@ -26,6 +26,8 @@ public final class KitPacks {
       + "# \":\" is a kit of its own. The kits run with a plugin are listed too, without being written here; a set\n"
       + "# listed here goes under the pack this file gives it (Add, Rename and dragging a set onto a pack write here).\n"
       + "# \"Pack:\" alone is a pack without sets yet; \"-Set\" takes a set off the lists (Delete).\n"
+      + "# \"New name = Old name\" (an alias: Speed Metal: 1983 Metal = 1983 Metal) lists the kit by its new name, the old\n"
+      + "# one hidden; the cymbal bench counts tests under either name as one kit (Rename and moves write these).\n"
       + "\n"
       + "[Ugritone Drums]\n"
       + "# Total Studio Drums: Smells like Nashville\n";
@@ -66,6 +68,25 @@ public final class KitPacks {
     return (pack == null ? "" : pack).replaceAll("\\s+", " ").trim().toLowerCase(java.util.Locale.ROOT);
   }
 
+  /** An alias line ("New name = Old name"): {new, old}; null for another line. */
+  public static String[] alias(String line) {
+    int eq = line == null ? -1 : line.indexOf('=');
+    if (eq <= 0 || eq >= line.length() - 1) return null;
+    String now = line.substring(0, eq).trim(), was = line.substring(eq + 1).trim();
+    return now.isEmpty() || was.isEmpty() ? null : new String[] {now, was};
+  }
+
+  /** A kit's full name to compare by (its pack's and set's, case and spaces aside). */
+  public static String fullKey(String kit) {
+    String[] p = split(kit);
+    return packKey(p[0]) + "|" + setKey(kit);
+  }
+
+  /** The alias line for a kit named anew ("New = Old"), or null when the names are one. */
+  public static String aliasLine(String now, String was) {
+    return now == null || was == null || fullKey(now).equals(fullKey(was)) ? null : now.trim() + " = " + was.trim();
+  }
+
   /** A list file line taking a set off the lists ("-Set"), and the set it takes off; null for another line. */
   static String removed(String line) {
     return line.startsWith("-") && line.length() > 1 ? line.substring(1).trim() : null;
@@ -80,7 +101,27 @@ public final class KitPacks {
    * The kits for a plugin, from the runs (`run`, the last used first) and the list file's (`listed`): a
    * set the file lists is under the file's pack only (the runs' name for it left out).
    */
-  public static List<String> merged(List<String> run, List<String> listed) {
+  public static List<String> merged(List<String> run, List<String> listedLines) {
+    // An alias line lists its new name and hides its old one.
+    List<String> listed = new ArrayList<String>();
+    java.util.Set<String> renamed = new java.util.HashSet<String>();
+    for (String k : listedLines) {
+      String[] a = alias(k);
+      if (a == null) listed.add(k);
+      else {
+        renamed.add(fullKey(a[1]));
+        if (!listed.contains(a[0])) listed.add(a[0]);
+      }
+    }
+    for (int i = listed.size() - 1; i >= 0; i--) if (removed(listed.get(i)) == null && renamed.contains(fullKey(listed.get(i))) && !split(listed.get(i))[1].isEmpty()) {
+      // (A name that is an old one of an alias, listed too: hidden as well.)
+      boolean isNew = false;
+      for (String k : listedLines) {
+        String[] a = alias(k);
+        if (a != null && fullKey(a[0]).equals(fullKey(listed.get(i)))) isNew = true;
+      }
+      if (!isNew) listed.remove(i);
+    }
     java.util.Set<String> inFile = new java.util.HashSet<String>(), gone = new java.util.HashSet<String>();
     for (String k : listed) {
       String off = removed(k);
@@ -88,7 +129,7 @@ public final class KitPacks {
       else if (!split(k)[1].isEmpty()) inFile.add(setKey(k));
     }
     List<String> out = new ArrayList<String>();
-    for (String k : run) if (!inFile.contains(setKey(k)) && !gone.contains(setKey(k)) && !out.contains(k)) out.add(k);
+    for (String k : run) if (!inFile.contains(setKey(k)) && !gone.contains(setKey(k)) && !renamed.contains(fullKey(k)) && !out.contains(k)) out.add(k);
     for (String k : listed) if (removed(k) == null && !gone.contains(setKey(k)) && !out.contains(k)) out.add(k);
     return out;
   }
@@ -121,6 +162,15 @@ public final class KitPacks {
       }
       if (!in) continue;
       String off = removed(line);
+      if (alias(kit) != null || alias(line) != null) {
+        // Alias lines: only the same line again is taken out (it is written once).
+        if (alias(kit) != null && line.equalsIgnoreCase(kit.trim())) {
+          lines.remove(i--);
+          continue;
+        }
+        if (!raw.trim().isEmpty()) sectionEnd = i + 1;
+        continue;
+      }
       boolean same = !line.isEmpty() && (off != null ? setKey(off).equals(key) : key.isEmpty() ? packKey(split(line)[0]).equals(packKey(split(kit)[0])) && split(line)[1].isEmpty() : setKey(line).equals(key));
       if (same) {
         lines.remove(i--);

@@ -191,7 +191,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   %n its zips go into the newest folder there (run last: the run's own), not a new one.
   --bench_dir     the folder with the tests' zips (vst-render-*.zip), its subfolders too (all the runs'
                   folders: Claude/Samples). A kit tested in several runs counts once (its newest run;
-                  its name's case, spaces and punctuation aside: KVLT_Mexico 1998 is KVLT: Mexico 1998).
+                  its name's case, spaces and punctuation aside: KVLT_Mexico 1998 is KVLT: Mexico 1998;
+                  and a kit renamed in Pulsekit's kit list, its alias line there: New = Old).
                   Not given: --dir.
   --bench_unzip   where the kits' zips are unpacked (a drive with room, not the zips' own: a cloud
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
@@ -3753,19 +3754,53 @@ BENCH_HOW = ("DrumMidi runs once on each song without its model; each model then
 RENDER_ZIP = re.compile(r"^(vst-render-.+?)-(\d{8}-\d{6})(?:-part\d+of\d+)?\.zip$", re.I)
 
 
-def render_kits(folder, recursive):
+def kit_aliases(home=None):
+    """Pulsekit's kit list's aliases (~/.pulsekit/maps/kits.txt: "New name = Old name" in a [plugin]
+    section): a kit's zip name's key under its old name → under its new one (as render_kits compares them)."""
+    path = os.path.join(home or os.path.join(os.path.expanduser("~"), ".pulsekit"), "maps", "kits.txt")
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return out
+    key = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    plugin = ""
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            plugin = line[1:-1]
+            continue
+        if not plugin or "=" not in line:
+            continue
+        now, _, was = line.partition("=")
+        if now.strip() and was.strip():
+            out["vstrender" + key(plugin) + key(was)] = "vstrender" + key(plugin) + key(now)
+    return out
+
+
+def render_kits(folder, recursive, aliases=None):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
     zips (the same zip in two folders counts once)."""
     # A kit's zips by its name in them, case, spaces and punctuation aside: a kit named again ("KVLT_Mexico
-    # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then).
+    # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then). So is a kit renamed
+    # in Pulsekit's kit list (its aliases: Speed Metal: 1983 Metal = 1983 Metal).
+    aliases = kit_aliases() if aliases is None else aliases
+
+    def resolved(k):
+        for _ in range(20):
+            if k not in aliases:
+                break
+            k = aliases[k]
+        return k
     runs, named = {}, {}
     for root, dirs, names in os.walk(folder):
         dirs.sort()
         for n in sorted(names):
             m = RENDER_ZIP.match(n)
             if m:
-                same = re.sub(r"[^a-z0-9]", "", m.group(1).lower())
+                same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
                 at = runs.setdefault(same, {}).setdefault(m.group(2), {})
                 at.setdefault(n, os.path.join(root, n))
                 named.setdefault(same, {})[m.group(2)] = m.group(1)

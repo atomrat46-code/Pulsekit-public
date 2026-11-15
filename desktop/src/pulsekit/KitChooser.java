@@ -332,7 +332,7 @@ final class KitChooser {
         File f = listFile();
         String t = KitPacks.remove(PluginFiles.read(f), this.plugin, set);
         String kit = KitPacks.join(pack, name);
-        if (this.save(KitPacks.put(t, this.plugin, kit))) this.reload(kit);
+        if (this.save(this.withAlias(KitPacks.put(t, this.plugin, kit), kit, KitPacks.join(pack, set)))) this.reload(kit);
     }
 
     /** A set taken off this plugin's lists, asked first. */
@@ -352,7 +352,9 @@ final class KitChooser {
         String name = clean(this.ask("Rename", "The pack's new name", pack));
         if (name.isEmpty() || name.equals(pack) || KitPacks.NO_PACK.equals(name)) return;
         List<String> sets = this.packs.get(pack) == null ? new ArrayList<String>() : this.packs.get(pack);
-        if (this.save(KitPacks.renamePack(PluginFiles.read(listFile()), this.plugin, pack, name, sets))) this.reload(name + ":");
+        String t = KitPacks.renamePack(PluginFiles.read(listFile()), this.plugin, pack, name, sets);
+        for (String set : sets) t = this.withAlias(t, KitPacks.join(name, set), KitPacks.join(pack, set));
+        if (this.save(t)) this.reload(name + ":");
     }
 
     /** A set made a pack of its own (dropped below the packs): the set taken off, a pack of its name made. */
@@ -363,6 +365,12 @@ final class KitChooser {
         if (!this.save(KitPacks.put(t, this.plugin, name + ":"))) return false;
         this.reload(name + ":");
         return true;
+    }
+
+    /** The text with the alias line "now = was" for a kit named anew (none when the names are one). */
+    String withAlias(String text, String now, String was) {
+        String line = KitPacks.aliasLine(now, was);
+        return line == null ? text : KitPacks.put(text, this.plugin, line);
     }
 
     boolean save(String text) {
@@ -376,7 +384,11 @@ final class KitChooser {
     boolean moveTo(String set, String pack) {
         if (set == null || set.trim().isEmpty() || pack == null) return false;
         String kit = KitPacks.join(pack, set.trim());
-        if (!this.write(kit)) return false;
+        // The kit's name before (the pack it was shown under): an alias, so the cymbal bench counts its tests as one kit.
+        String from = this.packList.getSelectedValue();
+        if (this.packs != null) for (java.util.Map.Entry<String, List<String>> e : this.packs.entrySet()) for (String x : e.getValue()) if (KitPacks.setKey(x).equals(KitPacks.setKey(set))) from = e.getKey();
+        String was = KitPacks.join(from, set.trim());
+        if (!this.save(this.withAlias(KitPacks.put(PluginFiles.read(listFile()), this.plugin, kit), kit, was))) return false;
         this.reload(kit);
         return true;
     }
