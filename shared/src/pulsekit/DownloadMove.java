@@ -136,8 +136,9 @@ public final class DownloadMove {
           break;
         }
       }
-      // A lone % (no code after it): kept as it is.
+      // A lone % (no code after it): kept as it is. A code may end with one too (%ddmmyy%).
       if (j == i + 1) out.append('%');
+      else if (closes(pattern, j)) j++;
       i = j - 1;
     }
     StringBuilder clean = new StringBuilder();
@@ -157,7 +158,7 @@ public final class DownloadMove {
    */
   public static final String SUB_PARAM = "--pk-subfolder";
   public static final String SUB_PARAM_LABEL = "Destination subfolder: Downloads' Move puts this run's files in it, under their type's folder (made when missing)";
-  public static final String SUB_PARAM_HINT = "e.g. %g/%ddmmyyyy; % codes: g group, c or c1 category, c2 a second one, t1 first tag, t2 second; dd mm yyyy n as in Downloads";
+  public static final String SUB_PARAM_HINT = "e.g. %g/%ddmmyyyy; % codes: g group, c or c1 category, c2 a second one, t1 first tag, t2 second; dd mm yyyy n as in Downloads (%g% works too)";
 
   /** The Destination subfolder taken off a run's arguments (the program never sees it); "" when there is none. */
   public static String takeSub(List<String> args) {
@@ -238,20 +239,32 @@ public final class DownloadMove {
       } else if (n == 'g') {
         out.append(part(ch == null ? null : first(ch.groups, 0)));
         i++;
+        if (closes(pattern, i + 1)) i++;
       } else if (n == 'c' && (d == '1' || d == '2')) {
         out.append(part(ch == null ? null : last(first(ch.categories, d - '1'))));
         i += 2;
+        if (closes(pattern, i + 1)) i++;
       } else if (n == 'c') {
         out.append(part(ch == null ? null : last(first(ch.categories, 0))));
         i++;
+        if (closes(pattern, i + 1)) i++;
       } else if (n == 't' && (d == '1' || d == '2')) {
         out.append(part(ch == null ? null : first(ch.tags, d - '1')));
         i += 2;
+        if (closes(pattern, i + 1)) i++;
       } else {
         out.append(c);
       }
     }
     return out.toString();
+  }
+
+  /**
+   * Whether the % at j closes the code before it (%g%, %ddmmyy%): a % that starts no code of its own
+   * (none of y, d, m, n, g, c, t or % after it). It is then left out of the name.
+   */
+  static boolean closes(String pattern, int j) {
+    return j < pattern.length() && pattern.charAt(j) == '%' && (j + 1 >= pattern.length() || "ydmngct%".indexOf(pattern.charAt(j + 1)) < 0);
   }
 
   private static String first(List<String> l, int i) {

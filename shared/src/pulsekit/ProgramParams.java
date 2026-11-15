@@ -85,6 +85,18 @@ public final class ProgramParams {
     public boolean pls;
     /** The Params page's tab the row is on (vst_render's Input, Output, Plugins, Settings); null: no tabs. */
     public String tab;
+    /**
+     * Its choices as a drop-down list (the field is not typed in): the first choice is the default (its
+     * value ""). vst_render's bench rows (Model A, Model B...).
+     */
+    public boolean dropdown;
+    /**
+     * Shown only when other rows are so (else null: always): "--model_compare" (that switch ticked, or
+     * that row filled in), "--model_a=kits" (that row's value; "a|b" one of them); several joined by "&".
+     */
+    public String showWhen;
+    /** A list row with Import: a text file's lines (or comma-separated names; # comments left out) put into it (vst_render's Kits left out). */
+    public boolean importList;
 
     public boolean isFile() {
       return ext != null && !output;
@@ -719,18 +731,59 @@ public final class ProgramParams {
   /** vst_render's Params tabs: what it plays, what it writes, the plugins, and the test's settings. */
   public static final String INPUT = "Input", OUTPUT = "Output", PLUGINS = "Plugins", SETTINGS = "Settings";
   public static final String FILES = PluginFiles.TAB;
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES};
+  /** vst_render's cymbal model bench (--model_compare, --leave_one_out): its own tab, after the others. */
+  public static final String MODEL = "Cymbal model";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL};
 
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
+    if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
-        || t.equals("--keep_wav") || t.startsWith("--zip")) return OUTPUT;
+        || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
     if (t.startsWith("--plugin") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
+  }
+
+  /**
+   * Whether the row is shown (showWhen) with the rows' values now: `valueOf` gives a row's value by its
+   * index ("on" for a ticked switch, "" for one not ticked).
+   */
+  public static boolean shown(Param p, List<Param> ps, java.util.function.IntFunction<String> valueOf) {
+    if (p.showWhen == null) return true;
+    for (String clause : p.showWhen.split("&")) {
+      String token = clause, want = null;
+      int eq = clause.indexOf('=');
+      if (eq >= 0) {
+        token = clause.substring(0, eq);
+        want = clause.substring(eq + 1);
+      }
+      int at = -1;
+      for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals(token)) at = i;
+      if (at < 0) return false;
+      String v = valueOf.apply(at);
+      v = v == null ? "" : v.trim();
+      if (want == null) {
+        if (v.length() == 0 || !DrumMidiArgs.on(v) && !ps.get(at).takesValue) return false;
+      } else if (!java.util.Arrays.asList(want.split("\\|", -1)).contains(v)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** A list file's names (one a line, or comma-separated; # comments and empty lines left out) as a row's value: "A, B". */
+  public static String importedList(String text) {
+    List<String> out = new ArrayList<String>();
+    for (String line : (text == null ? "" : text).split("\r?\n")) {
+      int hash = line.indexOf('#');
+      if (hash >= 0) line = line.substring(0, hash);
+      for (String part : line.split(",")) if (part.trim().length() > 0) out.add(part.trim());
+    }
+    return String.join(", ", out);
   }
 
   /** The tabs the rows are on, in order (none: the page has no tabs). */
@@ -855,6 +908,12 @@ public final class ProgramParams {
       p.label = "Faded opens in the test: DrumMidi writes open hats that fade like closed ones as closed (more closed hats right, some open ones lost)";
     } else if (p.token.equals("--no-kit")) {
       p.label = "No kit profile in the test (else the test beat's kick and toms, played alone, teach DrumMidi this kit: vst-kit-<plugin>.kit)";
+    } else if (p.token.equals("--results_no_beats")) {
+      p.label = "Test results zip without the test beats (they stay on disk beside it): a smaller zip to sync";
+    } else if (p.token.equals("--results_no_hits")) {
+      p.label = "Test results zip without the hits folders (the test beats' hits for the drum sound library, most of its size; they stay on disk)";
+    } else if (p.token.equals("--no-cymbal-check")) {
+      p.label = "No cymbal check in the test (else each crash and ride, and each hat of map.txt's hats line, is struck alone and with a kick after the test beat, and the report says what DrumMidi wrote)";
     } else if (p.token.equals("--compare_kits")) {
       p.label = "Compare kit profiles in the test: DrumMidi again with none, Pulsekit's reference and each earlier kit's vst-kit-*.kit (slower)";
     } else if (p.token.equals("--map")) {
@@ -894,6 +953,70 @@ public final class ProgramParams {
       p.hint = "30 for a 30 MB chat limit; empty: one zip";
     } else if (p.token.equals("--zip_nowav")) {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
+    } else if (p.token.equals("--bench_dir")) {
+      p.dir = true;
+      p.label = "Input folder: the tests' zips (vst-render-*.zip), its subfolders too (the folder that holds the runs' folders, such as Claude/Samples)";
+      p.hint = "empty: the Input tab's folder";
+    } else if (p.token.equals("--bench_unzip")) {
+      p.dir = true;
+      p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
+      p.hint = "empty: the kits folder in the bench's folder (below)";
+    } else if (p.token.equals("--bench_skip")) {
+      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
+      p.hint = "Riot Default kit, Cardinal; empty: every kit found";
+      p.importList = true;
+    } else if (p.token.equals("--cymbal_bench")) {
+      p.label = "Cymbal model comparison: the Cymbal model tab's Compare and Leave one out (off: not run)";
+    } else if (p.token.equals("--cymbal_bench_when")) {
+      p.label = "Cymbal model comparison: when";
+      p.dropdown = true;
+      p.showWhen = "--cymbal_bench";
+      p.choices = new String[] {"Run separately (no plugin played)", "Run last, after the run's renders and tests"};
+      p.choiceValues = new String[] {"", "last"};
+    } else if (p.token.equals("--model_compare")) {
+      p.label = "Compare two cymbal models on the kits' tests; its zip goes into the output folder (Settings: Cymbal model comparison on)";
+    } else if (p.token.equals("--model_a") || p.token.equals("--model_b")) {
+      boolean a = p.token.equals("--model_a");
+      p.label = a ? "Model A" : "Model B";
+      p.dropdown = true;
+      p.showWhen = "--model_compare";
+      p.choices = a ? new String[] {"DrumMidi's own model (built-in)", "No model", "Learned from every kit found", "Learned from the kits before the new ones", "Learned from the first N kits tested\u2026"}
+          : new String[] {"Learned from every kit found", "DrumMidi's own model (built-in)", "No model", "Learned from the kits before the new ones", "Learned from the first N kits tested\u2026"};
+      p.choiceValues = a ? new String[] {"", "none", "all", "older", "kits"} : new String[] {"", "builtin", "none", "older", "kits"};
+    } else if (p.token.equals("--model_a_kits") || p.token.equals("--model_b_kits")) {
+      String row = p.token.substring(0, p.token.length() - "_kits".length());
+      p.label = (row.equals("--model_a") ? "Model A" : "Model B") + ": how many kits (the first ones tested)";
+      p.hint = "30";
+      p.showWhen = "--model_compare&" + row + "=kits";
+    } else if (p.token.equals("--leave_one_out")) {
+      p.label = "Leave one out: each kit scored with a model learned from the other kits (it never saw the kit); its own zip into the output folder";
+    } else if (p.token.equals("--loo_kits")) {
+      p.label = "Leave one out: the kits";
+      p.dropdown = true;
+      p.showWhen = "--leave_one_out";
+      p.choices = new String[] {"The new kits", "Every kit found", "Kits named\u2026"};
+      p.choiceValues = new String[] {"", "all", "named"};
+    } else if (p.token.equals("--loo_names")) {
+      p.label = "Leave one out: parts of the kits' names";
+      p.hint = "Bucket, Garage";
+      p.showWhen = "--leave_one_out&--loo_kits=named";
+    } else if (p.token.equals("--new_kits")) {
+      p.label = "Kits counted as new (their totals apart; Leave one out's new kits)";
+      p.dropdown = true;
+      p.choices = new String[] {"The newest run's kits (its folder)", "The newest N runs' kits\u2026", "Kits named\u2026", "None"};
+      p.choiceValues = new String[] {"", "runs", "named", "none"};
+    } else if (p.token.equals("--new_runs")) {
+      p.label = "Kits counted as new: how many of the newest runs";
+      p.hint = "2";
+      p.showWhen = "--new_kits=runs";
+    } else if (p.token.equals("--new_names")) {
+      p.label = "Kits counted as new: parts of their names";
+      p.hint = "Bucket, Garage";
+      p.showWhen = "--new_kits=named";
+    } else if (p.token.equals("--bench_work")) {
+      p.dir = true;
+      p.label = "Where the bench keeps the kits unpacked and DrumMidi's results (the next bench only runs DrumMidi on new kits)";
+      p.hint = "empty: cymbal-bench in the output folder";
     } else if (p.token.equals("--zip_outdir")) {
       p.dir = true;
       p.typed = true;

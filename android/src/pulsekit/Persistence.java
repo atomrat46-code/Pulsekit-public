@@ -155,6 +155,8 @@ final class Persistence {
                 n = fileInputStream.read(byArray);
                 fileInputStream.close();
                 if (n > 0) {
+                    // The lists are built once, after all the learned grooves and fills are in (not for each).
+                    app.importLibrary.restoring = true;
                     app.learned.clear();
                     app.learned.addAll(Engine.parseLearnedJson(new String(byArray, 0, n, StandardCharsets.UTF_8)));
                     for (Engine.Learned object : app.learned) {
@@ -166,6 +168,9 @@ final class Persistence {
                     for (Engine.LearnedFill learnedFill : app.learnedFills) {
                         app.importLibrary.addLearnedFillChip(learnedFill);
                     }
+                    app.importLibrary.restoring = false;
+                    app.importLibrary.rebuildImported();
+                    app.importLibrary.rebuildImportedFills();
                     app.variatedFills.clear();
                     app.variatedFills.addAll(Engine.parseVariatedFillsJson(new String(byArray, 0, n, StandardCharsets.UTF_8)));
                     for (Engine.LearnedFill learnedFill : app.variatedFills) {
@@ -188,7 +193,12 @@ final class Persistence {
             }
         }
         catch (Exception exception) {
-            // empty catch block
+            // (a broken learned file: the lists still follow what was read)
+            if (app.importLibrary.restoring) {
+                app.importLibrary.restoring = false;
+                app.importLibrary.rebuildImported();
+                app.importLibrary.rebuildImportedFills();
+            }
         }
         try {
             file = this.kitFile();

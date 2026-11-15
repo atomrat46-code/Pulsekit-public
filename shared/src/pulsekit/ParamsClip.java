@@ -84,6 +84,33 @@ public final class ParamsClip {
     return SogniSections.app(program) + " section" + (lead.length() > 0 ? " - " + lead : "") + ".txt";
   }
 
+  /** Export's question when the program has saved sections: this entry, or all of them. */
+  public static final String EXPORT_ASK = "Export the entries in the Params now, or all the sections saved for this program?";
+  public static final String EXPORT_THIS = "This entry";
+
+  public static String exportAllLabel(String app, int n) {
+    return "All " + app + " sections (" + n + ")";
+  }
+
+  /** Export all's file name: "SogniPedit sections.txt". */
+  public static String exportAllName(String app) {
+    return app + " sections.txt";
+  }
+
+  /**
+   * Export all's text: "App: SogniPedit", then each section (the newest first), "----" between them: the
+   * definitions file format, so Params' Select file reads them back one by one.
+   */
+  public static String exportAllText(String app, List<PromptVault.SogniSection> sections) {
+    StringBuilder sb = new StringBuilder("App: ").append(app).append('\n');
+    for (int i = 0; i < sections.size(); i++) {
+      if (i > 0) sb.append("----\n");
+      String t = sections.get(i).text == null ? "" : sections.get(i).text.trim();
+      sb.append(t).append('\n');
+    }
+    return sb.toString();
+  }
+
   /** Export's text: the section's rows ("Prompt: ...", "Loras: ..."), the definitions file format. */
   public static String exportText(java.util.Map<String, String> fields) {
     return SogniSections.text(fields);

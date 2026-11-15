@@ -1363,7 +1363,7 @@ public final class DesktopBehavior {
       }
       File saved = new File(home, ".pulsekit/sogni-House-wf7.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
-      for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, 20)).append('\n');
+      for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, Math.min(20, e.prompt.length()))).append('\n');
       for (int i = 0; i < 100 && !("DrumMidi_CRT.jar".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
       out.append("after Make drum MIDI: ").append(get("pyName")).append(", input ")
           .append(String.valueOf(get("pyInputPath")).replace(home.getAbsolutePath(), "~")).append('\n');
@@ -5654,6 +5654,62 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 15112026: the Params Process as a reference opened have Back: they close unsaved, the program's Params
+   * as they were before the picture went in, and the program is picked again. The Params closed, the
+   * program page has Back too; used once, it is gone (opened again, no Back).
+   */
+  void s119b_process_ref_back() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    final File pic = new File(System.getProperty("user.home"), "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    pj.saveParams("SogniPedit.java", "--image old.png --steps 4");
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Consumer<JDialog>[] watch = new java.util.function.Consumer[1];
+    watch[0] = params -> {
+      // (The program's dialog, closing as Open is pressed, may be seen first: watched on.)
+      if (!String.valueOf(params.getTitle()).startsWith("Parameters")) {
+        inspectNext = watch[0];
+        return;
+      }
+      seen.append("saved with the picture: ").append(String.valueOf(pj.loadParams("SogniPedit.java")).contains("look.png")).append('\n');
+      javax.swing.JButton back = (javax.swing.JButton) component(params, "params-back");
+      seen.append("Back button: ").append(back != null).append('\n');
+    };
+    inspectNext = watch[0];
+    answers.add("Cancel");
+    edt(() -> ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick());
+    idle();
+    Thread.sleep(300);
+    idle();
+    // The Params cancelled: the program page's Back is there, and takes the program back.
+    final javax.swing.JComponent pageBack = (javax.swing.JComponent) get("pyBack");
+    seen.append("page Back: ").append(pageBack.isVisible()).append('\n');
+    ProcessRefDialog.last = null;
+    edt(() -> ((javax.swing.AbstractButton) pageBack).doClick());
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    seen.append("program asked again: ").append(ProcessRefDialog.last != null && ProcessRefDialog.last != d).append(", saved now ").append(pj.loadParams("SogniPedit.java"))
+        .append(", page Back after: ").append(pageBack.isVisible()).append('\n');
+    if (ProcessRefDialog.last != null) edt(() -> ProcessRefDialog.last.dialog.dispose());
+    idle();
+    final boolean[] noBack = {false};
+    inspectNext = params -> noBack[0] = component(params, "params-back") == null;
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    seen.append("Params again, no Back: ").append(noBack[0]).append('\n');
+    out.append(seen);
+    String t = seen.toString();
+    if (!t.contains("saved with the picture: true") || !t.contains("Back button: true") || !t.contains("page Back: true")
+        || !t.contains("program asked again: true, saved now --image old.png --steps 4, page Back after: false")
+        || !t.contains("Params again, no Back: true")) throw new AssertionError(t);
+  }
+
+  /**
    * Media browser: a MIDI's right click has Open in MIDI editor (Save writes <name>-edited.mid beside
    * it), Render with SF2, Render with plugin and Play with default SoundFont; a WAV's has Convert
    * drum hits into MIDI. The programs open on PyJav with the file as their input.
@@ -8271,13 +8327,19 @@ public final class DesktopBehavior {
         + "buf = io.StringIO()\n"
         + "with contextlib.redirect_stdout(buf): z = vr.results_zip([d])\n"
         + "names = zipfile.ZipFile(z).namelist()\n"
-        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n";
+        + "sys.stderr.write('ZIP %s | %d in vst-hits-Kit/, hits.txt %s | folder kept %s\\n' % (buf.getvalue().strip().replace(d, '~'), len([n for n in names if n.startswith('vst-hits-Kit/')]), 'vst-hits-Kit/hits.txt' in names, os.path.isfile(os.path.join(hits, 'hits.txt'))))\n"
+        // 14112026: --results_no_beats and --results_no_hits: the zip again without them (earlier runs' too), the report kept.
+        + "buf2 = io.StringIO()\n"
+        + "with contextlib.redirect_stdout(buf2): z2 = vr.results_zip([d], False, False)\n"
+        + "names2 = zipfile.ZipFile(z2).namelist()\n"
+        + "sys.stderr.write('ZIP2 %s | %s | said %s\\n' % (' '.join(sorted(names2)), 'hits folder kept ' + str(os.path.isfile(os.path.join(hits, 'hits.txt'))), 'left out: the test beats and the hits folders' in buf2.getvalue()))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", make, script.getAbsolutePath(), dir.getAbsolutePath(), javaBin, jar.getAbsolutePath()));
     String all = PythonRun.runFor(cmd, 120, null).trim();
     String zipSaid = all.contains("ZIP ") ? all.substring(all.indexOf("ZIP ")).split("\n")[0] : "no zip";
-    String log = all.replace(zipSaid, "").trim();
-    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n');
+    String zip2 = all.contains("ZIP2 ") ? all.substring(all.indexOf("ZIP2 ")).split("\n")[0] : "no second zip";
+    String log = all.replace(zipSaid, "").replace(zip2, "").trim();
+    out.append("vst_render: ").append(log.replace(dir.getAbsolutePath(), "~")).append('\n').append(zipSaid).append('\n').append(zip2).append('\n');
     File hits = new File(dir, "vst-hits-Kit");
     String[] names = hits.list();
     java.util.Arrays.sort(names);
@@ -8301,6 +8363,7 @@ public final class DesktopBehavior {
     boolean ok = text.contains("(Cut 10 hits into vst-hits-Kit (hits.txt); 1 not played by the kit (too quiet))")
         && text.contains("ZIP Results zip: ~" + File.separator + "vst-test-results.zip (14 files: the tests' reports, test beats, times and kit profiles, 11 in 1 hits folder;")
         && text.contains("the kit profiles and hits folders kept | 11 in vst-hits-Kit/, hits.txt True | folder kept True")
+        && text.contains("ZIP2 vst-test-Kit.txt | hits folder kept True | said True")
         && text.contains("folder: closed hat alone 01.wav, closed hat alone 02.wav, closed hat groove 01.wav, closed hat groove 02.wav, closed hat groove 03.wav, closed hat kick 01.wav, floor tom alone 01.wav, floor tom alone 02.wav, hits.txt, kick alone 01.wav, kick alone 02.wav")
         && text.contains("after the run: Drum sound library: Added 10 test beat hits of Kit")
         && text.contains("Closed hat · closed hat kick 01.wav (Kit) (with a kick) · ready") && text.contains("Closed hat · closed hat groove 02.wav (Kit) (in eighths) · ready")
@@ -8939,7 +9002,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
-    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
@@ -9445,6 +9508,64 @@ public final class DesktopBehavior {
         && said.contains("codes 04112026" + File.separator + "x4.11.26 | run-1 then run-2 | plain | 100%")
         && label.startsWith("Copy the run's zips") && tab.equals("Output dir");
     if (!ok) throw new AssertionError(this.out.toString());
+  }
+
+  /**
+   * Browse sections' marks: ☆ under the list makes the selected section a favourite (★ before its
+   * name), Mark as final puts F there; the list redrawn at once and both kept in the library.
+   */
+  void s260_section_marks() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      list.setSelectedIndex(0);
+      javax.swing.JButton star = (javax.swing.JButton) component(d, "section-star");
+      javax.swing.JButton fin = (javax.swing.JButton) component(d, "section-final");
+      seen.append("buttons: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
+      star.doClick();
+      fin.doClick();
+      seen.append("after: ").append(star.getText()).append(", ").append(fin.getText()).append(" | rows: ").append(rows.apply(list)).append('\n');
+      list.setSelectedIndex(1);
+      seen.append("other row: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
+      // Add to group… on the kite: the groups made again, its group open and it selected.
+      list.setSelectedIndex(0);
+      PyJav.groupAnswer = "Portraits";
+      ((javax.swing.JButton) component(d, "section-group")).doClick();
+      PyJav.groupAnswer = null;
+      seen.append("grouped: ").append(rows.apply(list)).append(" | selected ").append(list.getSelectedIndex()).append('\n');
+      SwingUtilities.invokeLater(() -> find(d.getContentPane(), "Cancel").doClick());
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    PromptVault.forget();
+    PromptVault.SogniSection back = null;
+    for (PromptVault.SogniSection sec : PromptDb.vault().sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
+    seen.append("read back: favourite ").append(back != null && back.favourite).append(", final ").append(back != null && back.fin)
+        .append(", group ").append(back == null ? "-" : back.group).append('\n');
+    out.append(seen);
+    String t = seen.toString();
+    boolean ok = done[0] && t.contains("buttons: \u2606, Mark as final")
+        && t.contains("after: \u2605, Remove the final mark | rows: \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>")
+        && t.contains("other row: \u2606, Mark as final") && t.contains("grouped: \u25be \u2605 F Portraits (1) | \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when> | selected 1")
+        && t.contains("read back: favourite true, final true, group Portraits");
+    if (!ok) throw new AssertionError(out.toString());
   }
 
   void s206_sections_grouped() throws Exception {
@@ -10067,12 +10188,308 @@ public final class DesktopBehavior {
       if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.push(k);
     }
     this.out.append("tip above the lists: ").append(tip != null && tip.getParent() == picks[0]).append(", tips: ").append(tips).append('\n');
+    // 14112026: a plugin made a favourite while the Params are open shows in Favourites at once.
+    File plug = new File(home, "Fresh Drums.vst3");
+    plug.mkdirs();
+    @SuppressWarnings("unchecked")
+    final javax.swing.JList<String> favList = (javax.swing.JList<String>) component(picks[0], "params-favourites");
+    final int before = favList.getModel().getSize();
+    PluginLibrary.setFavourite(plug, true);
+    idle();
+    boolean listed = false;
+    for (int k = 0; k < favList.getModel().getSize(); k++) listed |= favList.getModel().getElementAt(k).equals(plug.getAbsolutePath());
+    this.out.append("favourite added while open: ").append(listed).append(", ").append(before).append(" -> ").append(favList.getModel().getSize()).append('\n');
+    PluginLibrary.setFavourite(plug, false);
+    idle();
+    this.out.append("taken off: ").append(favList.getModel().getSize() == before).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("not a map: line 1: shopping list is not note=note (36=48, or 41=none) | it has no note=note line | good: null")
         && all.contains("bad: notes.txt is not a note map: line 1: shopping list is not note=note")
         && all.contains("good: Imported map-copy.txt as map.txt; the map before is kept as map-backup-<date>.txt")
         && all.contains("map.txt now: # mine | [Beat DRMR] | 48=45 | 50=47 | ") && all.contains("backup: 1 [Old Kit] | 36=48 | ")
-        && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1");
+        && all.contains("editor shows: true") && all.contains("import button: true") && all.contains("tip above the lists: true, tips: 1")
+        && all.contains("favourite added while open: true, 0 -> 1") && all.contains("taken off: true");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 15112026: the Kit loaded row's Choose: the plugin's packs and their sets, from the kits run with it and
+   * maps/kits.txt ("Pack: Set"; a name without a pack under "(no pack)"); the kit there picked; Use gives
+   * "Pack: Set".
+   */
+  void s259_kit_packs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Total Studio Drums: Kind of metal\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"KVLT_Mexico 1998\"");
+    PluginFiles.write(KitPacks.file(home), "[Ugritone Drums]\nTotal Studio Drums: Pop Hits\nTight Studio Drums: Noob Metal # one more\n[Riot Drums]\nDefault kit\n");
+    out.append("packs: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"))).append('\n');
+    out.append("Riot: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Riot Drums.vst3"))).append('\n');
+    final String[] got = new String[1];
+    KitChooser.last = null;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> got[0] = KitChooser.choose(frame, "C:/VST3/Ugritone Drums.vst3", "Total Studio Drums: Kind of metal"));
+    for (int i = 0; i < 100 && (KitChooser.last == null || !KitChooser.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final KitChooser c = KitChooser.last;
+    edt(() -> {
+      out.append("shown: pack ").append(c.packList.getSelectedValue()).append(", set ").append(c.setList.getSelectedValue()).append(", sets ").append(java.util.Collections.list(c.setModel.elements())).append('\n');
+      c.pick("Total Studio Drums", "Pop Hits");
+      c.use();
+    });
+    idle();
+    out.append("chosen: ").append(got[0]).append('\n');
+    String all = out.toString();
+    boolean ok = all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
+        && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
+        && all.contains("chosen: Total Studio Drums: Pop Hits");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 14112026: a plugin chosen for a row sets its kit row from the kits named for it before (the runs'
+   * --kit_name with its plugin, and vst_render's ~/.pulsekit/kit-names.txt): none but the saved kit, blank;
+   * one, that one; more, asked whether the most recently used is loaded (No: blank).
+   */
+  void s257_kit_for_plugin() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final Pulsekit app = (Pulsekit) frame;
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"KVLT_Mexico 1998\" --plugin2 \"C:/VST3/Riot Drums.vst3\" --kit_name2 \"saved kit\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums: Noob Metal\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Anarchy Drums.vst3\" --kit_name \"Anarchy_default kit\"");
+    File pk = new File(home, ".pulsekit");
+    pk.mkdirs();
+    Files.write(new File(pk, "kit-names.txt").toPath(), "Black Pearl\tavldrums\n".getBytes(StandardCharsets.UTF_8));
+    final String src = ProgramFiles.bundledSource("vst_render.py");
+    final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    final javax.swing.JTextField[] fields = new javax.swing.JTextField[ps.size()];
+    int k1 = -1, k2 = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--kit_name")) k1 = i;
+      if (ps.get(i).token.equals("--kit_name2")) k2 = i;
+      if (ps.get(i).token.startsWith("--kit_name")) fields[i] = new javax.swing.JTextField("Total Studio Drums: Kind of metal");
+    }
+    final int one = k1, two = k2;
+    edt(() -> {
+      app.pyJav.shownParams = ps;
+      app.pyJav.shownFields = fields;
+      app.pyJav.kitForPlugin(null, "--plugin2", "C:/VST3/Riot Drums.vst3");
+      out.append("Riot (saved kit only): '").append(fields[two].getText()).append("'\n");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Anarchy Drums.vst3");
+      out.append("Anarchy (one kit): '").append(fields[one].getText()).append("'\n");
+      app.pyJav.kitForPlugin(null, "--plugin2", "C:/LV2/avldrums.lv2");
+      out.append("avldrums (vst_render's list): '").append(fields[two].getText()).append("'\n");
+      PyJav.kitAskYes = true;
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, Yes: '").append(fields[one].getText()).append("' | asked: ").append(PyJav.lastKitAsk.replace("\n", " / ")).append('\n');
+      PyJav.kitAskYes = false;
+      fields[one].setText("Anarchy_default kit");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, No: '").append(fields[one].getText()).append("'\n");
+      fields[one].setText("KVLT_Mexico 1998");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
+      out.append("Ugritone, No, one of its own: '").append(fields[one].getText()).append("'\n");
+      PyJav.kitAskYes = null;
+      app.pyJav.kitForPlugin(null, "--plugin3", "C:/VST3/Fresh Drums.vst3");
+      out.append("Fresh (no kit row field): ok\n");
+    });
+    String all = out.toString();
+    boolean ok = all.contains("Riot (saved kit only): ''") && all.contains("Anarchy (one kit): 'Anarchy_default kit'") && all.contains("avldrums (vst_render's list): 'Black Pearl'")
+        && all.contains("Ugritone, Yes: 'Tight Studio Drums: Noob Metal' | asked: Ugritone Drums has 2 kits named for it before: / Tight Studio Drums: Noob Metal, KVLT_Mexico 1998")
+        && all.contains("Is the most recently used, Tight Studio Drums: Noob Metal, the kit loaded in it now?")
+        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 14112026: map.txt's "hats closed=42 pedal=44 semiopen=46 open=32" lines: each plugin's own hi-hat notes for
+   * the hi-hat check after the test beat (its section's, else the lines before any section; AVL Drumkits'
+   * built in), not read as note pairs; Check and vst_render's map_problems say the same of a bad one. The
+   * check strikes each hat alone and with a kick and says what DrumMidi wrote; a silent hat is left out.
+   */
+  void s256_hat_notes_in_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String map = "hats closed=42 open=46\n[Ugritone Drums]\n35=36\nhats closed=42 pedal=44 semiopen=46 open=32 # its own\n[Riot Drums]\nhat: closed=42, semi-open=45, open=46\n[Bad]\nhats closed=x wide=46 44\nhats\n";
+    File mapFile = new File(home, "map-hats.txt");
+    Files.write(mapFile.toPath(), map.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> javaSaid = PluginFiles.mapProblems(map);
+    for (String p : javaSaid) this.out.append("java: ").append(p).append('\n');
+    File work = new File(home, "hat-check");
+    work.mkdirs();
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(new File(System.getProperty("pulsekit.test.dir"), "py/vst_hats_map.py").getAbsolutePath(), script.getAbsolutePath(),
+        mapFile.getAbsolutePath(), new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath(), work.getAbsolutePath()));
+    String pyOut = PythonRun.runFor(cmd, 280, null).trim();
+    this.out.append(pyOut).append('\n');
+    StringBuilder pySaid = new StringBuilder();
+    for (String l : pyOut.split("\n")) if (l.startsWith("py: ")) pySaid.append(l.substring(4)).append('\n');
+    boolean same = pySaid.toString().equals(String.join("\n", javaSaid) + "\n");
+    this.out.append("same words: ").append(same).append(" | template: ").append(PluginFiles.TEMPLATE.contains("hats closed=42 pedal=44 semiopen=46 open=32 in a section")).append('\n');
+    String all = this.out.toString();
+    boolean ok = same && all.contains("hats Ugritone Drums.vst3: closed=42 pedal=44 semiopen=46 open=32 from 'Ugritone Drums'")
+        && all.contains("hats Riot Drums.vst3: closed=42 semiopen=45 open=46 from 'Riot Drums'") && all.contains("hats Other.vst3: closed=42 open=46 from ''")
+        && all.contains("note map Ugritone: [(35, 36)]") && all.contains("avl built in: closed=42 pedal=44 semiopen=46 open=48")
+        && all.contains("built in Riot Drums.vst3: chokes 49=54,52=50,57=56, hats closed=42 pedal=44 semiopen=45 open=46 (built in for Riot Drums)")
+        && all.contains("built in Northern Artillery Drums.vst3: chokes 49=50,51=62,57=58,59=64, hats closed=42 pedal=44 semiopen=46 open=32 (built in for Northern Artillery)")
+        && all.contains("built in Other.vst3: chokes none, hats none (None)")
+        && all.contains("guard 1: None") && all.contains("guard 2: None")
+        && all.contains("guard 3: Kit name check: \"Kind of metal\" was last given for Ugritone Drums, not avldrums: is it the kit loaded in avldrums?")
+        && all.contains("java: line 8: hats: closed=x is not kind=note") && all.contains("java: line 8: hats: wide=46 is not kind=note") && all.contains("java: line 8: hats: 44 is not kind=note")
+        && all.contains("java: line 9: hats has no notes") && javaSaid.size() == 4 && all.contains("template: true")
+        && all.matches("(?s).*Hi-hat check: closed hat 42 written as: alone .* of 8.*; with a kick .* of 8.*") && all.contains("Hi-hat check: pedal hat 44 is silent in this plugin: left out")
+        && all.matches("(?s).*Hi-hat check: right closed \\d+ of 16, open \\d+ of 16 \\(closed as 42, pedal as 44, open as 46\\); semi-open written as .* of 16.*") && !all.contains("Traceback");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 13112026: map.txt's "chokes 49=50, 51=52" lines: each plugin's own choke notes for the choke check after
+   * the test beat (its section's, else the lines before any section; AVL Drumkits' built in), not read as
+   * note pairs; Check (PluginFiles.mapProblems) and vst_render's map_problems say the same of a bad one.
+   */
+  void s255_choke_notes_in_map() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String map = "chokes 49=50\n[Ugritone Drums]\n35=36\nchokes 49=50, 57=58 # crash 1, crash 2\n[Riot Drums]\nchoke: 52=53\n[Bad]\nchokes 49=x, 51\nchokes\n";
+    File mapFile = new File(home, "map.txt");
+    Files.write(mapFile.toPath(), map.getBytes(StandardCharsets.UTF_8));
+    java.util.List<String> javaSaid = PluginFiles.mapProblems(map);
+    for (String p : javaSaid) this.out.append("java: ").append(p).append('\n');
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_chokes_map.py");
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), mapFile.getAbsolutePath()));
+    String pyOut = PythonRun.runFor(cmd, 120, null).trim();
+    this.out.append(pyOut).append('\n');
+    StringBuilder pySaid = new StringBuilder();
+    for (String l : pyOut.split("\n")) if (l.startsWith("py: ")) pySaid.append(l.substring(4)).append('\n');
+    boolean same = pySaid.toString().equals(String.join("\n", javaSaid) + "\n");
+    this.out.append("same words: ").append(same).append(" | template: ").append(PluginFiles.TEMPLATE.contains("chokes 49=50, 51=52 in a section")).append('\n');
+    // The cymbal check after the test beat: each crash and ride alone and with a kick, a silent one and one --map leaves out.
+    File work = new File(home, "cymbal-check");
+    work.mkdirs();
+    java.util.List<String> cc = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cc.addAll(java.util.Arrays.asList(new File(System.getProperty("pulsekit.test.dir"), "py/vst_cymbal_check.py").getAbsolutePath(), script.getAbsolutePath(),
+        new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cc, 280, null).trim()).append('\n');
+    String all = this.out.toString();
+    boolean ok = same && all.contains("chokes Ugritone Drums.vst3: 49=50,57=58 from 'Ugritone Drums'") && all.contains("chokes Riot Drums.vst3: 52=53 from 'Riot Drums'")
+        && all.contains("chokes avldrums.lv2: 49=50 from ''") && all.contains("note map Ugritone: [(35, 36)]") && all.contains("avl built in: 49=50,51=52,57=58 True")
+        && all.contains("java: line 8: chokes: 49=x is not note=note") && all.contains("java: line 8: chokes: 51 is not note=note") && all.contains("java: line 9: chokes has no notes")
+        && javaSaid.size() == 3 && all.contains("template: true")
+        && all.matches("(?s).*Cymbal check: 49 \\(crash 1\\) written as: alone .* of 6.*; with a kick .* of 6.*") && all.contains("Cymbal check: 59 (ride 2) is silent in this plugin: left out")
+        && !all.contains("Cymbal check: 55") && all.matches("(?s).*Cymbal check: right crashes \\d+ of 36, rides \\d+ of 24 .*") && !all.contains("Traceback");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * 12112026_2: vst_render's cymbal model bench. Params' Cymbal model tab has --model_compare, --leave_one_out,
+   * --new_kits and --bench_work; Pulsekit hands its DrumMidi_CRT.jar to a bench run as to a test. Two
+   * synthesized kits' test zips (the second a newer run's): the comparison (built-in vs learned from both)
+   * and the leave-one-out each in its own zip in the output folder, copied to the zip folder; DrumMidi
+   * (-Ddm.cymFeatures: its hits and cymbals' model inputs) runs once, the next bench reads what it kept.
+   * 12112026_3: the tab's own input folder; Model A, Model B, Leave one out's kits and Kits counted as new
+   * are drop-down lists, a row for a number or names shown only when its choice needs it.
+   */
+  void s254_cymbal_model_bench() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    String src = new String(Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Python/vst_render.py").toPath()), StandardCharsets.UTF_8);
+    StringBuilder rows = new StringBuilder();
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
+    for (ProgramParams.Param p : ps) if (ProgramParams.MODEL.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(' ');
+    StringBuilder settings = new StringBuilder();
+    for (ProgramParams.Param p : ps) if (p.token.startsWith("--cymbal_bench")) settings.append(p.token).append(" on ").append(p.tab).append(p.dropdown ? " (list: " + String.join(" / ", p.choices) + ")" : "").append("; ");
+    this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n').append("settings: ").append(settings).append('\n');
+    // The Params page: Model A's list, its number of kits row shown once Compare is ticked and "the first N kits" picked.
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = ProgramParams.MODEL;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    final String[] seen = new String[1];
+    edt(() -> {
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> a = (javax.swing.JComboBox<String>) component(d, "params-dropdown:--model_a");
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> loo = (javax.swing.JComboBox<String>) component(d, "params-dropdown:--loo_kits");
+      javax.swing.JCheckBox compare = (javax.swing.JCheckBox) component(d, "params-check:--model_compare");
+      javax.swing.JCheckBox leave = (javax.swing.JCheckBox) component(d, "params-check:--leave_one_out");
+      java.awt.Component n = component(d, "params-field:--model_a_kits"), names = component(d, "params-field:--loo_names");
+      StringBuilder b = new StringBuilder();
+      b.append("A: ").append(a.getItemCount()).append(" choices, ").append(a.getSelectedItem()).append(", shown ").append(a.isVisible());
+      compare.setSelected(true);
+      b.append(" | ticked: A shown ").append(a.isVisible()).append(", N shown ").append(n.isVisible());
+      a.setSelectedIndex(4);
+      b.append(" | first N kits: N shown ").append(n.isVisible());
+      leave.setSelected(true);
+      loo.setSelectedIndex(2);
+      b.append(" | named: names shown ").append(names.isVisible());
+      java.awt.Component when = component(d, "params-dropdown:--cymbal_bench_when");
+      javax.swing.JCheckBox bench = (javax.swing.JCheckBox) component(d, "params-check:--cymbal_bench");
+      boolean hidden = !when.isVisible();
+      bench.setSelected(true);
+      b.append(" | when: hidden ").append(hidden).append(", ticked shown ").append(when.isVisible());
+      javax.swing.JTextField skip = (javax.swing.JTextField) component(d, "params-field:--bench_skip");
+      File list = new File(System.getProperty("user.home"), "exclude.txt");
+      try {
+        Files.write(list.toPath(), "# bad runs\nRiot Default kit\nCardinal, Beat DRMR\n\n".getBytes(StandardCharsets.UTF_8));
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+      ((Pulsekit) frame).pyJav.importList(skip, list);
+      b.append(" | import button ").append(component(d, "params-import:--bench_skip") != null).append(", imported: ").append(skip.getText());
+      ((javax.swing.JTextField) n).setText("30");
+      ((javax.swing.JTextField) names).setText("Bucket");
+      seen[0] = b.toString();
+      find(d.getContentPane(), "OK").doClick();
+    });
+    idle();
+    String kept = String.valueOf(call("loadParams", "vst_render.py"));
+    call("saveParams", "vst_render.py", "");
+    PyJav.paramsTab = null;
+    this.out.append(seen[0]).append(" | kept: ").append(kept).append('\n');
+    File jar = new File(home, "pyjav-in/DrumMidi_CRT.jar");
+    java.util.List<String> given = JavaRun.withDrumMidi("vst_render.py", new java.util.ArrayList<String>(java.util.Arrays.asList("--dir", "x", "--model_compare", "builtin,all")), jar, new byte[] {1});
+    this.out.append("jar given: ").append(given.contains("--drummidi") && given.contains(jar.getAbsolutePath())).append('\n');
+    File work = new File(home, "bench");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/vst_bench.py");
+    File script = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Python/vst_render.py");
+    File dm = new File(System.getProperty("pulsekit.test.dir"), "../../Programs/Java/DrumMidi_CRT.jar");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), dm.getAbsolutePath(), work.getAbsolutePath()));
+    String said = PythonRun.runFor(cmd, 280, null).trim();
+    this.out.append(said).append('\n');
+    String all = this.out.toString();
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
+        && all.contains("Cymbal model]")
+        && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
+        && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True")
+        && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Kits left out (1): Fake_Drums_Bright") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
+        && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
+        && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
+        && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
+        && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
+        && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
+        && all.contains("jar given: true")
+        && all.contains("zip: cymbal-compare-builtin-vs-2-kits ['details.txt', 'kits.txt', 'model-2-kits-java.txt', 'model-2-kits.txt', 'summary.txt']")
+        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
+        && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
+        && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
+        && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && all.contains("cymbal-compare-1-older-kits-vs-2-kits")
+        && all.contains("Failed: Model B (--model_b): the first N kits needs how many (the row under it, --model_b_kits)")
+        && all.contains("Failed: Leave one out's kits: write parts of the kits' names") && !all.contains("Traceback");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -10110,6 +10527,11 @@ public final class DesktopBehavior {
     this.out.append("filled: ").append(DownloadMove.fillChoices("%g|%c|%c1|%c2|%t1|%t2|%%g|%n", ch)).append('\n');
     this.out.append("names: ").append(DownloadMove.nameFor("Img-%g.png", ch)).append(' ').append(DownloadMove.nameFor("Img-%c2-%t1.png", ch))
         .append(' ').append(DownloadMove.nameFor("%c2.png", ch)).append(' ').append(DownloadMove.nameFor("plain.png", ch)).append('\n');
+    // 14112026: a code may end with a % of its own (%g%): it is left out of the name.
+    java.util.Calendar on = java.util.Calendar.getInstance();
+    on.set(2026, 10, 14);
+    this.out.append("closed codes: ").append(DownloadMove.nameFor("Img-%g%.png", ch)).append(' ').append(DownloadMove.fillChoices("%g%-%c1%/%t1%", ch))
+        .append(' ').append(DownloadMove.expand(DownloadMove.fillChoices("%g%/%ddmm%-x", ch), on, null)).append(' ').append(DownloadMove.fillChoices("%g%c", ch)).append('\n');
     SogniDownloads.init(list);
     long rn = SogniDownloads.started("SogniPedit.java", 9000L);
     SogniDownloads.result(rn, "Succeeded: " + pic.getName(), "saved " + pic.getAbsolutePath(), null);
@@ -10137,7 +10559,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("taken: %g/%c1-%t2 | left: [--prompt, a dog, --output, Img-%g.png]")
         && all.contains("given: [--prompt, a dog, --output, Img-%g.png, --pk-subfolder, %g/%c1-%t2]") && all.contains("params row: true")
         && all.contains("needs: truetruefalsefalse") && all.contains("filled: Trip|Holiday|Holiday||sea|sun|%%g|%n")
-        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("kept: %g/%c1-%t2, waits: true")
+        && all.contains("names: Img-Trip.png Img-sea.png file.png plain.png") && all.contains("closed codes: Img-Trip.png Trip-Holiday/sea Trip/1411-x TripHoliday") && all.contains("kept: %g/%c1-%t2, waits: true")
         && all.contains("renamed: truetrue, its group: [Trip], its tags: [sea, sun]") && all.contains("moved: Moved 1 file -> true");
     if (!ok) throw new AssertionError(all);
   }
@@ -10372,10 +10794,34 @@ public final class DesktopBehavior {
     for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Java", "DrumMidi_CRT.java"), StandardCharsets.UTF_8))) if (p.token.equals("--chokes")) dmLabel = p.label;
     this.out.append("labels: ").append(label).append(" | ").append(dmLabel).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("Working: playing each cymbal and its choke alone (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
+    boolean ok = all.contains("Working: playing each cymbal and its choke 8 times, 1.0 s apart (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
         && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
         && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
         && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v448: a kit whose toms ring on (a roomy studio kit's): --learn-kit writes its "tomjump" (the tom
+   * band's jump at the test beat's later tom hits, over the ring of the one before) lower than a dry
+   * kit's, and with that profile DrumMidi asks a smaller level jump of a tom (it says so).
+   */
+  void s261_tom_jump() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File work = new File(home, "tomjump");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/drummidi_tomjump.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
+    String all = this.out.toString();
+    java.util.regex.Matcher dry = java.util.regex.Pattern.compile("dry: tomjump ([0-9.]+), tom jump as before").matcher(all);
+    java.util.regex.Matcher ringing = java.util.regex.Pattern.compile("ringing: tomjump ([0-9.]+), Kit ringing.kit: its toms jump less over the ring before them").matcher(all);
+    boolean ok = dry.find() && ringing.find() && Double.parseDouble(ringing.group(1)) < 0.95 && Double.parseDouble(dry.group(1)) >= 0.95;
     if (!ok) throw new AssertionError(all);
   }
 
@@ -12228,7 +12674,7 @@ public final class DesktopBehavior {
   /**
    * vst_render's Params: --map has Pulsekit's map files to pick (drum-kits.txt, put in
    * ~/.pulsekit/maps) and Browse; a kit name typed in the run's arguments (--kit_name) is kept,
-   * and the next Params has it to pick.
+   * and the next Params has it to pick (Choose is there even before: the pack and set chooser).
    */
   void s165_vst_map_and_kit_lists() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -12270,7 +12716,7 @@ public final class DesktopBehavior {
         .append(" | unpacked: ").append(unpacked).append("\n--kit_name row before: ").append(kitBefore[0]).append(" | after a run: ").append(kitAfter[0])
         .append(" ").append(java.util.Arrays.toString(VstLists.kitNames())).append('\n');
     boolean ok = map[0].equals("Choose Browse") && java.util.Arrays.asList(choices[0]).contains("drum-kits.txt (Pulsekit's)")
-        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("-") && kitAfter[0].equals("Choose")
+        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("Choose") && kitAfter[0].equals("Choose")
         && java.util.Arrays.asList(VstLists.kitNames()).equals(java.util.Arrays.asList("Finnish Metal 2000"));
     if (!ok) throw new AssertionError(this.out.toString());
   }
@@ -13590,6 +14036,23 @@ public final class DesktopBehavior {
       PyJav.exportTo = out;
       ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
       seen.append("export: ").append(PyJav.clipSaid).append('\n');
+      // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
+      try {
+        PromptDb.vault().addSogniSection("SogniPedit", "Prompt: first kite\n");
+        PromptDb.vault().addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
+        PyJav.exportTo = new File(out.getParentFile(), "all sections.txt");
+        PyJav.exportAll = true;
+        ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+        seen.append("export all: ").append(PyJav.clipSaid).append('\n').append(new String(Files.readAllBytes(PyJav.exportTo.toPath()), StandardCharsets.UTF_8));
+        PyJav.exportTo = new File(out.getParentFile(), "this entry.txt");
+        PyJav.exportAll = false;
+        ((javax.swing.AbstractButton) component(d, "params-export-section")).doClick();
+        seen.append("export this: ").append(PyJav.clipSaid).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      } finally {
+        PyJav.exportAll = null;
+      }
     };
     answers.add("Cancel");
     call("openParams");
@@ -13606,7 +14069,10 @@ public final class DesktopBehavior {
         && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
         && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")
         && loraTargets.equals(java.util.Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java"))
-        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n");
+        && all.contains("export: Exported the SogniPedit section into exported section.txt") && file.contains("Prompt: a red kite over green hills\n") && file.contains("Loras: kite-style:0.7\n")
+        && all.contains("export all: Exported the 2 SogniPedit sections into all sections.txt\nApp: SogniPedit\nPrompt: second kite\nLoras: kite-style:0.5\n----\nPrompt: first kite\n")
+        && all.contains("export this: Exported the SogniPedit section into this entry.txt")
+        && ParamsClip.exportAllLabel("SogniPedit", 2).equals("All SogniPedit sections (2)");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -14598,6 +15064,71 @@ public final class DesktopBehavior {
     out.append(seen);
     if (seen.indexOf("Preview --image enabled true, --image2 (none picked) false") < 0 || seen.indexOf("image true") < 0 || seen.indexOf("after Clear, Preview enabled false") < 0)
       throw new AssertionError("Preview: " + seen);
+    // 14112026: the Preview's Upscale: the Params closed, ImageUpscaler with the picture, its Params open; Return to SogniPedit.
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + me.getAbsolutePath() + "\""));
+    final StringBuilder up = new StringBuilder();
+    inspectNext = d -> {
+      ((javax.swing.JButton) component(d, "params-preview:--image")).doClick();
+      try {
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
+        javax.swing.JButton b = (javax.swing.JButton) component(shown.getContentPane(), "params-preview-upscale");
+        up.append("preview's upscale: ").append(b == null ? "none" : b.getText()).append('\n');
+        if (b != null) b.doClick();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    Thread.sleep(800);
+    idle();
+    up.append("upscaling: ").append(get("pyName")).append(", input ").append(get("pyInputPath")).append('\n');
+    Object ret = pyJav.getClass().getDeclaredField("pyReturn").get(pyJav);
+    up.append("return: ").append(ret instanceof javax.swing.AbstractButton ? ((javax.swing.AbstractButton) ret).getText() + " " + ((java.awt.Component) ret).isVisible() : "none").append('\n');
+    out.append(up);
+    if (up.indexOf("preview's upscale: Upscale") < 0 || up.indexOf("upscaling: ImageUpscaler.java, input " + me.getAbsolutePath()) < 0 || up.indexOf("return: Return to SogniPedit true") < 0)
+      throw new AssertionError("Preview's Upscale: " + up);
+    answers.add("Cancel");
+    edt(() -> {
+      try {
+        java.lang.reflect.Method m = pyJav.getClass().getDeclaredMethod("doReturn");
+        m.setAccessible(true);
+        m.invoke(pyJav);
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    });
+    idle();
+    Thread.sleep(500);
+    idle();
+    out.append("returned: ").append(get("pyName")).append('\n');
+    if (!"SogniPedit.java".equals(get("pyName"))) throw new AssertionError("Return: " + out);
+    // 15112026: a picture not 4:7 (640x480 here): the Preview says upscaling or cropping could be needed, and has Crop.
+    File wide = new File(home, "wide.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", wide);
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + wide.getAbsolutePath() + "\""));
+    edt(() -> ((PyJav) pyJav).saveParams("SogniPedit.java", "--prompt Hi --image \"" + wide.getAbsolutePath() + "\""));
+    final StringBuilder noted = new StringBuilder();
+    inspectNext = d -> {
+      try {
+        ((javax.swing.JButton) component(d, "params-preview:--image")).doClick();
+        javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
+        JLabel note = shown == null ? null : (JLabel) component(shown.getContentPane(), "params-preview-note");
+        noted.append("note: ").append(note == null ? "none" : note.getText().replaceAll("<[^>]*>", "")).append(" | crop ")
+            .append(shown != null && component(shown.getContentPane(), "params-preview-crop") != null).append('\n');
+        if (shown != null) shown.dispose();
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    };
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    Thread.sleep(500);
+    idle();
+    out.append(noted);
+    if (noted.indexOf("note: Upscaling or cropping could be needed: not 4:7 (it is 4:3). | crop true") < 0) throw new AssertionError("Preview note: " + noted);
     PromptDb db = (PromptDb) get("promptDb");
     byte[] png = java.nio.file.Files.readAllBytes(me.toPath());
     PromptDb.vault().addLibraryFile("suit.png", png, "Imported", 1);

@@ -263,11 +263,19 @@ final class ImportLibrary {
         return this.addImportedFillBar(string, Engine.lastBar(nArray), null);
     }
 
+    /**
+     * Restoring the session: the learned grooves and fills are many, each rebuilding the lists (and the file
+     * sets' rows) kept the screen busy for seconds at start; while this is set, they are built once after.
+     */
+    boolean restoring;
+
     void addLearnedChip(Engine.Learned learned) {
+        if (this.restoring) return;
         this.rebuildImported();
     }
 
     void addLearnedFillChip(Engine.LearnedFill learnedFill) {
+        if (this.restoring) return;
         this.rebuildImportedFills();
     }
 

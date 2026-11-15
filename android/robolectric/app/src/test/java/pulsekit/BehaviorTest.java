@@ -3431,6 +3431,107 @@ public class BehaviorTest {
   }
 
   /**
+   * 15112026: Process as a reference from Downloads: its window closes on Open, so the program and its
+   * Params are on top, and Return says Return to Downloads. The Params have Back: they close unsaved, the
+   * program's Params as they were before the picture went in, and the program is picked again.
+   */
+  @Test
+  public void s137b_process_ref_from_downloads_and_back() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PyJavParams.store(app, "SogniPedit.java", "--steps 4");
+    AlertDialog downloads = new AlertDialog.Builder(app).setTitle("Downloads").setMessage("list").create();
+    downloads.show();
+    final boolean[] returned = {false};
+    RefImages.offer(app, "tall.png", png.toByteArray(), downloads, () -> returned[0] = true, RefImages.BACK_DOWNLOADS);
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("asked program: ").append(d != null && d.dialog.isShowing()).append('\n');
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    PyJav pj = (PyJav) get("pyJav");
+    out.append("Open: downloads closed ").append(!downloads.isShowing()).append(", view ").append(get("view")).append(", program ").append(get("pyName"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append(", Params of ").append(PyJavParams.shownFor).append('\n');
+    out.append("picture in the arguments: ").append(pj.pkPyArgs.getText().toString().contains("tall.png")).append('\n');
+    View back = PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back");
+    out.append("Back button: ").append(back != null).append('\n');
+    // Params closed (Cancel): the program page has Back too, and the Params opened again still have it.
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    View pageBack = (View) get("pkBackBtn");
+    out.append("page Back: ").append(pageBack.getVisibility() == View.VISIBLE).append('\n');
+    call("pkOpenParams");
+    idle();
+    back = PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back");
+    out.append("Params again, Back: ").append(back != null).append('\n');
+    ProcessRefDialog.last = null;
+    back.performClick();
+    idle();
+    out.append("page Back after: ").append(((View) get("pkBackBtn")).getVisibility() == View.VISIBLE).append('\n');
+    out.append("Back: Params closed ").append(!PyJavParams.shown.isShowing()).append(", program asked again ").append(ProcessRefDialog.last != null && ProcessRefDialog.last.dialog.isShowing())
+        .append(", saved now ").append(PyJavParams.load(app, "SogniPedit.java")).append('\n');
+    ProcessRefDialog.last.dialog.dismiss();
+    call("pkOpenParams");
+    idle();
+    out.append("Params again, no Back: ").append(PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back") == null).append('\n');
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    out.append("Return ran: ").append(returned[0]).append('\n');
+    write("s137b_process_ref_from_downloads_and_back", out.toString());
+    String t = out.toString();
+    if (!t.contains("Open: downloads closed true, view py, program SogniPedit.java, Return to Downloads, Params of SogniPedit.java") || !t.contains("picture in the arguments: true")
+        || !t.contains("Back button: true") || !t.contains("page Back: true") || !t.contains("page Back after: false") || !t.contains("Params again, Back: true") || !t.contains("Back: Params closed true, program asked again true, saved now --steps 4") || !t.contains("Params again, no Back: true")
+        || !t.contains("Return ran: true")) throw new AssertionError(t);
+  }
+
+  /**
+   * 15112026: Downloads' Preview of a picture, then Picture ready's Process as a reference: Downloads
+   * closes on Open as from its own menu, and Return says Return to Downloads.
+   */
+  @Test
+  public void s137c_process_ref_from_downloads_preview() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.File pic = new java.io.File(app.getCacheDir(), "tall.png");
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    SogniDownloads.Item item = new SogniDownloads.Item();
+    item.name = "tall.png";
+    item.where = pic.getAbsolutePath();
+    AlertDialog downloads = new AlertDialog.Builder(app).setTitle("Downloads").setMessage("list").create();
+    downloads.show();
+    DownloadsScreen.last = downloads;
+    DownloadsScreen.preview(app, item);
+    idle();
+    out.append("preview: ").append(PictureOffer.last != null && PictureOffer.last.isShowing()).append(", left over ").append(RefImages.next).append('\n');
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-ref:tall.png").performClick();
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("asked program: ").append(d != null && d.dialog.isShowing()).append(", downloads still there ").append(downloads.isShowing()).append('\n');
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Open: downloads closed ").append(!downloads.isShowing()).append(", view ").append(get("view")).append(", program ").append(get("pyName"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append(" shown ").append(((View) get("pkReturnBtn")).getVisibility() == View.VISIBLE).append('\n');
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    idle();
+    out.append("Return: downloads again ").append(DownloadsScreen.last != null && DownloadsScreen.last != downloads && DownloadsScreen.last.isShowing()).append('\n');
+    write("s137c_process_ref_from_downloads_preview", out.toString());
+    String t = out.toString();
+    if (!t.contains("preview: true, left over null") || !t.contains("asked program: true, downloads still there true")
+        || !t.contains("Open: downloads closed true, view py, program SogniPedit.java, Return to Downloads shown true") || !t.contains("Return: downloads again true")) throw new AssertionError(t);
+  }
+
+  /**
    * Media browser: a MIDI's long press has Open in MIDI editor (Save writes <name>-edited.mid beside
    * it), Render with SF2 (Midi2Wav) and Play with default SoundFont; a WAV's has Convert drum hits
    * into MIDI (DrumMidi_CRT). The programs open on PyJav with the file as their input.
@@ -7364,6 +7465,53 @@ public class BehaviorTest {
     if (preview.isEnabled()) throw new AssertionError("Preview still enabled");
     d.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
     idle();
+    // 14112026: the Preview's Upscale: ImageUpscaler with the picture, its Params open; Return opens SogniPedit's Params.
+    args.setText("--prompt Hi --image " + picture.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog again = (AlertDialog) ShadowDialog.getLatestDialog();
+    ((android.widget.Button) again.getWindow().getDecorView().findViewWithTag("params-preview:--image")).performClick();
+    idle();
+    android.widget.Button up = PyJavParams.lastParamsPreview.getButton(DialogInterface.BUTTON_NEUTRAL);
+    out.append("preview's upscale: ").append(up != null ? up.getText() : "none").append('\n');
+    up.performClick();
+    idle();
+    out.append("upscaling: ").append(get("pyName")).append(", params of ").append(PyJavParams.shownFor).append(", input ").append(get("pkPyInputPath"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append('\n');
+    if (!"ImageUpscaler.java".equals(get("pyName")) || !"ImageUpscaler.java".equals(PyJavParams.shownFor) || !picture.getAbsolutePath().equals(get("pkPyInputPath"))
+        || !"Return to SogniPedit".contentEquals(((TextView) get("pkReturnBtn")).getText())) throw new AssertionError("Preview's Upscale: " + out);
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    idle();
+    out.append("returned: ").append(get("pyName")).append(", params of ").append(PyJavParams.shownFor).append('\n');
+    if (!"SogniPedit.java".equals(get("pyName")) || !"SogniPedit.java".equals(PyJavParams.shownFor)) throw new AssertionError("Return: " + out);
+    ((AlertDialog) ShadowDialog.getLatestDialog()).getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    // 15112026: a picture not 4:7 (640x480 here): the Preview says upscaling or cropping could be needed, and has Crop.
+    File wide = new File(app.getCacheDir(), "wide.png");
+    Files.write(wide.toPath(), png.toByteArray());
+    args.setText("--prompt Hi --image " + wide.getAbsolutePath());
+    PyJavParams.store(app, "SogniPedit.java", "--prompt Hi --image " + wide.getAbsolutePath());
+    call("pkOpenParams");
+    idle();
+    AlertDialog withWide = (AlertDialog) ShadowDialog.getLatestDialog();
+    View wv = withWide.getWindow().getDecorView();
+    PyJavParams.lastParamsPreview = null;
+    ((android.widget.Button) wv.findViewWithTag("params-preview:--image")).performClick();
+    idle();
+    AlertDialog pv = PyJavParams.lastParamsPreview;
+    out.append("preview: ").append(pv == null ? "none" : ((TextView) pv.findViewById(android.R.id.message)).getText().toString().replace("\n", " | ") + " | buttons "
+        + pv.getButton(DialogInterface.BUTTON_NEUTRAL).getText() + ", " + pv.getButton(DialogInterface.BUTTON_NEGATIVE).getText()).append('\n');
+    CropLayer.last = null;
+    pv.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("crop: ").append(CropLayer.last != null && CropLayer.last.cropping()).append('\n');
+    PyJavParams.lastParamsPreview.dismiss();
+    withWide.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    if (!out.toString().contains("preview: 640 × 480 | Upscaling or cropping could be needed: not 4:7 (it is 4:3). | buttons Upscale, Crop")
+        || !out.toString().contains("crop: true")) throw new AssertionError("Preview note: " + out);
     DbImport.store(app, "suit.png", png.toByteArray(), false);
     DbImport.store(app, "picture", png.toByteArray(), true);
     DbImport.store(app, "notes.txt", "Kick on 1.\n".getBytes(StandardCharsets.UTF_8), true);
@@ -12156,6 +12304,79 @@ public class BehaviorTest {
     if (!out.toString().equals("vst_render.py | --test --mp3 256 | bundled true\nMidiDrumGen.java")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Browse sections' marks: ☆ after Edit or remove… makes the section a favourite (★ before its
+   * name), Edit or remove…'s Mark as final puts F there; both kept in the library.
+   */
+  @Test
+  public void s260_section_marks() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection kite = vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.showSection(app, "SogniPadd", none, noFields, kite);
+    idle();
+    View dv = PyJavParams.lastSectionShown.getWindow().getDecorView();
+    android.widget.Button star = (android.widget.Button) dv.findViewWithTag("section-star");
+    android.widget.Button edit = PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    android.view.ViewGroup bar = (android.view.ViewGroup) edit.getParent();
+    boolean afterEdit = star != null && bar.indexOfChild(star) == bar.indexOfChild(edit) + 1;
+    String before = String.valueOf(star == null ? "-" : star.getText());
+    star.performClick();
+    idle();
+    out.append("star after Edit or remove: ").append(afterEdit).append(" | ").append(before).append(" -> ").append(star.getText())
+        .append(" | still open: ").append(PyJavParams.lastSectionShown.isShowing()).append('\n');
+    // Edit or remove…: Mark as final, then the list again.
+    edit.performClick();
+    idle();
+    String menu = listItems(PyJavParams.lastSectionMenu);
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(3);
+    idle();
+    String rows = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    PyJavParams.lastSections.dismiss();
+    // Add to group…: New group… (no groups yet), its name typed; the group listed first.
+    PyJavParams.sectionMenu(app, "SogniPadd", none, noFields, kite);
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(5);
+    idle();
+    String picks = listItems(PyJavParams.lastGroupPick);
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastGroupPick).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) PyJavParams.lastGroupName.getWindow().getDecorView().findViewWithTag("section-group-name")).setText("Portraits");
+    PyJavParams.lastGroupName.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String grouped = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    // A group of its own opens as a list even with one section.
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    idle();
+    String inGroup = PyJavParams.lastGroup == null ? "none" : PyJavParams.lastGroup.isShowing() + " " + listItems(PyJavParams.lastGroup).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    PyJavParams.lastGroup.dismiss();
+    PyJavParams.sectionMenu(app, "SogniPadd", none, noFields, kite);
+    idle();
+    String menu2 = listItems(PyJavParams.lastSectionMenu);
+    PyJavParams.lastSectionMenu.dismiss();
+    PromptVault.forget();
+    PromptVault.SogniSection back = null;
+    for (PromptVault.SogniSection sec : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
+    out.append("menu: ").append(menu).append("\nrows: ").append(rows).append("\ngroup picks: ").append(picks).append("\ngrouped: ").append(grouped)
+        .append("\nthe group: ").append(inGroup).append("\nmenu then: ").append(menu2)
+        .append("\nread back: favourite ").append(back.favourite).append(", final ").append(back.fin).append(", group ").append(back.group).append('\n');
+    write("s260_section_marks", out.toString());
+    vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    boolean ok = afterEdit && before.equals("\u2606") && star.getText().toString().equals("\u2605")
+        && menu.equals("Load | Edit section | Remove section | Mark as final | Remove from favourites | Add to group\u2026")
+        && rows.equals("\u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>") && picks.equals("New group\u2026")
+        && grouped.equals("\u25b8 \u2605 F Portraits (1) | Zebra at noon. \u00b7 <when>") && inGroup.equals("true \u2605 F A red kite. \u00b7 <when>")
+        && menu2.endsWith("Add to group\u2026 | Take out of the group") && back.favourite && back.fin && back.group.equals("Portraits");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s224_sections_grouped() throws Exception {
     StringBuilder out = new StringBuilder();
@@ -13771,6 +13992,20 @@ public class BehaviorTest {
     dv.findViewWithTag("params-export-section").performClick();
     idle();
     out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPedit", "Prompt: first kite\n");
+    vault.addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
+    PyJavParams.lastExportAsk = null;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    AlertDialog exportAsk = PyJavParams.lastExportAsk;
+    out.append("export asks: ").append(exportAsk == null ? "no" : exportAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText() + " | " + exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append('\n');
+    File allFile = new File(app.getCacheDir(), "all.txt");
+    PyJavParams.exportTo = allFile;
+    if (exportAsk != null) exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("export all: ").append(PyJavParams.clipSaid).append('\n').append(allFile.isFile() ? new String(java.nio.file.Files.readAllBytes(allFile.toPath()), StandardCharsets.UTF_8) : "none");
     PyJavParams.sendTo = null;
     PyJavParams.exportTo = null;
     d.dismiss();
@@ -13780,7 +14015,9 @@ public class BehaviorTest {
     boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
         && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
         && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
-        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7");
+        && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7")
+        && text.contains("export asks: This entry | All SogniPedit sections (2)")
+        && text.contains("export all: Exported the 2 SogniPedit sections into all.txt\nApp: SogniPedit\nPrompt: second kite\nLoras: kite-style:0.5\n----\nPrompt: first kite\n");
     if (!ok) throw new AssertionError(text);
   }
   /** vst_render's Files & locations tab: map.txt's Edit (saved), Pads & notes beside it; a recent plugin's long press: Use as plugin. */
@@ -14939,7 +15176,7 @@ public class BehaviorTest {
     idle();
     int left = vault.sogniSections("SogniPedit").size();
     out.append("sections: menu ").append(menu).append(" | edited ").append(edited.replace("\n", "\\n")).append(" | remove asked ").append(removeAsk.startsWith("Remove this section?")).append(", left ").append(left).append('\n');
-    boolean sectionsOk = menu.equals("Load | Edit section | Remove section") && edited.equals("Prompt: a dog\nLoras: fur 1.0\n") && removeAsk.startsWith("Remove this section?") && left == 0;
+    boolean sectionsOk = menu.equals("Load | Edit section | Remove section | Mark as final | Mark as favourite \u2605 | Add to group\u2026") && edited.equals("Prompt: a dog\nLoras: fur 1.0\n") && removeAsk.startsWith("Remove this section?") && left == 0;
     // Select file: opens where the last file was.
     android.net.Uri lastFile = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FParannetut(1)(1)%2Fa.txt");
     PyJavParams.pickedLast(app, lastFile);
@@ -15639,6 +15876,22 @@ public class BehaviorTest {
     org.robolectric.Shadows.shadowOf(PyJavParams.useMenu.getListView()).performItemClick(2);
     idle();
     String third = PyJavParams.shownValues[plugin3];
+    // The Cymbal model tab: Model A a drop-down list; its number of kits row shown once Compare is ticked and "the first N kits" picked.
+    vv.findViewWithTag("params-tab:" + ProgramParams.MODEL).performClick();
+    idle();
+    android.widget.Spinner modelA = (android.widget.Spinner) vv.findViewWithTag("params-dropdown:--model_a");
+    View aKits = vv.findViewWithTag("params-field:--model_a_kits");
+    String model = "A " + modelA.getAdapter().getCount() + " " + modelA.getSelectedItem() + " shown " + (modelA.getVisibility() == View.VISIBLE);
+    ((android.widget.CheckBox) vv.findViewWithTag("params-check:--model_compare")).setChecked(true);
+    idle();
+    model += " | ticked: shown " + (modelA.getVisibility() == View.VISIBLE) + ", N shown " + (aKits.getVisibility() == View.VISIBLE);
+    modelA.setSelection(4);
+    idle();
+    model += " | first N kits: N shown " + (aKits.getVisibility() == View.VISIBLE) + ", value " + PyJavParams.fieldsShown("--model_a");
+    vv.findViewWithTag("params-tab:" + ProgramParams.SETTINGS).performClick();
+    idle();
+    model += " | Settings tab: N shown " + (aKits.getVisibility() == View.VISIBLE);
+    out.append("model: ").append(model).append('\n');
     PyJavParams.shown.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
     idle();
     PyJavParams.paramsTab = null;
@@ -15661,7 +15914,8 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third);
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }
 

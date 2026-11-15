@@ -158,6 +158,11 @@ final class PyJav {
         this.pyReturn.setName("pyjav-return");
         this.pyReturn.setVisible(this.returnTo != null);
         controls.add(this.pyReturn);
+        // Back (Process as a reference): the program picked was not the one: its Params as before, the program asked again.
+        this.pyBack = app.action("Back: pick another program", ELEV, FG, () -> this.runParamsBack());
+        this.pyBack.setName("pyjav-back");
+        this.pyBack.setVisible(false);
+        controls.add(this.pyBack);
         // Stop batch: BatchRun's runs end after the one in progress.
         this.pyBatchStop = app.action("Stop batch", ELEV, FG, () -> this.stopBatch());
         this.pyBatchStop.setName("pyjav-batch-stop");
@@ -763,8 +768,8 @@ final class PyJav {
         // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
         // in the program files folder, not the run's temporary one.
         runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
-        // vst_render.py --test (and --mp3, Wav2Mp3 being in it): Pulsekit's DrumMidi_CRT.jar and this Java for it.
-        if ("vst_render.py".equals(name) && (runArgs.contains("--test") || runArgs.contains("--mp3"))) {
+        // vst_render.py --test, --mp3 (Wav2Mp3 being in it) and the cymbal model bench: Pulsekit's DrumMidi_CRT.jar and this Java for it.
+        if ("vst_render.py".equals(name) && JavaRun.needsDrumMidi(runArgs)) {
             try {
                 runArgs = JavaRun.withDrumMidi(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar"), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
             } catch (Exception ex) {
@@ -1368,6 +1373,8 @@ final class PyJav {
 
     /** The tests: Export's file (else a file picker), Paste's answer (true: replace), Send's program and answer. */
     static File exportTo;
+    /** The tests: Export's answer when the program has saved sections (true: all of them), else asked. */
+    static Boolean exportAll;
     static Boolean pasteReplace;
     static String sendTo;
     static Boolean sendYes;
@@ -1381,25 +1388,52 @@ final class PyJav {
     /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
     void exportSection(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
         java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        // Sections saved for the program: this entry, or all of them (asked).
+        java.util.List<PromptVault.SogniSection> saved = java.util.Collections.emptyList();
+        try {
+            saved = PromptDb.vault().sogniSections(program);
+        } catch (Exception ignored) {
+            // none to offer
+        }
+        if (!saved.isEmpty()) {
+            boolean all;
+            if (exportAll != null) {
+                all = exportAll.booleanValue();
+            } else {
+                Object[] options = {ParamsClip.EXPORT_THIS, ParamsClip.exportAllLabel(program, saved.size()), "Cancel"};
+                int ans = JOptionPane.showOptionDialog(at, ParamsClip.EXPORT_ASK, ParamsClip.EXPORT, JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (ans != 0 && ans != 1) return;
+                all = ans == 1;
+            }
+            if (all) {
+                this.exportText(at, program, ParamsClip.exportAllName(program), ParamsClip.exportAllText(program, saved), "the " + saved.size() + " " + program + " sections");
+                return;
+            }
+        }
         if (now.isEmpty()) {
             this.clipSay("Nothing to export: the prompt and the other rows are empty");
             return;
         }
+        this.exportText(at, program, ParamsClip.exportName(program, now), ParamsClip.exportText(now), "the " + program + " section");
+    }
+
+    /** Export's file written: the one the tests give, else one picked (its name suggested). */
+    private void exportText(java.awt.Component at, String program, String name, String text, String what) {
         File to = exportTo;
         if (to == null) {
             JFileChooser chooser = selectChooser();
-            chooser.setDialogTitle(ParamsClip.EXPORT + " the " + program + " section");
-            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), ParamsClip.exportName(program, now)));
+            chooser.setDialogTitle(ParamsClip.EXPORT + " " + what);
+            chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), name));
             if (chooser.showSaveDialog(at) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
             to = chooser.getSelectedFile();
             if (to.isFile() && JOptionPane.showConfirmDialog(at, to.getName() + " is there already. Replace it?", ParamsClip.EXPORT, JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
             selected(to);
         }
         try {
-            Files.write(to.toPath(), ParamsClip.exportText(now).getBytes(StandardCharsets.UTF_8));
-            this.clipSay("Exported the " + program + " section into " + to.getName());
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Exported " + what + " into " + to.getName());
         } catch (Exception ex) {
-            this.clipSay("Could not export the section: " + ex.getMessage());
+            this.clipSay("Could not export " + what + ": " + ex.getMessage());
         }
     }
 
@@ -1514,6 +1548,7 @@ final class PyJav {
 
     /** Browse sections' list shown last, and the full view's answer for the tests (0 Load, 1 Edit, 2 Remove, -1 Close; null: asked). */
     javax.swing.JList<String> lastSectionsList;
+    javax.swing.JPanel lastSectionMarks;
     static Integer sectionShownAnswer;
     String lastSectionShown;
 
@@ -1527,9 +1562,120 @@ final class PyJav {
         text.setLineWrap(true);
         text.setWrapStyleWord(true);
         Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Close"};
-        int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(text), SogniSections.label(sec), JOptionPane.DEFAULT_OPTION,
+        javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+        box.add(new javax.swing.JScrollPane(text), java.awt.BorderLayout.CENTER);
+        box.add(this.markButtons(sec, null), java.awt.BorderLayout.SOUTH);
+        int ans = JOptionPane.showOptionDialog(at, box, SogniSections.label(sec), JOptionPane.DEFAULT_OPTION,
             JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         return ans >= 0 && ans <= 2 ? ans : -1;
+    }
+
+    /** A section's favourite and final marks saved; false when they could not be (said). */
+    boolean markSection(PromptVault.SogniSection sec, boolean favourite, boolean fin) {
+        try {
+            PromptDb.vault().markSogniSection(sec.id, favourite, fin);
+            sec.favourite = favourite;
+            sec.fin = fin;
+            this.sectionSaid = (favourite ? "Favourite: " : fin ? "Final: " : "Marks removed: ") + SogniSections.label(sec);
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not mark the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The ☆/★ (favourite) and Mark as final buttons for a section: `sec` when it is fixed, else the one
+     * `pick` gives now (Browse sections' selected row); `done` runs after a mark changes (the list redrawn).
+     */
+    javax.swing.JPanel markButtons(PromptVault.SogniSection sec, java.util.function.Supplier<PromptVault.SogniSection> pick, Runnable... done) {
+        final java.util.function.Supplier<PromptVault.SogniSection> which = sec != null ? () -> sec : pick;
+        final JButton star = new JButton(SogniSections.STAR_OFF);
+        star.setName("section-star");
+        star.setToolTipText("Favourite: \u2605 before its name in the list");
+        final JButton fin = new JButton(SogniSections.FINAL);
+        fin.setName("section-final");
+        fin.setToolTipText("Final: F before its name in the list");
+        final Runnable show = () -> {
+            PromptVault.SogniSection s = which.get();
+            star.setEnabled(s != null);
+            fin.setEnabled(s != null);
+            star.setText(s == null ? SogniSections.STAR_OFF : SogniSections.star(s));
+            fin.setText(s != null && s.fin ? SogniSections.UNFINAL : SogniSections.FINAL);
+        };
+        star.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null || !this.markSection(s, !s.favourite, s.fin)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        fin.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null || !this.markSection(s, s.favourite, !s.fin)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        // Add to group…: a group of the program's picked or a new name typed (empty: out of its group).
+        final JButton group = new JButton(SogniSections.ADD_GROUP);
+        group.setName("section-group");
+        group.setToolTipText("The section listed under a group of your own (the list shows those groups first)");
+        group.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null) return;
+            String name = this.askGroup(group, s);
+            if (name == null || !this.groupSection(s, name)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        final Runnable shown = show;
+        final Runnable showAll = () -> {
+            shown.run();
+            group.setEnabled(which.get() != null);
+        };
+        showAll.run();
+        javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        row.add(star);
+        row.add(fin);
+        row.add(group);
+        row.putClientProperty("refresh", showAll);
+        return row;
+    }
+
+    /** Add to group…'s answer for the tests (null: asked). */
+    static String groupAnswer;
+
+    /** Add to group…: the group's name (the program's groups to pick, a new one typed; empty: out of its group), null when cancelled. */
+    String askGroup(java.awt.Component at, PromptVault.SogniSection sec) {
+        if (groupAnswer != null) return groupAnswer;
+        java.util.List<String> names;
+        try {
+            names = SogniSections.groupNames(PromptDb.vault().sogniSections(sec.app));
+        } catch (Exception ex) {
+            names = new java.util.ArrayList<String>();
+        }
+        javax.swing.JComboBox<String> box = new javax.swing.JComboBox<String>(names.toArray(new String[0]));
+        box.setName("section-group-name");
+        box.setEditable(true);
+        box.setSelectedItem(sec.group == null ? "" : sec.group);
+        javax.swing.JPanel p = new javax.swing.JPanel(new java.awt.BorderLayout(0, 4));
+        p.add(new javax.swing.JLabel("<html>" + SogniSections.GROUP_NAME + ": one of the list or a new one<br>(empty: " + SogniSections.UNGROUP.toLowerCase() + ")</html>"), java.awt.BorderLayout.NORTH);
+        p.add(box, java.awt.BorderLayout.CENTER);
+        if (JOptionPane.showConfirmDialog(at, p, SogniSections.ADD_GROUP, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
+        Object v = box.getEditor().getItem();
+        return v == null ? "" : v.toString().trim();
+    }
+
+    /** A section added to a group by name ("" takes it out); false when it could not be (said). */
+    boolean groupSection(PromptVault.SogniSection sec, String group) {
+        try {
+            PromptDb.vault().groupSogniSection(sec.id, group);
+            sec.group = group;
+            this.sectionSaid = (group.length() > 0 ? "In group " + group + ": " : "Out of its group: ") + SogniSections.label(sec);
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not change its group: " + ex.getMessage());
+            return false;
+        }
     }
 
     /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
@@ -1556,7 +1702,9 @@ final class PyJav {
             // Grouped by the prompt's first sentences, A to Z: a group's right click (or hold) lists its
             // sections under it; a double click shows a section fully (Load, Edit, Remove there too).
             final java.util.List<SogniSections.Group> groups = SogniSections.groups(all);
-            final java.util.Set<SogniSections.Group> open = new java.util.HashSet<SogniSections.Group>();
+            // The groups open (by their name: Add to group… makes the groups again).
+            final java.util.Set<String> open = new java.util.HashSet<String>();
+            final java.util.function.Function<SogniSections.Group, String> key = g -> (g.named ? "g:" : "p:") + g.lead.toLowerCase(java.util.Locale.ROOT);
             final java.util.List<Object> rows = new java.util.ArrayList<Object>();
             final javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
             final Runnable fill = () -> {
@@ -1564,8 +1712,8 @@ final class PyJav {
                 model.clear();
                 for (SogniSections.Group g : groups) {
                     rows.add(g);
-                    model.addElement(open.contains(g) ? "\u25be " + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
-                    if (!open.contains(g)) continue;
+                    model.addElement(open.contains(key.apply(g)) ? "\u25be " + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
+                    if (!open.contains(key.apply(g))) continue;
                     for (PromptVault.SogniSection sec : g.sections) {
                         rows.add(sec);
                         model.addElement("      " + SogniSections.label(sec));
@@ -1581,8 +1729,8 @@ final class PyJav {
             final java.util.function.IntConsumer toggle = i -> {
                 if (i < 0 || i >= rows.size() || !(rows.get(i) instanceof SogniSections.Group)) return;
                 SogniSections.Group g = (SogniSections.Group) rows.get(i);
-                if (g.sections.size() < 2) return;
-                if (!open.remove(g)) open.add(g);
+                if (!SogniSections.opens(g)) return;
+                if (!open.remove(key.apply(g))) open.add(key.apply(g));
                 fill.run();
                 list.setSelectedIndex(rows.indexOf(g));
             };
@@ -1591,7 +1739,18 @@ final class PyJav {
                 Object r = rows.get(i);
                 if (r instanceof PromptVault.SogniSection) return (PromptVault.SogniSection) r;
                 SogniSections.Group g = (SogniSections.Group) r;
-                return g.sections.size() == 1 ? g.sections.get(0) : null;
+                return SogniSections.opens(g) ? null : g.sections.get(0);
+            };
+            final Runnable regroup = () -> {
+                // The groups made again (a section may be in another one now), its group opened, it selected.
+                PromptVault.SogniSection was = sectionAt.apply(list.getSelectedIndex());
+                groups.clear();
+                groups.addAll(SogniSections.groups(all));
+                for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was) && SogniSections.opens(g)) open.add(key.apply(g));
+                fill.run();
+                int pos = rows.indexOf(was);
+                for (int i = 0; pos < 0 && i < rows.size(); i++) if (rows.get(i) instanceof SogniSections.Group && ((SogniSections.Group) rows.get(i)).sections.contains(was)) pos = i;
+                list.setSelectedIndex(Math.max(0, pos));
             };
             // A section shown fully and an action picked there (0 Load, 1 Edit, 2 Remove).
             final PromptVault.SogniSection[] fullSec = new PromptVault.SogniSection[1];
@@ -1626,6 +1785,9 @@ final class PyJav {
                         return;
                     }
                     int act = PyJav.this.showSection(list, sec);
+                    // Its marks or group may have changed there: the list shows them.
+                    list.setSelectedIndex(i);
+                    regroup.run();
                     if (act < 0) return;
                     fullSec[0] = sec;
                     fullAct[0] = act;
@@ -1634,10 +1796,17 @@ final class PyJav {
                 }
             });
             Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Cancel"};
+            // ☆ and Mark as final under the list: the selected section marked, the list redrawn with the mark.
+            final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), regroup);
+            list.addListSelectionListener(e -> ((Runnable) marks.getClientProperty("refresh")).run());
+            javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+            box.add(new javax.swing.JScrollPane(list), java.awt.BorderLayout.CENTER);
+            box.add(marks, java.awt.BorderLayout.SOUTH);
+            this.lastSectionMarks = marks;
             PromptVault.SogniSection sec;
             int ans;
             while (true) {
-                ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
+                ans = JOptionPane.showOptionDialog(at, box, SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
                     JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
                 if (fullSec[0] != null) {
                     sec = fullSec[0];
@@ -1736,6 +1905,18 @@ final class PyJav {
             field.setText(list);
             int n = list.isEmpty() ? 0 : list.split("\\|").length;
             app.setNow(n + (n == 1 ? " style" : " styles") + " from " + file.getName());
+        } catch (Exception ex) {
+            app.setNow("Could not read " + file.getName());
+        }
+    }
+
+    /** A list file's names into a row (Import: vst_render's Kits left out). */
+    void importList(JTextField field, File file) {
+        try {
+            String list = ProgramParams.importedList(new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+            field.setText(list);
+            int n = list.isEmpty() ? 0 : list.split(",").length;
+            app.setNow(n + (n == 1 ? " name" : " names") + " from " + file.getName());
         } catch (Exception ex) {
             app.setNow("Could not read " + file.getName());
         }
@@ -2942,6 +3123,9 @@ final class PyJav {
         this.pyHintPlain = status == null ? "" : status;
         // Another program loaded: Return (to the Media browser or the Prompts page) was for the one before.
         if (this.returnTo != null && !String.valueOf(app.pyName).equals(this.returnFor)) this.setReturn(null);
+        // So is Process as a reference's Back.
+        if (this.paramsBack != null && !String.valueOf(app.pyName).equals(this.paramsBackFor)) this.setParamsBack(null, null);
+        else this.showParamsBack();
         // The audio input carries over to a program that takes a sound (not to SogniPedit, which
         // would name its picture after it).
         if (app.pyInputPath == null && this.audioInputPath != null && new File(this.audioInputPath).isFile() && PyJavHints.takesAudio(app.pyName, this.pyHintPlain)) {
@@ -3008,6 +3192,54 @@ final class PyJav {
         }
         return props.getProperty(program);
     }
+
+    /** A program's Params put back as they were: `args`, or none saved (null). */
+    void restoreParams(String program, String args) {
+        if (args != null) {
+            this.saveParams(program, args);
+            return;
+        }
+        java.util.Properties props = new java.util.Properties();
+        File f = this.paramsFile();
+        if (!f.isFile()) return;
+        try {
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                props.load(in);
+            }
+            props.remove(program);
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                props.store(out, "PyJav Params per program");
+            }
+        } catch (Exception ignored) {
+            // left as it is
+        }
+    }
+
+    /** Back in the program's Params (opened by Process as a reference): what it does, once; and for which program. */
+    Runnable paramsBack;
+    String paramsBackFor;
+
+    void setParamsBack(String program, Runnable back) {
+        this.paramsBack = back;
+        this.paramsBackFor = back == null ? null : program;
+        this.showParamsBack();
+    }
+
+    /** The program page's Back: shown while Process as a reference's Back is for the program loaded. */
+    javax.swing.JComponent pyBack;
+
+    void showParamsBack() {
+        if (this.pyBack != null) this.pyBack.setVisible(this.paramsBack != null && String.valueOf(app.pyName).equals(this.paramsBackFor));
+    }
+
+    /** Back (in the Params or on the program page): used once, then gone. */
+    void runParamsBack() {
+        Runnable r = this.paramsBack;
+        this.setParamsBack(null, null);
+        if (r != null) r.run();
+    }
+
+    static final String PARAMS_BACK = "Back";
 
     void saveParams(String program, String args) {
         java.util.Properties props = new java.util.Properties();
@@ -3127,8 +3359,9 @@ final class PyJav {
                     p.choiceValues = maps[1];
                 }
             } else if (p.token.startsWith("--kit_name")) {
+                // Choose there is the pack and set chooser (KitChooser): shown even before any kit was named.
                 String[] kits = VstLists.kitNames();
-                if (kits.length > 0) p.choices = kits;
+                p.choices = kits.length > 0 ? kits : new String[] {""};
             } else if (p.token.equals("--aspect") && "ImageUpscaler.java".equals(program)) {
                 // ImageUpscaler: the shape suggested for the input picture, first in the list.
                 String[] tip = this.aspectTip();
@@ -3155,6 +3388,10 @@ final class PyJav {
             return;
         }
         final String extra = this.pyExtra != null ? this.pyExtra.getText() : "";
+        // Opened by Process as a reference: Back (once) closes these Params unsaved and picks the program again.
+        // There until used or another program is loaded (the program page has it too).
+        final Runnable back = program.equals(this.paramsBackFor) ? this.paramsBack : null;
+        final boolean[] wentBack = {false};
         final String[] values = ProgramParams.values(ps, this.loadParams(program), extra);
         for (int i = 0; i < ps.size(); i++) {
             ProgramParams.Param p = ps.get(i);
@@ -3212,6 +3449,10 @@ final class PyJav {
                 check.setName("params-check:" + p.token);
                 checks[i] = check;
                 form.add(check);
+                continue;
+            }
+            if (p.dropdown && p.choices != null && p.choices.length > 0) {
+                form.add(this.dropdown(p, values[i], fields, i));
                 continue;
             }
             if (p.dir && p.typed) {
@@ -3324,6 +3565,7 @@ final class PyJav {
                     this.editRow = rowEdit[0];
                     this.dllNotice(pick, chooser.getSelectedFile());
                     this.editRow = null;
+                    this.kitForPlugin(pick, p.token, values[index]);
                 });
                 // Choose file: the Media browser (Recent MB folder, Download, favourites); Other… is the system's chooser.
                 // Each row's Choose file opens where its own last file was (Reference image 1 and 2 apart).
@@ -3395,6 +3637,7 @@ final class PyJav {
                             this.editRow = rowEdit[0];
                             this.dllNotice(plugins, picked);
                             this.editRow = null;
+                            this.kitForPlugin(plugins, p.token, values[index]);
                         });
                         picks.add(plugins);
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
@@ -3468,7 +3711,8 @@ final class PyJav {
                     preview.setName("params-preview:" + p.token);
                     preview.setEnabled(ProgramParams.isPicture(values[i]));
                     chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
-                    preview.addActionListener(e -> this.previewPicture(values[index]));
+                    // The preview has Upscale and Crop, and says when upscaling or cropping could be needed.
+                    preview.addActionListener(e -> this.previewPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null)));
                     // Crop: the picture with the crop frame on; its menu has Use the crop in this row (upscale asked when needed).
                     final JButton crop = new JButton(CropBox.CROP_ROW);
                     crop.setName("params-crop:" + p.token);
@@ -3594,6 +3838,23 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (p.importList) {
+                // A list row with Import (vst_render's Kits left out): a text file's lines into it.
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                JButton load = new JButton("Import\u2026");
+                load.setName("params-import:" + p.token);
+                load.addActionListener(e -> {
+                    JFileChooser chooser = selectChooser();
+                    chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Text files", "txt", "text"));
+                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) return;
+                    selected(chooser.getSelectedFile());
+                    this.importList(field, chooser.getSelectedFile());
+                });
+                row.add(field, BorderLayout.CENTER);
+                row.add(load, BorderLayout.EAST);
+                form.add(row);
+                continue;
+            }
             if (ProgramParams.stylesFromFile(p)) {
                 // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
                 JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -3627,6 +3888,15 @@ final class PyJav {
                 JButton choose = new JButton("Choose");
                 choose.setName("params-choose:" + p.token);
                 choose.addActionListener(e -> {
+                    if (p.token.startsWith("--kit_name")) {
+                        // vst_render's Kit loaded: the row's plugin's packs and their sets (KitChooser).
+                        String plugin = "";
+                        String plugToken = "--plugin" + p.token.substring("--kit_name".length());
+                        for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) plugin = values[k];
+                        String kit = KitChooser.choose(choose, plugin, field.getText());
+                        if (kit != null) field.setText(kit);
+                        return;
+                    }
                     int now = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices).indexOf(field.getText().trim());
                     int picked = SearchList.choose(app, "Choose \u00b7 " + p.label, p.choices, now, now, "Choose");
                     if (picked >= 0) field.setText(p.choiceValue(picked));
@@ -3713,6 +3983,7 @@ final class PyJav {
         // A long form (vst_render's) scrolls: the dialog stays within the screen, its buttons on it.
         // (and as wide: long labels make it wider than a small screen).
         // vst_render's rows on tabs (Input, Output, Plugins, Settings): one page is not all of it at once.
+        this.showRows(form, rowStarts, ps, fields, checks);
         java.awt.Component formView = this.onTabs(form, rowStarts, ps, values, fileLabels, uses);
         javax.swing.JScrollPane formScroll = new javax.swing.JScrollPane(formView, javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         formScroll.setName("params-scroll");
@@ -3739,6 +4010,23 @@ final class PyJav {
             south.add(exportSection);
             box.add(south, BorderLayout.SOUTH);
         }
+        if (back != null) {
+            JButton goBack = new JButton(PARAMS_BACK);
+            goBack.setName("params-back");
+            goBack.setToolTipText("Back to Process as a reference: another program for the picture (these Params as they were)");
+            goBack.addActionListener(e -> {
+                wentBack[0] = true;
+                java.awt.Window w = SwingUtilities.getWindowAncestor(goBack);
+                if (w != null) w.dispose();
+            });
+            java.awt.Component southNow = ((BorderLayout) box.getLayout()).getLayoutComponent(BorderLayout.SOUTH);
+            if (southNow instanceof JPanel) ((JPanel) southNow).add(goBack, 0);
+            else {
+                JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+                south.add(goBack);
+                box.add(south, BorderLayout.SOUTH);
+            }
+        }
         // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
         for (int i = 0; i < checks.length; i++) {
             if (checks[i] == null || ps.get(i).clears == null) continue;
@@ -3751,6 +4039,10 @@ final class PyJav {
             });
         }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (wentBack[0]) {
+            SwingUtilities.invokeLater(() -> this.runParamsBack());
+            return;
+        }
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
@@ -3899,6 +4191,11 @@ final class PyJav {
 
     /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
     void previewPicture(String path) {
+        this.previewPicture(path, null);
+    }
+
+    /** As above; `row` (the picture's Params row): Crop there, its crop can fill the row. */
+    void previewPicture(String path, java.util.function.Consumer<File> row) {
         java.awt.image.BufferedImage image = null;
         try {
             image = javax.imageio.ImageIO.read(new File(path));
@@ -3917,13 +4214,76 @@ final class PyJav {
             JLabel size = new JLabel(image.getWidth() + " \u00d7 " + image.getHeight());
             JPanel box = new JPanel(new BorderLayout(0, 6));
             box.add(thumb, BorderLayout.CENTER);
-            box.add(size, BorderLayout.SOUTH);
+            // Upscale: ImageUpscaler with this picture, its Params open; Return opens this program's Params again.
+            JButton upscale = new JButton(UPSCALE_PREVIEW);
+            upscale.setName("params-preview-upscale");
+            upscale.addActionListener(e -> this.upscalePreview(path, upscale));
+            JPanel actions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+            if (row != null) {
+                // Crop: the picture with the crop frame on; its menu has Use the crop in this row.
+                JButton crop = new JButton(CROP_PREVIEW);
+                crop.setName("params-preview-crop");
+                crop.addActionListener(e -> {
+                    java.awt.Window shown = SwingUtilities.getWindowAncestor(crop);
+                    if (shown != null) shown.dispose();
+                    this.cropPicture(path, row);
+                });
+                actions.add(crop);
+            }
+            actions.add(upscale);
+            JPanel foot = new JPanel(new BorderLayout(8, 4));
+            foot.add(size, BorderLayout.WEST);
+            foot.add(actions, BorderLayout.EAST);
+            // Not 4:7, or smaller than the picture ImageUpscaler made last: said under the picture.
+            String note = previewNote(path);
+            if (note != null) {
+                JLabel says = new JLabel("<html><body style='width:300px'>" + note.replace("&", "&amp;").replace("<", "&lt;") + "</body></html>");
+                says.setName("params-preview-note");
+                foot.add(says, BorderLayout.SOUTH);
+            }
+            box.add(foot, BorderLayout.SOUTH);
             pane = new JOptionPane(box, JOptionPane.PLAIN_MESSAGE);
         }
         javax.swing.JDialog dialog = pane.createDialog(app, new File(path).getName());
         dialog.setModal(false);
         this.lastParamsPreview = dialog;
         dialog.setVisible(true);
+    }
+
+    static final String UPSCALE_PREVIEW = "Upscale";
+
+    static final String CROP_PREVIEW = "Crop";
+
+    /** Preview's note for the picture (UpscaleCheck.previewNote): why upscaling or cropping could be needed, or null. */
+    static String previewNote(String path) {
+        try {
+            File f = new File(path);
+            return f.isFile() ? UpscaleCheck.previewNote(PromptDb.dir(), f.getName(), MediaDir.head(f)) : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Preview's Upscale: the Preview and the Params closed (what was picked kept, as with the window's X),
+     * then ImageUpscaler with the picture as its input, its Params open; Return to the program opens its Params.
+     */
+    void upscalePreview(String path, java.awt.Component from) {
+        final String program = app.pyName;
+        java.awt.Window preview = SwingUtilities.getWindowAncestor(from);
+        if (preview != null) preview.dispose();
+        for (java.awt.Window w : java.awt.Window.getWindows()) {
+            if (w instanceof javax.swing.JDialog && w.isShowing() && String.valueOf(((javax.swing.JDialog) w).getTitle()).startsWith("Parameters \u00b7 ")) w.dispose();
+        }
+        final Runnable back = program == null ? null : () -> {
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", program);
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+        };
+        SwingUtilities.invokeLater(() -> {
+            RefImages.upscale(app, new File(path), null, null);
+            if (back != null) this.setReturn("Return to " + program.replaceAll("\\.java$", ""), back);
+        });
     }
 
     /** Clear: a file picked by mistake leaves the row (a second reference image, say). */
@@ -3998,6 +4358,97 @@ final class PyJav {
             if (b.isShowing()) m.show(b, 0, b.getHeight());
         });
         return b;
+    }
+
+    /**
+     * A drop-down row (vst_render's Model A, Model B...): its list picks the row's value, kept in a field
+     * that is not shown (fields[i], as the typed rows' are); the field set (Suggested, Defaults) moves the list.
+     */
+    javax.swing.JComboBox<String> dropdown(final ProgramParams.Param p, String value, JTextField[] fields, int i) {
+        final JTextField field = new JTextField(value == null ? "" : value.trim(), 10);
+        field.setName("params-field:" + p.token);
+        fields[i] = field;
+        final javax.swing.JComboBox<String> list = new javax.swing.JComboBox<String>(p.choices);
+        list.setName("params-dropdown:" + p.token);
+        final java.util.List<String> vals = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices);
+        final boolean[] syncing = {false};
+        list.setSelectedIndex(Math.max(0, vals.indexOf(field.getText().trim())));
+        list.addActionListener(e -> {
+            if (syncing[0]) return;
+            syncing[0] = true;
+            field.setText(p.choiceValue(Math.max(0, list.getSelectedIndex())));
+            syncing[0] = false;
+        });
+        field.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void follow() {
+                if (syncing[0]) return;
+                syncing[0] = true;
+                list.setSelectedIndex(Math.max(0, vals.indexOf(field.getText().trim())));
+                syncing[0] = false;
+            }
+
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                follow();
+            }
+        });
+        return list;
+    }
+
+    /**
+     * Rows shown only when other rows are so (ProgramParams.shown: Model A's number of kits when Model A is
+     * "the first N kits"): hidden or shown again as the switches are ticked and the values picked.
+     */
+    void showRows(JPanel form, int[] rowStarts, final List<ProgramParams.Param> ps, final JTextField[] fields, final javax.swing.JCheckBox[] checks) {
+        final java.awt.Component[] all = form.getComponents();
+        final java.util.List<Runnable> rows = new java.util.ArrayList<Runnable>();
+        final java.util.function.IntFunction<String> valueOf = j -> checks[j] != null ? (checks[j].isSelected() ? "on" : "") : fields[j] != null ? fields[j].getText() : "";
+        for (int i = 0; i < ps.size(); i++) {
+            final ProgramParams.Param p = ps.get(i);
+            if (p.showWhen == null) continue;
+            int end = i + 1 < ps.size() ? rowStarts[i + 1] : all.length;
+            final java.awt.Component[] mine = java.util.Arrays.copyOfRange(all, rowStarts[i], end);
+            rows.add(() -> {
+                boolean show = ProgramParams.shown(p, ps, valueOf);
+                for (java.awt.Component c : mine) {
+                    if (c.isVisible() == show) continue;
+                    c.setVisible(show);
+                    if (c.getParent() != null) {
+                        c.getParent().revalidate();
+                        c.getParent().repaint();
+                    }
+                }
+            });
+        }
+        if (rows.isEmpty()) return;
+        final Runnable update = () -> {
+            for (Runnable r : rows) r.run();
+        };
+        for (javax.swing.JCheckBox c : checks) if (c != null) c.addItemListener(e -> update.run());
+        for (JTextField f : fields) {
+            if (f == null) continue;
+            f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+
+                public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+
+                public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                    update.run();
+                }
+            });
+        }
+        update.run();
     }
 
     /** The tab the Params page showed last (vst_render's), opened again next time. */
@@ -4250,7 +4701,47 @@ final class PyJav {
         head.add(change, BorderLayout.EAST);
         folders.add(head, BorderLayout.NORTH);
         lists.add(folders);
+        // A plugin made a favourite (or a run made recent) while the Params are open, in the Plugin Browser
+        // or the Plugins list: the lists again each time the Params window comes back to the front.
+        final Runnable refresh = () -> SwingUtilities.invokeLater(() -> refreshPicks(favModel, recentModel, fill));
+        PluginLibrary.changed.add(refresh);
+        out.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & (java.awt.event.HierarchyEvent.SHOWING_CHANGED | java.awt.event.HierarchyEvent.DISPLAYABILITY_CHANGED)) == 0) return;
+            if (out.isShowing()) {
+                if (!PluginLibrary.changed.contains(refresh)) PluginLibrary.changed.add(refresh);
+                java.awt.Window w = SwingUtilities.getWindowAncestor(out);
+                if (w != null && !Boolean.TRUE.equals(out.getClientProperty("picks-refresh"))) {
+                    out.putClientProperty("picks-refresh", Boolean.TRUE);
+                    // Back to the front (from the Plugin Browser, a run): Recently used may have changed too.
+                    w.addWindowListener(new java.awt.event.WindowAdapter() {
+                        @Override
+                        public void windowActivated(java.awt.event.WindowEvent we) {
+                            refreshPicks(favModel, recentModel, fill);
+                        }
+
+                        @Override
+                        public void windowClosed(java.awt.event.WindowEvent we) {
+                            PluginLibrary.changed.remove(refresh);
+                        }
+                    });
+                }
+            } else if (!out.isDisplayable()) {
+                PluginLibrary.changed.remove(refresh);
+            }
+        });
         return out;
+    }
+
+    /** The Plugins tab's lists again, when what they show changed (the list's selection kept otherwise). */
+    static void refreshPicks(javax.swing.DefaultListModel<String> favModel, javax.swing.DefaultListModel<String> recentModel, Runnable fill) {
+        java.util.List<String> fav = java.util.Collections.list(favModel.elements()), recent = java.util.Collections.list(recentModel.elements());
+        javax.swing.DefaultListModel<String> f2 = new javax.swing.DefaultListModel<String>();
+        for (String f : PluginLibrary.favouritePaths()) {
+            PluginLibrary.Type t = PluginLibrary.typeOf(new File(f));
+            if (t != null && (PluginLibrary.VST3.equals(t.name) || PluginLibrary.VST2.equals(t.name))) f2.addElement(f);
+        }
+        if (fav.equals(java.util.Collections.list(f2.elements())) && recent.equals(PluginLibrary.recent())) return;
+        fill.run();
     }
 
     /**
@@ -4729,6 +5220,52 @@ final class PyJav {
             if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
             if (uses[i] != null) uses[i].setSelected(true);
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
+            this.kitForPlugin(fileLabels[i], token, path);
+        }
+    }
+
+    /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */
+    static Boolean kitAskYes;
+    static String lastKitAsk;
+
+    /**
+     * A plugin chosen for a row (Choose plugin, Plugins list, Favourites or Recently used, dropped): its
+     * kit row (--kit_name for --plugin, --kit_name2 for --plugin2...) set from the kits named for it
+     * before (VstLists.kitsFor). None but the saved kit: left blank (vst_render names it). One: that
+     * one. More: asked whether the most recently used is the one loaded (No: blank, unless the row's
+     * kit is one of the plugin's already).
+     */
+    void kitForPlugin(java.awt.Component at, String pluginToken, String path) {
+        java.util.List<ProgramParams.Param> ps = this.shownParams;
+        JTextField[] fields = this.shownFields;
+        if (ps == null || fields == null || path == null || path.isEmpty() || !pluginToken.matches("--plugin\\d?")) return;
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        int row = -1;
+        for (int i = 0; i < ps.size() && i < fields.length; i++) if (ps.get(i).token.equals(kitToken) && fields[i] != null) row = i;
+        if (row < 0) return;
+        JTextField field = fields[row];
+        java.util.List<String> kits = VstLists.kitsFor(path);
+        String now = field.getText().trim();
+        String plug = plugName(path).replaceAll("\\.(?i:vst3|dll|clap|lv2|so|component)$", "");
+        if (kits.isEmpty()) {
+            field.setText("");
+            app.setNow(plug + ": no kit named for it before; Kit loaded left blank (vst_render names it saved or default kit)");
+        } else if (kits.size() == 1) {
+            field.setText(kits.get(0));
+            app.setNow(plug + ": Kit loaded set to " + kits.get(0) + " (the only kit named for it)");
+        } else {
+            String recent = kits.get(0);
+            lastKitAsk = plug + " has " + kits.size() + " kits named for it before:\n" + String.join(", ", kits)
+                + "\n\nIs the most recently used, " + recent + ", the kit loaded in it now?";
+            boolean yes = kitAskYes != null ? kitAskYes.booleanValue()
+                : JOptionPane.showConfirmDialog(at, lastKitAsk, "Kit loaded", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+            if (yes) {
+                field.setText(recent);
+                app.setNow(plug + ": Kit loaded set to " + recent);
+            } else if (!kits.contains(now)) {
+                field.setText("");
+                app.setNow(plug + ": Kit loaded left blank: name the kit loaded in it (its list has " + kits.size() + ")");
+            }
         }
     }
 

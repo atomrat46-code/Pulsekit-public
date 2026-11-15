@@ -28,6 +28,8 @@ final class PictureOffer {
         List<JavaRun.FileOut> pictures = new ArrayList<JavaRun.FileOut>();
         for (JavaRun.FileOut f : result.files) if (isPicture(f.name) && f.bytes != null && f.bytes.length > 0) pictures.add(f);
         if (pictures.isEmpty()) return false;
+        // Opened from another screen (Downloads' Preview): a picture taken on as a reference closes it, and Return opens it again.
+        final RefImages.From from = RefImages.take();
         int width = app.getResources().getDisplayMetrics().widthPixels;
         LinearLayout col = app.col();
         col.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));
@@ -57,7 +59,7 @@ final class PictureOffer {
                 view = image;
                 android.widget.FrameLayout holder = new android.widget.FrameLayout(app);
                 holder.addView(image, new android.widget.FrameLayout.LayoutParams(-1, -2));
-                crop[0] = CropLayer.over(app, holder, image, pic.name, new Cropped(app, pic.bytes));
+                crop[0] = CropLayer.over(app, holder, image, pic.name, new Cropped(app, pic.bytes, from));
                 view.setTag("picture-offer:" + f.name);
                 col.addView(holder, new LinearLayout.LayoutParams(-1, -2));
             } else {
@@ -91,7 +93,7 @@ final class PictureOffer {
             });
             TextView process = app.outline("Process as a reference", false, v -> {
                 if (last != null) last.dismiss();
-                ProcessRefDialog.open(app, pic.name, pic.bytes);
+                RefImages.process(app, pic.name, pic.bytes, from);
             });
             process.setTag("picture-ref:" + f.name);
             col.addView(process);
@@ -115,10 +117,16 @@ final class PictureOffer {
     static final class Cropped implements CropLayer.Actions, CropLayer.Processes {
         final MainActivity app;
         final byte[] bytes;
+        final RefImages.From from;
 
         Cropped(MainActivity app, byte[] bytes) {
+            this(app, bytes, null);
+        }
+
+        Cropped(MainActivity app, byte[] bytes, RefImages.From from) {
             this.app = app;
             this.bytes = bytes;
+            this.from = from;
         }
 
         public Bitmap cut(CropBox at) throws Exception {
@@ -133,7 +141,7 @@ final class PictureOffer {
 
         public void process(String name, byte[] png) {
             if (last != null) last.dismiss();
-            ProcessRefDialog.open(this.app, name, png);
+            RefImages.process(this.app, name, png, this.from);
         }
 
         public void upscale(String name, byte[] png) throws Exception {
@@ -150,6 +158,10 @@ final class PictureOffer {
             this.app.openKitView("py");
             this.app.programMenus.selectProgram("Java", "ImageUpscaler.java");
             this.app.pyJav.pkUseInputPath(in.getAbsolutePath());
+            if (this.from != null) {
+                if (this.from.close != null && this.from.close.isShowing()) this.from.close.dismiss();
+                if (this.from.back != null) this.app.pyJav.pkSetReturn(this.from.label, this.from.back);
+            }
             this.app.pyJav.pkOpenParams();
         }
     }

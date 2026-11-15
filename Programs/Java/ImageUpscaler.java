@@ -205,12 +205,32 @@ public class ImageUpscaler {
             if ((long) tw * th > MAX_PIXELS) {
                 throw new IOException(tw + " x " + th + " is too large (at most about " + (MAX_PIXELS / 1000000) + " megapixels)");
             }
+            // Room for it: said before the work (and the largest size that fits), not as "out of memory" after.
+            String room = room(src, tw, th, phone && !fit.equals("pad"));
+            if (room != null) {
+                System.out.println("Failed: " + room);
+                return 1;
+            }
             Picture pic = src;
             // Crop: the edges go first, so the AI works on what is kept.
             if (fit.equals("crop")) pic = crop(pic, (double) tw / th);
             if (method == 2) pic = ai(pic);
             if (method == 3) pic = sogni(pic, tw, th, phone);
             boolean alpha = src.alpha && (format.equals("png") || format.equals("webp") || format.equals("gif"));
+            int srcW = src.w, srcH = src.h;
+            if (phone && !fit.equals("pad")) {
+                // The phone: the enlarged picture made a band of rows at a time straight into the picture written
+                // (its pixels outside the app's memory), so the whole of it is never held twice.
+                src = null;
+                Droid.writeScaled(pic, tw, th, alpha, out, format, quality);
+                System.out.println("Method " + method + (method == 1 ? " (bicubic)" : method == 2 ? " (Real-ESRGAN AI 4x, then bicubic to the size)" : " (Sogni AI upscale, then bicubic to the size)")
+                    + ", fit " + fit + ": " + srcW + " x " + srcH + " -> " + tw + " x " + th);
+                System.out.println("Wrote " + out.getName() + " (" + size(out.length()) + ")");
+                if (outputDir.equals("original")) System.out.println("Output folder: original (Pulsekit keeps a copy in " + in.getName() + "'s folder)");
+                if (addToDb) System.out.println("Add to DB: Pulsekit keeps " + out.getName() + " as a Reference file");
+                System.out.println("Succeeded: " + out.getName());
+                return 0;
+            }
             Picture made = fit.equals("pad") ? pad(pic, tw, th, alpha) : bicubic(pic, tw, th);
             made.alpha = alpha;
             if (phone) Droid.write(made, out, format, quality);
@@ -223,7 +243,9 @@ public class ImageUpscaler {
             System.out.println("Succeeded: " + out.getName());
             return 0;
         } catch (OutOfMemoryError ex) {
-            System.out.println("Failed: not enough memory for a picture this large; try a smaller --scale or size");
+            Runtime rt = Runtime.getRuntime();
+            System.out.println("Failed: not enough memory for a picture this large (Pulsekit may use about " + (rt.maxMemory() >> 20)
+                + " MB here); try a smaller --scale or size");
             return 1;
         } catch (Exception ex) {
             System.out.println("Failed: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
@@ -297,6 +319,81 @@ public class ImageUpscaler {
         resample(mid.px, tw, p.h, out.px, th, false);
         out.alpha = p.alpha;
         return out;
+    }
+
+    /**
+     * Whether the memory Pulsekit may use holds the work: the picture read, the rows enlarged across, and
+     * (unless `banded`: the phone writes the rest a band at a time) the enlarged picture and its copy for the
+     * file. Null when it fits; else what to say, with the largest size that fits.
+     */
+    static String room(Picture src, int tw, int th, boolean banded) {
+        Runtime rt = Runtime.getRuntime();
+        long free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory());
+        long need = need(src, tw, th, banded);
+        if (need <= free * 0.85) return null;
+        int w = tw, h = th;
+        while (w > 1 && h > 1 && need(src, w, h, banded) > free * 0.85) {
+            w = (int) (w * 0.95);
+            h = (int) (h * 0.95);
+        }
+        return tw + " x " + th + " needs about " + (need >> 20) + " MB, and about " + (free >> 20) + " MB is free here: at most about "
+            + w + " x " + h + " fits (a smaller --scale, --width or --height)";
+    }
+
+    private static long need(Picture src, int tw, int th, boolean banded) {
+        long across = (long) tw * src.h;
+        long band = (long) tw * 64;
+        return 4L * (across + (banded ? band : 2L * tw * th)) + (1L << 22);
+    }
+
+    /** The cubic weights from `from` pixels to `to`: each output's first input and its `taps` weights. */
+    static final class Taps {
+        final int taps;
+        final int[] first;
+        final float[] weights;
+
+        Taps(int from, int to) {
+            double ratio = (double) from / to;
+            double support = ratio > 1 ? 2 * ratio : 2;
+            double stretch = ratio > 1 ? ratio : 1;
+            taps = (int) Math.ceil(support * 2) + 1;
+            first = new int[to];
+            weights = new float[to * taps];
+            for (int o = 0; o < to; o++) {
+                double centre = (o + 0.5) * ratio - 0.5;
+                int lo = (int) Math.floor(centre - support) + 1;
+                first[o] = lo;
+                double sum = 0;
+                for (int k = 0; k < taps; k++) {
+                    double wgt = cubic((lo + k - centre) / stretch);
+                    weights[o * taps + k] = (float) wgt;
+                    sum += wgt;
+                }
+                if (sum != 0) for (int k = 0; k < taps; k++) weights[o * taps + k] /= (float) sum;
+            }
+        }
+    }
+
+    /** The second pass (down the columns, sh to `t.first.length` rows) for output rows o0 to o1 only, into `band`. */
+    static void rowsDown(int[] src, int sw, int sh, Taps t, int o0, int o1, int[] band) {
+        for (int o = o0; o < o1; o++) {
+            int lo = t.first[o];
+            int row = (o - o0) * sw;
+            for (int x = 0; x < sw; x++) {
+                float a = 0, r = 0, g = 0, b = 0;
+                for (int k = 0; k < t.taps; k++) {
+                    float wgt = t.weights[o * t.taps + k];
+                    if (wgt == 0) continue;
+                    int at = Math.max(0, Math.min(sh - 1, lo + k));
+                    int c = src[at * sw + x];
+                    a += wgt * (c >>> 24);
+                    r += wgt * ((c >> 16) & 0xff);
+                    g += wgt * ((c >> 8) & 0xff);
+                    b += wgt * (c & 0xff);
+                }
+                band[row + x] = (clamp(a) << 24) | (clamp(r) << 16) | (clamp(g) << 8) | clamp(b);
+            }
+        }
     }
 
     /** One pass: along rows (`across`) from sw to `to` pixels, or down columns from sh to `to`. */
@@ -622,6 +719,52 @@ public class ImageUpscaler {
             p.alpha = ((Boolean) bc.getMethod("hasAlpha").invoke(bmp)).booleanValue();
             bc.getMethod("recycle").invoke(bmp);
             return p;
+        }
+
+        /**
+         * The picture enlarged to tw x th (bicubic) and written: across the rows first, then down a band of 64
+         * rows at a time into the Bitmap (its pixels outside the app's memory on Android 8 on), so the
+         * enlarged picture is never held whole in the app's memory.
+         */
+        static void writeScaled(Picture p, int tw, int th, boolean alpha, File f, String format, int quality) throws Exception {
+            int[] across;
+            int sh = p.h;
+            if (tw == p.w) {
+                across = p.px;
+            } else {
+                across = new int[tw * sh];
+                resample(p.px, p.w, p.h, across, tw, true);
+            }
+            p = null;
+            Class<?> bc = Class.forName("android.graphics.Bitmap");
+            Class<?> config = Class.forName("android.graphics.Bitmap$Config");
+            Object argb = config.getMethod("valueOf", String.class).invoke(null, "ARGB_8888");
+            Object bmp = bc.getMethod("createBitmap", int.class, int.class, config).invoke(null, Integer.valueOf(tw), Integer.valueOf(th), argb);
+            try {
+                java.lang.reflect.Method set = bc.getMethod("setPixels", int[].class, int.class, int.class, int.class, int.class, int.class, int.class);
+                Taps t = th == sh ? null : new Taps(sh, th);
+                int[] band = new int[tw * 64];
+                for (int y = 0; y < th; y += 64) {
+                    int rows = Math.min(64, th - y);
+                    if (t == null) System.arraycopy(across, y * tw, band, 0, rows * tw);
+                    else rowsDown(across, tw, sh, t, y, y + rows, band);
+                    if (!alpha) for (int i = 0; i < rows * tw; i++) band[i] |= 0xff000000;
+                    set.invoke(bmp, band, Integer.valueOf(0), Integer.valueOf(tw), Integer.valueOf(0), Integer.valueOf(y), Integer.valueOf(tw), Integer.valueOf(rows));
+                }
+                across = null;
+                Class<?> cf = Class.forName("android.graphics.Bitmap$CompressFormat");
+                String name = format.equals("png") ? "PNG" : format.equals("webp") ? "WEBP" : "JPEG";
+                Object kind = cf.getMethod("valueOf", String.class).invoke(null, name);
+                OutputStream out = new FileOutputStream(f);
+                try {
+                    Object ok = bc.getMethod("compress", cf, int.class, OutputStream.class).invoke(bmp, kind, Integer.valueOf(quality), out);
+                    if (!Boolean.TRUE.equals(ok)) throw new IOException("could not write " + f.getName());
+                } finally {
+                    out.close();
+                }
+            } finally {
+                bc.getMethod("recycle").invoke(bmp);
+            }
         }
 
         static void write(Picture p, File f, String format, int quality) throws Exception {

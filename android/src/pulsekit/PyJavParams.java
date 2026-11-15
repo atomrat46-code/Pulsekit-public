@@ -363,7 +363,9 @@ public final class PyJavParams {
             public void onTextChanged(CharSequence t, int a, int b, int c) {}
             public void afterTextChanged(android.text.Editable e) { paintPreview.run(); }
           });
-          preview.setOnClickListener(v -> previewPicture(activity, values[index]));
+          // The preview has Upscale and Crop, and says when upscaling or cropping could be needed.
+          preview.setOnClickListener(v -> previewPicture(activity, values[index], null,
+              activity instanceof MainActivity ? () -> cropPicture((MainActivity) activity, values[index], (cropName, file) -> assign(activity, values, index, chosen, file.getAbsolutePath(), null)) : null));
           // Recent: the reference pictures used last as small thumbnails, beside Preview.
           android.widget.Button recent = new android.widget.Button(activity);
           recent.setText(RecentRefs.RECENT);
@@ -384,6 +386,10 @@ public final class PyJavParams {
           fromSet.setOnClickListener(v -> pickFileSetMidi((MainActivity) activity, values, index, chosen));
           box.addView(fromSet, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
+        continue;
+      }
+      if (p.dropdown && p.choices != null && p.choices.length > 0) {
+        box.addView(dropdown(activity, p, values[i], fields, i));
         continue;
       }
       EditText field = new EditText(activity);
@@ -412,6 +418,20 @@ public final class PyJavParams {
       field.setTag("params-field:" + p.token);
       field.setText(values[i]);
       fields[i] = field;
+      if (p.importList) {
+        // A list row with Import (vst_render's Kits left out): a text file's lines into it.
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(field, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Button load = new android.widget.Button(activity);
+        load.setText("Import");
+        load.setTag("params-import:" + p.token);
+        final EditText target = field;
+        load.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(load);
+        box.addView(row);
+        continue;
+      }
       if (ProgramParams.stylesFromFile(p)) {
         // SogniMusic's styles list from a text file: Select file or Browse DB (one style a line, or with | or , between).
         box.addView(field);
@@ -555,7 +575,58 @@ public final class PyJavParams {
       }
       box.addView(field);
     }
+    // Rows shown only when other rows are so (vst_render's Model A's number of kits when Model A is "the first N kits").
+    final java.util.function.IntFunction<String> valueOf = j -> checks[j] != null ? (checks[j].isChecked() ? "on" : "") : fields[j] != null ? fields[j].getText().toString() : "";
+    final java.util.Map<android.view.View, ProgramParams.Param> conds = new java.util.HashMap<android.view.View, ProgramParams.Param>();
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).showWhen == null) continue;
+      int end = i + 1 < ps.size() ? rowStarts[i + 1] : box.getChildCount();
+      for (int k = rowStarts[i]; k < end; k++) conds.put(box.getChildAt(k), ps.get(i));
+    }
+    rowShown = v -> {
+      ProgramParams.Param c = conds.get(v);
+      return c == null || ProgramParams.shown(c, ps, valueOf);
+    };
+    refreshRows = () -> {
+      for (java.util.Map.Entry<android.view.View, ProgramParams.Param> e : conds.entrySet()) {
+        boolean tabOk = tabOf.get(e.getKey()) == null || tabOf.get(e.getKey()).equals(paramsTab);
+        e.getKey().setVisibility(tabOk && ProgramParams.shown(e.getValue(), ps, valueOf) ? android.view.View.VISIBLE : android.view.View.GONE);
+      }
+    };
+    tabOf.clear();
     onTabs(activity, box, rowStarts, ps, values, uses);
+    if (!conds.isEmpty()) {
+      android.text.TextWatcher again = new android.text.TextWatcher() {
+        @Override
+        public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+        @Override
+        public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+        @Override
+        public void afterTextChanged(android.text.Editable t) {
+          refreshRows.run();
+        }
+      };
+      for (EditText f : fields) if (f != null) f.addTextChangedListener(again);
+      for (int i = 0; i < checks.length; i++) if (checks[i] != null && ps.get(i).clears == null) checks[i].setOnCheckedChangeListener((b, on) -> refreshRows.run());
+      refreshRows.run();
+    }
+    // Opened by Process as a reference: Back closes these Params unsaved and picks the program again
+    // (there until used or another program is loaded; the program page has it too).
+    final Runnable goBack = name.equals(backFor) ? back : null;
+    final AlertDialog[] self = new AlertDialog[1];
+    if (goBack != null) {
+      android.widget.Button backButton = new android.widget.Button(activity);
+      backButton.setText(BACK);
+      backButton.setTag("params-back");
+      backButton.setAllCaps(false);
+      backButton.setOnClickListener(v -> {
+        if (self[0] != null) self[0].dismiss();
+        runBack(activity);
+      });
+      box.addView(backButton, 0);
+    }
     if (SogniSections.shown(name)) {
       // Export (Save is the window's button): the rows Save keeps, written into a file picked.
       android.widget.Button export = new android.widget.Button(activity);
@@ -633,6 +704,7 @@ public final class PyJavParams {
           }
         })
         .show();
+    self[0] = shown;
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
     if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
   }
@@ -651,13 +723,52 @@ public final class PyJavParams {
   }
 
   /** Export: the rows Save keeps, written into a file picked ("Prompt: ...", "Loras: ..."). */
-  static void exportSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
+  static void exportSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields) {
+    // Sections saved for the program: this entry, or all of them (asked).
+    java.util.List<PromptVault.SogniSection> saved = java.util.Collections.emptyList();
+    try {
+      saved = PromptVault.open(activity.getFilesDir()).sogniSections(program);
+    } catch (Exception ignored) {
+      // none to offer
+    }
+    if (!saved.isEmpty()) {
+      final java.util.List<PromptVault.SogniSection> all = saved;
+      if (exportAll != null) {
+        if (exportAll.booleanValue()) exportAllSections(activity, program, all);
+        else exportEntry(activity, program, ps, fields);
+        return;
+      }
+      lastExportAsk = new AlertDialog.Builder(activity)
+          .setTitle(ParamsClip.EXPORT)
+          .setMessage(ParamsClip.EXPORT_ASK)
+          .setPositiveButton(ParamsClip.EXPORT_THIS, (d, w) -> exportEntry(activity, program, ps, fields))
+          .setNeutralButton(ParamsClip.exportAllLabel(program, all.size()), (d, w) -> exportAllSections(activity, program, all))
+          .setNegativeButton("Cancel", null)
+          .show();
+      return;
+    }
+    exportEntry(activity, program, ps, fields);
+  }
+
+  /** The tests: Export's answer when the program has saved sections (true: all of them), else asked; the question shown last. */
+  static Boolean exportAll;
+  static AlertDialog lastExportAsk;
+
+  static void exportAllSections(Activity activity, String program, java.util.List<PromptVault.SogniSection> all) {
+    writeExport(activity, ParamsClip.exportAllName(program), ParamsClip.exportAllText(program, all), "the " + all.size() + " " + program + " sections");
+  }
+
+  static void exportEntry(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
     java.util.Map<String, String> now = sectionFields(ps, fields);
     if (now.isEmpty()) {
       clipSay(activity, "Nothing to export: the prompt and the other rows are empty");
       return;
     }
-    String text = ParamsClip.exportText(now);
+    writeExport(activity, ParamsClip.exportName(program, now), ParamsClip.exportText(now), "the " + program + " section");
+  }
+
+  /** Export's file written: the one the tests give, else the system's save dialog (the name suggested). */
+  static void writeExport(Activity activity, String name, String text, String what) {
     if (exportTo != null) {
       try {
         java.io.FileOutputStream out = new java.io.FileOutputStream(exportTo);
@@ -666,13 +777,13 @@ public final class PyJavParams {
         } finally {
           out.close();
         }
-        clipSay(activity, "Exported the " + program + " section into " + exportTo.getName());
+        clipSay(activity, "Exported " + what + " into " + exportTo.getName());
       } catch (Exception ex) {
-        clipSay(activity, "Could not export the section: " + ex.getMessage());
+        clipSay(activity, "Could not export " + what + ": " + ex.getMessage());
       }
       return;
     }
-    SaveText.save((MainActivity) activity, ParamsClip.exportName(program, now), text);
+    SaveText.save((MainActivity) activity, name, text);
   }
 
   /** The prompt's or LoRAs' Copy, Paste and Send buttons; `box` gives the row's field. */
@@ -826,7 +937,7 @@ public final class PyJavParams {
     lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
         .setItems(rows, (d, w) -> {
           SogniSections.Group g = groups.get(w);
-          if (g.sections.size() == 1) showSection(activity, program, ps, fields, g.sections.get(0));
+          if (!SogniSections.opens(g)) showSection(activity, program, ps, fields, g.sections.get(0));
           else groupSections(activity, program, ps, fields, g);
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
@@ -836,7 +947,7 @@ public final class PyJavParams {
     list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
       list.dismiss();
       SogniSections.Group g = groups.get(position);
-      if (g.sections.size() == 1) sectionMenu(activity, program, ps, fields, g.sections.get(0));
+      if (!SogniSections.opens(g)) sectionMenu(activity, program, ps, fields, g.sections.get(0));
       else groupSections(activity, program, ps, fields, g);
       return true;
     });
@@ -874,18 +985,107 @@ public final class PyJavParams {
         .setPositiveButton(SogniSections.LOAD, (d, w) -> pickSection(activity, program, ps, fields, sec))
         .setNeutralButton("Edit or remove\u2026", (d, w) -> sectionMenu(activity, program, ps, fields, sec))
         .setNegativeButton("Close", null).show();
+    // ☆ after Edit or remove…: marks the section a favourite (★) or not, the dialog kept open.
+    final AlertDialog shown = lastSectionShown;
+    android.widget.Button edit = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    if (edit != null && edit.getParent() instanceof android.view.ViewGroup) {
+      android.view.ViewGroup bar = (android.view.ViewGroup) edit.getParent();
+      final android.widget.Button star = new android.widget.Button(activity, null, android.R.attr.buttonBarButtonStyle);
+      star.setTag("section-star");
+      star.setText(SogniSections.star(sec));
+      star.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
+      star.setMinWidth(0);
+      star.setMinimumWidth(dp(activity, 48));
+      star.setOnClickListener(v -> {
+        markSection(activity, sec, !sec.favourite, sec.fin);
+        star.setText(SogniSections.star(sec));
+        shown.setTitle(SogniSections.label(sec));
+      });
+      bar.addView(star, bar.indexOfChild(edit) + 1, new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+  }
+
+  /** A section's favourite and final marks saved (said when they could not be). */
+  static void markSection(Activity activity, PromptVault.SogniSection sec, boolean favourite, boolean fin) {
+    try {
+      PromptVault.open(activity.getFilesDir()).markSogniSection(sec.id, favourite, fin);
+      sec.favourite = favourite;
+      sec.fin = fin;
+      sectionSaid = (favourite ? "Favourite: " : fin ? "Final: " : "Marks removed: ") + SogniSections.label(sec);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not mark the section: " + ex.getMessage());
+    }
   }
 
   /** A section's long-press menu shown last, and Edit section's / Remove section's dialog (for the tests). */
   static AlertDialog lastSectionMenu, lastSectionEdit;
 
   static void sectionMenu(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
-    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE};
+    List<String> menu = new ArrayList<String>(java.util.Arrays.asList(SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE,
+        sec.fin ? SogniSections.UNFINAL : SogniSections.FINAL, sec.favourite ? SogniSections.UNFAVOURITE : SogniSections.FAVOURITE, SogniSections.ADD_GROUP));
+    if (sec.group != null && sec.group.length() > 0) menu.add(SogniSections.UNGROUP);
+    String[] items = menu.toArray(new String[0]);
     lastSectionMenu = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setItems(items, (d, w) -> {
       if (w == 0) pickSection(activity, program, ps, fields, sec);
       else if (w == 1) editSection(activity, program, ps, fields, sec);
-      else removeSection(activity, program, ps, fields, sec);
+      else if (w == 2) removeSection(activity, program, ps, fields, sec);
+      else if (w == 5) addToGroup(activity, program, ps, fields, sec);
+      else {
+        // Final (F), favourite (★) or out of its group: done, and the list shown again.
+        if (w == 3) markSection(activity, sec, sec.favourite, !sec.fin);
+        else if (w == 4) markSection(activity, sec, !sec.favourite, sec.fin);
+        else groupSection(activity, sec, "");
+        browseSections(activity, program, ps, fields);
+      }
     }).setNegativeButton("Cancel", null).show();
+  }
+
+  /** Add to group…'s list (the program's groups and New group…) and New group's name dialog (for the tests). */
+  static AlertDialog lastGroupPick, lastGroupName;
+
+  /** Add to group…: one of the program's groups, or New group… (its name asked); the list shown again. */
+  static void addToGroup(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    List<String> names;
+    try {
+      names = SogniSections.groupNames(PromptVault.open(activity.getFilesDir()).sogniSections(program));
+    } catch (Exception ex) {
+      names = new ArrayList<String>();
+    }
+    final List<String> rows = new ArrayList<String>(names);
+    rows.remove(sec.group == null ? "" : sec.group);
+    rows.add(SogniSections.NEW_GROUP);
+    lastGroupPick = new AlertDialog.Builder(activity).setTitle(SogniSections.ADD_GROUP).setItems(rows.toArray(new String[0]), (d, w) -> {
+      if (w < rows.size() - 1) {
+        groupSection(activity, sec, rows.get(w));
+        browseSections(activity, program, ps, fields);
+        return;
+      }
+      final EditText name = new EditText(activity);
+      name.setTag("section-group-name");
+      name.setSingleLine(true);
+      name.setHint(SogniSections.GROUP_NAME);
+      LinearLayout box = new LinearLayout(activity);
+      box.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+      box.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+      lastGroupName = new AlertDialog.Builder(activity).setTitle(SogniSections.NEW_GROUP).setView(box)
+          .setPositiveButton("Add", (d2, w2) -> {
+            String n = name.getText().toString().trim();
+            if (n.length() > 0) groupSection(activity, sec, n);
+            browseSections(activity, program, ps, fields);
+          })
+          .setNegativeButton("Cancel", (d2, w2) -> browseSections(activity, program, ps, fields)).show();
+    }).setNegativeButton("Cancel", (d, w) -> browseSections(activity, program, ps, fields)).show();
+  }
+
+  /** A section added to a group by name ("" takes it out). */
+  static void groupSection(Activity activity, PromptVault.SogniSection sec, String group) {
+    try {
+      PromptVault.open(activity.getFilesDir()).groupSogniSection(sec.id, group);
+      sec.group = group;
+      sectionSaid = (group.length() > 0 ? "In group " + group + ": " : "Out of its group: ") + SogniSections.label(sec);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not change its group: " + ex.getMessage());
+    }
   }
 
   /** Edit section: its entries, a line each ("Prompt: ...", "Loras: ..."); Save keeps them. */
@@ -1056,6 +1256,11 @@ public final class PyJavParams {
 
   /** As above; with `row` (Crop on a picture row) the crop frame is on from the start and its crop can fill the row. */
   static void previewPicture(Activity activity, String path, RefBrowser.Picked row) {
+    previewPicture(activity, path, row, null);
+  }
+
+  /** As above; `crop` (a Params row's Preview): the Crop button, and the note on upscaling or cropping. */
+  static void previewPicture(Activity activity, String path, RefBrowser.Picked row, Runnable crop) {
     // Picked from the library and gone from the temp folder since: written again first.
     try {
       InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
@@ -1112,8 +1317,58 @@ public final class PyJavParams {
         }
       }
       dialog.setView(image);
+      if (activity instanceof MainActivity) {
+        // Upscale: ImageUpscaler with this picture, its Params open; Return opens this program's Params again.
+        final MainActivity app = (MainActivity) activity;
+        dialog.setNeutralButton(UPSCALE_PREVIEW, (d, w) -> upscalePreview(app, path));
+        // Crop: the picture with the crop frame on; its long press has Use the crop in this row.
+        if (crop != null) dialog.setNegativeButton(CROP_PREVIEW, (d, w) -> crop.run());
+        // Not 4:7, or smaller than the picture ImageUpscaler made last: said under its size.
+        String note = previewNote(activity, path);
+        if (note != null) dialog.setMessage(bounds.outWidth + " \u00d7 " + bounds.outHeight + "\n" + note);
+      }
     }
     lastParamsPreview = dialog.show();
+  }
+
+  static final String UPSCALE_PREVIEW = "Upscale";
+
+  static final String CROP_PREVIEW = "Crop";
+
+  /** Preview's note for the picture (UpscaleCheck.previewNote): why upscaling or cropping could be needed, or null. */
+  static String previewNote(Activity activity, String path) {
+    try {
+      InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
+    } catch (Exception ignored) {
+      // asked of what is there
+    }
+    try {
+      java.io.File f = new java.io.File(path);
+      if (!f.isFile()) return null;
+      return UpscaleCheck.previewNote(activity.getFilesDir(), f.getName(), MediaDir.head(f));
+    } catch (Exception ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Preview's Upscale: the Params closed (what was picked kept), then ImageUpscaler with the picture as
+   * its input, its Params open; Return to the program opens its Params again.
+   */
+  static void upscalePreview(final MainActivity app, String path) {
+    final String program = app.pyName;
+    // Cancelled (as Back does): what was picked is saved.
+    AlertDialog d = shown;
+    if (d != null && d.isShowing()) d.cancel();
+    app.openKitView("py");
+    app.programMenus.selectProgram("Java", "ImageUpscaler.java");
+    app.pyJav.pkUseInputPath(path);
+    if (program != null) app.pyJav.pkSetReturn("Return to " + program.replaceAll("\\.java$", ""), () -> {
+      app.openKitView("py");
+      app.programMenus.selectProgram("Java", program);
+      app.pyJav.pkOpenParams();
+    });
+    app.pyJav.pkOpenParams();
   }
 
   /**
@@ -1335,6 +1590,14 @@ public final class PyJavParams {
         android.widget.Toast.makeText(activity, file.getName() + " has no text", android.widget.Toast.LENGTH_LONG).show();
         return;
       }
+      // An Import row (vst_render's Kits left out): the file's names, comma-separated.
+      if (String.valueOf(field.getTag()).startsWith("params-field:") && importRow(String.valueOf(field.getTag()).substring("params-field:".length()))) {
+        String list = ProgramParams.importedList(new String(out.toByteArray(), "UTF-8"));
+        field.setText(list);
+        int n = list.isEmpty() ? 0 : list.split(",").length;
+        android.widget.Toast.makeText(activity, n + (n == 1 ? " name" : " names") + " from " + file.getName(), android.widget.Toast.LENGTH_SHORT).show();
+        return;
+      }
       // SogniMusic's --styles: the file's styles as its list ("Funk|Hard Rock|Metal").
       if ("params-field:--styles".equals(field.getTag())) {
         String list = ProgramParams.styleList(text);
@@ -1422,8 +1685,71 @@ public final class PyJavParams {
   /** The choice of definitions shown last, for the tests. */
   static AlertDialog lastDefs;
   static String[] shownValues;
+
+  /** Whether the Params shown have this row as an Import row. */
+  static boolean importRow(String token) {
+    if (shownParams == null) return false;
+    for (ProgramParams.Param p : shownParams) if (p.token.equals(token) && p.importList) return true;
+    return false;
+  }
+
+  /** The value in the Params shown of the row with this switch (a drop-down row's too), for the tests; null: no such row. */
+  static String fieldsShown(String token) {
+    if (shownParams == null || shownFields == null) return null;
+    for (int i = 0; i < shownParams.size() && i < shownFields.length; i++) {
+      if (shownParams.get(i).token.equals(token) && shownFields[i] != null) return shownFields[i].getText().toString();
+    }
+    return null;
+  }
   /** The tab the Params page showed last (vst_render's), opened again next time. */
   static String paramsTab;
+
+  /** The Params page's rows: each view's tab (vst_render's), whether its showWhen lets it show, and showing them again. */
+  static final java.util.Map<android.view.View, String> tabOf = new java.util.HashMap<android.view.View, String>();
+  static java.util.function.Predicate<android.view.View> rowShown = v -> true;
+  static Runnable refreshRows = () -> {};
+
+  /**
+   * A drop-down row (vst_render's Model A, Model B...): its list picks the row's value, kept in a field that
+   * is not shown (fields[i], as the typed rows' are); the field set (Defaults, a section) moves the list.
+   */
+  static android.view.View dropdown(Activity activity, final ProgramParams.Param p, String value, EditText[] fields, int i) {
+    final EditText field = new EditText(activity);
+    field.setTag("params-field:" + p.token);
+    field.setText(value == null ? "" : value.trim());
+    fields[i] = field;
+    final android.widget.Spinner list = new android.widget.Spinner(activity);
+    list.setTag("params-dropdown:" + p.token);
+    android.widget.ArrayAdapter<String> items = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, p.choices);
+    items.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    list.setAdapter(items);
+    final List<String> vals = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices);
+    list.setSelection(Math.max(0, vals.indexOf(field.getText().toString().trim())));
+    list.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+      @Override
+      public void onItemSelected(android.widget.AdapterView<?> parent, View v, int at, long id) {
+        String want = p.choiceValue(at);
+        if (!want.equals(field.getText().toString().trim())) field.setText(want);
+      }
+
+      @Override
+      public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+    });
+    field.addTextChangedListener(new android.text.TextWatcher() {
+      @Override
+      public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+
+      @Override
+      public void onTextChanged(CharSequence t, int a, int b, int c) {}
+
+      @Override
+      public void afterTextChanged(android.text.Editable t) {
+        int at = Math.max(0, vals.indexOf(t.toString().trim()));
+        if (list.getSelectedItemPosition() != at) list.setSelection(at);
+      }
+    });
+    return list;
+  }
 
   /**
    * vst_render's rows on tabs (Input, Output, Plugins, Settings): a strip of tab buttons above the
@@ -1439,7 +1765,10 @@ public final class PyJavParams {
     String last = names.get(names.size() - 1);
     for (int i = 0; i < ps.size(); i++) {
       int end = i + 1 < ps.size() ? rowStarts[i + 1] : total;
-      for (int k = rowStarts[i]; k < end; k++) on.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+      for (int k = rowStarts[i]; k < end; k++) {
+        on.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+        tabOf.put(box.getChildAt(k), ps.get(i).tab != null ? ps.get(i).tab : last);
+      }
     }
     android.view.View picks = pluginPicks(activity, ps, values, uses);
     box.addView(picks);
@@ -1459,7 +1788,7 @@ public final class PyJavParams {
     final java.util.function.Consumer<String> show = t -> {
       paramsTab = t;
       PluginFiles.keep(tabKept, t);
-      for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) ? android.view.View.VISIBLE : android.view.View.GONE);
+      for (java.util.Map.Entry<android.view.View, String> e : on.entrySet()) e.getKey().setVisibility(t.equals(e.getValue()) && rowShown.test(e.getKey()) ? android.view.View.VISIBLE : android.view.View.GONE);
       for (android.widget.Button b : buttons) b.setAlpha(("params-tab:" + t).equals(b.getTag()) ? 1f : 0.55f);
     };
     for (final String t : names) {
@@ -1727,6 +2056,31 @@ public final class PyJavParams {
   }
 
   /** The program's saved Params replaced by `args`. */
+  /** A program's Params put back as they were: `args`, or none saved (null). */
+  static void restore(Activity activity, String program, String args) {
+    if (args != null) store(activity, program, args);
+    else activity.getSharedPreferences(PREFS, 0).edit().remove(program).apply();
+  }
+
+  /** Back in the program's Params (opened by Process as a reference): what it does, once; and for which program. */
+  static Runnable back;
+  static String backFor;
+  static final String BACK = "Back";
+
+  static void setBack(String program, Runnable r) {
+    back = r;
+    backFor = program;
+  }
+
+  /** Back (in the Params or on the program page): used once, then gone; the program page's button hidden. */
+  static void runBack(Activity activity) {
+    Runnable r = back;
+    back = null;
+    backFor = null;
+    if (activity instanceof MainActivity && ((MainActivity) activity).pyJav != null) ((MainActivity) activity).pyJav.pkShowBack();
+    if (r != null) r.run();
+  }
+
   static void store(Activity activity, String program, String args) {
     activity.getSharedPreferences(PREFS, 0).edit().putString(program, args).apply();
   }

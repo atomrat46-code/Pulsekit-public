@@ -32,6 +32,10 @@ final class ProcessRefDialog {
     static ProcessRefDialog last;
     /** Opened from the Media browser (C on a video, or a file's menu): it and its player close on Open, and Return opens it again. */
     MediaBrowser from;
+    /** Opened from another screen (Downloads): its window closes on Open; Return (returnLabel) runs back. */
+    android.app.Dialog close;
+    Runnable back;
+    String returnLabel;
     android.app.Dialog player;
 
     @SuppressWarnings("unchecked")
@@ -57,16 +61,31 @@ final class ProcessRefDialog {
 
     /** As above, from the Media browser `from` (and its video `player`, or null). */
     static void open(MainActivity app, String name, byte[] bytes, MediaBrowser from, android.app.Dialog player) {
+        File f = keep(app, name, bytes);
+        if (f != null) open(app, f, from, player);
+    }
+
+    /**
+     * From another screen (Downloads): `close` (its window) closes on Open, so the program and its Params
+     * are on top, and Return (`returnLabel`) runs `back`.
+     */
+    static void open(MainActivity app, String name, byte[] bytes, android.app.Dialog close, Runnable back, String returnLabel) {
+        File f = keep(app, name, bytes);
+        if (f != null) open(app, f, null, null, close, back, returnLabel);
+    }
+
+    /** The picture written into Pulsekit's own folder (process-ref/), or null (said why). */
+    static File keep(MainActivity app, String name, byte[] bytes) {
         File dir = new File(app.getFilesDir(), "process-ref");
         dir.mkdirs();
         File f = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_"));
         try {
             java.nio.file.Files.write(f.toPath(), bytes);
+            return f;
         } catch (Exception ex) {
             app.setNow("Could not keep " + name + " for the next program");
-            return;
+            return null;
         }
-        open(app, f, from, player);
     }
 
     static void open(MainActivity app, File picture) {
@@ -74,9 +93,16 @@ final class ProcessRefDialog {
     }
 
     static void open(MainActivity app, File picture, MediaBrowser from, android.app.Dialog player) {
+        open(app, picture, from, player, null, null, null);
+    }
+
+    static void open(MainActivity app, File picture, MediaBrowser from, android.app.Dialog player, android.app.Dialog close, Runnable back, String returnLabel) {
         ProcessRefDialog d = new ProcessRefDialog(app, picture);
         d.from = from;
         d.player = player;
+        d.close = close;
+        d.back = back;
+        d.returnLabel = returnLabel;
         if (d.programs.isEmpty()) {
             new AlertDialog.Builder(app).setTitle("Process as a reference")
                 .setMessage("No program that takes pictures has been run yet. Run SogniPedit or SogniVideo once (PyJav), and it is listed here.")
@@ -196,6 +222,8 @@ final class ProcessRefDialog {
         ProcessAsRef.save(this.app.getFilesDir(), this.choice);
         // Among the recent reference pictures (Params' Recent).
         RecentRefs.add(this.app.getFilesDir(), this.picture);
+        // Back in its Params: the program's Params as they were before the picture went in, and this dialog again.
+        final String before = PyJavParams.load(this.app, this.program), beforeOff = PyJavParams.load(this.app, this.program + ProgramParams.OFF_KEY);
         // The program's saved Params win over the run's arguments: the picture goes in there too.
         String saved = ProcessAsRef.savedWithPicture(PyJavParams.load(this.app, this.program), token, this.picture.getAbsolutePath());
         if (saved != null) PyJavParams.store(this.app, this.program, saved);
@@ -208,13 +236,30 @@ final class ProcessRefDialog {
         // A prompt from File > Downloads (not in PyJav's recent list): the program loaded, its arguments set below.
         if (index < 0) index = this.recent.indexOf(PyJavRecent.tapped(this.recent, this.program));
         // From the Media browser: it (and its video) closes, so the program and its Params are on top.
-        Runnable back = this.from == null ? null : this.from.returner();
+        Runnable back = this.from == null ? this.back : this.from.returner();
         if (this.player != null && this.player.isShowing()) this.player.dismiss();
         if (this.from != null && this.from.dialog != null) this.from.dialog.dismiss();
+        // From another screen (Downloads): it closes too.
+        if (this.close != null && this.close.isShowing()) this.close.dismiss();
         this.app.show("py");
         if (index >= 0) pj.pkApplyRecent(index + 1);
         if (pj.pkPyArgs != null) pj.pkPyArgs.setText(extra);
-        if (back != null) pj.pkSetReturn(back);
+        if (back != null) {
+            if (this.from == null && this.returnLabel != null) pj.pkSetReturn(this.returnLabel, back);
+            else pj.pkSetReturn(back);
+        }
+        final MainActivity app = this.app;
+        final File picture = this.picture;
+        final String program = this.program;
+        final MediaBrowser from = this.from;
+        final Runnable myBack = this.back;
+        final String label = this.returnLabel;
+        PyJavParams.setBack(program, () -> {
+            PyJavParams.restore(app, program, before);
+            PyJavParams.restore(app, program + ProgramParams.OFF_KEY, beforeOff);
+            open(app, picture, from, null, null, myBack, label);
+        });
+        pj.pkShowBack();
         this.app.setNow(this.program + " · " + this.picture.getName() + " as Reference file " + this.slot + ": Run starts it");
         // Its Params, with the picture in its slot.
         pj.pkOpenParams();

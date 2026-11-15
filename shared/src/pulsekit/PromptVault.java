@@ -74,6 +74,10 @@ public final class PromptVault {
     public String app;
     public String text;
     public long created;
+    /** Browse sections' marks: a favourite (★) and a final one (F). */
+    public boolean favourite, fin;
+    /** The group it was added to (Add to group…), or "" for the one its prompt's start makes. */
+    public String group = "";
   }
 
   private static final int MAGIC = 0x504B4442;
@@ -1263,6 +1267,16 @@ public final class PromptVault {
     }
     // 10: the collections (MediaCollections' text).
     writeUtf(out, collections);
+    // After them, the sections' marks (favourite 1, final 2) and groups: an older library simply has none.
+    int marked = 0;
+    for (SogniSection sec : sogniSections) if (marked(sec)) marked++;
+    out.writeInt(marked);
+    for (SogniSection sec : sogniSections) {
+      if (!marked(sec)) continue;
+      out.writeLong(sec.id);
+      out.writeInt((sec.favourite ? 1 : 0) | (sec.fin ? 2 : 0));
+      writeUtf(out, sec.group == null ? "" : sec.group);
+    }
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
     File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
@@ -1395,7 +1409,23 @@ public final class PromptVault {
           sogniSections.add(sec);
         }
       }
-      if (version >= 10 && data.available() >= 4) collections = readUtf(data);
+      if (version >= 10 && data.available() >= 4) {
+        collections = readUtf(data);
+        if (data.available() >= 4) {
+          int nmarks = data.readInt();
+          for (int i = 0; i < nmarks && data.available() >= 12; i++) {
+            long id = data.readLong();
+            int m = data.readInt();
+            String group = readUtf(data);
+            for (SogniSection sec : sogniSections) {
+              if (sec.id != id) continue;
+              sec.favourite = (m & 1) != 0;
+              sec.fin = (m & 2) != 0;
+              sec.group = group;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1442,6 +1472,33 @@ public final class PromptVault {
     for (SogniSection sec : sogniSections) {
       if (sec.id != id) continue;
       sec.text = text == null ? "" : text;
+      save();
+      return true;
+    }
+    return false;
+  }
+
+  /** A section marked (or not) as a favourite and as final; false when it is gone. */
+  public synchronized boolean markSogniSection(long id, boolean favourite, boolean fin) throws Exception {
+    for (SogniSection sec : sogniSections) {
+      if (sec.id != id) continue;
+      sec.favourite = favourite;
+      sec.fin = fin;
+      save();
+      return true;
+    }
+    return false;
+  }
+
+  private static boolean marked(SogniSection sec) {
+    return sec.favourite || sec.fin || (sec.group != null && sec.group.length() > 0);
+  }
+
+  /** A section added to a group by its name ("" takes it out); false when it is gone. */
+  public synchronized boolean groupSogniSection(long id, String group) throws Exception {
+    for (SogniSection sec : sogniSections) {
+      if (sec.id != id) continue;
+      sec.group = group == null ? "" : group.replaceAll("\\s+", " ").trim();
       save();
       return true;
     }
@@ -1925,6 +1982,9 @@ public final class PromptVault {
         n.app = sec.app;
         n.text = sec.text;
         n.created = sec.created;
+        n.favourite = sec.favourite;
+        n.fin = sec.fin;
+        n.group = sec.group;
         to.sogniSections.add(n);
       }
       for (LibraryFile f : from.library) {
