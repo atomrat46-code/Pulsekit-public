@@ -12583,7 +12583,7 @@ public final class DesktopBehavior {
   /**
    * vst_render's Params: --map has Pulsekit's map files to pick (drum-kits.txt, put in
    * ~/.pulsekit/maps) and Browse; a kit name typed in the run's arguments (--kit_name) is kept,
-   * and the next Params has it to pick.
+   * and the next Params has it to pick (Choose is there even before: the pack and set chooser).
    */
   void s165_vst_map_and_kit_lists() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -12625,7 +12625,7 @@ public final class DesktopBehavior {
         .append(" | unpacked: ").append(unpacked).append("\n--kit_name row before: ").append(kitBefore[0]).append(" | after a run: ").append(kitAfter[0])
         .append(" ").append(java.util.Arrays.toString(VstLists.kitNames())).append('\n');
     boolean ok = map[0].equals("Choose Browse") && java.util.Arrays.asList(choices[0]).contains("drum-kits.txt (Pulsekit's)")
-        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("-") && kitAfter[0].equals("Choose")
+        && java.util.Arrays.asList(choices[1]).contains("drum-kits.txt") && unpacked && kitBefore[0].equals("Choose") && kitAfter[0].equals("Choose")
         && java.util.Arrays.asList(VstLists.kitNames()).equals(java.util.Arrays.asList("Finnish Metal 2000"));
     if (!ok) throw new AssertionError(this.out.toString());
   }
