@@ -626,6 +626,22 @@ public final class PyJavParams {
       for (int i = 0; i < checks.length; i++) if (checks[i] != null && ps.get(i).clears == null) checks[i].setOnCheckedChangeListener((b, on) -> refreshRows.run());
       refreshRows.run();
     }
+    // Opened by Process as a reference: Back (once) closes these Params unsaved and picks the program again.
+    final Runnable goBack = name.equals(backFor) ? back : null;
+    back = null;
+    backFor = null;
+    final AlertDialog[] self = new AlertDialog[1];
+    if (goBack != null) {
+      android.widget.Button backButton = new android.widget.Button(activity);
+      backButton.setText(BACK);
+      backButton.setTag("params-back");
+      backButton.setAllCaps(false);
+      backButton.setOnClickListener(v -> {
+        if (self[0] != null) self[0].dismiss();
+        goBack.run();
+      });
+      box.addView(backButton, 0);
+    }
     if (SogniSections.shown(name)) {
       // Export (Save is the window's button): the rows Save keeps, written into a file picked.
       android.widget.Button export = new android.widget.Button(activity);
@@ -703,6 +719,7 @@ public final class PyJavParams {
           }
         })
         .show();
+    self[0] = shown;
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
     if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
   }
@@ -1956,6 +1973,22 @@ public final class PyJavParams {
   }
 
   /** The program's saved Params replaced by `args`. */
+  /** A program's Params put back as they were: `args`, or none saved (null). */
+  static void restore(Activity activity, String program, String args) {
+    if (args != null) store(activity, program, args);
+    else activity.getSharedPreferences(PREFS, 0).edit().remove(program).apply();
+  }
+
+  /** Back in the program's Params (opened by Process as a reference): what it does, once; and for which program. */
+  static Runnable back;
+  static String backFor;
+  static final String BACK = "Back";
+
+  static void setBack(String program, Runnable r) {
+    back = r;
+    backFor = program;
+  }
+
   static void store(Activity activity, String program, String args) {
     activity.getSharedPreferences(PREFS, 0).edit().putString(program, args).apply();
   }

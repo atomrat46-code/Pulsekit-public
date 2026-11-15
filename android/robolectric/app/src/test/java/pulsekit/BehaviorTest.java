@@ -3431,6 +3431,55 @@ public class BehaviorTest {
   }
 
   /**
+   * 15112026: Process as a reference from Downloads: its window closes on Open, so the program and its
+   * Params are on top, and Return says Return to Downloads. The Params have Back: they close unsaved, the
+   * program's Params as they were before the picture went in, and the program is picked again.
+   */
+  @Test
+  public void s137b_process_ref_from_downloads_and_back() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    PyJavParams.store(app, "SogniPedit.java", "--steps 4");
+    AlertDialog downloads = new AlertDialog.Builder(app).setTitle("Downloads").setMessage("list").create();
+    downloads.show();
+    final boolean[] returned = {false};
+    RefImages.offer(app, "tall.png", png.toByteArray(), downloads, () -> returned[0] = true, RefImages.BACK_DOWNLOADS);
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("asked program: ").append(d != null && d.dialog.isShowing()).append('\n');
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    PyJav pj = (PyJav) get("pyJav");
+    out.append("Open: downloads closed ").append(!downloads.isShowing()).append(", view ").append(get("view")).append(", program ").append(get("pyName"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append(", Params of ").append(PyJavParams.shownFor).append('\n');
+    out.append("picture in the arguments: ").append(pj.pkPyArgs.getText().toString().contains("tall.png")).append('\n');
+    View back = PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back");
+    out.append("Back button: ").append(back != null).append('\n');
+    ProcessRefDialog.last = null;
+    back.performClick();
+    idle();
+    out.append("Back: Params closed ").append(!PyJavParams.shown.isShowing()).append(", program asked again ").append(ProcessRefDialog.last != null && ProcessRefDialog.last.dialog.isShowing())
+        .append(", saved now ").append(PyJavParams.load(app, "SogniPedit.java")).append('\n');
+    ProcessRefDialog.last.dialog.dismiss();
+    call("pkOpenParams");
+    idle();
+    out.append("Params again, no Back: ").append(PyJavParams.shown.getWindow().getDecorView().findViewWithTag("params-back") == null).append('\n');
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    out.append("Return ran: ").append(returned[0]).append('\n');
+    write("s137b_process_ref_from_downloads_and_back", out.toString());
+    String t = out.toString();
+    if (!t.contains("Open: downloads closed true, view py, program SogniPedit.java, Return to Downloads, Params of SogniPedit.java") || !t.contains("picture in the arguments: true")
+        || !t.contains("Back button: true") || !t.contains("Back: Params closed true, program asked again true, saved now --steps 4") || !t.contains("Params again, no Back: true")
+        || !t.contains("Return ran: true")) throw new AssertionError(t);
+  }
+
+  /**
    * Media browser: a MIDI's long press has Open in MIDI editor (Save writes <name>-edited.mid beside
    * it), Render with SF2 (Midi2Wav) and Play with default SoundFont; a WAV's has Convert drum hits
    * into MIDI (DrumMidi_CRT). The programs open on PyJav with the file as their input.

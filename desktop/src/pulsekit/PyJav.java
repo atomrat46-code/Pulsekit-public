@@ -3050,6 +3050,39 @@ final class PyJav {
         return props.getProperty(program);
     }
 
+    /** A program's Params put back as they were: `args`, or none saved (null). */
+    void restoreParams(String program, String args) {
+        if (args != null) {
+            this.saveParams(program, args);
+            return;
+        }
+        java.util.Properties props = new java.util.Properties();
+        File f = this.paramsFile();
+        if (!f.isFile()) return;
+        try {
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                props.load(in);
+            }
+            props.remove(program);
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                props.store(out, "PyJav Params per program");
+            }
+        } catch (Exception ignored) {
+            // left as it is
+        }
+    }
+
+    /** Back in the program's Params (opened by Process as a reference): what it does, once; and for which program. */
+    Runnable paramsBack;
+    String paramsBackFor;
+
+    void setParamsBack(String program, Runnable back) {
+        this.paramsBack = back;
+        this.paramsBackFor = program;
+    }
+
+    static final String PARAMS_BACK = "Back";
+
     void saveParams(String program, String args) {
         java.util.Properties props = new java.util.Properties();
         File f = this.paramsFile();
@@ -3196,6 +3229,11 @@ final class PyJav {
             return;
         }
         final String extra = this.pyExtra != null ? this.pyExtra.getText() : "";
+        // Opened by Process as a reference: Back (once) closes these Params unsaved and picks the program again.
+        final Runnable back = program.equals(this.paramsBackFor) ? this.paramsBack : null;
+        this.paramsBack = null;
+        this.paramsBackFor = null;
+        final boolean[] wentBack = {false};
         final String[] values = ProgramParams.values(ps, this.loadParams(program), extra);
         for (int i = 0; i < ps.size(); i++) {
             ProgramParams.Param p = ps.get(i);
@@ -3817,6 +3855,23 @@ final class PyJav {
             south.add(exportSection);
             box.add(south, BorderLayout.SOUTH);
         }
+        if (back != null) {
+            JButton goBack = new JButton(PARAMS_BACK);
+            goBack.setName("params-back");
+            goBack.setToolTipText("Back to Process as a reference: another program for the picture (these Params as they were)");
+            goBack.addActionListener(e -> {
+                wentBack[0] = true;
+                java.awt.Window w = SwingUtilities.getWindowAncestor(goBack);
+                if (w != null) w.dispose();
+            });
+            java.awt.Component southNow = ((BorderLayout) box.getLayout()).getLayoutComponent(BorderLayout.SOUTH);
+            if (southNow instanceof JPanel) ((JPanel) southNow).add(goBack, 0);
+            else {
+                JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+                south.add(goBack);
+                box.add(south, BorderLayout.SOUTH);
+            }
+        }
         // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
         for (int i = 0; i < checks.length; i++) {
             if (checks[i] == null || ps.get(i).clears == null) continue;
@@ -3829,6 +3884,10 @@ final class PyJav {
             });
         }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (wentBack[0]) {
+            SwingUtilities.invokeLater(back);
+            return;
+        }
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();

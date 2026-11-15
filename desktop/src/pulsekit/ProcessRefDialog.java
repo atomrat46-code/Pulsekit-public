@@ -163,6 +163,8 @@ final class ProcessRefDialog {
         // The run's on/off switches the saved Params no longer have stay off (--saveprompt unticked since).
         String runArgs = ProcessAsRef.withoutOffSwitches(item == null ? "" : item.extra, this.app.pyJav.loadParams(name), ProgramParams.parse(this.source(name)));
         String extra = ProcessAsRef.withPicture(runArgs, s.get(slot - 1), this.picture.getAbsolutePath());
+        // Back in its Params: the program's Params as they were before the picture went in, and this dialog again.
+        final String before = this.app.pyJav.loadParams(name), beforeOff = this.app.pyJav.loadParams(name + ProgramParams.OFF_KEY);
         this.choice.program = name;
         this.choice.extra = item == null ? "" : item.extra;
         this.choice.slot = slot;
@@ -183,6 +185,14 @@ final class ProcessRefDialog {
         this.app.pyJav.loadRecent(item != null && this.recent.contains(item) ? item : PyJavRecent.tapped(this.recent, name));
         if (this.app.pyJav.pyExtra != null) this.app.pyJav.pyExtra.setText(extra);
         if (this.back != null) this.app.pyJav.setReturn(this.back);
+        final Pulsekit app = this.app;
+        final File picture = this.picture;
+        final Runnable back = this.back;
+        this.app.pyJav.setParamsBack(name, () -> {
+            app.pyJav.restoreParams(name, before);
+            app.pyJav.restoreParams(name + ProgramParams.OFF_KEY, beforeOff);
+            ProcessRefDialog.open(app, picture, back);
+        });
         this.app.setNow(name + " · " + this.picture.getName() + " as Reference file " + slot + ": Run starts it");
         // Its Params, with the picture in its slot.
         javax.swing.SwingUtilities.invokeLater(() -> this.app.pyJav.openParams());

@@ -400,11 +400,11 @@ final class DownloadsScreen {
                 if (MediaDir.FIRST_FRAME_AS_REF.equals(extraRow)) {
                     Uri u = uriFor(app, item.where);
                     File f = u == null ? fileFor(item.where) : null;
-                    RefImages.firstFrameAsRef(app, item.name, f == null ? null : f.getAbsolutePath(), u, null, null);
+                    RefImages.firstFrameAsRef(app, item.name, f == null ? null : f.getAbsolutePath(), u, last, () -> show(app), RefImages.BACK_DOWNLOADS);
                 } else {
                     byte[] png = bytes(app, item);
                     if (png == null) app.setNow("Could not read " + item.name);
-                    else RefImages.offer(app, item.name, png, null, null);
+                    else RefImages.offer(app, item.name, png, last, () -> show(app), RefImages.BACK_DOWNLOADS);
                 }
                 return;
             }

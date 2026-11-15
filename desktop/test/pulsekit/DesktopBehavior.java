@@ -5654,6 +5654,53 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 15112026: the Params Process as a reference opened have Back: they close unsaved, the program's Params
+   * as they were before the picture went in, and the program is picked again (once: opened again, no Back).
+   */
+  void s119b_process_ref_back() throws Exception {
+    final PyJav pj = (PyJav) get("pyJav");
+    String pedit = ProgramFiles.bundledSource("SogniPedit.java");
+    PyJavRecent.remember(pj.pyRecentDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    final File pic = new File(System.getProperty("user.home"), "look.png");
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(40, 70, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", pic);
+    pj.saveParams("SogniPedit.java", "--image old.png --steps 4");
+    SwingUtilities.invokeLater(() -> ProcessRefDialog.open((Pulsekit) frame, pic));
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final ProcessRefDialog d = ProcessRefDialog.last;
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Consumer<JDialog>[] watch = new java.util.function.Consumer[1];
+    watch[0] = params -> {
+      // (The program's dialog, closing as Open is pressed, may be seen first: watched on.)
+      if (!String.valueOf(params.getTitle()).startsWith("Parameters")) {
+        inspectNext = watch[0];
+        return;
+      }
+      seen.append("saved with the picture: ").append(String.valueOf(pj.loadParams("SogniPedit.java")).contains("look.png")).append('\n');
+      javax.swing.JButton back = (javax.swing.JButton) component(params, "params-back");
+      seen.append("Back button: ").append(back != null).append('\n');
+      ProcessRefDialog.last = null;
+      if (back != null) back.doClick();
+    };
+    inspectNext = watch[0];
+    answers.add("(keep)");
+    edt(() -> ((javax.swing.JButton) component(d.dialog.getContentPane(), "process-ref-open")).doClick());
+    for (int i = 0; i < 100 && (ProcessRefDialog.last == null || !ProcessRefDialog.last.dialog.isShowing()); i++) Thread.sleep(50);
+    seen.append("program asked again: ").append(ProcessRefDialog.last != null && ProcessRefDialog.last != d).append(", saved now ").append(pj.loadParams("SogniPedit.java")).append('\n');
+    if (ProcessRefDialog.last != null) edt(() -> ProcessRefDialog.last.dialog.dispose());
+    idle();
+    final boolean[] noBack = {false};
+    inspectNext = params -> noBack[0] = component(params, "params-back") == null;
+    answers.add("Cancel");
+    call("openParams");
+    idle();
+    seen.append("Params again, no Back: ").append(noBack[0]).append('\n');
+    out.append(seen);
+    String t = seen.toString();
+    if (!t.contains("saved with the picture: true") || !t.contains("Back button: true") || !t.contains("program asked again: true, saved now --image old.png --steps 4")
+        || !t.contains("Params again, no Back: true")) throw new AssertionError(t);
+  }
+
+  /**
    * Media browser: a MIDI's right click has Open in MIDI editor (Save writes <name>-edited.mid beside
    * it), Render with SF2, Render with plugin and Play with default SoundFont; a WAV's has Convert
    * drum hits into MIDI. The programs open on PyJav with the file as their input.

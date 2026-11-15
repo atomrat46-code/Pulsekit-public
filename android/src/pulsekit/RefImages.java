@@ -24,15 +24,23 @@ final class RefImages {
      * The picture as a reference: asked Upscale first / Use as it is / Cancel when it needs upscaling.
      * `close`: a dialog closed before PyJav shows (the browser it came from); `back`: Return after ImageUpscaler.
      */
+    /** Return's label for a reference picture taken from Downloads. */
+    static final String BACK_DOWNLOADS = "Return to Downloads";
+
     static void offer(final MainActivity app, final String name, final byte[] png, final android.app.Dialog close, final Runnable back) {
+        offer(app, name, png, close, back, null);
+    }
+
+    /** As above; `label`: Return's words ("Return to Downloads"; null: Return to Media browser). */
+    static void offer(final MainActivity app, final String name, final byte[] png, final android.app.Dialog close, final Runnable back, final String label) {
         String q = UpscaleCheck.refQuestion(app.getFilesDir(), name, png);
         if (q == null) {
-            ProcessRefDialog.open(app, name, png);
+            ProcessRefDialog.open(app, name, png, close, back, label);
             return;
         }
         lastAsk = new AlertDialog.Builder(app).setTitle(MediaDir.PROCESS_REF).setMessage(q)
-            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> upscale(app, name, png, close, back))
-            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> ProcessRefDialog.open(app, name, png))
+            .setPositiveButton(UpscaleCheck.UPSCALE_FIRST, (d, w) -> upscale(app, name, png, close, back, label))
+            .setNeutralButton(UpscaleCheck.AS_IT_IS, (d, w) -> ProcessRefDialog.open(app, name, png, close, back, label))
             .setNegativeButton("Cancel", null).show();
     }
 
@@ -77,6 +85,10 @@ final class RefImages {
 
     /** ImageUpscaler on PyJav with the picture (written into PyJav's input folder) as its input, its Params open. */
     static void upscale(MainActivity app, String name, byte[] png, android.app.Dialog close, Runnable back) {
+        upscale(app, name, png, close, back, null);
+    }
+
+    static void upscale(MainActivity app, String name, byte[] png, android.app.Dialog close, Runnable back, String label) {
         if (close != null && close.isShowing()) close.dismiss();
         try {
             File dir = new File(app.getCacheDir(), "pyjav-in");
@@ -91,7 +103,10 @@ final class RefImages {
             app.openKitView("py");
             app.programMenus.selectProgram("Java", "ImageUpscaler.java");
             app.pyJav.pkUseInputPath(in.getAbsolutePath());
-            if (back != null) app.pyJav.pkSetReturn(back);
+            if (back != null) {
+                if (label != null) app.pyJav.pkSetReturn(label, back);
+                else app.pyJav.pkSetReturn(back);
+            }
             app.pyJav.pkOpenParams();
         } catch (Exception ex) {
             app.setNow("Could not hand " + name + " to ImageUpscaler: " + ex.getMessage());
@@ -163,6 +178,10 @@ final class RefImages {
 
     /** First frame as a reference image: the video's first frame, then offer(). */
     static void firstFrameAsRef(MainActivity app, String video, String path, Uri uri, android.app.Dialog close, Runnable back) {
-        firstFrame(app, video, path, uri, (name, png) -> offer(app, name, png, close, back));
+        firstFrameAsRef(app, video, path, uri, close, back, null);
+    }
+
+    static void firstFrameAsRef(MainActivity app, String video, String path, Uri uri, android.app.Dialog close, Runnable back, String label) {
+        firstFrame(app, video, path, uri, (name, png) -> offer(app, name, png, close, back, label));
     }
 }
