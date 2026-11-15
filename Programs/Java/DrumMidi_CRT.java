@@ -1235,8 +1235,8 @@ public class DrumMidi_CRT{
         // The kit's own hats, ride and crash (its profile's cymbals) tell the cymbals found apart.
         if (kit != null && cymbals) kit.sortCymbals(hits, audio.samples, sr);
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
-        if (cymbals && System.getProperty("dm.cymFeatures") != null) CymModel.dump(hits, audio.samples, sr, System.getProperty("dm.cymFeatures"));
-        if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr);
+        if (cymbals && System.getProperty("dm.cymFeatures") != null) CymModel.dump(hits, audio.samples, sr, System.getProperty("dm.cymFeatures"), kit);
+        if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr, kit);
         if (cymbals && !chokeNotes.isEmpty()) chokes(hits, audio.samples, sr, chokeNotes);
         progress(90);
         note("Hits: " + hits.size());
@@ -3356,6 +3356,12 @@ public class DrumMidi_CRT{
      */
     static final class CymModel {
         static final int N = 1024, F = 29, X = 63;
+        /**
+         * The kit profile's inputs after the X above: the hit's likeness (cymNear) to the kit's learned closed
+         * hat, open hat, ride and crash (0 for one not learned), and 1 when the kit profile has any (0 without
+         * a profile). A model of X inputs reads only the first X; one learned with these, all XK.
+         */
+        static final int XK = X + 5;
         static final double CM_CONTEXT = 2.0, CM_MARGIN = 0.4;
         static final double[] OFFS = {-0.03, 0, 0.03, 0.07, 0.12, 0.2};
         static final int[] NOTE = {CLOSED_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE};
@@ -3435,7 +3441,7 @@ public class DrumMidi_CRT{
          * mean of the cymbals' within CM_CONTEXT s, log(1 + how many), the kind written (one-hot).
          * `byTime`, when given, gets every hit in time order.
          */
-        static List<double[]> inputs(List<Hit> hits, double[] x, double sr, List<Hit> cym, List<Hit> byTimeOut) {
+        static List<double[]> inputs(List<Hit> hits, double[] x, double sr, List<Hit> cym, List<Hit> byTimeOut, KitProfile kit) {
             List<Hit> byTime = new ArrayList<Hit>(hits);
             Collections.sort(byTime, new java.util.Comparator<Hit>() {
                 public int compare(Hit p, Hit q) {
@@ -3460,7 +3466,7 @@ public class DrumMidi_CRT{
             List<double[]> ins = new ArrayList<double[]>();
             for (int i = 0; i < cym.size(); i++) {
                 Hit h = cym.get(i);
-                double[] in = new double[X];
+                double[] in = new double[XK];
                 System.arraycopy(fs.get(i), 0, in, 0, F);
                 int n = 0;
                 for (int j = 0; j < cym.size(); j++) {
@@ -3471,9 +3477,25 @@ public class DrumMidi_CRT{
                 if (n > 0) for (int a = 0; a < F; a++) in[F + a] /= n;
                 in[2 * F] = Math.log1p(n);
                 in[2 * F + 1 + kind(h.note)] = 1;
+                kitInputs(in, kit, x, sr, h.time);
                 ins.add(in);
             }
             return ins;
+        }
+
+        /** The kit profile's inputs (XK above) of a hit at `time`. */
+        static void kitInputs(double[] in, KitProfile kit, double[] x, double sr, double time) {
+            if (kit == null) return;
+            double[] f = null;
+            boolean any = false;
+            for (int k = 0; k < 4; k++) {
+                double[] look = kit.look(NOTE[k]);
+                if (look == null) continue;
+                if (f == null && (f = cymFeature(x, sr, time)) == null) return;
+                in[X + k] = cymNear(f, look);
+                any = true;
+            }
+            in[X + 4] = any ? 1 : 0;
         }
 
         /**
@@ -3482,9 +3504,9 @@ public class DrumMidi_CRT{
          * model ("mu", "sd", "b", "w" lines, as a model file, and "margin"), so the bench scores any model
          * on the song without running DrumMidi again.
          */
-        static void dump(List<Hit> hits, double[] x, double sr, String file) {
+        static void dump(List<Hit> hits, double[] x, double sr, String file, KitProfile kit) {
             List<Hit> cym = new ArrayList<Hit>(), byTime = new ArrayList<Hit>();
-            List<double[]> ins = inputs(hits, x, sr, cym, byTime);
+            List<double[]> ins = inputs(hits, x, sr, cym, byTime, kit);
             StringBuilder out = new StringBuilder("# DrumMidi_CRT cymbal model inputs 1\nmargin " + CM_MARGIN + "\n");
             row(out, "mu", CM_MU);
             row(out, "sd", CM_SD);
@@ -3645,6 +3667,10 @@ public class DrumMidi_CRT{
         }
 
         static void apply(List<Hit> hits, double[] x, double sr) {
+            apply(hits, x, sr, null);
+        }
+
+        static void apply(List<Hit> hits, double[] x, double sr, KitProfile kit) {
             String file = System.getProperty("dm.cymModelFile");
             if (file != null) {
                 try {
@@ -3655,7 +3681,7 @@ public class DrumMidi_CRT{
             }
             double margin = Double.parseDouble(System.getProperty("dm.cymMargin", String.valueOf(CM_MARGIN)));
             List<Hit> cym = new ArrayList<Hit>();
-            List<double[]> ins = inputs(hits, x, sr, cym, null);
+            List<double[]> ins = inputs(hits, x, sr, cym, null, kit);
             java.util.Map<String, Integer> moves = new java.util.TreeMap<String, Integer>();
             java.util.Map<Hit, Hit> to = new java.util.HashMap<Hit, Hit>();
             // Each cymbal's ride share against the closed hat (the model's p(ride) / (p(ride) + p(hat))), for the runs below.
@@ -3668,7 +3694,7 @@ public class DrumMidi_CRT{
                 double top = -1e300;
                 for (int c = 0; c < 4; c++) {
                     z[c] = b[c];
-                    for (int a = 0; a < X; a++) z[c] += (in[a] - mu[a]) / sd[a] * w[a][c];
+                    for (int a = 0; a < mu.length && a < in.length; a++) z[c] += (in[a] - mu[a]) / sd[a] * w[a][c];
                     top = Math.max(top, z[c]);
                 }
                 double sum = 0;

@@ -3976,7 +3976,7 @@ def bench_ride_share(model, X):
     """Each cymbal's ride share against the closed hat: the model's p(ride) / (p(ride) + p(hat))."""
     import numpy as np
     mu, sd, W, b = model
-    z = ((X - mu) / sd) @ W + b
+    z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
     z -= z.max(1, keepdims=True)
     p = np.exp(z)
     return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
@@ -4009,7 +4009,7 @@ def bench_runs(notes, cyms):
 def bench_relabel(model, X, wrote, margin):
     import numpy as np
     mu, sd, W, b = model
-    z = ((X - mu) / sd) @ W + b
+    z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
     z -= z.max(1, keepdims=True)
     p = np.exp(z)
     p /= p.sum(1, keepdims=True)
