@@ -3201,8 +3201,9 @@ final class PyJav {
                     p.choiceValues = maps[1];
                 }
             } else if (p.token.startsWith("--kit_name")) {
+                // Choose there is the pack and set chooser (KitChooser): shown even before any kit was named.
                 String[] kits = VstLists.kitNames();
-                if (kits.length > 0) p.choices = kits;
+                p.choices = kits.length > 0 ? kits : new String[] {""};
             } else if (p.token.equals("--aspect") && "ImageUpscaler.java".equals(program)) {
                 // ImageUpscaler: the shape suggested for the input picture, first in the list.
                 String[] tip = this.aspectTip();
@@ -3730,6 +3731,15 @@ final class PyJav {
                 JButton choose = new JButton("Choose");
                 choose.setName("params-choose:" + p.token);
                 choose.addActionListener(e -> {
+                    if (p.token.startsWith("--kit_name")) {
+                        // vst_render's Kit loaded: the row's plugin's packs and their sets (KitChooser).
+                        String plugin = "";
+                        String plugToken = "--plugin" + p.token.substring("--kit_name".length());
+                        for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) plugin = values[k];
+                        String kit = KitChooser.choose(choose, plugin, field.getText());
+                        if (kit != null) field.setText(kit);
+                        return;
+                    }
                     int now = java.util.Arrays.asList(p.choiceValues != null ? p.choiceValues : p.choices).indexOf(field.getText().trim());
                     int picked = SearchList.choose(app, "Choose \u00b7 " + p.label, p.choices, now, now, "Choose");
                     if (picked >= 0) field.setText(p.choiceValue(picked));

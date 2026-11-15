@@ -10146,6 +10146,38 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 15112026: the Kit loaded row's Choose: the plugin's packs and their sets, from the kits run with it and
+   * maps/kits.txt ("Pack: Set"; a name without a pack under "(no pack)"); the kit there picked; Use gives
+   * "Pack: Set".
+   */
+  void s259_kit_packs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Total Studio Drums: Kind of metal\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"KVLT_Mexico 1998\"");
+    PluginFiles.write(KitPacks.file(home), "[Ugritone Drums]\nTotal Studio Drums: Pop Hits\nTight Studio Drums: Noob Metal # one more\n[Riot Drums]\nDefault kit\n");
+    out.append("packs: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"))).append('\n');
+    out.append("Riot: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Riot Drums.vst3"))).append('\n');
+    final String[] got = new String[1];
+    KitChooser.last = null;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> got[0] = KitChooser.choose(frame, "C:/VST3/Ugritone Drums.vst3", "Total Studio Drums: Kind of metal"));
+    for (int i = 0; i < 100 && (KitChooser.last == null || !KitChooser.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final KitChooser c = KitChooser.last;
+    edt(() -> {
+      out.append("shown: pack ").append(c.packList.getSelectedValue()).append(", set ").append(c.setList.getSelectedValue()).append(", sets ").append(java.util.Collections.list(c.setModel.elements())).append('\n');
+      c.pick("Total Studio Drums", "Pop Hits");
+      c.use();
+    });
+    idle();
+    out.append("chosen: ").append(got[0]).append('\n');
+    String all = out.toString();
+    boolean ok = all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
+        && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
+        && all.contains("chosen: Total Studio Drums: Pop Hits");
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * 14112026: a plugin chosen for a row sets its kit row from the kits named for it before (the runs'
    * --kit_name with its plugin, and vst_render's ~/.pulsekit/kit-names.txt): none but the saved kit, blank;
    * one, that one; more, asked whether the most recently used is loaded (No: blank).
