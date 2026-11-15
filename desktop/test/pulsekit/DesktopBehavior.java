@@ -9501,6 +9501,56 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
+  /**
+   * Browse sections' marks: ☆ under the list makes the selected section a favourite (★ before its
+   * name), Mark as final puts F there; the list redrawn at once and both kept in the library.
+   */
+  void s260_section_marks() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      list.setSelectedIndex(0);
+      javax.swing.JButton star = (javax.swing.JButton) component(d, "section-star");
+      javax.swing.JButton fin = (javax.swing.JButton) component(d, "section-final");
+      seen.append("buttons: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
+      star.doClick();
+      fin.doClick();
+      seen.append("after: ").append(star.getText()).append(", ").append(fin.getText()).append(" | rows: ").append(rows.apply(list)).append('\n');
+      list.setSelectedIndex(1);
+      seen.append("other row: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
+      SwingUtilities.invokeLater(() -> find(d.getContentPane(), "Cancel").doClick());
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    PromptVault.forget();
+    PromptVault.SogniSection back = null;
+    for (PromptVault.SogniSection sec : PromptDb.vault().sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
+    seen.append("read back: favourite ").append(back != null && back.favourite).append(", final ").append(back != null && back.fin).append('\n');
+    out.append(seen);
+    String t = seen.toString();
+    boolean ok = done[0] && t.contains("buttons: \u2606, Mark as final")
+        && t.contains("after: \u2605, Remove the final mark | rows: \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>")
+        && t.contains("other row: \u2606, Mark as final") && t.contains("read back: favourite true, final true");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   void s206_sections_grouped() throws Exception {
     final PyJav py = (PyJav) get("pyJav");
     PromptVault vault = PromptDb.vault();

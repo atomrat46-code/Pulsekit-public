@@ -12252,6 +12252,54 @@ public class BehaviorTest {
     if (!out.toString().equals("vst_render.py | --test --mp3 256 | bundled true\nMidiDrumGen.java")) throw new AssertionError(out.toString());
   }
 
+  /**
+   * Browse sections' marks: ☆ after Edit or remove… makes the section a favourite (★ before its
+   * name), Edit or remove…'s Mark as final puts F there; both kept in the library.
+   */
+  @Test
+  public void s260_section_marks() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection kite = vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.showSection(app, "SogniPadd", none, noFields, kite);
+    idle();
+    View dv = PyJavParams.lastSectionShown.getWindow().getDecorView();
+    android.widget.Button star = (android.widget.Button) dv.findViewWithTag("section-star");
+    android.widget.Button edit = PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    android.view.ViewGroup bar = (android.view.ViewGroup) edit.getParent();
+    boolean afterEdit = star != null && bar.indexOfChild(star) == bar.indexOfChild(edit) + 1;
+    String before = String.valueOf(star == null ? "-" : star.getText());
+    star.performClick();
+    idle();
+    out.append("star after Edit or remove: ").append(afterEdit).append(" | ").append(before).append(" -> ").append(star.getText())
+        .append(" | still open: ").append(PyJavParams.lastSectionShown.isShowing()).append('\n');
+    // Edit or remove…: Mark as final, then the list again.
+    edit.performClick();
+    idle();
+    String menu = listItems(PyJavParams.lastSectionMenu);
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(3);
+    idle();
+    String rows = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    PyJavParams.lastSections.dismiss();
+    PromptVault.forget();
+    PromptVault.SogniSection back = null;
+    for (PromptVault.SogniSection sec : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
+    out.append("menu: ").append(menu).append("\nrows: ").append(rows).append("\nread back: favourite ").append(back.favourite).append(", final ").append(back.fin).append('\n');
+    write("s260_section_marks", out.toString());
+    vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    boolean ok = afterEdit && before.equals("\u2606") && star.getText().toString().equals("\u2605")
+        && menu.equals("Load | Edit section | Remove section | Mark as final | Remove from favourites")
+        && rows.equals("\u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>") && back.favourite && back.fin;
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   @Test
   public void s224_sections_grouped() throws Exception {
     StringBuilder out = new StringBuilder();

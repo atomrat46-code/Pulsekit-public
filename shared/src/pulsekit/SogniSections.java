@@ -19,6 +19,20 @@ public final class SogniSections {
   public static final String SAVE_FIRST = "Save, then load";
   public static final String DONT_SAVE = "Load without saving";
   public static final String LOAD = "Load", EDIT = "Edit section", REMOVE = "Remove section";
+  /** The favourite button (☆ not one, ★ one) and the final mark's menu items. */
+  public static final String STAR_OFF = "\u2606", STAR_ON = "\u2605";
+  public static final String FINAL = "Mark as final", UNFINAL = "Remove the final mark";
+  public static final String FAVOURITE = "Mark as favourite \u2605", UNFAVOURITE = "Remove from favourites";
+
+  /** A section's marks before its label: "★ " for a favourite, "F " for a final one. */
+  public static String marks(PromptVault.SogniSection s) {
+    return (s.favourite ? STAR_ON + " " : "") + (s.fin ? "F " : "");
+  }
+
+  /** The favourite button's text for a section. */
+  public static String star(PromptVault.SogniSection s) {
+    return s.favourite ? STAR_ON : STAR_OFF;
+  }
 
   /** Remove section's question. */
   public static String removeAsk(PromptVault.SogniSection s) {
@@ -141,11 +155,21 @@ public final class SogniSections {
     return out;
   }
 
+  /** A group's marks: ★ when a section in it is a favourite, F when one is final. */
+  public static String groupMarks(Group g) {
+    boolean fav = false, fin = false;
+    for (PromptVault.SogniSection s : g.sections) {
+      fav |= s.favourite;
+      fin |= s.fin;
+    }
+    return (fav ? STAR_ON + " " : "") + (fin ? "F " : "");
+  }
+
   /** A group's row: one section as its own label; several as their lead (cut at 80) and how many ("… (3)"). */
   public static String groupLabel(Group g) {
     if (g.sections.size() == 1) return label(g.sections.get(0));
     String lead = g.lead.length() > 80 ? g.lead.substring(0, 80) + "\u2026" : g.lead;
-    return "\u25b8 " + lead + " (" + g.sections.size() + ")";
+    return "\u25b8 " + groupMarks(g) + lead + " (" + g.sections.size() + ")";
   }
 
   /** A section shown fully: when it was saved, then its entries, a line each. */
@@ -168,6 +192,6 @@ public final class SogniSections {
       more.append(more.length() == 0 ? "" : ", ").append(n.toLowerCase(java.util.Locale.ROOT));
     }
     String when = new java.text.SimpleDateFormat("d.M. HH:mm", java.util.Locale.ROOT).format(new java.util.Date(s.created));
-    return prompt + (more.length() == 0 ? "" : " · " + more) + " · " + when;
+    return marks(s) + prompt + (more.length() == 0 ? "" : " · " + more) + " · " + when;
   }
 }

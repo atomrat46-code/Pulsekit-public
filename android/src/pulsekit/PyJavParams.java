@@ -986,17 +986,54 @@ public final class PyJavParams {
         .setPositiveButton(SogniSections.LOAD, (d, w) -> pickSection(activity, program, ps, fields, sec))
         .setNeutralButton("Edit or remove\u2026", (d, w) -> sectionMenu(activity, program, ps, fields, sec))
         .setNegativeButton("Close", null).show();
+    // ☆ after Edit or remove…: marks the section a favourite (★) or not, the dialog kept open.
+    final AlertDialog shown = lastSectionShown;
+    android.widget.Button edit = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
+    if (edit != null && edit.getParent() instanceof android.view.ViewGroup) {
+      android.view.ViewGroup bar = (android.view.ViewGroup) edit.getParent();
+      final android.widget.Button star = new android.widget.Button(activity, null, android.R.attr.buttonBarButtonStyle);
+      star.setTag("section-star");
+      star.setText(SogniSections.star(sec));
+      star.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 22);
+      star.setMinWidth(0);
+      star.setMinimumWidth(dp(activity, 48));
+      star.setOnClickListener(v -> {
+        markSection(activity, sec, !sec.favourite, sec.fin);
+        star.setText(SogniSections.star(sec));
+        shown.setTitle(SogniSections.label(sec));
+      });
+      bar.addView(star, bar.indexOfChild(edit) + 1, new LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+  }
+
+  /** A section's favourite and final marks saved (said when they could not be). */
+  static void markSection(Activity activity, PromptVault.SogniSection sec, boolean favourite, boolean fin) {
+    try {
+      PromptVault.open(activity.getFilesDir()).markSogniSection(sec.id, favourite, fin);
+      sec.favourite = favourite;
+      sec.fin = fin;
+      sectionSaid = (favourite ? "Favourite: " : fin ? "Final: " : "Marks removed: ") + SogniSections.label(sec);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not mark the section: " + ex.getMessage());
+    }
   }
 
   /** A section's long-press menu shown last, and Edit section's / Remove section's dialog (for the tests). */
   static AlertDialog lastSectionMenu, lastSectionEdit;
 
   static void sectionMenu(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
-    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE};
+    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, sec.fin ? SogniSections.UNFINAL : SogniSections.FINAL,
+        sec.favourite ? SogniSections.UNFAVOURITE : SogniSections.FAVOURITE};
     lastSectionMenu = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setItems(items, (d, w) -> {
       if (w == 0) pickSection(activity, program, ps, fields, sec);
       else if (w == 1) editSection(activity, program, ps, fields, sec);
-      else removeSection(activity, program, ps, fields, sec);
+      else if (w == 2) removeSection(activity, program, ps, fields, sec);
+      else {
+        // Final (F) or favourite (★): marked, and the list shown again with the mark.
+        if (w == 3) markSection(activity, sec, sec.favourite, !sec.fin);
+        else markSection(activity, sec, !sec.favourite, sec.fin);
+        browseSections(activity, program, ps, fields);
+      }
     }).setNegativeButton("Cancel", null).show();
   }
 

@@ -1543,6 +1543,7 @@ final class PyJav {
 
     /** Browse sections' list shown last, and the full view's answer for the tests (0 Load, 1 Edit, 2 Remove, -1 Close; null: asked). */
     javax.swing.JList<String> lastSectionsList;
+    javax.swing.JPanel lastSectionMarks;
     static Integer sectionShownAnswer;
     String lastSectionShown;
 
@@ -1556,9 +1557,65 @@ final class PyJav {
         text.setLineWrap(true);
         text.setWrapStyleWord(true);
         Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Close"};
-        int ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(text), SogniSections.label(sec), JOptionPane.DEFAULT_OPTION,
+        javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+        box.add(new javax.swing.JScrollPane(text), java.awt.BorderLayout.CENTER);
+        box.add(this.markButtons(sec, null), java.awt.BorderLayout.SOUTH);
+        int ans = JOptionPane.showOptionDialog(at, box, SogniSections.label(sec), JOptionPane.DEFAULT_OPTION,
             JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
         return ans >= 0 && ans <= 2 ? ans : -1;
+    }
+
+    /** A section's favourite and final marks saved; false when they could not be (said). */
+    boolean markSection(PromptVault.SogniSection sec, boolean favourite, boolean fin) {
+        try {
+            PromptDb.vault().markSogniSection(sec.id, favourite, fin);
+            sec.favourite = favourite;
+            sec.fin = fin;
+            this.sectionSaid = (favourite ? "Favourite: " : fin ? "Final: " : "Marks removed: ") + SogniSections.label(sec);
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not mark the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The ☆/★ (favourite) and Mark as final buttons for a section: `sec` when it is fixed, else the one
+     * `pick` gives now (Browse sections' selected row); `done` runs after a mark changes (the list redrawn).
+     */
+    javax.swing.JPanel markButtons(PromptVault.SogniSection sec, java.util.function.Supplier<PromptVault.SogniSection> pick, Runnable... done) {
+        final java.util.function.Supplier<PromptVault.SogniSection> which = sec != null ? () -> sec : pick;
+        final JButton star = new JButton(SogniSections.STAR_OFF);
+        star.setName("section-star");
+        star.setToolTipText("Favourite: \u2605 before its name in the list");
+        final JButton fin = new JButton(SogniSections.FINAL);
+        fin.setName("section-final");
+        fin.setToolTipText("Final: F before its name in the list");
+        final Runnable show = () -> {
+            PromptVault.SogniSection s = which.get();
+            star.setEnabled(s != null);
+            fin.setEnabled(s != null);
+            star.setText(s == null ? SogniSections.STAR_OFF : SogniSections.star(s));
+            fin.setText(s != null && s.fin ? SogniSections.UNFINAL : SogniSections.FINAL);
+        };
+        star.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null || !this.markSection(s, !s.favourite, s.fin)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        fin.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null || !this.markSection(s, s.favourite, !s.fin)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        show.run();
+        javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        row.add(star);
+        row.add(fin);
+        row.putClientProperty("refresh", show);
+        return row;
     }
 
     /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
@@ -1593,7 +1650,7 @@ final class PyJav {
                 model.clear();
                 for (SogniSections.Group g : groups) {
                     rows.add(g);
-                    model.addElement(open.contains(g) ? "\u25be " + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
+                    model.addElement(open.contains(g) ? "\u25be " + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
                     if (!open.contains(g)) continue;
                     for (PromptVault.SogniSection sec : g.sections) {
                         rows.add(sec);
@@ -1655,6 +1712,10 @@ final class PyJav {
                         return;
                     }
                     int act = PyJav.this.showSection(list, sec);
+                    // Its marks may have changed there (☆, Mark as final): the list shows them.
+                    int keep = list.getSelectedIndex();
+                    fill.run();
+                    list.setSelectedIndex(keep);
                     if (act < 0) return;
                     fullSec[0] = sec;
                     fullAct[0] = act;
@@ -1663,10 +1724,21 @@ final class PyJav {
                 }
             });
             Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Cancel"};
+            // ☆ and Mark as final under the list: the selected section marked, the list redrawn with the mark.
+            final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), () -> {
+                int keep = list.getSelectedIndex();
+                fill.run();
+                list.setSelectedIndex(keep);
+            });
+            list.addListSelectionListener(e -> ((Runnable) marks.getClientProperty("refresh")).run());
+            javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+            box.add(new javax.swing.JScrollPane(list), java.awt.BorderLayout.CENTER);
+            box.add(marks, java.awt.BorderLayout.SOUTH);
+            this.lastSectionMarks = marks;
             PromptVault.SogniSection sec;
             int ans;
             while (true) {
-                ans = JOptionPane.showOptionDialog(at, new javax.swing.JScrollPane(list), SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
+                ans = JOptionPane.showOptionDialog(at, box, SogniSections.BROWSE + " \u00b7 " + program, JOptionPane.DEFAULT_OPTION,
                     JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
                 if (fullSec[0] != null) {
                     sec = fullSec[0];

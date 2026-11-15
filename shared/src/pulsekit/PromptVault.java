@@ -74,6 +74,8 @@ public final class PromptVault {
     public String app;
     public String text;
     public long created;
+    /** Browse sections' marks: a favourite (★) and a final one (F). */
+    public boolean favourite, fin;
   }
 
   private static final int MAGIC = 0x504B4442;
@@ -1263,6 +1265,15 @@ public final class PromptVault {
     }
     // 10: the collections (MediaCollections' text).
     writeUtf(out, collections);
+    // After them, the sections' marks (favourite 1, final 2): an older library simply has none.
+    int marked = 0;
+    for (SogniSection sec : sogniSections) if (sec.favourite || sec.fin) marked++;
+    out.writeInt(marked);
+    for (SogniSection sec : sogniSections) {
+      if (!sec.favourite && !sec.fin) continue;
+      out.writeLong(sec.id);
+      out.writeInt((sec.favourite ? 1 : 0) | (sec.fin ? 2 : 0));
+    }
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
     File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
@@ -1395,7 +1406,21 @@ public final class PromptVault {
           sogniSections.add(sec);
         }
       }
-      if (version >= 10 && data.available() >= 4) collections = readUtf(data);
+      if (version >= 10 && data.available() >= 4) {
+        collections = readUtf(data);
+        if (data.available() >= 4) {
+          int nmarks = data.readInt();
+          for (int i = 0; i < nmarks && data.available() >= 12; i++) {
+            long id = data.readLong();
+            int m = data.readInt();
+            for (SogniSection sec : sogniSections) {
+              if (sec.id != id) continue;
+              sec.favourite = (m & 1) != 0;
+              sec.fin = (m & 2) != 0;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1442,6 +1467,18 @@ public final class PromptVault {
     for (SogniSection sec : sogniSections) {
       if (sec.id != id) continue;
       sec.text = text == null ? "" : text;
+      save();
+      return true;
+    }
+    return false;
+  }
+
+  /** A section marked (or not) as a favourite and as final; false when it is gone. */
+  public synchronized boolean markSogniSection(long id, boolean favourite, boolean fin) throws Exception {
+    for (SogniSection sec : sogniSections) {
+      if (sec.id != id) continue;
+      sec.favourite = favourite;
+      sec.fin = fin;
       save();
       return true;
     }
@@ -1925,6 +1962,8 @@ public final class PromptVault {
         n.app = sec.app;
         n.text = sec.text;
         n.created = sec.created;
+        n.favourite = sec.favourite;
+        n.fin = sec.fin;
         to.sogniSections.add(n);
       }
       for (LibraryFile f : from.library) {
