@@ -363,23 +363,9 @@ public final class PyJavParams {
             public void onTextChanged(CharSequence t, int a, int b, int c) {}
             public void afterTextChanged(android.text.Editable e) { paintPreview.run(); }
           });
-          // Not 4:7, or smaller than the picture ImageUpscaler made last: asked first whether to upscale or crop it.
-          preview.setOnClickListener(v -> {
-            String q = activity instanceof MainActivity ? previewAsk(activity, values[index]) : null;
-            if (q == null) {
-              previewPicture(activity, values[index]);
-              return;
-            }
-            final MainActivity app = (MainActivity) activity;
-            final String path = values[index];
-            lastPreviewAsk = new AlertDialog.Builder(activity)
-                .setTitle("Preview")
-                .setMessage(q)
-                .setPositiveButton(UpscaleCheck.PREVIEW_UPSCALE, (d, w) -> upscalePreview(app, path))
-                .setNeutralButton(UpscaleCheck.PREVIEW_CROP, (d, w) -> cropPicture(app, path, (cropName, file) -> assign(activity, values, index, chosen, file.getAbsolutePath(), null)))
-                .setNegativeButton(UpscaleCheck.PREVIEW_ONLY, (d, w) -> previewPicture(activity, path))
-                .show();
-          });
+          // The preview has Upscale and Crop, and says when upscaling or cropping could be needed.
+          preview.setOnClickListener(v -> previewPicture(activity, values[index], null,
+              activity instanceof MainActivity ? () -> cropPicture((MainActivity) activity, values[index], (cropName, file) -> assign(activity, values, index, chosen, file.getAbsolutePath(), null)) : null));
           // Recent: the reference pictures used last as small thumbnails, beside Preview.
           android.widget.Button recent = new android.widget.Button(activity);
           recent.setText(RecentRefs.RECENT);
@@ -1182,6 +1168,11 @@ public final class PyJavParams {
 
   /** As above; with `row` (Crop on a picture row) the crop frame is on from the start and its crop can fill the row. */
   static void previewPicture(Activity activity, String path, RefBrowser.Picked row) {
+    previewPicture(activity, path, row, null);
+  }
+
+  /** As above; `crop` (a Params row's Preview): the Crop button, and the note on upscaling or cropping. */
+  static void previewPicture(Activity activity, String path, RefBrowser.Picked row, Runnable crop) {
     // Picked from the library and gone from the temp folder since: written again first.
     try {
       InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
@@ -1242,6 +1233,11 @@ public final class PyJavParams {
         // Upscale: ImageUpscaler with this picture, its Params open; Return opens this program's Params again.
         final MainActivity app = (MainActivity) activity;
         dialog.setNeutralButton(UPSCALE_PREVIEW, (d, w) -> upscalePreview(app, path));
+        // Crop: the picture with the crop frame on; its long press has Use the crop in this row.
+        if (crop != null) dialog.setNegativeButton(CROP_PREVIEW, (d, w) -> crop.run());
+        // Not 4:7, or smaller than the picture ImageUpscaler made last: said under its size.
+        String note = previewNote(activity, path);
+        if (note != null) dialog.setMessage(bounds.outWidth + " \u00d7 " + bounds.outHeight + "\n" + note);
       }
     }
     lastParamsPreview = dialog.show();
@@ -1249,11 +1245,10 @@ public final class PyJavParams {
 
   static final String UPSCALE_PREVIEW = "Upscale";
 
-  /** The Preview question shown last (Upscale, Crop, Just preview), for the tests. */
-  static AlertDialog lastPreviewAsk;
+  static final String CROP_PREVIEW = "Crop";
 
-  /** Preview's question for the picture (UpscaleCheck.previewQuestion), or null. */
-  static String previewAsk(Activity activity, String path) {
+  /** Preview's note for the picture (UpscaleCheck.previewNote): why upscaling or cropping could be needed, or null. */
+  static String previewNote(Activity activity, String path) {
     try {
       InputOrigins.restore(activity.getFilesDir(), path, PromptVault.open(activity.getFilesDir()));
     } catch (Exception ignored) {
@@ -1262,7 +1257,7 @@ public final class PyJavParams {
     try {
       java.io.File f = new java.io.File(path);
       if (!f.isFile()) return null;
-      return UpscaleCheck.previewQuestion(activity.getFilesDir(), f.getName(), MediaDir.head(f));
+      return UpscaleCheck.previewNote(activity.getFilesDir(), f.getName(), MediaDir.head(f));
     } catch (Exception ex) {
       return null;
     }

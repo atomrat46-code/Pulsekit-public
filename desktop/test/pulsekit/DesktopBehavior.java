@@ -14981,23 +14981,22 @@ public final class DesktopBehavior {
     idle();
     out.append("returned: ").append(get("pyName")).append('\n');
     if (!"SogniPedit.java".equals(get("pyName"))) throw new AssertionError("Return: " + out);
-    // 14112026: a picture not 4:7 (640x480 here): Preview asks first, Upscale, Crop or Just preview.
+    // 15112026: a picture not 4:7 (640x480 here): the Preview says upscaling or cropping could be needed, and has Crop.
     File wide = new File(home, "wide.png");
     javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(640, 480, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", wide);
     edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--prompt Hi --image \"" + wide.getAbsolutePath() + "\""));
     edt(() -> ((PyJav) pyJav).saveParams("SogniPedit.java", "--prompt Hi --image \"" + wide.getAbsolutePath() + "\""));
-    final StringBuilder asked = new StringBuilder();
+    final StringBuilder noted = new StringBuilder();
     inspectNext = d -> {
       try {
-        PyJav.previewAnswer = 2;
         ((javax.swing.JButton) component(d, "params-preview:--image")).doClick();
         javax.swing.JDialog shown = (javax.swing.JDialog) pyJav.getClass().getDeclaredField("lastParamsPreview").get(pyJav);
-        asked.append("asked: ").append(String.valueOf(PyJav.lastPreviewAsk).replace("\n", " ")).append(" | just preview: ").append(shown != null && shown.getTitle().equals("wide.png")).append('\n');
+        JLabel note = shown == null ? null : (JLabel) component(shown.getContentPane(), "params-preview-note");
+        noted.append("note: ").append(note == null ? "none" : note.getText().replaceAll("<[^>]*>", "")).append(" | crop ")
+            .append(shown != null && component(shown.getContentPane(), "params-preview-crop") != null).append('\n');
         if (shown != null) shown.dispose();
       } catch (Exception ex) {
         throw new RuntimeException(ex);
-      } finally {
-        PyJav.previewAnswer = null;
       }
     };
     answers.add("Cancel");
@@ -15005,9 +15004,8 @@ public final class DesktopBehavior {
     idle();
     Thread.sleep(500);
     idle();
-    out.append(asked);
-    if (asked.indexOf("asked: wide.png is 640\u00d7480: not 4:7 (it is 4:3).  Upscale it (ImageUpscaler), crop it, or just preview it? | just preview: true") < 0)
-      throw new AssertionError("Preview question: " + asked);
+    out.append(noted);
+    if (noted.indexOf("note: Upscaling or cropping could be needed: not 4:7 (it is 4:3). | crop true") < 0) throw new AssertionError("Preview note: " + noted);
     PromptDb db = (PromptDb) get("promptDb");
     byte[] png = java.nio.file.Files.readAllBytes(me.toPath());
     PromptDb.vault().addLibraryFile("suit.png", png, "Imported", 1);

@@ -69,16 +69,15 @@ public final class UpscaleCheck {
     return (cut >= 0 ? q.substring(0, cut) : q) + "\n\nUpscale it first (ImageUpscaler), or use it as a reference as it is?";
   }
 
-  /** Params' Preview's question: why to upscale or crop the picture (as question's), or null when it needs not be asked. */
-  public static String previewQuestion(File dir, String name, byte[] bytes) {
+  /** Params' Preview's note under the picture: why upscaling or cropping could be needed, or null when neither is. */
+  public static String previewNote(File dir, String name, byte[] bytes) {
     String q = question(dir, name, bytes);
     if (q == null) return null;
-    int cut = q.lastIndexOf("\n\n");
-    return (cut >= 0 ? q.substring(0, cut) : q) + "\n\nUpscale it (ImageUpscaler), crop it, or just preview it?";
+    int colon = q.indexOf(": "), cut = q.lastIndexOf("\n\n");
+    String why = colon >= 0 && cut > colon ? q.substring(colon + 2, cut) : q;
+    if (why.endsWith(".")) why = why.substring(0, why.length() - 1);
+    return "Upscaling or cropping could be needed: " + why + ".";
   }
-
-  /** Params' Preview's question's buttons. */
-  public static final String PREVIEW_UPSCALE = "Upscale", PREVIEW_CROP = "Crop", PREVIEW_ONLY = "Just preview";
 
   /** Use as a reference's question's buttons. */
   public static final String UPSCALE_FIRST = "Upscale first", AS_IT_IS = "Use as it is";

@@ -3553,20 +3553,8 @@ final class PyJav {
                     preview.setName("params-preview:" + p.token);
                     preview.setEnabled(ProgramParams.isPicture(values[i]));
                     chosen.addPropertyChangeListener("text", e -> preview.setEnabled(ProgramParams.isPicture(values[index])));
-                    // Not 4:7, or smaller than the picture ImageUpscaler made last: asked first whether to upscale or crop it.
-                    preview.addActionListener(e -> {
-                        String q = previewAsk(values[index]);
-                        int ans = 2;
-                        if (q != null) {
-                            Object[] options = {UpscaleCheck.PREVIEW_UPSCALE, UpscaleCheck.PREVIEW_CROP, UpscaleCheck.PREVIEW_ONLY};
-                            ans = previewAnswer != null ? previewAnswer.intValue()
-                                : JOptionPane.showOptionDialog(preview, q, "Preview", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[2]);
-                            if (ans < 0) return;
-                        }
-                        if (ans == 0) this.upscalePreview(values[index], preview);
-                        else if (ans == 1) this.cropPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null));
-                        else this.previewPicture(values[index]);
-                    });
+                    // The preview has Upscale and Crop, and says when upscaling or cropping could be needed.
+                    preview.addActionListener(e -> this.previewPicture(values[index], f -> this.assignFile(ps, values, index, fileLabels, f.getAbsolutePath(), null)));
                     // Crop: the picture with the crop frame on; its menu has Use the crop in this row (upscale asked when needed).
                     final JButton crop = new JButton(CropBox.CROP_ROW);
                     crop.setName("params-crop:" + p.token);
@@ -4036,6 +4024,11 @@ final class PyJav {
 
     /** A thumbnail of the picture at path, in a small dialog (the file's name as its title). */
     void previewPicture(String path) {
+        this.previewPicture(path, null);
+    }
+
+    /** As above; `row` (the picture's Params row): Crop there, its crop can fill the row. */
+    void previewPicture(String path, java.util.function.Consumer<File> row) {
         java.awt.image.BufferedImage image = null;
         try {
             image = javax.imageio.ImageIO.read(new File(path));
@@ -4058,9 +4051,29 @@ final class PyJav {
             JButton upscale = new JButton(UPSCALE_PREVIEW);
             upscale.setName("params-preview-upscale");
             upscale.addActionListener(e -> this.upscalePreview(path, upscale));
-            JPanel foot = new JPanel(new BorderLayout(8, 0));
+            JPanel actions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+            if (row != null) {
+                // Crop: the picture with the crop frame on; its menu has Use the crop in this row.
+                JButton crop = new JButton(CROP_PREVIEW);
+                crop.setName("params-preview-crop");
+                crop.addActionListener(e -> {
+                    java.awt.Window shown = SwingUtilities.getWindowAncestor(crop);
+                    if (shown != null) shown.dispose();
+                    this.cropPicture(path, row);
+                });
+                actions.add(crop);
+            }
+            actions.add(upscale);
+            JPanel foot = new JPanel(new BorderLayout(8, 4));
             foot.add(size, BorderLayout.WEST);
-            foot.add(upscale, BorderLayout.EAST);
+            foot.add(actions, BorderLayout.EAST);
+            // Not 4:7, or smaller than the picture ImageUpscaler made last: said under the picture.
+            String note = previewNote(path);
+            if (note != null) {
+                JLabel says = new JLabel("<html><body style='width:300px'>" + note.replace("&", "&amp;").replace("<", "&lt;") + "</body></html>");
+                says.setName("params-preview-note");
+                foot.add(says, BorderLayout.SOUTH);
+            }
             box.add(foot, BorderLayout.SOUTH);
             pane = new JOptionPane(box, JOptionPane.PLAIN_MESSAGE);
         }
@@ -4072,21 +4085,16 @@ final class PyJav {
 
     static final String UPSCALE_PREVIEW = "Upscale";
 
-    /** The tests: the Preview question's answer (0 Upscale, 1 Crop, 2 Just preview), else asked; its text shown last. */
-    static Integer previewAnswer;
-    static String lastPreviewAsk;
+    static final String CROP_PREVIEW = "Crop";
 
-    /** Preview's question for the picture (UpscaleCheck.previewQuestion), or null. */
-    static String previewAsk(String path) {
-        lastPreviewAsk = null;
+    /** Preview's note for the picture (UpscaleCheck.previewNote): why upscaling or cropping could be needed, or null. */
+    static String previewNote(String path) {
         try {
             File f = new File(path);
-            if (!f.isFile()) return null;
-            lastPreviewAsk = UpscaleCheck.previewQuestion(PromptDb.dir(), f.getName(), MediaDir.head(f));
+            return f.isFile() ? UpscaleCheck.previewNote(PromptDb.dir(), f.getName(), MediaDir.head(f)) : null;
         } catch (Exception ex) {
-            lastPreviewAsk = null;
+            return null;
         }
-        return lastPreviewAsk;
     }
 
     /**
