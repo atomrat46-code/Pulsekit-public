@@ -98,6 +98,8 @@ final class VideoOffer {
         AlertDialog menu;
         /** Where the last extracted frame was saved (for the tests). */
         String extracted;
+        /** Opened from another screen (Downloads' Preview): a frame taken on as a reference closes it, Return opens it again. */
+        RefImages.From from;
 
         /** Long press: paused, then Extract frame, Capture frame and process as a reference, Add to favourites, Add to group. */
         void frameMenu(final MainActivity app, final String path, final String clipName) {
@@ -163,11 +165,12 @@ final class VideoOffer {
                     if (process) {
                         // As a reference: one that needs upscaling is asked Upscale first, Use as it is or Cancel.
                         if (dialog != null) dialog.dismiss();
-                        RefImages.offer(app, name, made, null, null);
+                        RefImages.offer(app, name, made, from);
                         return;
                     }
                     List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();
                     files.add(new JavaRun.FileOut(name, made));
+                    RefImages.next = from;
                     PictureOffer.offer(app, new JavaRun.Result("Succeeded: " + name, files, 0));
                 });
             }, "pulsekit-video-frame").start();
@@ -359,6 +362,7 @@ final class VideoOffer {
         final String path = cacheCopy(app, clip.name, clip.bytes);
         if (path == null) return false;
         final Player p = new Player();
+        p.from = RefImages.take();
         last = p;
         LinearLayout col = app.col();
         col.setPadding(app.dp(12), app.dp(8), app.dp(12), app.dp(8));

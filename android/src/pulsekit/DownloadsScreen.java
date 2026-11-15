@@ -577,6 +577,8 @@ final class DownloadsScreen {
         JavaRun.Result r = new JavaRun.Result("", files, 0);
         String kind = item.kind();
         boolean shown;
+        // A picture (or a video's frame) taken on as a reference from the preview: Downloads closes, Return opens it again.
+        RefImages.next = new RefImages.From(last, () -> show(app), RefImages.BACK_DOWNLOADS);
         if ("picture".equals(kind)) shown = PictureOffer.offer(app, r);
         else if ("video".equals(kind)) shown = VideoOffer.offer(app, r);
         else if ("audio".equals(kind)) shown = AudioOffer.offer(app, item.name, r);
@@ -589,6 +591,7 @@ final class DownloadsScreen {
             new AlertDialog.Builder(app).setTitle(item.name).setView(s).setPositiveButton("Close", null).show();
             shown = true;
         } else shown = false;
+        RefImages.next = null;
         if (!shown) app.setNow("No preview for " + item.name);
     }
 

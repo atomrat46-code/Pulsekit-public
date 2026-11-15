@@ -27,6 +27,44 @@ final class RefImages {
     /** Return's label for a reference picture taken from Downloads. */
     static final String BACK_DOWNLOADS = "Return to Downloads";
 
+    /**
+     * Where a preview window (Picture ready, Video ready) was opened from, for its reference picture:
+     * that window (closed when the program opens), Return's action and its label. Downloads' Preview
+     * sets `next` just before the preview shows; the preview takes it at once (take()).
+     */
+    static final class From {
+        final android.app.Dialog close;
+        final Runnable back;
+        final String label;
+
+        From(android.app.Dialog close, Runnable back, String label) {
+            this.close = close;
+            this.back = back;
+            this.label = label;
+        }
+    }
+
+    static From next;
+
+    /** The From set for the preview opening now (null: none); it is used once. */
+    static From take() {
+        From f = next;
+        next = null;
+        return f;
+    }
+
+    /** Process as a reference from a preview: as from its own screen when it came from one. */
+    static void process(MainActivity app, String name, byte[] png, From from) {
+        if (from == null) ProcessRefDialog.open(app, name, png);
+        else ProcessRefDialog.open(app, name, png, from.close, from.back, from.label);
+    }
+
+    /** As offer(), from a preview (null: from nowhere). */
+    static void offer(MainActivity app, String name, byte[] png, From from) {
+        if (from == null) offer(app, name, png, null, null);
+        else offer(app, name, png, from.close, from.back, from.label);
+    }
+
     static void offer(final MainActivity app, final String name, final byte[] png, final android.app.Dialog close, final Runnable back) {
         offer(app, name, png, close, back, null);
     }

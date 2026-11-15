@@ -3480,6 +3480,48 @@ public class BehaviorTest {
   }
 
   /**
+   * 15112026: Downloads' Preview of a picture, then Picture ready's Process as a reference: Downloads
+   * closes on Open as from its own menu, and Return says Return to Downloads.
+   */
+  @Test
+  public void s137c_process_ref_from_downloads_preview() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String pedit = ((ProgramMenus) get("programMenus")).bundledSource("SogniPedit.java");
+    PyJavRecent.remember(app.getFilesDir(), "SogniPedit.java", "--prompt \"a red scarf\"", pedit, null);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(40, 70, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.File pic = new java.io.File(app.getCacheDir(), "tall.png");
+    java.io.FileOutputStream fos = new java.io.FileOutputStream(pic);
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
+    fos.close();
+    SogniDownloads.Item item = new SogniDownloads.Item();
+    item.name = "tall.png";
+    item.where = pic.getAbsolutePath();
+    AlertDialog downloads = new AlertDialog.Builder(app).setTitle("Downloads").setMessage("list").create();
+    downloads.show();
+    DownloadsScreen.last = downloads;
+    DownloadsScreen.preview(app, item);
+    idle();
+    out.append("preview: ").append(PictureOffer.last != null && PictureOffer.last.isShowing()).append(", left over ").append(RefImages.next).append('\n');
+    PictureOffer.last.getWindow().getDecorView().findViewWithTag("picture-ref:tall.png").performClick();
+    idle();
+    ProcessRefDialog d = ProcessRefDialog.last;
+    out.append("asked program: ").append(d != null && d.dialog.isShowing()).append(", downloads still there ").append(downloads.isShowing()).append('\n');
+    d.dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("Open: downloads closed ").append(!downloads.isShowing()).append(", view ").append(get("view")).append(", program ").append(get("pyName"))
+        .append(", ").append(((TextView) get("pkReturnBtn")).getText()).append(" shown ").append(((View) get("pkReturnBtn")).getVisibility() == View.VISIBLE).append('\n');
+    PyJavParams.shown.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+    idle();
+    call("pkDoReturn");
+    idle();
+    out.append("Return: downloads again ").append(DownloadsScreen.last != null && DownloadsScreen.last != downloads && DownloadsScreen.last.isShowing()).append('\n');
+    write("s137c_process_ref_from_downloads_preview", out.toString());
+    String t = out.toString();
+    if (!t.contains("preview: true, left over null") || !t.contains("asked program: true, downloads still there true")
+        || !t.contains("Open: downloads closed true, view py, program SogniPedit.java, Return to Downloads shown true") || !t.contains("Return: downloads again true")) throw new AssertionError(t);
+  }
+
+  /**
    * Media browser: a MIDI's long press has Open in MIDI editor (Save writes <name>-edited.mid beside
    * it), Render with SF2 (Midi2Wav) and Play with default SoundFont; a WAV's has Convert drum hits
    * into MIDI (DrumMidi_CRT). The programs open on PyJav with the file as their input.
