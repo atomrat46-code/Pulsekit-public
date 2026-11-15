@@ -10241,6 +10241,7 @@ public final class DesktopBehavior {
     // 16112026: a kit name kept before plugins were (no plugin to it), "Pack:Set" without a space, and one typed
     // in the Params (saved, no run): listed; Add new… and a set dragged onto a pack write into kits.txt.
     VstLists.rememberKits("--kit_name \"Tight Studio Drums:Ringy Studio Kit\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums: A Taste Of Compression\"");
     call("saveParams", "vst_render.py", "--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums:A taste of Compression\"");
     call("saveParams", "vst_render.py", "");
     out.append("more: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"))).append('\n');
@@ -10251,12 +10252,32 @@ public final class DesktopBehavior {
     final KitChooser c2 = KitChooser.last;
     edt(() -> {
       c2.pick("Total Studio Drums", null);
-      KitChooser.addAnswer = "Total Studio Drums: Smells like Nashville";
-      c2.addNew();
-      KitChooser.addAnswer = null;
+      KitChooser.answer = "Smells like Nashville";
+      c2.addSet();
       out.append("added: ").append(c2.packList.getSelectedValue()).append(" / ").append(c2.setList.getSelectedValue()).append('\n');
       c2.moveTo("KVLT_Mexico 1998", "Tight Studio Drums");
       out.append("moved: ").append(c2.packs).append('\n');
+      // 16112026: Add pack…, a set made a pack (dropped below the packs), Rename and Delete of a set, a pack renamed.
+      KitChooser.answer = "Speed Metal Drums";
+      c2.addSet();
+      c2.makePack("Speed Metal Drums");
+      KitChooser.answer = "KVLT";
+      c2.addPack();
+      out.append("packs added: ").append(c2.packs).append(", picked ").append(c2.packList.getSelectedValue()).append('\n');
+      c2.pick("Tight Studio Drums", "Noob Metal");
+      KitChooser.answer = "Noob Metal 2";
+      c2.renameSet();
+      c2.pick("Tight Studio Drums", "KVLT_Mexico 1998");
+      KitChooser.sure = true;
+      c2.deleteSet();
+      KitChooser.sure = null;
+      c2.pick("Total Studio Drums", null);
+      KitChooser.answer = "Total Drums";
+      c2.renamePack();
+      KitChooser.answer = null;
+      out.append("edited: ").append(c2.packs).append('\n');
+      java.awt.Component cell = c2.packList.getCellRenderer().getListCellRendererComponent(c2.packList, "Tight Studio Drums", 0, false, false);
+      out.append("pack row: ").append(((javax.swing.JLabel) cell).getText()).append('\n');
       c2.dialog.dispose();
     });
     idle();
@@ -10284,10 +10305,13 @@ public final class DesktopBehavior {
     out.append("menu: ").append(menu).append("\nused: ").append(values[pl]).append(" / ").append(values[kn]).append('\n');
     String all = out.toString();
     boolean ok = all.contains("more: {Tight Studio Drums=[A taste of Compression, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits], (no pack)=[KVLT_Mexico 1998]}")
+        && all.contains("packs added: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville], Speed Metal Drums=[], KVLT=[]}, picked KVLT")
+        && all.contains("edited: {Tight Studio Drums=[A taste of Compression, Noob Metal 2, Ringy Studio Kit], Speed Metal Drums=[], KVLT=[], Total Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
+        && all.contains("pack row: Tight Studio Drums (3)")
+        && all.contains("kits.txt: [Ugritone Drums] | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums: Noob Metal 2 | -KVLT_Mexico 1998 | Total Drums: Kind of metal | Total Drums: Pop Hits | Total Drums: Smells like Nashville | [Riot Drums] | Default kit | ")
         && all.contains("added: Total Studio Drums / Smells like Nashville")
         && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
-        && all.contains("kits.txt: [Ugritone Drums] | Total Studio Drums: Pop Hits | Tight Studio Drums: Noob Metal # one more | Total Studio Drums: Smells like Nashville | Tight Studio Drums: KVLT_Mexico 1998 | [Riot Drums] | Default kit | ")
-        && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Studio Drums>; ")
+        && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Drums>; ")
         && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums: Ringy Studio Kit")
         && all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
