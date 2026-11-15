@@ -23,6 +23,24 @@ public final class SogniSections {
   public static final String STAR_OFF = "\u2606", STAR_ON = "\u2605";
   public static final String FINAL = "Mark as final", UNFINAL = "Remove the final mark";
   public static final String FAVOURITE = "Mark as favourite \u2605", UNFAVOURITE = "Remove from favourites";
+  /** Add to group…: an existing group of the program's or a new one by name; Take out of the group. */
+  public static final String ADD_GROUP = "Add to group\u2026", NEW_GROUP = "New group\u2026", UNGROUP = "Take out of the group";
+  public static final String GROUP_NAME = "The group's name";
+
+  /** The groups sections were added to (Add to group…), A to Z. */
+  public static java.util.List<String> groupNames(java.util.List<PromptVault.SogniSection> all) {
+    java.util.TreeMap<String, String> names = new java.util.TreeMap<String, String>();
+    for (PromptVault.SogniSection s : all) {
+      String g = s.group == null ? "" : s.group.trim();
+      if (g.length() > 0) names.put(g.toLowerCase(java.util.Locale.ROOT), g);
+    }
+    return new java.util.ArrayList<String>(names.values());
+  }
+
+  /** Whether a group row opens a list (several sections, or a group added to by name) rather than one section. */
+  public static boolean opens(Group g) {
+    return g.named || g.sections.size() != 1;
+  }
 
   /** A section's marks before its label: "★ " for a favourite, "F " for a final one. */
   public static String marks(PromptVault.SogniSection s) {
@@ -109,6 +127,8 @@ public final class SogniSections {
   public static final class Group {
     /** The first sentences of their prompt, as shown. */
     public String lead = "";
+    /** A group sections were added to by name (Add to group…), not one their prompt makes. */
+    public boolean named;
     /** Its sections, the newest first. */
     public final java.util.List<PromptVault.SogniSection> sections = new java.util.ArrayList<PromptVault.SogniSection>();
   }
@@ -135,12 +155,14 @@ public final class SogniSections {
   public static java.util.List<Group> groups(java.util.List<PromptVault.SogniSection> all) {
     Map<String, Group> by = new LinkedHashMap<String, Group>();
     for (PromptVault.SogniSection s : all) {
-      String lead = lead(s);
-      String key = lead.toLowerCase(java.util.Locale.ROOT);
+      String name = s.group == null ? "" : s.group.trim();
+      String lead = name.length() > 0 ? name : lead(s);
+      String key = (name.length() > 0 ? "g:" : "p:") + lead.toLowerCase(java.util.Locale.ROOT);
       Group g = by.get(key);
       if (g == null) {
         g = new Group();
         g.lead = lead;
+        g.named = name.length() > 0;
         by.put(key, g);
       }
       g.sections.add(s);
@@ -148,6 +170,8 @@ public final class SogniSections {
     java.util.List<Group> out = new java.util.ArrayList<Group>(by.values());
     for (Group g : out) java.util.Collections.sort(g.sections, (a, b) -> Long.compare(b.created, a.created));
     java.util.Collections.sort(out, (a, b) -> {
+      // The groups added to by name first, then the prompts' ones; "(no prompt)" last.
+      if (a.named != b.named) return a.named ? -1 : 1;
       boolean na = a.lead.equals("(no prompt)"), nb = b.lead.equals("(no prompt)");
       if (na != nb) return na ? 1 : -1;
       return a.lead.compareToIgnoreCase(b.lead);
@@ -167,7 +191,7 @@ public final class SogniSections {
 
   /** A group's row: one section as its own label; several as their lead (cut at 80) and how many ("… (3)"). */
   public static String groupLabel(Group g) {
-    if (g.sections.size() == 1) return label(g.sections.get(0));
+    if (!opens(g)) return label(g.sections.get(0));
     String lead = g.lead.length() > 80 ? g.lead.substring(0, 80) + "\u2026" : g.lead;
     return "\u25b8 " + groupMarks(g) + lead + " (" + g.sections.size() + ")";
   }

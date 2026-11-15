@@ -1610,12 +1610,67 @@ final class PyJav {
             for (Runnable r : done) r.run();
             show.run();
         });
-        show.run();
+        // Add to group…: a group of the program's picked or a new name typed (empty: out of its group).
+        final JButton group = new JButton(SogniSections.ADD_GROUP);
+        group.setName("section-group");
+        group.setToolTipText("The section listed under a group of your own (the list shows those groups first)");
+        group.addActionListener(e -> {
+            PromptVault.SogniSection s = which.get();
+            if (s == null) return;
+            String name = this.askGroup(group, s);
+            if (name == null || !this.groupSection(s, name)) return;
+            for (Runnable r : done) r.run();
+            show.run();
+        });
+        final Runnable shown = show;
+        final Runnable showAll = () -> {
+            shown.run();
+            group.setEnabled(which.get() != null);
+        };
+        showAll.run();
         javax.swing.JPanel row = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
         row.add(star);
         row.add(fin);
-        row.putClientProperty("refresh", show);
+        row.add(group);
+        row.putClientProperty("refresh", showAll);
         return row;
+    }
+
+    /** Add to group…'s answer for the tests (null: asked). */
+    static String groupAnswer;
+
+    /** Add to group…: the group's name (the program's groups to pick, a new one typed; empty: out of its group), null when cancelled. */
+    String askGroup(java.awt.Component at, PromptVault.SogniSection sec) {
+        if (groupAnswer != null) return groupAnswer;
+        java.util.List<String> names;
+        try {
+            names = SogniSections.groupNames(PromptDb.vault().sogniSections(sec.app));
+        } catch (Exception ex) {
+            names = new java.util.ArrayList<String>();
+        }
+        javax.swing.JComboBox<String> box = new javax.swing.JComboBox<String>(names.toArray(new String[0]));
+        box.setName("section-group-name");
+        box.setEditable(true);
+        box.setSelectedItem(sec.group == null ? "" : sec.group);
+        javax.swing.JPanel p = new javax.swing.JPanel(new java.awt.BorderLayout(0, 4));
+        p.add(new javax.swing.JLabel("<html>" + SogniSections.GROUP_NAME + ": one of the list or a new one<br>(empty: " + SogniSections.UNGROUP.toLowerCase() + ")</html>"), java.awt.BorderLayout.NORTH);
+        p.add(box, java.awt.BorderLayout.CENTER);
+        if (JOptionPane.showConfirmDialog(at, p, SogniSections.ADD_GROUP, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
+        Object v = box.getEditor().getItem();
+        return v == null ? "" : v.toString().trim();
+    }
+
+    /** A section added to a group by name ("" takes it out); false when it could not be (said). */
+    boolean groupSection(PromptVault.SogniSection sec, String group) {
+        try {
+            PromptDb.vault().groupSogniSection(sec.id, group);
+            sec.group = group;
+            this.sectionSaid = (group.length() > 0 ? "In group " + group + ": " : "Out of its group: ") + SogniSections.label(sec);
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not change its group: " + ex.getMessage());
+            return false;
+        }
     }
 
     /** Browse sections: the program's sections; one picked fills the rows (the entries now saved first, when asked); Delete removes one. */
@@ -1642,7 +1697,9 @@ final class PyJav {
             // Grouped by the prompt's first sentences, A to Z: a group's right click (or hold) lists its
             // sections under it; a double click shows a section fully (Load, Edit, Remove there too).
             final java.util.List<SogniSections.Group> groups = SogniSections.groups(all);
-            final java.util.Set<SogniSections.Group> open = new java.util.HashSet<SogniSections.Group>();
+            // The groups open (by their name: Add to group… makes the groups again).
+            final java.util.Set<String> open = new java.util.HashSet<String>();
+            final java.util.function.Function<SogniSections.Group, String> key = g -> (g.named ? "g:" : "p:") + g.lead.toLowerCase(java.util.Locale.ROOT);
             final java.util.List<Object> rows = new java.util.ArrayList<Object>();
             final javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
             final Runnable fill = () -> {
@@ -1650,8 +1707,8 @@ final class PyJav {
                 model.clear();
                 for (SogniSections.Group g : groups) {
                     rows.add(g);
-                    model.addElement(open.contains(g) ? "\u25be " + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
-                    if (!open.contains(g)) continue;
+                    model.addElement(open.contains(key.apply(g)) ? "\u25be " + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
+                    if (!open.contains(key.apply(g))) continue;
                     for (PromptVault.SogniSection sec : g.sections) {
                         rows.add(sec);
                         model.addElement("      " + SogniSections.label(sec));
@@ -1667,8 +1724,8 @@ final class PyJav {
             final java.util.function.IntConsumer toggle = i -> {
                 if (i < 0 || i >= rows.size() || !(rows.get(i) instanceof SogniSections.Group)) return;
                 SogniSections.Group g = (SogniSections.Group) rows.get(i);
-                if (g.sections.size() < 2) return;
-                if (!open.remove(g)) open.add(g);
+                if (!SogniSections.opens(g)) return;
+                if (!open.remove(key.apply(g))) open.add(key.apply(g));
                 fill.run();
                 list.setSelectedIndex(rows.indexOf(g));
             };
@@ -1677,7 +1734,18 @@ final class PyJav {
                 Object r = rows.get(i);
                 if (r instanceof PromptVault.SogniSection) return (PromptVault.SogniSection) r;
                 SogniSections.Group g = (SogniSections.Group) r;
-                return g.sections.size() == 1 ? g.sections.get(0) : null;
+                return SogniSections.opens(g) ? null : g.sections.get(0);
+            };
+            final Runnable regroup = () -> {
+                // The groups made again (a section may be in another one now), its group opened, it selected.
+                PromptVault.SogniSection was = sectionAt.apply(list.getSelectedIndex());
+                groups.clear();
+                groups.addAll(SogniSections.groups(all));
+                for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was) && SogniSections.opens(g)) open.add(key.apply(g));
+                fill.run();
+                int pos = rows.indexOf(was);
+                for (int i = 0; pos < 0 && i < rows.size(); i++) if (rows.get(i) instanceof SogniSections.Group && ((SogniSections.Group) rows.get(i)).sections.contains(was)) pos = i;
+                list.setSelectedIndex(Math.max(0, pos));
             };
             // A section shown fully and an action picked there (0 Load, 1 Edit, 2 Remove).
             final PromptVault.SogniSection[] fullSec = new PromptVault.SogniSection[1];
@@ -1712,10 +1780,9 @@ final class PyJav {
                         return;
                     }
                     int act = PyJav.this.showSection(list, sec);
-                    // Its marks may have changed there (☆, Mark as final): the list shows them.
-                    int keep = list.getSelectedIndex();
-                    fill.run();
-                    list.setSelectedIndex(keep);
+                    // Its marks or group may have changed there: the list shows them.
+                    list.setSelectedIndex(i);
+                    regroup.run();
                     if (act < 0) return;
                     fullSec[0] = sec;
                     fullAct[0] = act;
@@ -1725,11 +1792,7 @@ final class PyJav {
             });
             Object[] options = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, "Cancel"};
             // ☆ and Mark as final under the list: the selected section marked, the list redrawn with the mark.
-            final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), () -> {
-                int keep = list.getSelectedIndex();
-                fill.run();
-                list.setSelectedIndex(keep);
-            });
+            final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), regroup);
             list.addListSelectionListener(e -> ((Runnable) marks.getClientProperty("refresh")).run());
             javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
             box.add(new javax.swing.JScrollPane(list), java.awt.BorderLayout.CENTER);

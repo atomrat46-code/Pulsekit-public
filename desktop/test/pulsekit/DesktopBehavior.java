@@ -9530,6 +9530,12 @@ public final class DesktopBehavior {
       seen.append("after: ").append(star.getText()).append(", ").append(fin.getText()).append(" | rows: ").append(rows.apply(list)).append('\n');
       list.setSelectedIndex(1);
       seen.append("other row: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
+      // Add to group… on the kite: the groups made again, its group open and it selected.
+      list.setSelectedIndex(0);
+      PyJav.groupAnswer = "Portraits";
+      ((javax.swing.JButton) component(d, "section-group")).doClick();
+      PyJav.groupAnswer = null;
+      seen.append("grouped: ").append(rows.apply(list)).append(" | selected ").append(list.getSelectedIndex()).append('\n');
       SwingUtilities.invokeLater(() -> find(d.getContentPane(), "Cancel").doClick());
     };
     final boolean[] done = new boolean[1];
@@ -9542,12 +9548,14 @@ public final class DesktopBehavior {
     PromptVault.forget();
     PromptVault.SogniSection back = null;
     for (PromptVault.SogniSection sec : PromptDb.vault().sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
-    seen.append("read back: favourite ").append(back != null && back.favourite).append(", final ").append(back != null && back.fin).append('\n');
+    seen.append("read back: favourite ").append(back != null && back.favourite).append(", final ").append(back != null && back.fin)
+        .append(", group ").append(back == null ? "-" : back.group).append('\n');
     out.append(seen);
     String t = seen.toString();
     boolean ok = done[0] && t.contains("buttons: \u2606, Mark as final")
         && t.contains("after: \u2605, Remove the final mark | rows: \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>")
-        && t.contains("other row: \u2606, Mark as final") && t.contains("read back: favourite true, final true");
+        && t.contains("other row: \u2606, Mark as final") && t.contains("grouped: \u25be \u2605 F Portraits (1) | \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when> | selected 1")
+        && t.contains("read back: favourite true, final true, group Portraits");
     if (!ok) throw new AssertionError(out.toString());
   }
 

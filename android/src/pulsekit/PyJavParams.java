@@ -938,7 +938,7 @@ public final class PyJavParams {
     lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
         .setItems(rows, (d, w) -> {
           SogniSections.Group g = groups.get(w);
-          if (g.sections.size() == 1) showSection(activity, program, ps, fields, g.sections.get(0));
+          if (!SogniSections.opens(g)) showSection(activity, program, ps, fields, g.sections.get(0));
           else groupSections(activity, program, ps, fields, g);
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
@@ -948,7 +948,7 @@ public final class PyJavParams {
     list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
       list.dismiss();
       SogniSections.Group g = groups.get(position);
-      if (g.sections.size() == 1) sectionMenu(activity, program, ps, fields, g.sections.get(0));
+      if (!SogniSections.opens(g)) sectionMenu(activity, program, ps, fields, g.sections.get(0));
       else groupSections(activity, program, ps, fields, g);
       return true;
     });
@@ -1022,19 +1022,71 @@ public final class PyJavParams {
   static AlertDialog lastSectionMenu, lastSectionEdit;
 
   static void sectionMenu(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
-    String[] items = {SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE, sec.fin ? SogniSections.UNFINAL : SogniSections.FINAL,
-        sec.favourite ? SogniSections.UNFAVOURITE : SogniSections.FAVOURITE};
+    List<String> menu = new ArrayList<String>(java.util.Arrays.asList(SogniSections.LOAD, SogniSections.EDIT, SogniSections.REMOVE,
+        sec.fin ? SogniSections.UNFINAL : SogniSections.FINAL, sec.favourite ? SogniSections.UNFAVOURITE : SogniSections.FAVOURITE, SogniSections.ADD_GROUP));
+    if (sec.group != null && sec.group.length() > 0) menu.add(SogniSections.UNGROUP);
+    String[] items = menu.toArray(new String[0]);
     lastSectionMenu = new AlertDialog.Builder(activity).setTitle(SogniSections.label(sec)).setItems(items, (d, w) -> {
       if (w == 0) pickSection(activity, program, ps, fields, sec);
       else if (w == 1) editSection(activity, program, ps, fields, sec);
       else if (w == 2) removeSection(activity, program, ps, fields, sec);
+      else if (w == 5) addToGroup(activity, program, ps, fields, sec);
       else {
-        // Final (F) or favourite (★): marked, and the list shown again with the mark.
+        // Final (F), favourite (★) or out of its group: done, and the list shown again.
         if (w == 3) markSection(activity, sec, sec.favourite, !sec.fin);
-        else markSection(activity, sec, !sec.favourite, sec.fin);
+        else if (w == 4) markSection(activity, sec, !sec.favourite, sec.fin);
+        else groupSection(activity, sec, "");
         browseSections(activity, program, ps, fields);
       }
     }).setNegativeButton("Cancel", null).show();
+  }
+
+  /** Add to group…'s list (the program's groups and New group…) and New group's name dialog (for the tests). */
+  static AlertDialog lastGroupPick, lastGroupName;
+
+  /** Add to group…: one of the program's groups, or New group… (its name asked); the list shown again. */
+  static void addToGroup(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, final PromptVault.SogniSection sec) {
+    List<String> names;
+    try {
+      names = SogniSections.groupNames(PromptVault.open(activity.getFilesDir()).sogniSections(program));
+    } catch (Exception ex) {
+      names = new ArrayList<String>();
+    }
+    final List<String> rows = new ArrayList<String>(names);
+    rows.remove(sec.group == null ? "" : sec.group);
+    rows.add(SogniSections.NEW_GROUP);
+    lastGroupPick = new AlertDialog.Builder(activity).setTitle(SogniSections.ADD_GROUP).setItems(rows.toArray(new String[0]), (d, w) -> {
+      if (w < rows.size() - 1) {
+        groupSection(activity, sec, rows.get(w));
+        browseSections(activity, program, ps, fields);
+        return;
+      }
+      final EditText name = new EditText(activity);
+      name.setTag("section-group-name");
+      name.setSingleLine(true);
+      name.setHint(SogniSections.GROUP_NAME);
+      LinearLayout box = new LinearLayout(activity);
+      box.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+      box.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+      lastGroupName = new AlertDialog.Builder(activity).setTitle(SogniSections.NEW_GROUP).setView(box)
+          .setPositiveButton("Add", (d2, w2) -> {
+            String n = name.getText().toString().trim();
+            if (n.length() > 0) groupSection(activity, sec, n);
+            browseSections(activity, program, ps, fields);
+          })
+          .setNegativeButton("Cancel", (d2, w2) -> browseSections(activity, program, ps, fields)).show();
+    }).setNegativeButton("Cancel", (d, w) -> browseSections(activity, program, ps, fields)).show();
+  }
+
+  /** A section added to a group by name ("" takes it out). */
+  static void groupSection(Activity activity, PromptVault.SogniSection sec, String group) {
+    try {
+      PromptVault.open(activity.getFilesDir()).groupSogniSection(sec.id, group);
+      sec.group = group;
+      sectionSaid = (group.length() > 0 ? "In group " + group + ": " : "Out of its group: ") + SogniSections.label(sec);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not change its group: " + ex.getMessage());
+    }
   }
 
   /** Edit section: its entries, a line each ("Prompt: ...", "Loras: ..."); Save keeps them. */

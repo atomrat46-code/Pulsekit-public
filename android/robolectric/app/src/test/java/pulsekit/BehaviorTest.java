@@ -12287,16 +12287,41 @@ public class BehaviorTest {
     idle();
     String rows = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
     PyJavParams.lastSections.dismiss();
+    // Add to group…: New group… (no groups yet), its name typed; the group listed first.
+    PyJavParams.sectionMenu(app, "SogniPadd", none, noFields, kite);
+    idle();
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(5);
+    idle();
+    String picks = listItems(PyJavParams.lastGroupPick);
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastGroupPick).clickOnItem(0);
+    idle();
+    ((android.widget.EditText) PyJavParams.lastGroupName.getWindow().getDecorView().findViewWithTag("section-group-name")).setText("Portraits");
+    PyJavParams.lastGroupName.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String grouped = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    // A group of its own opens as a list even with one section.
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    idle();
+    String inGroup = PyJavParams.lastGroup == null ? "none" : PyJavParams.lastGroup.isShowing() + " " + listItems(PyJavParams.lastGroup).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    PyJavParams.lastGroup.dismiss();
+    PyJavParams.sectionMenu(app, "SogniPadd", none, noFields, kite);
+    idle();
+    String menu2 = listItems(PyJavParams.lastSectionMenu);
+    PyJavParams.lastSectionMenu.dismiss();
     PromptVault.forget();
     PromptVault.SogniSection back = null;
     for (PromptVault.SogniSection sec : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (sec.text.contains("kite")) back = sec;
-    out.append("menu: ").append(menu).append("\nrows: ").append(rows).append("\nread back: favourite ").append(back.favourite).append(", final ").append(back.fin).append('\n');
+    out.append("menu: ").append(menu).append("\nrows: ").append(rows).append("\ngroup picks: ").append(picks).append("\ngrouped: ").append(grouped)
+        .append("\nthe group: ").append(inGroup).append("\nmenu then: ").append(menu2)
+        .append("\nread back: favourite ").append(back.favourite).append(", final ").append(back.fin).append(", group ").append(back.group).append('\n');
     write("s260_section_marks", out.toString());
     vault = PromptVault.open(app.getFilesDir());
     for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
     boolean ok = afterEdit && before.equals("\u2606") && star.getText().toString().equals("\u2605")
-        && menu.equals("Load | Edit section | Remove section | Mark as final | Remove from favourites")
-        && rows.equals("\u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>") && back.favourite && back.fin;
+        && menu.equals("Load | Edit section | Remove section | Mark as final | Remove from favourites | Add to group\u2026")
+        && rows.equals("\u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>") && picks.equals("New group\u2026")
+        && grouped.equals("\u25b8 \u2605 F Portraits (1) | Zebra at noon. \u00b7 <when>") && inGroup.equals("true \u2605 F A red kite. \u00b7 <when>")
+        && menu2.endsWith("Add to group\u2026 | Take out of the group") && back.favourite && back.fin && back.group.equals("Portraits");
     if (!ok) throw new AssertionError(out.toString());
   }
 
