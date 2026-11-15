@@ -2696,9 +2696,6 @@ public class DrumMidi_CRT{
         double[] rideCut;
         /** How much the kick clicks ("kickclick v": kickClick's ratio, the median of its hits); -1 when not learned. */
         double kickClick = -1;
-        /** The kick's and toms' looks in the cymbal band, each alone (lines "c<note>d"). */
-        final List<Integer> drumNotes = new ArrayList<Integer>();
-        final List<double[]> drumLooks = new ArrayList<double[]>();
         /** The toms' level jump over the hit before ("tomjump v", see tomJumpFor); -1 when not learned. */
         double tomJump = -1;
 
@@ -2858,10 +2855,6 @@ public class DrumMidi_CRT{
             List<Double> clicks = new ArrayList<Double>();
             // The toms' times and notes, for the tom level jump over the hit before (tomjump).
             List<double[]> tomTimes = new ArrayList<double[]>();
-            // The kick's and each tom's look in the cymbal band, each alone ("c<note>d"): a hat found on a
-            // lone kick or tom whose look is the drum's own is the drum's bright end, not a hat.
-            java.util.Map<Integer, double[]> drumLookSum = new java.util.TreeMap<Integer, double[]>();
-            java.util.Map<Integer, Integer> drumLookCount = new java.util.HashMap<Integer, Integer>();
             for (String line : new String(java.nio.file.Files.readAllBytes(times.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
                 if (w.length < 2 || w[0].startsWith("#")) continue;
@@ -2919,19 +2912,6 @@ public class DrumMidi_CRT{
                 double onset = onset(audio.samples, audio.sampleRate, at);
                 if (note == KICK_NOTE && onset >= 0) clicks.add(Double.valueOf(kickClick(audio.samples, audio.sampleRate, onset)));
                 if (isTomNote(note)) tomTimes.add(new double[] {at, note});
-                if ((note == KICK_NOTE || isTomNote(note)) && onset >= 0) {
-                    double[] dl = cymFeature(audio.samples, audio.sampleRate, onset);
-                    if (dl != null) {
-                        Integer dk = Integer.valueOf(note);
-                        if (!drumLookSum.containsKey(dk)) {
-                            drumLookSum.put(dk, new double[CYM_BANDS + 2]);
-                            drumLookCount.put(dk, Integer.valueOf(0));
-                        }
-                        double[] ds = drumLookSum.get(dk);
-                        for (int k = 0; k < CYM_BANDS + 2; k++) ds[k] += dl[k];
-                        drumLookCount.put(dk, Integer.valueOf(drumLookCount.get(dk).intValue() + 1));
-                    }
-                }
                 if (onset - at > late) late = onset - at;
                 double[] v = onset < 0 ? null : spectrum(audio.samples, audio.sampleRate, onset);
                 if (v == null) {
@@ -3004,17 +2984,6 @@ public class DrumMidi_CRT{
             if (!clicks.isEmpty()) {
                 Collections.sort(clicks);
                 sb.append(String.format(java.util.Locale.ROOT, "kickclick %.6f\n", clicks.get(clicks.size() / 2).doubleValue()));
-            }
-            for (java.util.Map.Entry<Integer, double[]> e : drumLookSum.entrySet()) {
-                double[] ds = e.getValue();
-                int c = drumLookCount.get(e.getKey()).intValue();
-                double norm = 0;
-                for (int k = 0; k < CYM_BANDS; k++) norm += ds[k] * ds[k];
-                norm = Math.sqrt(norm);
-                if (norm <= 0) continue;
-                sb.append('c').append(e.getKey()).append('d');
-                for (int k = 0; k < CYM_BANDS; k++) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ds[k] / norm));
-                sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", ds[CYM_BANDS] / c)).append('\n');
             }
             double tomJump = tomJump(audio, tomTimes);
             if (tomJump >= 0) sb.append(String.format(java.util.Locale.ROOT, "tomjump %.4f\n", tomJump));
@@ -3137,14 +3106,6 @@ public class DrumMidi_CRT{
             KitProfile k = new KitProfile(f.getName());
             for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
                 String[] w = line.trim().split("\\s+");
-                if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+d")) {
-                    // The kick's or a tom's look in the cymbal band, alone.
-                    double[] c = new double[CYM_BANDS + 1];
-                    for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);
-                    k.drumNotes.add(Integer.valueOf(w[0].substring(1, w[0].length() - 1)));
-                    k.drumLooks.add(c);
-                    continue;
-                }
                 if (w.length > CYM_BANDS + 1 && w[0].matches("c\\d+[ksg]?")) {
                     double[] c = new double[CYM_BANDS + 1];
                     for (int i = 0; i <= CYM_BANDS; i++) c[i] = Double.parseDouble(w[i + 1]);

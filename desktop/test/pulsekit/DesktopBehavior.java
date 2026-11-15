@@ -10793,6 +10793,30 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v448: a kit whose toms ring on (a roomy studio kit's): --learn-kit writes its "tomjump" (the tom
+   * band's jump at the test beat's later tom hits, over the ring of the one before) lower than a dry
+   * kit's, and with that profile DrumMidi asks a smaller level jump of a tom (it says so).
+   */
+  void s261_tom_jump() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File jar = new File(home, "DrumMidi_CRT.jar");
+    Files.write(jar.toPath(), ProgramFiles.read("Java", "DrumMidi_CRT.jar"));
+    File work = new File(home, "tomjump");
+    work.mkdirs();
+    File py = new File(System.getProperty("pulsekit.test.dir"), "py/drummidi_tomjump.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(py.getAbsolutePath(), script.getAbsolutePath(), jar.getAbsolutePath(), work.getAbsolutePath()));
+    this.out.append(PythonRun.runFor(cmd, 600, null).trim()).append('\n');
+    String all = this.out.toString();
+    java.util.regex.Matcher dry = java.util.regex.Pattern.compile("dry: tomjump ([0-9.]+), tom jump as before").matcher(all);
+    java.util.regex.Matcher ringing = java.util.regex.Pattern.compile("ringing: tomjump ([0-9.]+), Kit ringing.kit: its toms jump less over the ring before them").matcher(all);
+    boolean ok = dry.find() && ringing.find() && Double.parseDouble(ringing.group(1)) < 0.95 && Double.parseDouble(dry.group(1)) >= 0.95;
+    if (!ok) throw new AssertionError(all);
+  }
+
+  /**
    * v415: a kit whose kick has no beater click (an 808's sine, Beat DRMR's): --learn-kit writes its
    * "kickclick" under KICK_CLICKLESS, and with that profile DrumMidi finds its kicks without a click (it
    * says so); a kick that clicks is learned over it and found as before.
