@@ -923,8 +923,8 @@ public final class ProgramParams {
       p.label = "Parts: the drums split between the plugin rows, played in one run and mixed into one WAV (kick=2: the kick by plugin 2)";
       p.hint = "kick=2,snare=1,toms=1,cymbals=3 (also hats); the notes not named: plugin 1; empty: each plugin its own run";
     } else if (p.token.equals("--chokes")) {
-      p.label = "Chokes: the plugin's choke notes (a cymbal = its choked one); Test plays them alone after the test beat and says what DrumMidi wrote there";
-      p.hint = "x42 AVL Drumkits: 49=50,51=52,57=58; empty: none";
+      p.label = "Chokes: the plugin's choke notes (a cymbal = its choked one, or =at: the plugin chokes by aftertouch); Test plays them alone after the test beat and says what DrumMidi wrote there";
+      p.hint = "x42 AVL Drumkits: 49=50,51=52,57=58; aftertouch: at (or 49=at,51=at); empty: none";
     } else if (p.token.equals("--note_map")) {
       p.label = "Note map: the MIDI's notes sent to the plugin's pads (36=48: the kick on its pad 48; 41=none), or a text file of them ([plugin name] sections)";
       p.hint = "empty: map.txt below (Edit), its lines for the plugin; pairs such as 36=48,38=50 or a file";

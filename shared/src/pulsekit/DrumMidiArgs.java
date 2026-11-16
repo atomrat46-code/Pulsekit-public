@@ -18,11 +18,11 @@ public final class DrumMidiArgs {
     "Snare leak: fewer false hats on a bright snare (a few real ones may go)",
     "Faded opens: open hats that fade like closed ones written closed (many more closed hats right, some open ones lost)",
     "No cymbal model: cymbals as found, not told apart again by their sound in the song (learned from 44 kits)",
-    "Chokes: a crash or ride cut off by hand written as its choke note (x42 AVL Drumkits: 49=50,51=52,57=58)"
+    "Chokes: a crash or ride cut off by hand written as its choke note (x42 AVL Drumkits: 49=50,51=52,57=58), or at: as aftertouch on its own note (Pulsekit's Crash choke and Ride choke tracks)"
   };
   /** The program's own values, shown as hints in empty fields. */
   public static final String[] HINTS = {
-    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on", "1 to turn on", "1 to turn the model off", "off; AVL Drumkits: 49=50,51=52,57=58"
+    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on", "1 to turn on", "1 to turn the model off", "off; AVL Drumkits: 49=50,51=52,57=58; Pulsekit's choke tracks: at"
   };
   /**
    * Suggested values, tested on a drum and bass guitar mix (Passing Ships): lower sensitivity
