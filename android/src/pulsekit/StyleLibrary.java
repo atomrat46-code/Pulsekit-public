@@ -26,8 +26,8 @@ final class StyleLibrary {
 
     /** How much of the screen's height Imported may take before it scrolls inside. */
     static final float IMPORTED_SHARE = 0.18f;
-    /** More (by the Imported heading): the list up to this share of the screen; Less back. Kept between starts. */
-    static final float IMPORTED_TALL = 0.45f;
+    /** More (by the Imported heading): the grid hidden and the list up to this share of the screen; Less back. Kept between starts. */
+    static final float IMPORTED_TALL = 0.62f;
     static boolean importedTall;
 
     static float importedShare() {
@@ -51,6 +51,8 @@ final class StyleLibrary {
             app.getSharedPreferences("pulsekit", 0).edit().putBoolean("importedTall", importedTall).apply();
             for (TextView b : this.moreButtons) b.setText(importedTall ? "Less" : "More");
             for (View sc : this.cappedScrolls) sc.requestLayout();
+            // The grid hidden (More) or back (Less).
+            app.show(app.view);
         });
         this.moreButtons.add(more);
         row.addView(more);
