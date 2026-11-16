@@ -11041,6 +11041,11 @@ public final class DesktopBehavior {
     seen.append("\nMIDI read back the same: ").append(Engine.patternSignature(back).equals(Engine.patternSignature(cells)));
     // A choke in a WAV: the crash's ring after it is gone.
     short[][] voices = AudioIo.buildVoices(AudioIo.SR);
+    // A crash ringing a second (the built-in one is 0.12 s).
+    short[] longCrash = new short[AudioIo.SR];
+    java.util.Random rnd = new java.util.Random(3);
+    for (int i = 0; i < longCrash.length; i++) longCrash[i] = (short) ((rnd.nextInt(16000) - 8000) * (longCrash.length - i) / longCrash.length);
+    voices[Engine.track("crash")] = longCrash;
     int[][] crashOnly = Engine.emptyCells();
     crashOnly[Engine.track("crash")][0] = 120;
     int[][] choked = Engine.copyCells(crashOnly);
@@ -11053,6 +11058,21 @@ public final class DesktopBehavior {
     int[][] old = Engine.emptyCells();
     Engine.patternFromJson("{\"pattern\":{\"kick\":[100,0,0,0],\"chh\":[0,0,90,0]}}", old);
     seen.append("\nold pattern rows: ").append(old.length).append(", kick ").append(old[0][0]).append(", pedal hat ").append(old[Engine.track("ped")][0]);
+    // Fills told by their tracks' names: a snare roll, a tom run, a groove ending on the china.
+    int[][] roll = Engine.emptyCells(), toms = Engine.emptyCells(), china = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 2) {
+      roll[Engine.track("chh")][i] = 90;
+      toms[Engine.track("chh")][i] = 90;
+      china[Engine.track("chh")][i] = 90;
+    }
+    for (int i = 8; i < 16; i++) roll[Engine.track("snare")][i] = 100;
+    for (int i = 8; i < 16; i++) toms[Engine.track(i < 11 ? "htom" : i < 13 ? "mtom" : "ltom")][i] = 100;
+    for (int i = 12; i < 16; i++) china[Engine.track("chh")][i] = 0;
+    china[Engine.track("chn")][15] = 120;
+    china[Engine.track("kick")][15] = 110;
+    china[Engine.track("snare")][13] = 110;
+    china[Engine.track("snare")][14] = 110;
+    seen.append("\nfills: ").append(Engine.classifyFill(roll)).append(' ').append(Engine.classifyFill(toms)).append(' ').append(Engine.classifyFill(china));
     // A project (.prj) keeps the new rows, and each pad's own sound (the double kick's not taken for the kick's).
     final ProjectIo io = (ProjectIo) get("projectIo");
     final short[][] appVoices = (short[][]) get("voices");
@@ -11083,7 +11103,7 @@ public final class DesktopBehavior {
         && t.contains("struck: semi, then rchk") && t.contains("choke tip: Crash choke: stops the ringing crash, crash 2, china and splash")
         && t.contains("hi-hat pedal half down: true, crash choke: true, ride choke: true") && t.contains("MIDI read back the same: true")
         && t.contains("ring after the choke: true -> 0") && t.contains("old pattern rows: 20, kick 100, pedal hat 0")
-        && t.contains("project: china 111, ride choke 127, kick 3000, double kick 5000");
+        && t.contains("project: china 111, ride choke 127, kick 3000, double kick 5000") && t.contains("fills: roll toms crash");
     if (!ok) throw new AssertionError(t);
   }
 

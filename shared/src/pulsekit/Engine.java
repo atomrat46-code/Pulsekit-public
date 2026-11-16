@@ -836,7 +836,10 @@ public final class Engine {
       if (i >= 12) {
         set(p, chh, i, 0);
         set(p, ride, i, 0);
+        set(p, track("ped"), i, 0);
+        set(p, track("bel"), i, 0);
         if (i < 15) set(p, ohh, i, 0);
+        if (i < 15) set(p, track("semi"), i, 0);
       } else if (at(p, chh, i) > 0) {
         set(p, chh, i, Math.min(at(p, chh, i), 70));
       }
@@ -913,10 +916,10 @@ public final class Engine {
     int kick = track("kick"), crash = track("crash"), ohh = track("ohh"), chh = track("chh"), ride = track("ride");
     if (at(p, kick, 8) >= 80) set(p, crash, 8, Math.max(at(p, crash, 8), 100));
     set(p, ohh, 14, Math.max(at(p, ohh, 14), 88));
-    set(p, chh, 14, 0);
-    set(p, chh, 15, 0);
-    set(p, ride, 14, 0);
-    set(p, ride, 15, 0);
+    for (int t : new int[] {chh, ride, track("ped"), track("semi"), track("bel")}) {
+      set(p, t, 14, 0);
+      set(p, t, 15, 0);
+    }
     set(p, crash, 15, Math.max(at(p, crash, 15), 120));
   }
 
@@ -937,6 +940,8 @@ public final class Engine {
       set(p, track("htom"), i, 0);
       set(p, track("mtom"), i, 0);
       set(p, track("ltom"), i, 0);
+      for (String id : new String[] {"ped", "semi", "bel", "chk", "rchk"}) set(p, track(id), i, 0);
+      for (int c : crashTracks()) if (i != 15 || c != crash) set(p, c, i, 0);
       if (i != 15) set(p, crash, i, 0);
     }
     set(p, crash, 15, Math.max(at(p, crash, 15), 118));
@@ -2294,11 +2299,12 @@ public final class Engine {
     int[][] p = lastBar(cells);
     int first = hitsIn(p, range(0, TRACK_ID.length), 0, 8);
     int last = hitsIn(p, range(0, TRACK_ID.length), 8, 16);
-    int toms = hitsIn(p, new int[] {8, 9, 10}, 8, 16);
-    int snare = hitsIn(p, new int[] {1}, 8, 16);
-    int hatsLast = hitsIn(p, new int[] {4, 5, 7}, 8, 16);
-    int hatsFirst = hitsIn(p, new int[] {4, 5, 7}, 0, 8);
-    boolean crashEnd = p[6][15] > 0 || p[6][14] > 0;
+    int toms = hitsIn(p, tomTracks(), 8, 16);
+    int snare = hitsIn(p, new int[] {track("snare")}, 8, 16);
+    int hatsLast = hitsIn(p, timeTracks(), 8, 16);
+    int hatsFirst = hitsIn(p, timeTracks(), 0, 8);
+    boolean crashEnd = false;
+    for (int c : crashTracks()) crashEnd |= p[c][15] > 0 || p[c][14] > 0;
     if (hitCount(p) == 0) return "rest";
     if (last <= Math.max(3, first * 0.45)) return "break";
     if (toms >= 3) return "toms";
@@ -2312,6 +2318,21 @@ public final class Engine {
     return crashEnd ? "crash" : "toms";
   }
 
+  /** The toms (by name: the rows' numbers moved when the double kick came in). */
+  static int[] tomTracks() {
+    return new int[] {track("ltom"), track("mtom"), track("htom")};
+  }
+
+  /** The time keepers: closed, pedal, open and semi-open hats, ride and ride bell. */
+  static int[] timeTracks() {
+    return new int[] {track("chh"), track("ped"), track("ohh"), track("semi"), track("ride"), track("bel")};
+  }
+
+  /** The crashes a fill ends on: crash, crash 2, china, splash. */
+  static int[] crashTracks() {
+    return new int[] {track("crash"), track("cr2"), track("chn"), track("spl")};
+  }
+
   private static int[] range(int a, int b) {
     int[] o = new int[b - a];
     for (int i = 0; i < o.length; i++) o[i] = a + i;
@@ -2321,11 +2342,13 @@ public final class Engine {
   public static boolean shouldLearnFill(int[][] cells) {
     int[][] p = lastBar(cells);
     int last = hitsIn(p, range(0, TRACK_ID.length), 8, 16);
-    int toms = hitsIn(p, new int[] {8, 9, 10}, 8, 16);
-    int snare = hitsIn(p, new int[] {1}, 8, 16);
+    int toms = hitsIn(p, tomTracks(), 8, 16);
+    int snare = hitsIn(p, new int[] {track("snare")}, 8, 16);
     String kind = classifyFill(p);
     if ("rest".equals(kind)) return hitCount(p) == 0;
-    if ("break".equals(kind)) return last >= 1 || p[6][15] > 0 || p[0][15] > 0;
+    boolean crashLast = false;
+    for (int c : crashTracks()) crashLast |= p[c][15] > 0;
+    if ("break".equals(kind)) return last >= 1 || crashLast || p[track("kick")][15] > 0;
     return last >= 2 || toms >= 2 || snare >= 3;
   }
 
