@@ -266,8 +266,9 @@ public class BehaviorTest {
   }
 
   /**
-   * 16112026: the Pads page's second row: pedal hat, semi-open hat, crash 2, china, splash, ride bell (each
-   * its own sound) and the crash's and ride's chokes (a ringing crash faded out); not written into the pattern.
+   * v454: the pedal hat, semi-open hat, crash 2, china, splash, ride bell and the crash's and ride's chokes
+   * are drum tracks: pads of their own in 5 rows of 4 (each its own sound, the chokes none); Crash choke
+   * fades out a ringing crash and crash 2.
    */
   @Test
   public void s13b_extra_pads() throws Exception {
@@ -276,23 +277,24 @@ public class BehaviorTest {
     idle();
     Playback pb = (Playback) get("playback");
     StringBuilder labels = new StringBuilder();
-    for (TextView t : pb.extraBtns) labels.append(t.getText().toString().replace('\n', ' ')).append(" | ");
+    for (int t = Engine.BASE_TRACKS; t < Engine.TRACK_ID.length; t++) labels.append(app.padBtns[t].getText().toString().replace('\n', ' ').replaceAll(" [A-G]#?-?[0-9]$", "")).append(" | ");
     out.append("pads: ").append(labels).append('\n');
-    int[][] before = Engine.copyCells(app.cells);
-    pb.extraBtns[2].performClick();
+    int cr2 = Engine.track("cr2"), crash = Engine.track("crash");
+    app.padBtns[cr2].performClick();
     idle();
-    out.append("crash 2 plays: ").append(pb.extraPos[2] == 0 && pb.extraVoices[2] != null).append(", semi-open made: ").append(pb.extraVoices[1] != null).append(", chokes none: ").append(pb.extraVoices[6] == null && pb.extraVoices[7] == null).append('\n');
+    out.append("crash 2 plays: ").append(app.mixPos[cr2] >= 0 && app.voices[cr2] != null).append(", semi-open made: ").append(app.voices[Engine.track("semi")] != null)
+        .append(", chokes none: ").append(app.voices[Engine.track("chk")] == null && app.voices[Engine.track("rchk")] == null).append('\n');
     // A crash ringing, then Crash choke: the crash and crash 2 fade out.
-    int crash = Engine.track("crash");
     pb.triggerMix(crash, 110);
-    pb.extraBtns[6].performClick();
+    pb.triggerMix(cr2, 110);
+    app.padBtns[Engine.track("chk")].performClick();
     idle();
-    out.append("choke: crash fading ").append(pb.chokeLeft[crash] == Playback.CHOKE_FADE || app.mixPos[crash] < 0).append(", crash 2 fading ").append(pb.extraChokeLeft[2] == Playback.CHOKE_FADE || pb.extraPos[2] < 0).append('\n');
-    out.append("pattern unchanged: ").append(java.util.Arrays.deepEquals(before, app.cells)).append('\n');
+    out.append("choke: crash fading ").append(pb.chokeLeft[crash] > 0 || app.mixPos[crash] < 0).append(", crash 2 fading ").append(pb.chokeLeft[cr2] > 0 || app.mixPos[cr2] < 0)
+        .append(", last ").append(Playback.lastChoke).append('\n');
     write("s13b_extra_pads", out.toString());
     String t = out.toString();
-    if (!t.contains("pads: PED Pedal hat \u00b7 44 | SEMI Semi-open hat \u00b7 46 | CR2 Crash 2 \u00b7 57 | CHN China \u00b7 52 | SPL Splash \u00b7 55 | BEL Ride bell \u00b7 53 | CHK Crash choke | RCHK Ride choke | ")
-        || !t.contains("crash 2 plays: true, semi-open made: true, chokes none: true") || !t.contains("choke: crash fading true, crash 2 fading true") || !t.contains("pattern unchanged: true"))
+    if (!t.contains("pads: PED Pedal hat \u00b7 44 | SEMI Semi-open hat \u00b7 46 | CR2 Crash 2 \u00b7 57 | CHN China \u00b7 52 | SPL Splash \u00b7 55 | BEL Ride bell \u00b7 53 | CHK Crash choke \u00b7 49 | RCHK Ride choke \u00b7 51 | ")
+        || !t.contains("crash 2 plays: true, semi-open made: true, chokes none: true") || !t.contains("choke: crash fading true, crash 2 fading true, last chk"))
       throw new AssertionError(t);
   }
 
@@ -13579,7 +13581,7 @@ public class BehaviorTest {
     app.drumSets.remove(test);
     write("s242_drumpad", out.toString());
     String text = out.toString();
-    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && kits.toString().startsWith("Original") && kits.toString().contains("Test kit") && found == 12
+    boolean ok = text.contains("new: Added DrumPad 1") && t.pads && kits.toString().startsWith("Original") && kits.toString().contains("Test kit") && found == Engine.TRACK_ID.length
         && s.state().contains("Metronome 122 6/8") && hits.toString().trim().equals("kick snare chh snare") && whilePaused == 2 && t.seconds > 0.3
         && text.contains("another kit: Test kit, sound changed true") && back.hits.size() == 4 && "Test kit".equals(back.kit) && back.bpm == 122 && "6/8".equals(back.ts)
         && text.contains("closed true");

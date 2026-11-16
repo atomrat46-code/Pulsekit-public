@@ -10996,32 +10996,101 @@ public final class DesktopBehavior {
   }
 
   /**
-   * 16112026: the Pads tab's second row: pedal hat, semi-open hat, crash 2, china, splash, ride bell and the
-   * crash's and ride's chokes; struck, each plays (the synth's drum channel), the pattern left as it was.
+   * v454: the pedal hat, semi-open hat, crash 2, china, splash, ride bell and the crash's and ride's chokes
+   * are drum tracks: pads of their own (struck: played), rows in the pattern, and in MIDI both ways (the
+   * semi-open hat its 46 with the hi-hat pedal half down, a choke aftertouch on its cymbal's note); a choke
+   * stops the crash ringing in a rendered WAV; old patterns (12 tracks) load with the new rows empty.
    */
   void s262_extra_pads() throws Exception {
     call("showView", "pads");
     idle();
     final StringBuilder seen = new StringBuilder();
-    final int[][] before = Engine.copyCells((int[][]) get("cells"));
     edt(() -> {
-      for (String id : ExtraPads.ID) {
-        javax.swing.JButton b = (javax.swing.JButton) component(frame, "extra-pad:" + id);
-        seen.append(b == null ? "-" : b.getText()).append(" | ");
+      for (int t = Engine.BASE_TRACKS; t < Engine.TRACK_ID.length; t++) {
+        javax.swing.JButton b = (javax.swing.JButton) component(frame, "pad:" + Engine.TRACK_ID[t]);
+        seen.append(b == null ? "-" : b.getText().replaceAll(" [A-G]#?-?[0-9]$", "")).append(" | ");
       }
       Playback.lastExtra = null;
-      ((javax.swing.JButton) component(frame, "extra-pad:cr2")).doClick();
+      ((javax.swing.JButton) component(frame, "pad:semi")).doClick();
       seen.append("\nstruck: ").append(Playback.lastExtra);
-      ((javax.swing.JButton) component(frame, "extra-pad:rchk")).doClick();
+      ((javax.swing.JButton) component(frame, "pad:rchk")).doClick();
       seen.append(", then ").append(Playback.lastExtra);
+      seen.append("\nchoke tip: ").append(((javax.swing.JButton) component(frame, "pad:chk")).getToolTipText());
     });
     idle();
-    seen.append("\npattern unchanged: ").append(java.util.Arrays.deepEquals(before, (int[][]) get("cells"))).append('\n');
-    this.out.append(seen);
+    // MIDI both ways.
+    int[][] cells = Engine.emptyCells();
+    cells[Engine.track("ped")][0] = 90;
+    cells[Engine.track("semi")][2] = 100;
+    cells[Engine.track("cr2")][4] = 110;
+    cells[Engine.track("chn")][5] = 100;
+    cells[Engine.track("spl")][6] = 100;
+    cells[Engine.track("bel")][7] = 100;
+    cells[Engine.track("crash")][8] = 120;
+    cells[Engine.track("chk")][10] = 127;
+    cells[Engine.track("ride")][11] = 100;
+    cells[Engine.track("rchk")][12] = 127;
+    cells[Engine.track("ohh")][14] = 100;
+    byte[] midi = Engine.encodeMidi(cells, 120, 16, 4, 4);
+    StringBuilder hexb = new StringBuilder();
+    for (byte x : midi) hexb.append(String.format("%02X", x & 0xff));
+    String hex = hexb.toString();
+    seen.append("\nhi-hat pedal half down: ").append(hex.contains("B90440")).append(", crash choke: ").append(hex.contains("A9317F"))
+        .append(", ride choke: ").append(hex.contains("A9337F"));
+    int[][] back = Engine.parseMidi(midi);
+    seen.append("\nMIDI read back the same: ").append(Engine.patternSignature(back).equals(Engine.patternSignature(cells)));
+    // A choke in a WAV: the crash's ring after it is gone.
+    short[][] voices = AudioIo.buildVoices(AudioIo.SR);
+    int[][] crashOnly = Engine.emptyCells();
+    crashOnly[Engine.track("crash")][0] = 120;
+    int[][] choked = Engine.copyCells(crashOnly);
+    choked[Engine.track("chk")][2] = 127;
+    short[] ring = AudioIo.mixCells(crashOnly, 16, 120, 1, voices, AudioIo.SR);
+    short[] cut = AudioIo.mixCells(choked, 16, 120, 1, voices, AudioIo.SR);
+    int from = AudioIo.SR * 60 / 120 / 4 * 2 + AudioIo.SR / 20;
+    seen.append("\nring after the choke: ").append(peak(ring, from) > 500).append(" -> ").append(peak(cut, from));
+    // Old patterns: 12 tracks, the new rows empty.
+    int[][] old = Engine.emptyCells();
+    Engine.patternFromJson("{\"pattern\":{\"kick\":[100,0,0,0],\"chh\":[0,0,90,0]}}", old);
+    seen.append("\nold pattern rows: ").append(old.length).append(", kick ").append(old[0][0]).append(", pedal hat ").append(old[Engine.track("ped")][0]);
+    // A project (.prj) keeps the new rows, and each pad's own sound (the double kick's not taken for the kick's).
+    final ProjectIo io = (ProjectIo) get("projectIo");
+    final short[][] appVoices = (short[][]) get("voices");
+    final int[][] appCells = (int[][]) get("cells");
+    final byte[][] prj = new byte[1][];
+    edt(() -> {
+      appCells[Engine.track("chn")][3] = 111;
+      appCells[Engine.track("rchk")][5] = 127;
+      appVoices[Engine.track("kick")] = new short[3000];
+      appVoices[Engine.track("dkick")] = new short[5000];
+      try {
+        prj[0] = io.encodePrjBytes();
+        appCells[Engine.track("chn")][3] = 0;
+        appCells[Engine.track("rchk")][5] = 0;
+        io.loadPrj(prj[0], "extra.prj");
+      } catch (Exception ex) {
+        seen.append("\nprj failed: ").append(ex);
+      }
+    });
+    idle();
+    int[][] loaded = (int[][]) get("cells");
+    short[][] lv = (short[][]) get("voices");
+    seen.append("\nproject: china ").append(loaded[Engine.track("chn")][3]).append(", ride choke ").append(loaded[Engine.track("rchk")][5])
+        .append(", kick ").append(lv[Engine.track("kick")].length).append(", double kick ").append(lv[Engine.track("dkick")].length);
+    this.out.append(seen).append('\n');
     String t = seen.toString();
-    boolean ok = t.contains("PED  Pedal hat  \u00b7 44 | SEMI  Semi-open hat  \u00b7 46 | CR2  Crash 2  \u00b7 57 | CHN  China  \u00b7 52 | SPL  Splash  \u00b7 55 | BEL  Ride bell  \u00b7 53 | CHK  Crash choke | RCHK  Ride choke | ")
-        && t.contains("struck: cr2, then rchk") && t.contains("pattern unchanged: true");
+    boolean ok = t.contains("PED  Pedal hat  \u00b7 44 | SEMI  Semi-open hat  \u00b7 46 | CR2  Crash 2  \u00b7 57 | CHN  China  \u00b7 52 | SPL  Splash  \u00b7 55 | BEL  Ride bell  \u00b7 53 | CHK  Crash choke  \u00b7 49 | RCHK  Ride choke  \u00b7 51 | ")
+        && t.contains("struck: semi, then rchk") && t.contains("choke tip: Crash choke: stops the ringing crash, crash 2, china and splash")
+        && t.contains("hi-hat pedal half down: true, crash choke: true, ride choke: true") && t.contains("MIDI read back the same: true")
+        && t.contains("ring after the choke: true -> 0") && t.contains("old pattern rows: 20, kick 100, pedal hat 0")
+        && t.contains("project: china 111, ride choke 127, kick 3000, double kick 5000");
     if (!ok) throw new AssertionError(t);
+  }
+
+  static int peak(short[] pcm, int from) {
+    int p = 0;
+    for (int i = from; i < pcm.length; i++) p = Math.max(p, Math.abs(pcm[i]));
+    return p;
   }
 
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */

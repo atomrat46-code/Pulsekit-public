@@ -136,7 +136,7 @@ public final class HitCompare {
         for (int r = 0; r < Math.max(1, p.repeats); r++) {
           for (int s = 0; s < n; s++, t += step) {
             for (int k = 0; k < Engine.TRACK_ID.length && p.cells != null && k < p.cells.length; k++) {
-              if (p.cells[k] == null || s >= p.cells[k].length || p.cells[k][s] <= 0) continue;
+              if (p.cells[k] == null || s >= p.cells[k].length || p.cells[k][s] <= 0 || Engine.isChoke(k)) continue;
               int f = family(Engine.NOTES[k]);
               if (f >= 0) out.get(f).add(Double.valueOf(t));
             }

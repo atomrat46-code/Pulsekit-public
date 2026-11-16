@@ -10,7 +10,7 @@ import android.widget.TextView;
 
 /**
  * A DrumPad track's MIDI editor (DrumGrid) on the phone: a bar at a time, its timeline of 16th-note
- * steps over a grid of the 12 pads, and the pads under them. Tap a step on the timeline, then touch a
+ * steps over a grid of the 20 pads, and the pads under them. Tap a step on the timeline, then touch a
  * pad: it plays in that step, or comes out of it when it was there. A cell of the grid does the same.
  * ◀ ▶ go bar to bar; + Bar, Quantize, BPM − / +, time signature, ▶ Play, Export MIDI (into Download).
  * Each change makes the track's sound again.

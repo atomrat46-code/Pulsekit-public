@@ -115,8 +115,12 @@ public final class DrumGrid {
     for (DrumPads.Hit h : k.hits) {
       long at = Math.round(h.frame * ticksPerFrame);
       int vel = Math.max(1, Math.min(127, Math.round(h.velocity * 110)));
-      ev.add(new long[] {at, 1, 0x90 | Engine.DRUM_CH, Engine.NOTES[h.pad], vel});
-      ev.add(new long[] {at + gate, 0, 0x80 | Engine.DRUM_CH, Engine.NOTES[h.pad], 0});
+      // The semi-open hat's hi-hat pedal, a choke's aftertouch (Engine.hitEvents).
+      for (int[] e : Engine.hitEvents(h.pad, 0, gate, vel, Engine.DRUM_CH)) {
+        int kind = e[1] & 0xf0;
+        long order = kind == 0x80 || (kind == 0xB0 && e[0] == 0) ? 0 : 1;
+        ev.add(new long[] {at + e[0], order, e[1], e[2], e[3]});
+      }
     }
     ev.sort((a, b) -> a[0] != b[0] ? Long.compare(a[0], b[0]) : Long.compare(a[1], b[1]));
     ByteArrayOutputStream t = new ByteArrayOutputStream();

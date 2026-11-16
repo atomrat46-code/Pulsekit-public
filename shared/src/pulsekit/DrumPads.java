@@ -117,7 +117,7 @@ public final class DrumPads {
 
   // ---- Sounds.
 
-  /** The kit's 12 voices (Engine.TRACK_ID's order) from a drum set and the app's own voices (VOICE_RATE). */
+  /** The kit's voices (Engine.TRACK_ID's order) from a drum set and the app's own voices (VOICE_RATE). */
   public static short[][] voices(Engine.DrumSet s, short[][] base) {
     short[][] out = new short[Engine.TRACK_ID.length][];
     for (int t = 0; t < out.length; t++) {
@@ -159,10 +159,30 @@ public final class DrumPads {
     for (Hit h : k.hits) n = Math.max(n, h.frame + (h.pad < voices.length ? voices[h.pad].length : 0));
     int len = (int) Math.min(Integer.MAX_VALUE - 8, n);
     float[] l = new float[len];
+    // Each pad's last hit, for a choke to take its cymbals' ring back out (faded over 30 ms).
+    long[] lastAt = new long[voices.length];
+    float[] lastVel = new float[voices.length];
+    java.util.Arrays.fill(lastAt, -1);
+    int fade = Math.max(1, AudioMix.RATE * 30 / 1000);
     for (Hit h : k.hits) {
       if (h.pad >= voices.length) continue;
+      if (Engine.isChoke(h.pad)) {
+        for (int c : Engine.chokedTracks(h.pad)) {
+          if (c >= voices.length || lastAt[c] < 0) continue;
+          float[] cv = voices[c];
+          for (long i = h.frame - lastAt[c]; i >= 0 && i < cv.length && lastAt[c] + i < len; i++) {
+            long j = i - (h.frame - lastAt[c]);
+            float keep = j < fade ? 1f - j / (float) fade : 0f;
+            l[(int) (lastAt[c] + i)] -= cv[(int) i] * lastVel[c] * (1 - keep);
+          }
+          lastAt[c] = -1;
+        }
+        continue;
+      }
       float[] v = voices[h.pad];
       for (int i = 0; i < v.length && h.frame + i < len; i++) l[(int) (h.frame + i)] += v[i] * h.velocity;
+      lastAt[h.pad] = h.frame;
+      lastVel[h.pad] = h.velocity;
     }
     return new float[][] {l, l.clone()};
   }
@@ -214,6 +234,16 @@ public final class DrumPads {
       float[][] v = voices;
       if (pad < 0 || pad >= v.length) return;
       synchronized (this) {
+        if (Engine.isChoke(pad)) {
+          // A choke: the crash's (or the ride's) cymbals still ringing stop.
+          for (int c : Engine.chokedTracks(pad)) {
+            if (c >= v.length) continue;
+            final float[] cv = v[c];
+            sounding.removeIf(x -> x.v == cv);
+          }
+          if (recording && !paused) take.hits.add(new Hit(now(), pad, velocity));
+          return;
+        }
         sounding.add(new Sounding(v[pad], velocity * (float) track.factor()));
         if (recording && !paused) take.hits.add(new Hit(now(), pad, velocity));
       }

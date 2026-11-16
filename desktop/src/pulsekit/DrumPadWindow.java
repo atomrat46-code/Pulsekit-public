@@ -17,7 +17,7 @@ import javax.swing.SwingUtilities;
 
 /**
  * A DrumPad track's Drumpad window (DrumPads): the kit (any drum set), BPM, time signature and
- * Metronome, the track's volume and gain, the 12 pads (a mouse press, or the keys 1 to 0, - and =), and
+ * Metronome, the track's volume and gain, the 20 pads (a mouse press, or the keys 1 to 0, -, = and q to i), and
  * ● Record, ❚❚ Pause, ■ Stop and ▶ Play. The pads sound through Pulsekit's output.
  */
 final class DrumPadWindow {
@@ -25,7 +25,7 @@ final class DrumPadWindow {
 
     /** The window shown last (for the tests). */
     static JDialog last;
-    static final String KEYS = "1234567890-=";
+    static final String KEYS = "1234567890-=qwertyui";
 
     static void show(final Pulsekit app, java.awt.Window owner, final AudioMix.Track t, final Runnable changed) {
         if (last != null && last.isDisplayable()) last.dispose();
@@ -100,7 +100,7 @@ final class DrumPadWindow {
         });
         levels.add(gain);
         // The pads.
-        JPanel pads = new JPanel(new GridLayout(3, 4, 6, 6));
+        JPanel pads = new JPanel(new GridLayout((Engine.TRACK_ID.length + 3) / 4, 4, 6, 6));
         pads.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
         for (int i = 0; i < Engine.TRACK_ID.length; i++) {
             final int pad = i;

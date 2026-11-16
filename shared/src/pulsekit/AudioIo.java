@@ -107,7 +107,7 @@ public final class AudioIo {
 
   public static short[][] buildVoices(int sr) {
     short[][] voices = new short[Engine.NOTES.length][];
-    for (int t = 0; t < Engine.NOTES.length; t++) {
+    for (int t = 0; t < Engine.BASE_TRACKS; t++) {
       int n = Engine.NOTES[t];
       int len = (int) (sr * (n == 36 || n == 35 ? 0.28 : n >= 41 && n <= 50 && n != 42 && n != 46 ? 0.22 : 0.12));
       short[] buf = new short[Math.max(64, len)];
@@ -127,6 +127,7 @@ public final class AudioIo {
       }
       voices[t] = buf;
     }
+    ExtraPads.complete(voices);
     return voices;
   }
 
@@ -157,6 +158,9 @@ public final class AudioIo {
     int nBars = Math.max(1, bars);
     int total = stepN * nSteps * nBars;
     int[] acc = new int[total];
+    int[] lastAt = new int[Engine.TRACK_ID.length];
+    double[] lastG = new double[Engine.TRACK_ID.length];
+    Arrays.fill(lastAt, -1);
     for (int bar = 0; bar < nBars; bar++) {
       boolean last = fillLast && bar == nBars - 1 && fillPat != null;
       for (int s = 0; s < nSteps; s++) {
@@ -173,12 +177,9 @@ public final class AudioIo {
         }
         for (int t = 0; t < Engine.TRACK_ID.length; t++) {
           if (mutes != null && mutes[t]) continue;
-          int vel = idx < src[t].length ? src[t][idx] : 0;
+          int vel = t < src.length && idx < src[t].length ? src[t][idx] : 0;
           if (vel <= 0) continue;
-          short[] srcv = voices[t];
-          if (srcv == null) continue;
-          double g = vel / 127.0;
-          for (int i = 0; i < srcv.length && at + i < total; i++) acc[at + i] += (int) (srcv[i] * g);
+          mixHit(acc, t, at, vel, voices, lastAt, lastG, sr);
         }
       }
     }
@@ -187,7 +188,36 @@ public final class AudioIo {
     return pcm;
   }
 
+  /**
+   * One hit of track `t` at frame `at` added into `acc`; a choke instead takes the rest of its cymbals'
+   * last hits back out, faded over 30 ms (lastAt/lastG: each track's last hit, where and how loud).
+   */
+  static void mixHit(int[] acc, int t, int at, int vel, short[][] voices, int[] lastAt, double[] lastG, int sr) {
+    int total = acc.length;
+    if (Engine.isChoke(t)) {
+      int fade = Math.max(1, sr * 30 / 1000);
+      for (int c : Engine.chokedTracks(t)) {
+        short[] cv = voices != null && c < voices.length ? voices[c] : null;
+        if (cv == null || lastAt[c] < 0) continue;
+        for (int i = at - lastAt[c]; i >= 0 && i < cv.length && lastAt[c] + i < total; i++) {
+          int k = i - (at - lastAt[c]);
+          double keep = k < fade ? 1.0 - k / (double) fade : 0;
+          acc[lastAt[c] + i] -= (int) (cv[i] * lastG[c] * (1 - keep));
+        }
+        lastAt[c] = -1;
+      }
+      return;
+    }
+    short[] srcv = voices != null && t < voices.length ? voices[t] : null;
+    if (srcv == null) return;
+    double g = vel / 127.0;
+    for (int i = 0; i < srcv.length && at + i < total; i++) acc[at + i] += (int) (srcv[i] * g);
+    lastAt[t] = at;
+    lastG[t] = g;
+  }
+
   public static byte[] encodeWav(short[] pcm, int sr) {
+    if (pcm == null) pcm = new short[0];
     byte[] data = new byte[pcm.length * 2];
     for (int i = 0; i < pcm.length; i++) {
       int v = pcm[i];
@@ -273,16 +303,17 @@ public final class AudioIo {
     int times = Math.max(1, repeats);
     int total = stepN * nSteps * times;
     int[] acc = new int[total];
+    // Each track's last hit (where, how loud), for a choke to stop the cymbals still ringing.
+    int[] lastAt = new int[Engine.TRACK_ID.length];
+    double[] lastG = new double[Engine.TRACK_ID.length];
+    Arrays.fill(lastAt, -1);
     for (int bar = 0; bar < times; bar++) {
       for (int s = 0; s < nSteps; s++) {
         int at = (bar * nSteps + s) * stepN;
         for (int t = 0; t < Engine.TRACK_ID.length; t++) {
           int vel = cells != null && t < cells.length && cells[t] != null && s < cells[t].length ? cells[t][s] : 0;
           if (vel <= 0) continue;
-          short[] srcv = voices != null && t < voices.length ? voices[t] : null;
-          if (srcv == null) continue;
-          double g = vel / 127.0;
-          for (int i = 0; i < srcv.length && at + i < total; i++) acc[at + i] += (int) (srcv[i] * g);
+          mixHit(acc, t, at, vel, voices, lastAt, lastG, sr);
         }
       }
     }
@@ -326,6 +357,9 @@ public final class AudioIo {
     }
     int total = (int) Math.min(Integer.MAX_VALUE - 8, Math.round(length));
     int[] acc = new int[total];
+    int[] lastAt = new int[Engine.TRACK_ID.length];
+    double[] lastG = new double[Engine.TRACK_ID.length];
+    Arrays.fill(lastAt, -1);
     double pos = 0;
     for (Engine.Part p : parts) {
       if (p == null) continue;
@@ -338,10 +372,7 @@ public final class AudioIo {
             if (mutes != null && t < mutes.length && mutes[t]) continue;
             int vel = p.cells != null && t < p.cells.length && p.cells[t] != null && s < p.cells[t].length ? p.cells[t][s] : 0;
             if (vel <= 0) continue;
-            short[] v = voices != null && t < voices.length ? voices[t] : null;
-            if (v == null) continue;
-            double g = vel / 127.0;
-            for (int i = 0; i < v.length && at + i < total; i++) acc[(int) (at + i)] += (int) (v[i] * g);
+            mixHit(acc, t, (int) at, vel, voices, lastAt, lastG, sr);
           }
         }
       }
@@ -1040,21 +1071,27 @@ public final class AudioIo {
   }
 
   public static byte[] encodeSf2(short[][] voices, String name) {
-    int n = Engine.NOTES.length;
+    // One sample per key: the semi-open hat (the open hat's 46) and the chokes (aftertouch) have none of their own.
+    int[] ts = new int[Engine.NOTES.length];
+    int n = 0;
+    for (int t = 0; t < Engine.NOTES.length && t < voices.length; t++) {
+      if (Engine.isSemi(t) || Engine.isChoke(t)) continue;
+      ts[n++] = t;
+    }
     int pad = 46;
     int frames = 0;
     int[] starts = new int[n];
     int[] ends = new int[n];
     for (int t = 0; t < n; t++) {
       starts[t] = frames;
-      int len = voices[t] == null ? 64 : voices[t].length;
+      int len = voices[ts[t]] == null ? 64 : voices[ts[t]].length;
       ends[t] = frames + len;
       frames += len + pad;
     }
     byte[] smpl = new byte[frames * 2];
     int o = 0;
     for (int t = 0; t < n; t++) {
-      short[] src = voices[t] == null ? new short[64] : voices[t];
+      short[] src = voices[ts[t]] == null ? new short[64] : voices[ts[t]];
       for (short v : src) {
         smpl[o++] = (byte) (v & 0xff);
         smpl[o++] = (byte) ((v >> 8) & 0xff);
@@ -1064,13 +1101,13 @@ public final class AudioIo {
     byte[] shdr = new byte[46 * (n + 1)];
     for (int t = 0; t < n; t++) {
       int b = t * 46;
-      putStr(shdr, b, Engine.TRACK_SHORT[t], 20);
+      putStr(shdr, b, Engine.TRACK_SHORT[ts[t]], 20);
       put32(shdr, b + 20, starts[t]);
       put32(shdr, b + 24, ends[t]);
       put32(shdr, b + 28, starts[t]);
       put32(shdr, b + 32, ends[t]);
       put32(shdr, b + 36, SR);
-      shdr[b + 40] = (byte) Engine.NOTES[t];
+      shdr[b + 40] = (byte) Engine.NOTES[ts[t]];
       put16(shdr, b + 44, 1);
     }
     putStr(shdr, n * 46, "EOS", 20);
@@ -1078,7 +1115,7 @@ public final class AudioIo {
     byte[] igen = new byte[4 * (n * gensPer + 1)];
     for (int t = 0; t < n; t++) {
       int b = t * gensPer * 4;
-      int note = Engine.NOTES[t];
+      int note = Engine.NOTES[ts[t]];
       put16(igen, b, 43);
       put16(igen, b + 2, note | (note << 8));
       put16(igen, b + 4, 58);
@@ -1181,9 +1218,11 @@ public final class AudioIo {
         }
       }
     }
-    int[] aliases = { 36, 36, 40, 39, 37, 44, 46, 57, 59, 43, 45, 48 };
+    int[] aliases = Sfz.ALIASES;
     boolean[] byKey = new boolean[Engine.NOTES.length];
     for (int t = 0; t < Engine.NOTES.length; t++) {
+      // The chokes have no sound; the semi-open hat is made from the open hat below.
+      if (Engine.isChoke(t) || Engine.isSemi(t)) continue;
       int sid = -1;
       int note = Engine.NOTES[t];
       if (note < 128 && exact[note] >= 0) sid = exact[note];
@@ -1211,6 +1250,7 @@ public final class AudioIo {
     int got = 0;
     for (short[] v : voices) if (v != null) got++;
     if (got == 0) throw new IllegalArgumentException("No drum samples mapped for this SoundFont");
+    ExtraPads.complete(voices);
     return voices;
   }
 
@@ -1291,7 +1331,9 @@ public final class AudioIo {
     if ("chh".equals(id)) return SR / 4;
     if ("rim".equals(id)) return SR / 4;
     if ("ohh".equals(id)) return (int) (SR * 1.2);
-    if ("crash".equals(id) || "ride".equals(id)) return SR * 2;
+    if ("crash".equals(id) || "ride".equals(id) || "cr2".equals(id) || "chn".equals(id) || "bel".equals(id)) return SR * 2;
+    if ("spl".equals(id)) return SR;
+    if ("ped".equals(id)) return SR / 3;
     if ("ltom".equals(id) || "mtom".equals(id) || "htom".equals(id)) return (int) (SR * 0.9);
     return (int) (SR * 0.6);
   }
@@ -1308,7 +1350,7 @@ public final class AudioIo {
     int srcRate = u32(d, b + 36);
     if (start < 0 || end <= start) return;
     if (srcRate < 8000 || srcRate > 96000) srcRate = 44100;
-    short[] buf = extractDrum(d, smplOff, smplLen, start, end, srcRate, drumCap(track), track >= 8);
+    short[] buf = extractDrum(d, smplOff, smplLen, start, end, srcRate, drumCap(track), track >= 8 && track < Engine.BASE_TRACKS);
     if (buf == null) return;
     int pk = samplePeak(buf);
     if (voices[track] != null && pk <= peaks[track]) return;

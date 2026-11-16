@@ -261,17 +261,64 @@ public final class Engine {
   public static final int TPQ = 480;
   public static final int DRUM_CH = 9;
   public static final String[] TRACK_ID = {
-    "kick", "dkick", "snare", "clap", "rim", "chh", "ohh", "crash", "ride", "ltom", "mtom", "htom"
+    "kick", "dkick", "snare", "clap", "rim", "chh", "ohh", "crash", "ride", "ltom", "mtom", "htom",
+    "ped", "semi", "cr2", "chn", "spl", "bel", "chk", "rchk"
   };
   public static final String[] TRACK_SHORT = {
-    "KIK", "DBL", "SNR", "CLP", "RIM", "CHH", "OHH", "CSH", "RID", "FLO", "MID", "RAK"
+    "KIK", "DBL", "SNR", "CLP", "RIM", "CHH", "OHH", "CSH", "RID", "FLO", "MID", "RAK",
+    "PED", "SEMI", "CR2", "CHN", "SPL", "BEL", "CHK", "RCHK"
   };
   public static final String[] TRACK_LABEL = {
-    "Kick", "Double kick", "Snare", "Clap", "Rim", "Closed hat", "Open hat", "Crash", "Ride", "Floor tom", "Mid tom", "Rack tom"
+    "Kick", "Double kick", "Snare", "Clap", "Rim", "Closed hat", "Open hat", "Crash", "Ride", "Floor tom", "Mid tom", "Rack tom",
+    "Pedal hat", "Semi-open hat", "Crash 2", "China", "Splash", "Ride bell", "Crash choke", "Ride choke"
   };
   public static final String[] FILL_ID = { "toms", "roll", "crash", "break", "rest" };
   public static final String[] FILL_LABEL = { "Toms", "Snare roll", "Crash", "Break", "Silent" };
-  public static final int[] NOTES = {36, 35, 38, 39, 37, 42, 46, 49, 51, 41, 47, 50};
+  /**
+   * Each track's MIDI note. The semi-open hat is the open hat's 46 played with the hi-hat pedal half down
+   * (CC4 = SEMI_CC before it); a choke is its cymbal's note (49 crash, 51 ride) with polyphonic aftertouch 127
+   * (how e-drums and drum plugins send a grabbed cymbal), not a note of its own.
+   */
+  public static final int[] NOTES = {36, 35, 38, 39, 37, 42, 46, 49, 51, 41, 47, 50, 44, 46, 57, 52, 55, 53, 49, 51};
+  /** The tracks before the eight added in v454 (pedal hat .. ride choke): the first pad rows and the old files. */
+  public static final int BASE_TRACKS = 12;
+  /** The hi-hat pedal (foot controller CC4) value a semi-open hat is sent with; 0 is open, 127 closed. */
+  public static final int SEMI_CC = 64;
+
+  public static boolean isChoke(int t) {
+    return t >= 0 && t < TRACK_ID.length && (TRACK_ID[t].equals("chk") || TRACK_ID[t].equals("rchk"));
+  }
+
+  public static boolean isSemi(int t) {
+    return t >= 0 && t < TRACK_ID.length && TRACK_ID[t].equals("semi");
+  }
+
+  /** The tracks a choke track stops: the crash's (crash, crash 2, china, splash) or the ride's (ride, ride bell). */
+  public static int[] chokedTracks(int t) {
+    if (t >= 0 && t < TRACK_ID.length && TRACK_ID[t].equals("chk")) return new int[] {track("crash"), track("cr2"), track("chn"), track("spl")};
+    if (t >= 0 && t < TRACK_ID.length && TRACK_ID[t].equals("rchk")) return new int[] {track("ride"), track("bel")};
+    return new int[0];
+  }
+
+  /**
+   * The MIDI events of one hit on track `t` at `tick` (gate `gate` ticks): {tick, status, data1, data2} each.
+   * A plain note on and off; the semi-open hat with the hi-hat pedal half down before it and up after; a
+   * choke as aftertouch 127 on its cymbal's note.
+   */
+  public static List<int[]> hitEvents(int t, int tick, int gate, int vel, int ch) {
+    List<int[]> ev = new ArrayList<>(4);
+    int note = NOTES[t];
+    if (isChoke(t)) {
+      ev.add(new int[] {tick, 0xA0 | ch, note, 127});
+      ev.add(new int[] {tick + 1, 0xA0 | ch, note, 0});
+      return ev;
+    }
+    if (isSemi(t)) ev.add(new int[] {tick, 0xB0 | ch, 4, SEMI_CC});
+    ev.add(new int[] {tick, 0x90 | ch, note, vel});
+    ev.add(new int[] {tick + gate, 0x80 | ch, note, 0});
+    if (isSemi(t)) ev.add(new int[] {tick + gate, 0xB0 | ch, 4, 0});
+    return ev;
+  }
 
   /** A pad's MIDI note, for its label on the Pads tab: "36 C2" (the note its hits are written with, and its name). */
   public static String padNote(int t) {
@@ -496,7 +543,7 @@ public final class Engine {
       for (int s = 0; s < n; s++) {
         int to = atEnd ? p - n + s : s;
         int from = atEnd ? f - n + s : s;
-        out[t][to] = from < fill[t].length ? fill[t][from] : 0;
+        out[t][to] = t < fill.length && fill[t] != null && from < fill[t].length ? fill[t][from] : 0;
       }
     }
     return out;
@@ -530,7 +577,7 @@ public final class Engine {
   /** A variation of a fill, as the Variate button makes: some tom and cymbal steps in the last half bar flip. */
   public static int[][] variateFillCells(int[][] cells, java.util.Random rng) {
     int[][] out = copyCells(cells);
-    for (int i = track("ltom"); i < TRACK_ID.length; i++) {
+    for (int i = track("ltom"); i <= track("htom"); i++) {
       for (int j = 8; j < 16 && j < out[i].length; j++) {
         if (rng.nextDouble() >= 0.22) continue;
         out[i][j] = out[i][j] > 0 ? 0 : (rng.nextBoolean() ? 100 : 127);
@@ -631,8 +678,8 @@ public final class Engine {
   public static void zeroCells(int[][] cells) {
     if (cells == null) return;
     for (int t = 0; t < cells.length; t++) {
-      if (cells[t] == null) continue;
-      for (int s = 0; s < cells[t].length; s++) cells[t][s] = 0;
+      if ((t >= cells.length || cells[t] == null)) continue;
+      for (int s = 0; t < cells.length && cells[t] != null && s < cells[t].length; s++) cells[t][s] = 0;
     }
   }
 
@@ -652,7 +699,8 @@ public final class Engine {
   public static int[][] copyCells(int[][] src) {
     int[][] d = emptyCells();
     if (src == null) return d;
-    for (int t = 0; t < TRACK_ID.length; t++) {
+    for (int t = 0; t < TRACK_ID.length && t < src.length; t++) {
+      if (src[t] == null) continue;
       int n = Math.min(MAX_STEPS, src[t].length);
       System.arraycopy(src[t], 0, d[t], 0, n);
     }
@@ -663,7 +711,7 @@ public final class Engine {
     if (cells == null || cells.length == 0) return STEPS;
     for (int s = MAX_STEPS - 1; s >= STEPS; s--) {
       for (int t = 0; t < TRACK_ID.length; t++) {
-        if (s < cells[t].length && cells[t][s] > 0) return MAX_STEPS;
+        if (t < cells.length && cells[t] != null && s < cells[t].length && cells[t][s] > 0) return MAX_STEPS;
       }
     }
     return STEPS;
@@ -676,7 +724,7 @@ public final class Engine {
     if (two > MAX_STEPS) return bar;
     for (int s = bar; s < two; s++) {
       for (int t = 0; t < TRACK_ID.length; t++) {
-        if (s < cells[t].length && cells[t][s] > 0) return two;
+        if (t < cells.length && cells[t] != null && s < cells[t].length && cells[t][s] > 0) return two;
       }
     }
     return bar;
@@ -684,7 +732,7 @@ public final class Engine {
 
   public static void tileSteps(int[][] cells, int from, int to) {
     for (int t = 0; t < TRACK_ID.length; t++) {
-      for (int s = from; s < to && s < cells[t].length; s++) {
+      for (int s = from; s < to && t < cells.length && cells[t] != null && s < cells[t].length; s++) {
         cells[t][s] = cells[t][s % from];
       }
     }
@@ -736,7 +784,7 @@ public final class Engine {
     if (src == null) return out;
     int len = src[0] != null ? src[0].length : STEPS;
     int start = len >= MAX_STEPS ? len - STEPS : 0;
-    for (int t = 0; t < TRACK_ID.length; t++) {
+    for (int t = 0; t < TRACK_ID.length && t < src.length; t++) {
       if (src[t] == null) continue;
       int n = src[t].length;
       if (n <= 0) continue;
@@ -932,7 +980,7 @@ public final class Engine {
     if ("rest".equals(fillId)) return emptyCells();
     int[][] out = emptyCells();
     for (int t = 0; t < TRACK_ID.length; t++) {
-      if (groove == null || groove[t] == null) continue;
+      if (groove == null || t >= groove.length || groove[t] == null) continue;
       for (int i = 0; i < len && i < groove[t].length; i++) out[t][i] = groove[t][i];
     }
     int pulses = Math.max(1, len / 6);
@@ -1306,7 +1354,7 @@ public final class Engine {
   }
 
   public static int coverLen(int[][] lens, int[][] cells, int t, int s) {
-    if (cells == null || t < 0 || t >= cells.length || cells[t] == null) return 1;
+    if (cells == null || t < 0 || t >= cells.length || (t >= cells.length || cells[t] == null)) return 1;
     int start = Math.max(0, s - 16);
     for (int j = s - 1; j >= start; j--) {
       if (cells[t][j] > 0 && j + lenAt(lens, t, j) > s) return lenAt(lens, t, j);
@@ -1390,7 +1438,7 @@ public final class Engine {
         int n = clampSteps(p.steps);
         for (int s = 0; s < n; s++) {
           if (s > 0) sb.append(',');
-          sb.append(p.cells[t][s]);
+          sb.append(t < p.cells.length && p.cells[t] != null && s < p.cells[t].length ? p.cells[t][s] : 0);
         }
         sb.append(']');
       }
@@ -1408,7 +1456,7 @@ public final class Engine {
         int n = clampSteps(p.steps);
         for (int s = 0; s < n; s++) {
           if (s > 0) sb.append(',');
-          int g = p.lens != null && s < p.lens[t].length ? p.lens[t][s] : 0;
+          int g = p.lens != null && t < p.lens.length && p.lens[t] != null && s < p.lens[t].length ? p.lens[t][s] : 0;
           sb.append(g > 1 ? clampNoteLength(g) : 0);
         }
         sb.append(']');
@@ -1566,14 +1614,14 @@ public final class Engine {
     int nn = clampTsNum(tsNum);
     ev.add(new int[] {0, 0xff, 0x58, 0x04, nn, midiTsDenExp(tsDen), 0x18, 0x08});
     int step = TPQ / 4;
-    for (int t = 0; t < TRACK_ID.length; t++) {
+    for (int t = 0; t < TRACK_ID.length && t < cells.length; t++) {
+      if ((t >= cells.length || cells[t] == null)) continue;
       for (int s = 0; s < n; s++) {
-        int vel = s < cells[t].length ? cells[t][s] : 0;
+        int vel = t < cells.length && cells[t] != null && s < cells[t].length ? cells[t][s] : 0;
         if (vel <= 0) continue;
         int tick = s * step;
         if (s % 2 == 1) tick += (int) (step * 0.12);
-        ev.add(new int[] {tick, 0x90 | DRUM_CH, NOTES[t], vel});
-        ev.add(new int[] {tick + gateTicks(lenAt(lens, t, s)), 0x80 | DRUM_CH, NOTES[t], 0});
+        ev.addAll(hitEvents(t, tick, gateTicks(lenAt(lens, t, s)), vel, DRUM_CH));
       }
     }
     return packMidi(ev, n * step);
@@ -1590,13 +1638,13 @@ public final class Engine {
       int times = Math.max(1, p.repeats);
       int n = clampSteps(p.steps);
       for (int r = 0; r < times; r++) {
-        for (int t = 0; t < TRACK_ID.length; t++) {
+        for (int t = 0; t < TRACK_ID.length && t < p.cells.length; t++) {
+          if (p.cells[t] == null) continue;
           for (int s = 0; s < n; s++) {
             int vel = s < p.cells[t].length ? p.cells[t][s] : 0;
             if (vel <= 0) continue;
             int at = tick + s * step;
-            ev.add(new int[] {at, 0x90 | DRUM_CH, NOTES[t], vel});
-            ev.add(new int[] {at + gateTicks(lenAt(p.lens, t, s)), 0x80 | DRUM_CH, NOTES[t], 0});
+            ev.addAll(hitEvents(t, at, gateTicks(lenAt(p.lens, t, s)), vel, DRUM_CH));
           }
         }
         tick += n * step;
@@ -1709,7 +1757,7 @@ public final class Engine {
       else if (longForm && s >= lastBarStart && s < lastBarStart + bar) dest = bar + (s - lastBarStart);
       else continue;
       if (dest < 0 || dest >= MAX_STEPS) continue;
-      int t = trackForNote(h[1]);
+      int t = trackForHit(h);
       if (t < 0) continue;
       if (h[2] > cells[t][dest]) cells[t][dest] = h[2] > 127 ? 127 : h[2];
     }
@@ -1756,6 +1804,9 @@ public final class Engine {
       int end = Math.min(data.length, p + len);
       int tick = 0;
       int running = 0;
+      int hatPedal = 0;
+      int[] lastChoke = new int[TRACK_ID.length];
+      java.util.Arrays.fill(lastChoke, -1);
       while (p < end && out.hits.size() < 8000) {
         int[] v = readVlq(data, p);
         tick += v[0];
@@ -1797,7 +1848,22 @@ public final class Engine {
           int note = data[p++] & 0xff;
           int vel = data[p++] & 0xff;
           if (ch == 9 && cmd == 0x90 && vel > 0) {
-            out.hits.add(new int[] { tick, note, vel });
+            // The open hat with the pedal half down is the semi-open hat.
+            int semi = note == 46 && hatPedal >= SEMI_LOW && hatPedal <= SEMI_HIGH ? track("semi") : -1;
+            out.hits.add(new int[] { tick, note, vel, semi });
+          }
+        } else if (cmd == 0xA0 || cmd == 0xB0) {
+          if (p + 1 >= end) break;
+          int a = data[p++] & 0xff;
+          int b = data[p++] & 0xff;
+          if (ch == 9 && cmd == 0xB0 && a == 4) hatPedal = b;
+          // A grabbed cymbal: aftertouch on its note.
+          if (ch == 9 && cmd == 0xA0 && b >= 64) {
+            int choke = chokeForNote(a);
+            if (choke >= 0 && tick != lastChoke[choke]) {
+              lastChoke[choke] = tick;
+              out.hits.add(new int[] { tick, a, 127, choke });
+            }
           }
         } else if (cmd == 0xc0 || cmd == 0xd0) {
           p++;
@@ -1828,7 +1894,7 @@ public final class Engine {
       if (s < 0) continue;
       int bar = s / barLen;
       if (bar < 0 || bar >= barCount) continue;
-      int t = trackForNote(h[1]);
+      int t = trackForHit(h);
       if (t < 0) continue;
       int dest = s % barLen;
       int[][] cells = bars.get(bar);
@@ -1867,7 +1933,7 @@ public final class Engine {
   /** Steps where one bar has a hit and the other does not. Velocity is ignored. */
   public static int hitDiff(int[][] a, int[][] b) {
     int n = 0;
-    for (int t = 0; t < TRACK_ID.length; t++) {
+    for (int t = 0; t < TRACK_ID.length && t < a.length && t < b.length; t++) {
       int len = Math.max(a[t].length, b[t].length);
       for (int s = 0; s < len; s++) {
         boolean x = s < a[t].length && a[t][s] > 0;
@@ -1985,6 +2051,22 @@ public final class Engine {
     return out;
   }
 
+  /** The hi-hat pedal (CC4) values a 46 is read as the semi-open hat at. */
+  public static final int SEMI_LOW = 20, SEMI_HIGH = 105;
+
+  /** A read MIDI hit {tick, note, vel, track or -1}: its track (the semi-open hat, a choke) or its note's. */
+  public static int trackForHit(int[] h) {
+    if (h.length > 3 && h[3] >= 0) return h[3];
+    return trackForNote(h[1]);
+  }
+
+  /** The choke track for aftertouch on a cymbal's note: the crash's (49, 57, 52, 55) or the ride's (51, 53, 59); else -1. */
+  public static int chokeForNote(int note) {
+    if (note == 49 || note == 57 || note == 52 || note == 55) return track("chk");
+    if (note == 51 || note == 53 || note == 59) return track("rchk");
+    return -1;
+  }
+
   /** GM drum note → Pulsekit track, or -1. */
   public static int trackForNote(int note) {
     if (note == 36) return track("kick");
@@ -1992,9 +2074,14 @@ public final class Engine {
     if (note == 38 || note == 40) return track("snare");
     if (note == 39) return track("clap");
     if (note == 37) return track("rim");
-    if (note == 42 || note == 44) return track("chh");
+    if (note == 42) return track("chh");
+    if (note == 44) return track("ped");
     if (note == 46) return track("ohh");
-    if (note == 49 || note == 57) return track("crash");
+    if (note == 49) return track("crash");
+    if (note == 57) return track("cr2");
+    if (note == 52) return track("chn");
+    if (note == 55) return track("spl");
+    if (note == 53) return track("bel");
     if (note == 51 || note == 59) return track("ride");
     if (note == 41 || note == 43) return track("ltom");
     if (note == 45 || note == 47) return track("mtom");
@@ -2062,7 +2149,7 @@ public final class Engine {
   public static final int MAX_SONG = 256;
   public static final int MAX_IMPORTED_SONGS = 200;
   public static final int MAX_MIDI_BARS = 256;
-  public static final double[] TRACK_WEIGHT = {4, 3, 4, 1.2, 0.8, 2, 1, 0.8, 1.2, 0.7, 0.7, 0.7};
+  public static final double[] TRACK_WEIGHT = {4, 3, 4, 1.2, 0.8, 2, 1, 0.8, 1.2, 0.7, 0.7, 0.7, 1, 1, 0.8, 0.8, 0.8, 1, 0.6, 0.6};
 
   public static final class Learned {
     public String id;
@@ -2146,7 +2233,7 @@ public final class Engine {
     StringBuilder sb = new StringBuilder();
     for (int t = 0; t < TRACK_ID.length; t++) {
       if (t > 0) sb.append('.');
-      int[] h = hits16(cells[t]);
+      int[] h = hits16(t < cells.length ? cells[t] : null);
       for (int v : h) sb.append(v);
     }
     return sb.toString();
@@ -2155,7 +2242,7 @@ public final class Engine {
   public static int hitCount(int[][] cells) {
     int n = 0;
     for (int t = 0; t < TRACK_ID.length; t++) {
-      for (int s = 0; s < cells[t].length; s++) if (cells[t][s] > 0) n++;
+      for (int s = 0; t < cells.length && cells[t] != null && s < cells[t].length; s++) if (cells[t][s] > 0) n++;
     }
     return n;
   }
@@ -2171,7 +2258,7 @@ public final class Engine {
     int n = usedSteps(cells);
     int start = n >= bar * 2 - 4 ? Math.max(0, n - bar) : 0;
     for (int t = 0; t < TRACK_ID.length; t++) {
-      if (cells[t] == null || cells[t].length == 0) continue;
+      if ((t >= cells.length || cells[t] == null) || cells[t].length == 0) continue;
       for (int i = 0; i < bar; i++) {
         int idx = start + i;
         out[t][i] = idx < cells[t].length ? cells[t][idx] : cells[t][i % Math.max(cells[t].length, 1)];
@@ -2189,7 +2276,7 @@ public final class Engine {
     if (cells == null) return out;
     int bar = clampSteps(barLen);
     for (int t = 0; t < TRACK_ID.length; t++) {
-      if (cells[t] == null) continue;
+      if ((t >= cells.length || cells[t] == null)) continue;
       for (int i = 0; i < bar; i++) out[t][i] = i < cells[t].length ? cells[t][i] : 0;
     }
     return out;
@@ -2271,7 +2358,7 @@ public final class Engine {
       double total = 0;
       for (int t = 0; t < TRACK_ID.length; t++) {
         double w = t < TRACK_WEIGHT.length ? TRACK_WEIGHT[t] : 1;
-        int[] a = hits16(cells[t]);
+        int[] a = hits16(t < cells.length ? cells[t] : null);
         int[] b = hits16(preset[t]);
         for (int i = 0; i < STEPS; i++) {
           total += w;
@@ -2545,7 +2632,7 @@ public final class Engine {
     for (int t = 0; t < TRACK_ID.length; t++) {
       char[] cs = new char[STEPS];
       for (int s = 0; s < STEPS; s++) {
-        int v = cells[t][s];
+        int v = t < cells.length && cells[t] != null && s < cells[t].length ? cells[t][s] : 0;
         cs[s] = v >= 120 ? 'X' : v >= 90 ? 'x' : v > 0 ? 'o' : '-';
       }
       rows[t] = new String(cs);
@@ -2558,8 +2645,8 @@ public final class Engine {
     double chance = 0.04 + Math.max(1, Math.min(10, density)) * 0.02;
     int n = Math.max(1, Math.min(steps, cells[0] != null ? cells[0].length : STEPS));
     for (int t = 0; t < TRACK_ID.length; t++) {
-      if (cells[t] == null) continue;
-      for (int s = 0; s < n && s < cells[t].length; s++) {
+      if ((t >= cells.length || cells[t] == null)) continue;
+      for (int s = 0; s < n && t < cells.length && cells[t] != null && s < cells[t].length; s++) {
         if (rng.nextDouble() >= chance) continue;
         if (cells[t][s] > 0 && rng.nextBoolean()) cells[t][s] = 0;
         else if (cells[t][s] == 0) cells[t][s] = rng.nextBoolean() ? 64 : 100;
@@ -2576,9 +2663,9 @@ public final class Engine {
     int span = Math.min(clampSteps(barLen), steps);
     int start = Math.max(0, steps - span);
     for (int t = 0; t < TRACK_ID.length; t++) {
-      if (cells[t] == null) continue;
+      if ((t >= cells.length || cells[t] == null)) continue;
       for (int i = 0; i < span; i++) {
-        int src = fill[t] != null && i < fill[t].length ? fill[t][i] : 0;
+        int src = t < fill.length && fill[t] != null && i < fill[t].length ? fill[t][i] : 0;
         if (start + i < cells[t].length) cells[t][start + i] = src;
       }
     }
@@ -2644,7 +2731,7 @@ public final class Engine {
       sb.append(quote(TRACK_ID[t])).append(":[");
       for (int s = 0; s < n; s++) {
         if (s > 0) sb.append(',');
-        sb.append(s < cells[t].length ? cells[t][s] : 0);
+        sb.append(t < cells.length && cells[t] != null && s < cells[t].length ? cells[t][s] : 0);
       }
       sb.append(']');
     }

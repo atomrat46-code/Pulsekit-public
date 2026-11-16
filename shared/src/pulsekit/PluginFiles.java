@@ -127,10 +127,14 @@ public final class PluginFiles {
   /** Pulsekit's pads with their MIDI notes, and the other GM drum notes: for writing a note map. */
   public static String padNotes() {
     StringBuilder b = new StringBuilder("Pulsekit's pads (Pads tab) and their MIDI notes (names: " + label() + "):\n");
-    for (int t = 0; t < Engine.TRACK_ID.length; t++) b.append("  ").append(row(Engine.NOTES[t], Engine.TRACK_LABEL[t])).append('\n');
+    for (int t = 0; t < Engine.TRACK_ID.length; t++) {
+      String what = Engine.TRACK_LABEL[t];
+      if (Engine.isSemi(t)) what += " (with the hi-hat pedal half down, CC4 " + Engine.SEMI_CC + ")";
+      if (Engine.isChoke(t)) what += " (aftertouch on the cymbal's note)";
+      b.append("  ").append(row(Engine.NOTES[t], what)).append('\n');
+    }
     b.append("\nMore GM drum notes in songs' MIDI:\n");
-    String[][] more = {{"43", "Low floor tom"}, {"44", "Pedal hat"}, {"45", "Low tom"}, {"48", "High-mid tom"}, {"52", "China"}, {"53", "Ride bell"},
-      {"55", "Splash"}, {"56", "Cowbell"}, {"57", "Crash 2"}, {"59", "Ride 2"}};
+    String[][] more = {{"43", "Low floor tom"}, {"45", "Low tom"}, {"48", "High-mid tom"}, {"56", "Cowbell"}, {"59", "Ride 2"}};
     for (String[] m : more) b.append("  ").append(row(Integer.parseInt(m[0]), m[1])).append('\n');
     b.append("\nA line: the MIDI's note=the plugin's pad note (36=48, or by name: 36=" + Engine.noteName(48) + "), or 41=none.");
     return b.toString();

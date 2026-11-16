@@ -228,6 +228,8 @@ public final class MidiHitEdit {
   /** Adds a hit, or erases the track's hits at the step (with their note offs). True: it has a hit now. */
   public boolean toggle(int track, int step) {
     if (track < 0 || track >= this.tracks() || step < 0) return false;
+    // The semi-open hat and the chokes are not plain notes (a pedal controller, aftertouch): not added here.
+    if (Engine.isSemi(track) || Engine.isChoke(track)) return false;
     this.changed = true;
     List<Ev> gone = new ArrayList<Ev>();
     for (Ev e : this.evs) if (this.drumHit(e) == track && this.stepOf(e.tick) == step) gone.add(e);

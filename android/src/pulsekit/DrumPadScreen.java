@@ -13,7 +13,7 @@ import android.widget.TextView;
 
 /**
  * A DrumPad track's Drumpad window (DrumPads): the kit (any drum set), BPM − / +, time signature and
- * Metronome, the track's volume and gain, the 12 pads (they sound as a finger touches them), and
+ * Metronome, the track's volume and gain, the 20 pads (they sound as a finger touches them), and
  * ● Record, ❚❚ Pause, ■ Stop and ▶ Play. The pads sound through Pulsekit's output.
  */
 final class DrumPadScreen {
@@ -138,11 +138,12 @@ final class DrumPadScreen {
         col.addView(level);
         col.addView(vol);
         col.addView(gains);
-        // The pads: 3 rows of 4, sounding as a finger touches them.
-        for (int row = 0; row < 3; row++) {
+        // The pads: 5 rows of 4 (Engine's tracks), sounding as a finger touches them.
+        for (int row = 0; row < (Engine.TRACK_ID.length + 3) / 4; row++) {
             LinearLayout r = app.row();
             for (int c = 0; c < 4; c++) {
                 final int pad = row * 4 + c;
+                if (pad >= Engine.TRACK_ID.length) break;
                 final TextView p = app.pad(Engine.TRACK_SHORT[pad], Engine.TRACK_LABEL[pad], null);
                 p.setTag("drumpad-pad:" + Engine.TRACK_ID[pad]);
                 p.setOnTouchListener((v, e) -> {

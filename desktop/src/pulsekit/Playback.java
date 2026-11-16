@@ -107,13 +107,14 @@ final class Playback {
         jPanel2.add(jLabel);
         north.add(jPanel2);
         jPanel.add((Component)north, "North");
-        JPanel jPanel3 = new JPanel(new GridLayout(3, 4, 10, 10));
+        JPanel jPanel3 = new JPanel(new GridLayout((Engine.TRACK_ID.length + 3) / 4, 4, 10, 10));
         jPanel3.setOpaque(false);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             final int n = i;
             JButton jButton3 = app.action(Engine.TRACK_SHORT[i] + "  " + Engine.TRACK_LABEL[i] + "  \u00b7 " + Engine.padNote(i), ELEV, FG);
-            jButton3.setToolTipText(Engine.TRACK_LABEL[i] + ": MIDI note " + Engine.padNote(i));
-            jButton3.setPreferredSize(new Dimension(120, 88));
+            jButton3.setName("pad:" + Engine.TRACK_ID[i]);
+            jButton3.setToolTipText(padTip(i));
+            jButton3.setPreferredSize(new Dimension(120, 72));
             jButton3.addActionListener(actionEvent -> {
                 this.preview(n);
                 this.flashPad(n);
@@ -129,36 +130,7 @@ final class Playback {
             this.padBtns[i] = jButton3;
             jPanel3.add(jButton3);
         }
-        // The extra pads: played by hand only (not written into the pattern).
-        JPanel center = new JPanel(new java.awt.BorderLayout(0, 8));
-        center.setOpaque(false);
-        center.add(jPanel3, java.awt.BorderLayout.CENTER);
-        JPanel extraBox = new JPanel(new java.awt.BorderLayout(0, 4));
-        extraBox.setOpaque(false);
-        JLabel extraTitle = new JLabel("More pads (played, not written into the pattern)");
-        extraTitle.setForeground(SUBTLE);
-        extraBox.add(extraTitle, java.awt.BorderLayout.NORTH);
-        JPanel extraGrid = new JPanel(new GridLayout(2, 4, 10, 10));
-        extraGrid.setOpaque(false);
-        for (int x = 0; x < ExtraPads.ID.length; ++x) {
-            final int ex = x;
-            String sub = ExtraPads.isChoke(x) ? ExtraPads.LABEL[x] : ExtraPads.LABEL[x] + "  \u00b7 " + ExtraPads.NOTES[x];
-            JButton b = app.action(ExtraPads.SHORT[x] + "  " + sub, ELEV, FG);
-            b.setName("extra-pad:" + ExtraPads.ID[x]);
-            b.setToolTipText(ExtraPads.isChoke(x) ? "Stops the ringing " + (ExtraPads.crashChoke(x) ? "crash, crash 2, china and splash" : "ride and ride bell") : ExtraPads.LABEL[x] + ": MIDI note " + ExtraPads.NOTES[x]);
-            b.setPreferredSize(new Dimension(120, 60));
-            b.addActionListener(e -> {
-                this.extraHit(ex);
-                b.setBackground(HIT);
-                Timer t = new Timer(90, ev -> b.setBackground(ELEV));
-                t.setRepeats(false);
-                t.start();
-            });
-            extraGrid.add(b);
-        }
-        extraBox.add(extraGrid, java.awt.BorderLayout.CENTER);
-        center.add(extraBox, java.awt.BorderLayout.SOUTH);
-        jPanel.add((Component)center, "Center");
+        jPanel.add((Component)jPanel3, "Center");
         this.refreshDrumSets();
         return jPanel;
     }
@@ -302,12 +274,31 @@ final class Playback {
                         n7 += n3;
                     }
                     int gate = Engine.gateTicks(Engine.lenAt(srcLens, j, idx));
-                    track.add(new MidiEvent(new ShortMessage(144, 9, Engine.NOTES[j], n6), n7));
-                    track.add(new MidiEvent(new ShortMessage(128, 9, Engine.NOTES[j], 0), n7 + gate));
+                    addHit(track, j, n7, gate, n6);
                 }
             }
         }
         return sequence;
+    }
+
+    /**
+     * One hit of track `t` into the sequence (Engine.hitEvents: the semi-open hat's hi-hat pedal, a choke's
+     * aftertouch), a choke also letting its cymbals' notes go: the synth ends a ringing cymbal on its note off.
+     */
+    static void addHit(Track track, int t, long tick, int gate, int vel) throws Exception {
+        for (int[] e : Engine.hitEvents(t, (int) tick, gate, vel, 9)) {
+            track.add(new MidiEvent(new ShortMessage(e[1] & 0xF0, 9, e[2], e[3]), e[0]));
+        }
+        if (Engine.isChoke(t)) {
+            for (int c : Engine.chokedTracks(t)) track.add(new MidiEvent(new ShortMessage(ShortMessage.NOTE_OFF, 9, Engine.NOTES[c], 0), tick));
+        }
+    }
+
+    /** A pad's tooltip: its MIDI note, or what a choke stops. */
+    static String padTip(int t) {
+        if (Engine.isChoke(t)) return Engine.TRACK_LABEL[t] + ": stops the ringing " + ("chk".equals(Engine.TRACK_ID[t]) ? "crash, crash 2, china and splash" : "ride and ride bell") + " (aftertouch on " + Engine.NOTES[t] + ")";
+        if (Engine.isSemi(t)) return Engine.TRACK_LABEL[t] + ": MIDI note " + Engine.padNote(t) + " with the hi-hat pedal half down (CC4 " + Engine.SEMI_CC + ")";
+        return Engine.TRACK_LABEL[t] + ": MIDI note " + Engine.padNote(t);
     }
 
     Sequence sequenceFromSong() throws Exception {
@@ -330,8 +321,7 @@ final class Playback {
                         if (n5 <= 0) continue;
                         int n6 = n2 + k * n;
                         int gate = Engine.gateTicks(Engine.lenAt(part.lens, j, k));
-                        track.add(new MidiEvent(new ShortMessage(144, 9, Engine.NOTES[j], n5), n6));
-                        track.add(new MidiEvent(new ShortMessage(128, 9, Engine.NOTES[j], 0), n6 + gate));
+                        addHit(track, j, n6, gate, n5);
                     }
                 }
                 n2 += partSteps * n;
@@ -474,7 +464,8 @@ final class Playback {
         if (!app.styles.containsKey(app.style)) app.style = "house";
         app.styleLibrary.loadStyle(app.style, true);
         double d = 0.04 + (double)app.densBar.getVal() * 0.02;
-        for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
+        // The first 12 tracks: no random chokes, chinas or splashes.
+        for (int i = 0; i < Engine.BASE_TRACKS; ++i) {
             for (int j = 0; j < app.steps; ++j) {
                 if (!(random.nextDouble() < d)) continue;
                 if (app.cells[i][j] > 0 && random.nextBoolean()) {
@@ -521,6 +512,10 @@ final class Playback {
                 this.doubleKickTimer.start();
                 return;
             }
+            if (Engine.isChoke(n) || Engine.isSemi(n)) {
+                this.extraHit(n);
+                return;
+            }
             this.hit(midiChannel, Engine.NOTES[n]);
         }
         catch (Exception exception) {
@@ -528,23 +523,24 @@ final class Playback {
         }
     }
 
-    /** The last extra pad struck and its semi-open hat's close (for the tests). */
+    /** The last choke or semi-open hat pad struck (for the tests). */
     static String lastExtra;
     Timer semiClose;
 
     /**
-     * An extra pad struck (ExtraPads): its note on the drum channel (or the MIDI output picked); the
-     * semi-open hat the open hat let go after SEMI_OPEN; a choke the crash's or the ride's notes let go
-     * (note off, which ends a SoundFont's cymbal) and full aftertouch to a MIDI output.
+     * A choke or the semi-open hat struck: the semi-open hat the open hat's note with the hi-hat pedal half
+     * down, let go after SEMI_OPEN; a choke the crash's or the ride's notes let go (note off, which ends a
+     * SoundFont's cymbal) and full aftertouch to a MIDI output.
      */
     void extraHit(int i) {
-        lastExtra = ExtraPads.ID[i];
+        lastExtra = Engine.TRACK_ID[i];
         if (this.synth == null || app.muted) return;
         try {
             final MidiChannel ch = this.synth.getChannels()[9];
             if (ch == null) return;
-            if (ExtraPads.isChoke(i)) {
-                for (int note : ExtraPads.crashChoke(i) ? ExtraPads.CRASH_NOTES : ExtraPads.RIDE_NOTES) {
+            if (Engine.isChoke(i)) {
+                for (int c : Engine.chokedTracks(i)) {
+                    int note = Engine.NOTES[c];
                     if (this.midiOutReceiver != null && this.midiOut != null) {
                         try {
                             this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.POLY_PRESSURE, 9, note, 127), -1);
@@ -558,14 +554,22 @@ final class Playback {
                 }
                 return;
             }
-            final int note = ExtraPads.NOTES[i];
+            final int note = Engine.NOTES[i];
+            if (this.midiOutReceiver != null && this.midiOut != null) {
+                try {
+                    this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.CONTROL_CHANGE, 9, 4, Engine.SEMI_CC), -1);
+                } catch (Exception ignored) {
+                    // the synth
+                }
+            }
             this.hit(ch, note);
-            if ("semi".equals(ExtraPads.ID[i])) {
+            if (Engine.isSemi(i)) {
                 if (this.semiClose != null) this.semiClose.stop();
                 this.semiClose = new Timer((int) (ExtraPads.SEMI_OPEN * 1000), e -> {
                     if (this.midiOutReceiver != null && this.midiOut != null) {
                         try {
                             this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_OFF, 9, note, 0), -1);
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.CONTROL_CHANGE, 9, 4, 0), -1);
                             return;
                         } catch (Exception ignored) {
                             // the synth
