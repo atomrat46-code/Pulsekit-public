@@ -59,7 +59,8 @@ final class PadKits {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
                 int i = pos - PadKits.this.offset;
-                if (PadKits.this.quiet || i < 0 || i >= PadKits.this.listed.size()) return;
+                if (PadKits.this.quiet || pos == PadKits.this.shownPos || i < 0 || i >= PadKits.this.listed.size()) return;
+                PadKits.this.shownPos = pos;
                 PadKits.this.load(PadKits.this.listed.get(i));
             }
 
@@ -92,9 +93,12 @@ final class PadKits {
         this.listed.addAll(KitShelf.list(kitsDir(app)));
         Engine.DrumSet set = app.playback.activeDrumSet();
         String cur = set.kit == null || set.kit.isEmpty() ? (set.original ? KitShelf.DEFAULT : "") : set.kit;
+        // Original playing sounds that are not Pulsekit's own, with no kit named: not Default kit.
+        if (set.original && KitShelf.DEFAULT.equals(cur) && !KitShelf.ownSounds(app.voices)) cur = "";
         this.offset = cur.isEmpty() ? 1 : 0;
+        String top = set.original ? KitShelf.UNKNOWN : "Kit\u2026";
         List<String> names = new ArrayList<String>();
-        if (this.offset == 1) names.add("Kit\u2026");
+        if (this.offset == 1) names.add(top);
         int at = 0;
         for (int i = 0; i < this.listed.size(); i++) {
             names.add(this.listed.get(i).name);
@@ -105,11 +109,15 @@ final class PadKits {
         this.quiet = true;
         this.kitList.setAdapter(a);
         this.kitList.setSelection(at, false);
+        // The list tells its listener of the entry shown once it is laid out: only another pick loads a kit.
+        this.shownPos = at;
         this.kitList.post(() -> this.quiet = false);
     }
 
     /** 1 while the list starts with "Kit…" (a set without a kit), else 0. */
     int offset;
+    /** The entry the list shows (set from code or picked): telling of it again loads nothing. */
+    int shownPos = -1;
 
     /**
      * The pads' own kit (kit.sf2: a SoundFont or SFZ kit loaded from File, or before the list was there)

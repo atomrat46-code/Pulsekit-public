@@ -85,9 +85,12 @@ final class PadKits {
         this.listed.addAll(KitShelf.list(kitsDir()));
         Engine.DrumSet set = app.playback.activeDrumSet();
         String cur = set.kit == null || set.kit.isEmpty() ? (set.original ? KitShelf.DEFAULT : "") : set.kit;
+        // Original playing sounds that are not Pulsekit's own, with no kit named: not Default kit.
+        if (set.original && KitShelf.DEFAULT.equals(cur) && !KitShelf.ownSounds(app.voices)) cur = "";
         this.offset = cur.isEmpty() ? 1 : 0;
+        String top = set.original ? KitShelf.UNKNOWN : "Kit\u2026";
         this.kitList.removeAllItems();
-        if (this.offset == 1) this.kitList.addItem("Kit\u2026");
+        if (this.offset == 1) this.kitList.addItem(top);
         int at = 0;
         for (int i = 0; i < this.listed.size(); i++) {
             this.kitList.addItem(this.listed.get(i).name);

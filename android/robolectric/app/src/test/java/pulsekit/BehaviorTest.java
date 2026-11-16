@@ -375,11 +375,16 @@ public class BehaviorTest {
     idle();
     for (Engine.DrumSet d : app.drumSets) if (d.original) d.kit = "";
     pb.kits.adoptLoaded(null);
-    for (int i = 0; i < 200 && !"Old Kit".equals(pb.activeDrumSet().kit); i++) {
+    for (int i = 0; i < 200 && !pb.activeDrumSet().kit.startsWith("SF2 name unknown"); i++) {
       Thread.sleep(50);
       idle();
     }
-    out.append("adopted: ").append(pb.activeDrumSet().kit).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    // The list laid out again (it tells of the entry it shows): the kit stays, kit.sf2 too.
+    for (int i = 0; i < 5; i++) {
+      pb.kits.kitList.requestLayout();
+      idle();
+    }
+    out.append("adopted: ").append(pb.activeDrumSet().kit).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append(", kit.sf2 kept ").append(app.persistence.kitFile().isFile()).append('\n');
     pb.kits.kitList.setSelection(0);
     for (int i = 0; i < 200 && app.persistence.kitFile().isFile(); i++) {
       Thread.sleep(50);
@@ -391,7 +396,7 @@ public class BehaviorTest {
     if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
         || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
         || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n") || !t.contains("list at first: Default kit of 1")
-        || !t.contains("adopted: Old Kit, selected Old Kit") || !t.contains("default: kit.sf2 false, selected Default kit"))
+        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit"))
       throw new AssertionError(t);
   }
 

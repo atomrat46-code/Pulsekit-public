@@ -160,6 +160,9 @@ public final class KitShelf {
     return Sfz.load(f, k.sfz.isEmpty() ? null : k.sfz).voices;
   }
 
+  /** A kit whose file name is not known. */
+  public static final String UNKNOWN = "SF2 name unknown";
+
   /** The list's first entry: Pulsekit's own sounds (no file). */
   public static final String DEFAULT = "Default kit";
 
@@ -187,16 +190,28 @@ public final class KitShelf {
     try {
       byte[] d = Files.readAllBytes(kitSf2.toPath());
       String base = name == null ? null : name.replaceAll("(?i)\\.(sf2|sfz|zip|tgz|tar\\.gz|tar)$", "").trim();
-      if (base == null || base.isEmpty()) base = sf2Name(d);
-      if (base == null || base.isEmpty() || base.equals("Pulsekit")) base = "Imported kit";
+      if (base == null || base.isEmpty()) {
+        // The file's name not known (loaded another way, or before the list was there): said so, with the
+        // name inside the SoundFont when it has one.
+        String own = sf2Name(d);
+        base = UNKNOWN + (own == null || own.equals("Pulsekit") ? "" : " (" + own + ")");
+      }
       for (Kit k : list(dir)) {
         File f = file(dir, k);
         if (f.isFile() && f.length() == d.length && java.util.Arrays.equals(Files.readAllBytes(f.toPath()), d)) return k.name;
       }
       return add(dir, kitSf2, base + ".sf2").get(0).name;
     } catch (Exception ex) {
+      Logs.error("The pads' SoundFont not put on the kit list", ex);
       return null;
     }
+  }
+
+  /** Whether the pads' kick is Pulsekit's own (no SoundFont or kit loaded into Original). */
+  public static boolean ownSounds(short[][] voices) {
+    int k = Engine.track("kick");
+    if (voices == null || k >= voices.length || voices[k] == null) return true;
+    return java.util.Arrays.equals(voices[k], AudioIo.buildVoices(AudioIo.SR)[k]);
   }
 
   public static Kit named(File dir, String name) {
