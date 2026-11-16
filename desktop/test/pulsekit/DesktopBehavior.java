@@ -10884,7 +10884,12 @@ public final class DesktopBehavior {
     String all = this.out.toString();
     boolean ok = all.contains("Working: playing each cymbal and its choke 8 times, 1.0 s apart (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
         && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
-        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
+        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52), note=at or at: 49']")
+        // v454: --chokes 49=at (aftertouch): the beat grabs the cymbal; DrumMidi --chokes N=at writes where it was cut.
+        && all.contains("(--chokes 49=at)") && all.contains("Chokes: 49 choked (aftertouch) written as ")
+        && all.contains("Chokes (--chokes 42=at): ") && all.contains("as aftertouch") && all.contains("42+choke ")
+        && !all.matches("(?s).*Chokes: 42 plain written as [^\\n]*choke.*")
+        && all.contains("at alone: 49=at,51=at,52=at,53=at,55=at,57=at")
         && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");
     if (!ok) throw new AssertionError(all);
   }

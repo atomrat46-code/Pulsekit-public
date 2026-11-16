@@ -33,11 +33,13 @@ class Chain:
     note_map = None
 
     def render(self, np_, midi=None, wav=None, tail=2.0, raw=False):
-        length, notes = vr.midi_notes(midi)[:2]
+        length, notes = vr.midi_notes(midi, True)[:2]
         out = np.zeros(int((length + tail) * R) + R)
         for t, n in notes:
-            if n in (49, 50):
-                x = crash(n == 50)
+            if n in (42, 49, 50):
+                # 50, or the cymbal grabbed (aftertouch on its note) within 0.2 s: choked.
+                grabbed = any(m == -n and 0 < u - t < 0.2 for u, m in notes)
+                x = crash(n == 50 or grabbed)
                 a = int(t * R)
                 out[a:a + len(x)] += x[:len(out) - a]
         return np.vstack([out, out]), length, 0
@@ -47,5 +49,12 @@ opts = {"--java": "java", "--drummidi": jar}
 lines = vr.choke_beat(Chain(), np, R, 16, opts, None, {49: 50})
 for l in lines:
     print(l)
+# The plugin choking with aftertouch on the crash's own note (--chokes 49=at).
+for l in vr.choke_beat(Chain(), np, R, 16, opts, None, vr.chokes_pairs("49=at")):
+    print(l)
+# The same cymbal on 42 (DrumMidi, with no kit profile, hears this one as a hat): its chokes found as aftertouch.
+for l in vr.choke_beat(Chain(), np, R, 16, opts, None, vr.chokes_pairs("42=at")):
+    print(l)
+print('at alone: %s' % vr.chokes_text(vr.chokes_pairs("at")))
 r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', 'x.wav', 'x.mid', '--chokes', '49'], capture_output=True, text=True)
 print('refused: %s' % [l for l in r.stdout.splitlines() if 'chokes' in l.lower()][-1:])

@@ -132,6 +132,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   the plugin's map.txt section (--note_map's file) is used over this: each plugin its own. After the test beat a choke beat plays each
                   cymbal and then its choke 8 times, a second apart, and DrumMidi (--chokes, with the kit
                   profile) is asked what it hears there: the report says what each was written as.
+                  "49=at" (or "at" alone: 49, 57, 52, 55, 51, 53): the plugin chokes the cymbal with
+                  aftertouch on its own note (as Pulsekit's Crash choke and Ride choke tracks send it);
+                  the choke beat grabs each cymbal 0.12 s after its hit, DrumMidi runs with --chokes N=at
+                  and the report says how many came back with a choke (49+choke) and how many plain.
   --no-cymbal-check
                   with --test: no cymbal check. Else after the test beat each crash and ride the songs use
                   (49, 57, 52, 55, 51, 59, 53, through the note map) is struck 6 times alone and 6 times
@@ -1117,8 +1121,9 @@ def write_var(v):
     return bytes(b)
 
 
-def midi_notes(path):
-    """The MIDI file's length (its last event) in seconds and its notes as (seconds, note), following tempo changes."""
+def midi_notes(path, touch=False):
+    """The MIDI file's length (its last event) in seconds and its notes as (seconds, note), following tempo changes.
+    With `touch`, a choke (polyphonic aftertouch 64 or more) is in the notes too, as (seconds, -note)."""
     d = open(path, "rb").read()
     if d[:4] != b"MThd":
         raise ValueError("%s is not a MIDI file" % os.path.basename(path))
@@ -1156,6 +1161,8 @@ def midi_notes(path):
             else:
                 if hi == 0x90 and p + 1 < len(d) and d[p + 1] > 0:
                     ons.append((tick, d[p]))
+                elif touch and hi == 0xA0 and p + 1 < len(d) and d[p + 1] >= 64:
+                    ons.append((tick, -d[p]))
                 p += 2
             events.append(tick)
         i += 8 + size
@@ -1547,6 +1554,32 @@ def named_list(notes):
 CHOKES_LINE = re.compile(r"(?i)^chokes?\b\s*:?\s*(.*)$")
 # x42 AVL Drumkits' chokes: Crash 1 (49) choked on 50, the ride (51) on 52, Crash 2 (57) on 58.
 AVL_CHOKES = {49: 50, 51: 52, 57: 58}
+# A choke given as "at" (49=at, or "at" alone): the plugin chokes the cymbal with polyphonic aftertouch on its
+# own note (as Pulsekit's Crash choke and Ride choke, e-drums and many drum plugins do), not on a note of its own.
+CHOKE_AT = -1
+CHOKE_AT_NOTES = (49, 57, 52, 55, 51, 53)
+
+
+def chokes_pairs(text, plugin=None):
+    """--chokes or a map.txt chokes line: {cymbal: its choked note, or CHOKE_AT}. "at" alone: every crash and
+    ride (49, 57, 52, 55, 51, 53) choked by aftertouch; "49=at" one. Else as --map (a note=note text or file)."""
+    t = (text or "").strip()
+    if t.lower() == "at":
+        return dict((n, CHOKE_AT) for n in CHOKE_AT_NOTES)
+    pairs = [x for x in re.split(r"[,;\s]+", t) if x]
+    if not os.path.isfile(t) and any(re.match(r"(?i)^[^=]+=at$", x) for x in pairs):
+        out = {}
+        for pair in pairs:
+            m = re.match(r"^([^=\s]+)=([^=\s]+)$", pair)
+            if not m:
+                raise ValueError("%s is not note=note or note=at" % pair)
+            a = note_number(m.group(1))
+            b = CHOKE_AT if m.group(2).lower() == "at" else note_number(m.group(2))
+            if not 0 <= a <= 127 or not (b == CHOKE_AT or 0 <= b <= 127):
+                raise ValueError("%s: no such note" % pair)
+            out[a] = b
+        return out
+    return map_for(t, plugin)[0]
 
 
 # A map.txt section's hi-hat notes: "hats closed=42 pedal=44 semiopen=46 open=32" (the plugin's own notes).
@@ -1612,7 +1645,7 @@ def plugin_chokes(path, plugin):
     """The plugin's choke notes from map.txt: the "chokes" line of its section (else of the lines before any
     section); ({}, None) when there is none. The second: the section's name ("" for the lines before any)."""
     text, part = plugin_line(path, plugin, CHOKES_LINE)
-    return (map_for(text)[0], part) if text is not None else ({}, None)
+    return (chokes_pairs(text), part) if text is not None else ({}, None)
 
 
 def note_map_home():
@@ -1774,10 +1807,11 @@ def map_problems(text):
                 try:
                     if not cm:
                         raise ValueError(pair)
-                    if not all(0 <= note_number(cm.group(k)) <= 127 for k in (1, 2)):
+                    if not 0 <= note_number(cm.group(1)) <= 127 or not (cm.group(2).lower() == "at" or 0 <= note_number(cm.group(2)) <= 127):
                         raise ValueError(pair)
                 except ValueError:
-                    out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
+                    if pair.lower() != "at":
+                        out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
             if not ch.group(1).strip():
                 out.append("line %d: chokes has no notes (chokes 49=50, 51=52)" % i)
             continue
@@ -2010,7 +2044,7 @@ def whole_wav(path):
         return False
 
 
-def drum_midi(java, jar, wav, mid, extra=(), said=None):
+def drum_midi(java, jar, wav, mid, extra=(), said=None, touch=False):
     """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text.
     `said`, a list: DrumMidi's own lines go in it."""
     import subprocess
@@ -2032,7 +2066,7 @@ def drum_midi(java, jar, wav, mid, extra=(), said=None):
     if r.returncode != 0 or not os.path.isfile(mid):
         tail = lines[-1:] or [""]
         return "DrumMidi_CRT failed (%s)" % tail[0]
-    return midi_notes(mid)[1]
+    return midi_notes(mid, touch)[1]
 
 
 def read_wav(path, rate):
@@ -2393,13 +2427,18 @@ def warm_up(chain, np):
     return True
 
 
-def notes_midi(path, notes):
-    """A MIDI file of (seconds, note, velocity) hits on the drum channel, at 120 BPM (960 ticks a second)."""
+def notes_midi(path, notes, touches=()):
+    """A MIDI file of (seconds, note, velocity) hits on the drum channel, at 120 BPM (960 ticks a second);
+    `touches`, (seconds, note): a choke there (polyphonic aftertouch 127 on the note, let go a tick later)."""
     events = []
     for t, n, vel in notes:
         tick = int(round(t * 960))
         events.append((tick, 0x99, n, vel))
         events.append((tick + 120, 0x89, n, 0))
+    for t, n in touches:
+        tick = int(round(t * 960))
+        events.append((tick, 0xA9, n, 127))
+        events.append((tick + 1, 0xA9, n, 0))
     events.sort(key=lambda e: (e[0], e[1] == 0x99))
     data, last = bytearray(), 0
     for tick, status, note, vel in events:
@@ -2693,28 +2732,41 @@ CHOKE_DRUMS = (35, 36, 37, 38, 39, 40, 41, 43, 45, 47, 48, 50)
 
 
 def chokes_text(pairs):
-    return ",".join("%d=%d" % kv for kv in sorted(pairs.items()))
+    return ",".join("%d=%s" % (a, "at" if b == CHOKE_AT else b) for a, b in sorted(pairs.items()))
+
+
+# Where an aftertouch choke grabs the cymbal in the choke beat (seconds after its hit), and how long after its
+# hit DrumMidi's choke (where it hears the ring cut) is taken as this one's.
+CHOKE_AT_GRAB, CHOKE_AT_FOUND = 0.12, 0.6
 
 
 def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     """--chokes: each cymbal (a pair's first note) and its choke (the second) played alone, CHOKE_HITS
     times each, through the plugin (its notes as they are: no note map), then DrumMidi with --chokes and
-    the kit profile on the render. Returns the lines saying what each was written as."""
+    the kit profile on the render. A choke "at": the cymbal struck and grabbed CHOKE_AT_GRAB s later
+    (aftertouch 127 on its note), and DrumMidi with --chokes N=at asked where it hears one. Returns the
+    lines saying what each was written as."""
     import tempfile
     pairs = dict((a, b) for a, b in pairs.items() if b is not None)
     if not pairs:
         return ["Chokes: no choke notes in --chokes"]
-    hits = []
+    # (seconds, note played, the pair's cymbal, choked)
+    hits, touches = [], []
     t = 0.5
     for plain, choked in sorted(pairs.items()):
-        for n in (plain, choked):
+        for grabbed in (False, True):
             for _ in range(CHOKE_HITS):
-                hits.append((t, n))
+                if choked == CHOKE_AT:
+                    hits.append((t, plain, plain, grabbed))
+                    if grabbed:
+                        touches.append((t + CHOKE_AT_GRAB, plain))
+                else:
+                    hits.append((t, choked if grabbed else plain, plain, grabbed))
                 t += CHOKE_GAP
             t += CHOKE_PAUSE - CHOKE_GAP
     work = tempfile.mkdtemp(prefix="vst-chokes-")
-    midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n in hits])
-    print("Working: playing each cymbal and its choke %d times, %.1f s apart (--chokes %s)" % (CHOKE_HITS, CHOKE_GAP, ", ".join("%d=%d" % kv for kv in sorted(pairs.items()))))
+    midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n, _, _ in hits], touches)
+    print("Working: playing each cymbal and its choke %d times, %.1f s apart (--chokes %s)" % (CHOKE_HITS, CHOKE_GAP, chokes_text(pairs)))
     sys.stdout.flush()
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
@@ -2726,25 +2778,35 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     said = []
     # DrumMidi writes the chokes on notes of their own (100 on), so a choke note that is a drum's too (AVL's
     # 50, Crash 1 choked, is the songs' high tom) is told apart; drums written with a cymbal are left out
-    # (a sampled kit's cymbal carries the room's low end: alone, it can pass for a kick or a tom).
-    private = dict((plain, CHOKE_PRIVATE + i) for i, plain in enumerate(sorted(pairs)))
+    # (a sampled kit's cymbal carries the room's low end: alone, it can pass for a kick or a tom). An
+    # aftertouch choke is asked for as one (N=at): DrumMidi writes the cymbal and an aftertouch where it was cut.
+    noted = sorted(a for a, b in pairs.items() if b != CHOKE_AT)
+    private = dict((plain, CHOKE_PRIVATE + i) for i, plain in enumerate(noted))
+    asked = dict(private)
+    asked.update((a, CHOKE_AT) for a, b in pairs.items() if b == CHOKE_AT)
     found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "chokes-dm.mid"),
-                      ["--chokes", ",".join("%d=%d" % kv for kv in sorted(private.items()))] + (["--kit", kit_file] if kit_file else []), said)
+                      ["--chokes", chokes_text(asked)] + (["--kit", kit_file] if kit_file else []), said, touch=True)
     if isinstance(found, str):
         return ["Chokes: %s" % found]
     back = dict((v, pairs[k]) for k, v in private.items())
-    found = [(u, back.get(k, k)) for u, k in found if k in back or k not in CHOKE_DRUMS]
-    said = [l.replace(chokes_text(private), chokes_text(pairs)) for l in said]
+    found = [(u, back.get(k, k)) for u, k in found if k in back or k < 0 or k not in CHOKE_DRUMS]
+    said = [l.replace(chokes_text(asked), chokes_text(pairs)) for l in said]
     for k, v in private.items():
         said = [re.sub(r"\b%d as %d\b" % (k, v), "%d as %d" % (k, pairs[k]), l) for l in said]
     out = []
     for plain, choked in sorted(pairs.items()):
-        for n, what in ((plain, "%d plain" % plain), (choked, "%d (%d choked)" % (choked, plain))):
+        for grabbed in (False, True):
+            if choked == CHOKE_AT:
+                what = "%d %s" % (plain, "choked (aftertouch)" if grabbed else "plain")
+            else:
+                what = "%d (%d choked)" % (choked, plain) if grabbed else "%d plain" % plain
             written = {}
-            for a, m in hits:
-                if m != n:
+            for a, m, p, g in hits:
+                if p != plain or g != grabbed:
                     continue
-                got = sorted(set(k for u, k in found if -0.06 < u - a < 0.2))  # (a sampled crash swells: found up to ~150 ms on)
+                got = sorted(set(k for u, k in found if k >= 0 and -0.06 < u - a < 0.2))  # (a sampled crash swells: found up to ~150 ms on)
+                # A choke DrumMidi heard: an aftertouch after the hit.
+                got += sorted(set("choke" for u, k in found if k < 0 and 0 <= u - a < CHOKE_AT_FOUND))
                 key = "+".join(str(k) for k in got) or "missed"
                 written[key] = written.get(key, 0) + 1
             out.append("Chokes: %s written as %s" % (what, ", ".join("%s %d of %d" % (k, c, CHOKE_HITS) for k, c in sorted(written.items()))))
@@ -4934,7 +4996,7 @@ def main(argv):
             choke_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % part if part else "")
         elif opts["--chokes"]:
             try:
-                pairs = map_for(opts["--chokes"])[0]
+                pairs = chokes_pairs(opts["--chokes"])
             except ValueError as e:
                 fail("--chokes: %s" % e)
             choke_from = "--chokes"

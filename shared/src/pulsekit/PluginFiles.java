@@ -111,7 +111,8 @@ public final class PluginFiles {
       + "# A note can be a number or a name in the Note names chosen (36=C-4 for DigiDrum's naming).\n"
       + "# Test (Plugins tab) says which notes a plugin plays.\n"
       + "# chokes 49=50, 51=52 in a section: the plugin's own choke notes (a cymbal's note=its choked one),\n"
-      + "# played alone after the test beat (AVL Drumkits' 49=50, 51=52, 57=58 are built in).\n"
+      + "# played alone after the test beat (AVL Drumkits' 49=50, 51=52, 57=58 are built in);\n"
+      + "# 49=at (or chokes at): the plugin chokes a cymbal with aftertouch on its own note.\n"
       + "# hats closed=42 pedal=44 semiopen=46 open=32 in a section: the plugin's own hi-hat notes, each\n"
       + "# struck alone and with a kick after the test beat (AVL Drumkits' 42, 44, 46 and 48 are built in).\n"
       + "\n"
@@ -276,13 +277,14 @@ public final class PluginFiles {
       String where = section != null ? "[" + section + "]" : "(every plugin)";
       java.util.regex.Matcher ch = CHOKES_LINE.matcher(line);
       if (ch.matches()) {
-        // chokes 49=50, 51=52: each a cymbal's note and its choked one, notes both.
+        // chokes 49=50, 51=52: each a cymbal's note and its choked one, notes both (or 49=at, at: aftertouch).
         String pairs = ch.group(1).trim();
         if (pairs.length() == 0) out.add("line " + (i + 1) + ": chokes has no notes (chokes 49=50, 51=52)");
         for (String pair : pairs.split("[,;\\s]+")) {
-          if (pair.length() == 0) continue;
+          // "at" alone, or 49=at: the plugin chokes the cymbal with aftertouch on its own note.
+          if (pair.length() == 0 || pair.equalsIgnoreCase("at")) continue;
           java.util.regex.Matcher pm = java.util.regex.Pattern.compile("^([^=\\s]+)=([^=\\s]+)$").matcher(pair);
-          if (!pm.matches() || noteNumber(pm.group(1)) < 0 || noteNumber(pm.group(2)) < 0)
+          if (!pm.matches() || noteNumber(pm.group(1)) < 0 || (!pm.group(2).equalsIgnoreCase("at") && noteNumber(pm.group(2)) < 0))
             out.add("line " + (i + 1) + ": chokes: " + pair + " is not note=note (a cymbal's note=its choked one, 49=50)");
         }
         continue;
