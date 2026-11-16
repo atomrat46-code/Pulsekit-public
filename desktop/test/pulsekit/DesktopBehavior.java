@@ -15068,6 +15068,18 @@ public final class DesktopBehavior {
     String[] names = dir.list();
     java.util.Arrays.sort(names);
     out.append("files: ").append(java.util.Arrays.toString(names)).append('\n');
+    // v454: the grooves' semi-open hats (46 with the pedal half down) and chokes (aftertouch) on Pulsekit's tracks.
+    int semis = 0, chokes = 0;
+    for (String n : names) {
+      if (!n.endsWith(".mid")) continue;
+      Engine.MidiBars mb = Engine.parseMidiBars(Files.readAllBytes(new File(dir, n).toPath()));
+      for (int[][] b : mb.bars) {
+        for (int v : b[Engine.track("semi")]) if (v > 0) semis++;
+        for (int v : b[Engine.track("chk")]) if (v > 0) chokes++;
+      }
+    }
+    out.append("semi-opens ").append(semis).append(", chokes ").append(chokes).append('\n');
+    if (semis < 1 || chokes < 2) throw new AssertionError(out.toString());
     String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
     int grooves = 0;
     for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;
