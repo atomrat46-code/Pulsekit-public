@@ -496,11 +496,11 @@ public class MidiDrumGen {
             if (used.contains(OPEN_HH + ":" + String.format(Locale.US, "%.4f", t))) return;
             try {
                 ShortMessage down = new ShortMessage();
-                down.setMessage(ShortMessage.CONTROL_CHANGE, channel, 4, SEMI_PEDAL);
+                down.setMessage(0xB0, channel, 4, SEMI_PEDAL);
                 track.add(new MidiEvent(down, (long) (t * ppq)));
                 add(OPEN_HH, t, dur, vel, tag);
                 ShortMessage up = new ShortMessage();
-                up.setMessage(ShortMessage.CONTROL_CHANGE, channel, 4, 0);
+                up.setMessage(0xB0, channel, 4, 0);
                 track.add(new MidiEvent(up, (long) ((t + dur) * ppq)));
             } catch (Exception e) {
                 e.printStackTrace();
@@ -515,10 +515,10 @@ public class MidiDrumGen {
             try {
                 long tick = (long) (t * ppq);
                 ShortMessage grab = new ShortMessage();
-                grab.setMessage(ShortMessage.POLY_PRESSURE, channel, pitch, 127);
+                grab.setMessage(0xA0, channel, pitch, 127);
                 track.add(new MidiEvent(grab, tick));
                 ShortMessage let = new ShortMessage();
-                let.setMessage(ShortMessage.POLY_PRESSURE, channel, pitch, 0);
+                let.setMessage(0xA0, channel, pitch, 0);
                 track.add(new MidiEvent(let, tick + 1));
             } catch (Exception e) {
                 e.printStackTrace();
