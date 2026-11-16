@@ -10572,11 +10572,11 @@ public class BehaviorTest {
     root.findViewWithTag("imported-more").performClick();
     idle();
     int taller = importedScroll.getHeight();
-    boolean gridGone = app.gridScroll.getVisibility() == View.GONE && app.lenBar.getVisibility() == View.GONE;
+    boolean gridGone = app.gridScroll.getVisibility() == View.GONE && app.lenBar.getVisibility() == View.GONE && ((View) app.toolsRow.getParent()).getVisibility() == View.GONE;
     String moreText = String.valueOf(((TextView) root.findViewWithTag("imported-more")).getText());
     root.findViewWithTag("imported-more").performClick();
     idle();
-    boolean gridBack = app.gridScroll.getVisibility() == View.VISIBLE && app.lenBar.getVisibility() == View.VISIBLE;
+    boolean gridBack = app.gridScroll.getVisibility() == View.VISIBLE && app.lenBar.getVisibility() == View.VISIBLE && ((View) app.toolsRow.getParent()).getVisibility() == View.VISIBLE;
     boolean moreOk = taller > before && gridGone && gridBack && "Less".equals(moreText) && importedScroll.getHeight() == before && !StyleLibrary.importedTall;
     out.append("More: ").append(before).append(" -> ").append(taller).append(" px, grid hidden ").append(gridGone).append(", then Less: ").append(importedScroll.getHeight()).append(", grid back ").append(gridBack).append('\n');
     app.importedHost.removeViews(1, 15);

@@ -769,6 +769,8 @@ public class MainActivity extends UiKit {
         if (this.lenBar != null) {
             this.lenBar.setVisibility(bl10 || listOnly ? 8 : 0);
         }
+        // (The steps / bars out / Variate / Silent row too: it works on the grid.)
+        if (this.toolsRow != null && this.toolsRow.getParent() instanceof View) ((View) this.toolsRow.getParent()).setVisibility(listOnly ? 8 : 0);
         this.padsPane.setVisibility(bl3 ? 0 : 8);
         this.songPane.setVisibility(bl ? 0 : 8);
         this.pyPane.setVisibility(bl2 ? 0 : 8);

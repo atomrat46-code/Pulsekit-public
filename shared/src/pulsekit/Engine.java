@@ -2155,7 +2155,8 @@ public final class Engine {
     return rowsToCells(st.rows);
   }
 
-  public static final int MAX_LEARNED = 256;
+  /** Imported patterns (and fills) kept: the oldest go past this (a 300-track SogniMusic run makes six file sets of about 50). */
+  public static final int MAX_LEARNED = 2048;
   public static final int MAX_VARIATED = 8;
   public static final int MAX_SONG = 256;
   public static final int MAX_IMPORTED_SONGS = 200;
