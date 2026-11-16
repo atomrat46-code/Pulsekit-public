@@ -231,7 +231,11 @@ public final class Pulsekit extends UiKit {
         Logs.started("Pulsekit " + Looks.version() + " (desktop)");
         // General settings > Storage: temporary files older than the days set deleted.
         StorageScreen.startup(this);
-        this.drumSets.add(Engine.DrumSet.originalSet());
+        // The drum sets made on the Pads tab (Original first).
+        this.drumSets.addAll(DrumSetStore.load(PadKits.setsDir()));
+        // vst_render's Pads set list and its SoundFont of the set picked.
+        DrumSetStore.live = this.drumSets;
+        DrumSetStore.voicesOf = name -> this.playback == null ? null : this.playback.voicesOfSet(name);
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;
         }

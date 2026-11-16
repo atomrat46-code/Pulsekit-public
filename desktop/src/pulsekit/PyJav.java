@@ -768,6 +768,8 @@ final class PyJav {
         // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
         // in the program files folder, not the run's temporary one.
         runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
+        // vst_render.py --padset: the Pads tab's drum set picked, written as a SoundFont for it.
+        runArgs = JavaRun.withPadSet(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "padsets"));
         // vst_render.py --test, --mp3 (Wav2Mp3 being in it) and the cymbal model bench: Pulsekit's DrumMidi_CRT.jar and this Java for it.
         if ("vst_render.py".equals(name) && JavaRun.needsDrumMidi(runArgs)) {
             try {
@@ -3251,6 +3253,8 @@ final class PyJav {
                 }
             }
             props.setProperty(program, args);
+            // vst_render's kit names typed in the Params are listed (with their plugin) from now on, not only after a run.
+            if ("vst_render.py".equals(program)) VstLists.rememberKits(args);
             f.getParentFile().mkdirs();
             try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
                 props.store(out, "PyJav Params per program");
@@ -3660,7 +3664,8 @@ final class PyJav {
                             stopTimer.setText("Stop timer");
                             app.setNow(PluginsList.testing(plug, true));
                             final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
-                            PluginsList.test(this, plug, true, log -> {
+                            // The row's kit name: its settings saved for that kit (one plugin, a kit a row).
+                            PluginsList.test(this, plug, true, rowKit(ps, values, p.token), log -> {
                                 tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
@@ -3669,7 +3674,9 @@ final class PyJav {
                                 // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
                                 pluginTestSaid = failed == null ? "" : failed;
-                                if (!pluginTestQuiet)
+                                // A plugin tested before: its settings saved, said in the status line only (Test shows the result).
+                                if (PluginsList.lastEditQuiet) app.setNow("Edit settings \u00b7 " + plug.getName() + ": settings saved \u00b7 " + PluginsList.summary(log).split("\n")[0]);
+                                else if (!pluginTestQuiet)
                                     JOptionPane.showMessageDialog(editSettings, PluginsList.result(plug, true, log), "Edit settings \u00b7 " + plug.getName(),
                                         failed != null ? JOptionPane.WARNING_MESSAGE : JOptionPane.PLAIN_MESSAGE);
                             });
@@ -3838,6 +3845,28 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (p.token.equals("--parts")) {
+                // Parts: Use, what the split is, and Configure… (each plugin chosen and the drums it plays).
+                final javax.swing.JLabel shown = new javax.swing.JLabel(PartsDialog.summary(values[i], this.pluginRows(ps, values, uses)));
+                shown.setName("params-parts-summary");
+                JButton configure = new JButton("Configure\u2026");
+                configure.setName("params-parts-configure");
+                configure.addActionListener(e -> {
+                    String[] plugins = this.pluginRows(ps, values, uses);
+                    PartsDialog.Panel panel = new PartsDialog.Panel(field.getText(), plugins);
+                    lastParts = panel;
+                    int ok = partsAnswer != null ? partsAnswer.apply(panel)
+                        : JOptionPane.showConfirmDialog(configure, panel, "Parts \u00b7 which plugin plays which drums", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                    if (ok != JOptionPane.OK_OPTION) return;
+                    field.setText(panel.result());
+                    shown.setText(PartsDialog.summary(panel.result(), plugins));
+                });
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                row.add(configure, BorderLayout.WEST);
+                row.add(shown, BorderLayout.CENTER);
+                form.add(this.withUse(p, i, row, configure, uses, off));
+                continue;
+            }
             if (p.importList) {
                 // A list row with Import (vst_render's Kits left out): a text file's lines into it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -3902,6 +3931,14 @@ final class PyJav {
                     if (picked >= 0) field.setText(p.choiceValue(picked));
                 });
                 row.add(field, BorderLayout.CENTER);
+                if (p.token.startsWith("--kit_name")) {
+                    // Typed: the row's plugin's packs, then the pack's sets, offered under the field (KitSuggest).
+                    final String plugToken = "--plugin" + p.token.substring("--kit_name".length());
+                    KitSuggest.attach(field, () -> {
+                        for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) return values[k];
+                        return "";
+                    });
+                }
                 if (p.token.startsWith("--map")) {
                     // vst_render's map: one of its files above, or another text file.
                     JButton browse = new JButton("Browse");
@@ -4558,6 +4595,36 @@ final class PyJav {
     static volatile String pluginTestSaid = "";
     static boolean pluginTestQuiet;
 
+    /** Parts' window shown last, and the tests' answer to it (null: asked). */
+    static PartsDialog.Panel lastParts;
+    static java.util.function.Function<PartsDialog.Panel, Integer> partsAnswer;
+
+    /** Plugin rows 1 to 4's files (null: none chosen, or its row unticked). */
+    String[] pluginRows(List<ProgramParams.Param> ps, String[] values, javax.swing.JCheckBox[] uses) {
+        String[] out = new String[4];
+        for (int i = 0; i < ps.size() && i < values.length; i++) {
+            String t = ps.get(i).token;
+            if (!t.matches("--plugin[234]?")) continue;
+            if (uses != null && i < uses.length && uses[i] != null && !uses[i].isSelected()) continue;
+            int r = t.equals("--plugin") ? 1 : t.charAt(t.length() - 1) - '0';
+            out[r - 1] = values[i] == null || values[i].trim().isEmpty() ? null : values[i];
+        }
+        return out;
+    }
+
+    /** The row's kit name as vst_render's --kit_name (its settings are that kit's), or none. */
+    static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, String pluginToken) {
+        List<String> out = new ArrayList<String>();
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        for (int i = 0; i < ps.size() && i < values.length; i++) {
+            if (ps.get(i).token.equals(kitToken) && values[i] != null && values[i].trim().length() > 0) {
+                out.add("--kit_name");
+                out.add(values[i].trim());
+            }
+        }
+        return out;
+    }
+
     /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
     void testPluginRow(final JButton test, List<ProgramParams.Param> ps, String[] values, String token, String path) {
         if (path == null || path.length() == 0 || !new File(path).exists()) {
@@ -4579,6 +4646,7 @@ final class PyJav {
             extra.add("--map");
             extra.add(values[i].trim());
         }
+        extra.addAll(rowKit(ps, values, token));
         VstLists.unpackMaps();
         try {
             File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");
@@ -5198,10 +5266,44 @@ final class PyJav {
     javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
         javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
         m.setName("params-use-menu");
+        // The plugin's drum packs and sets (KitChooser.kits): a set picked sets the row's plugin and its Kit loaded.
+        java.util.Map<String, java.util.List<String>> packs = new java.util.LinkedHashMap<String, java.util.List<String>>();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : KitPacks.packs(KitChooser.kits(path)).entrySet()) {
+            java.util.List<String> sets = new java.util.ArrayList<String>();
+            for (String set : e.getValue()) if (!VstLists.NOT_KITS.contains(set.toLowerCase(java.util.Locale.ROOT))) sets.add(set);
+            if (!sets.isEmpty()) packs.put(e.getKey(), sets);
+        }
         for (final String token : ProgramParams.pluginRows(ps)) {
-            javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+            if (packs.isEmpty() || !token.matches("--plugin\\d?")) {
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(ProgramParams.useAs(token));
+                item.setName("params-use-as:" + token);
+                item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+                m.add(item);
+                continue;
+            }
+            javax.swing.JMenu item = new javax.swing.JMenu(ProgramParams.useAs(token));
             item.setName("params-use-as:" + token);
-            item.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            javax.swing.JMenuItem plain = new javax.swing.JMenuItem("The plugin only (Kit loaded as before)");
+            plain.setName("params-use-plain:" + token);
+            plain.addActionListener(e -> this.usePlugin(ps, values, fileLabels, uses, token, path));
+            item.add(plain);
+            item.addSeparator();
+            for (java.util.Map.Entry<String, java.util.List<String>> e : packs.entrySet()) {
+                final String pack = e.getKey();
+                javax.swing.JComponent into = item;
+                if (!KitPacks.NO_PACK.equals(pack) || packs.size() > 1) {
+                    javax.swing.JMenu sub = new javax.swing.JMenu(pack);
+                    sub.setName("params-use-pack:" + token + ":" + pack);
+                    item.add(sub);
+                    into = sub;
+                }
+                for (final String set : e.getValue()) {
+                    javax.swing.JMenuItem one = new javax.swing.JMenuItem(set);
+                    one.setName("params-use-kit:" + token + ":" + KitPacks.join(pack, set));
+                    one.addActionListener(ev -> this.usePluginKit(ps, values, fileLabels, uses, token, path, KitPacks.join(pack, set)));
+                    into.add(one);
+                }
+            }
             m.add(item);
         }
         MenuCancel.add(m);
@@ -5222,6 +5324,23 @@ final class PyJav {
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
             this.kitForPlugin(fileLabels[i], token, path);
         }
+    }
+
+    /** A plugin put on a row with the kit loaded in it (a pack's set picked in Use as plugin's menu): its Kit loaded set. */
+    void usePluginKit(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path, String kit) {
+        String kitToken = "--kit_name" + token.substring("--plugin".length());
+        for (int i = 0; i < ps.size(); i++) {
+            if (ps.get(i).token.equals(token)) {
+                values[i] = path;
+                if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+                if (uses[i] != null) uses[i].setSelected(true);
+            }
+            if (ps.get(i).token.equals(kitToken)) {
+                if (this.shownFields != null && i < this.shownFields.length && this.shownFields[i] != null) this.shownFields[i].setText(kit);
+                values[i] = kit;
+            }
+        }
+        app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7) + ", its Kit loaded " + kit);
     }
 
     /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */

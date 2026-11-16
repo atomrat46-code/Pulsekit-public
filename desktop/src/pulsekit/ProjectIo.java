@@ -630,12 +630,16 @@ final class ProjectIo {
                 short[] s = new short[pcm.samples.length];
                 for (int i = 0; i < s.length; i++) s[i] = (short) Math.max(-32768, Math.min(32767, pcm.samples[i] * 32768f));
                 String id = e.getKey();
+                // pads/<n>-<track>.wav: the track named exactly (dkick is not kick, rchk not chk).
+                int hit = -1;
                 for (int t = 0; t < Engine.TRACK_ID.length; t++) {
-                    if (id.contains(Engine.TRACK_ID[t])) {
-                        app.voices[t] = s;
+                    if (id.endsWith("-" + Engine.TRACK_ID[t] + ".wav")) {
+                        hit = t;
                         break;
                     }
                 }
+                for (int t = 0; hit < 0 && t < Engine.TRACK_ID.length; t++) if (id.contains(Engine.TRACK_ID[t])) hit = t;
+                if (hit >= 0 && !Engine.isChoke(hit)) app.voices[hit] = s;
             } catch (Exception ignored) { /* raw pad bytes from web */ }
         }
         byte[] prog = null;

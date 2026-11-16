@@ -286,7 +286,7 @@ final class StyleLibrary {
 
     void variateFill() {
         Random random = new Random();
-        for (int i = 8; i < Engine.TRACK_ID.length; ++i) {
+        for (int i = 8; i < Engine.BASE_TRACKS; ++i) {
             for (int j = 8; j < 16; ++j) {
                 if (!(random.nextDouble() < 0.22)) continue;
                 app.fillPat[i][j] = app.fillPat[i][j] > 0 ? 0 : (random.nextBoolean() ? 100 : 127);

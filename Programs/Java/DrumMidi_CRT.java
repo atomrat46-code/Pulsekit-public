@@ -355,13 +355,32 @@ public class DrumMidi_CRT{
      */
     static final double CHOKE_LEVEL = 0.07, CHOKE_SWELL = 0.3, CHOKE_AFTER = 0.3, CHOKE_END = 0.4;
 
-    /** --chokes' notes: "49=50,51=52" (the cymbal found = the note a choked one is written as). */
+    /** A --chokes value: the choke as aftertouch on the cymbal's own note (Pulsekit's chokes, e-drums, drum plugins). */
+    static final int CHOKE_AT = -1;
+    /** The cymbals `--chokes at` alone covers: crash, crash 2, china, splash, ride, ride bell. */
+    static final int[] CHOKE_CYMBALS = {49, 57, 52, 55, 51, 53};
+
+    /**
+     * --chokes' notes: "49=50,51=52" (the cymbal found = the note a choked one is written as), "49=at" (the
+     * cymbal's hit kept and an aftertouch on its note where it was cut: how Pulsekit's Crash choke and Ride
+     * choke tracks read), or "at" alone (every crash and ride as that).
+     */
     static java.util.Map<Integer, Integer> chokeNotes(String text) {
         java.util.Map<Integer, Integer> out = new java.util.LinkedHashMap<Integer, Integer>();
+        if ("at".equalsIgnoreCase(text.trim())) {
+            for (int n : CHOKE_CYMBALS) out.put(Integer.valueOf(n), Integer.valueOf(CHOKE_AT));
+            return out;
+        }
         for (String pair : text.split("[,;\\s]+")) {
             if (pair.trim().length() == 0) continue;
             String[] ab = pair.split("=");
-            if (ab.length != 2) throw new IllegalArgumentException("--chokes takes note=note pairs (49=50,51=52): " + pair);
+            if (ab.length != 2) throw new IllegalArgumentException("--chokes takes note=note pairs (49=50,51=52), note=at or at: " + pair);
+            if ("at".equalsIgnoreCase(ab[1].trim())) {
+                int a = Integer.parseInt(ab[0].trim());
+                if (a < 0 || a > 127) throw new IllegalArgumentException("--chokes: MIDI notes are 0 to 127: " + pair);
+                out.put(Integer.valueOf(a), Integer.valueOf(CHOKE_AT));
+                continue;
+            }
             int a = Integer.parseInt(ab[0].trim()), b = Integer.parseInt(ab[1].trim());
             if (a < 0 || a > 127 || b < 0 || b > 127) throw new IllegalArgumentException("--chokes: MIDI notes are 0 to 127: " + pair);
             out.put(Integer.valueOf(a), Integer.valueOf(b));
@@ -371,7 +390,7 @@ public class DrumMidi_CRT{
 
     static String chokeText(java.util.Map<Integer, Integer> m) {
         StringBuilder b = new StringBuilder();
-        for (java.util.Map.Entry<Integer, Integer> e : m.entrySet()) b.append(b.length() == 0 ? "" : ",").append(e.getKey()).append('=').append(e.getValue());
+        for (java.util.Map.Entry<Integer, Integer> e : m.entrySet()) b.append(b.length() == 0 ? "" : ",").append(e.getKey()).append('=').append(e.getValue().intValue() == CHOKE_AT ? "at" : e.getValue().toString());
         return b.toString();
     }
 
@@ -405,6 +424,7 @@ public class DrumMidi_CRT{
         java.util.Set<Hit> same = new java.util.HashSet<Hit>();
         java.util.Map<Hit, Integer> choked = new java.util.HashMap<Hit, Integer>();
         int unknown = 0;
+        List<Hit> cuts = new ArrayList<Hit>();
         for (Hit h : sorted) {
             Integer to = notes.get(Integer.valueOf(h.note));
             if (to == null || same.contains(h)) continue;
@@ -436,17 +456,31 @@ public class DrumMidi_CRT{
             }
             double later = highLevel(x, sr, peakAt + CHOKE_AFTER, peakAt + CHOKE_END, false);
             if (peak <= 0 || later > CHOKE_LEVEL * peak) continue;
-            choked.put(h, to);
-            for (Hit o : again) choked.put(o, to);
+            if (to.intValue() == CHOKE_AT) {
+                // Where it was cut: its highs first under a quarter of the peak (after the peak).
+                double cut = peakAt + CHOKE_AFTER;
+                for (double t = peakAt + 0.01; t < peakAt + CHOKE_AFTER; t += 0.01) {
+                    if (highLevel(x, sr, t, t + 0.01, true) < peak * 0.25) {
+                        cut = t;
+                        break;
+                    }
+                }
+                cuts.add(new Hit(cut, -h.note, 1.0));
+            } else {
+                choked.put(h, to);
+                for (Hit o : again) choked.put(o, to);
+            }
             count.put(Integer.valueOf(h.note), Integer.valueOf((count.containsKey(Integer.valueOf(h.note)) ? count.get(Integer.valueOf(h.note)).intValue() : 0) + 1));
         }
         for (int i = 0; i < hits.size(); i++) {
             Integer to = choked.get(hits.get(i));
             if (to != null) hits.set(i, new Hit(hits.get(i).time, to.intValue(), hits.get(i).strength));
         }
+        // An aftertouch choke: a hit of the negative note (written as aftertouch 127 on the note).
+        hits.addAll(cuts);
         StringBuilder b = new StringBuilder();
         for (java.util.Map.Entry<Integer, Integer> e : count.entrySet()) b.append(b.length() == 0 ? "" : ", ").append(e.getValue()).append(" of ").append(e.getKey())
-            .append(" as ").append(notes.get(e.getKey()));
+            .append(" as ").append(notes.get(e.getKey()).intValue() == CHOKE_AT ? "aftertouch" : notes.get(e.getKey()).toString());
         note("Chokes (--chokes " + chokeText(notes) + "): " + (b.length() == 0 ? "none found" : b.toString()) + (unknown > 0 ? "; " + unknown + " not told (another hit within "
             + num(CHOKE_END * 1000) + " ms of its peak)" : ""));
     }
@@ -862,7 +896,8 @@ public class DrumMidi_CRT{
         // toms tell the hits found apart where no kit profile is given.
         KitProfile library = null;
         // Choked cymbals (--chokes 49=50,51=52,57=58: a crash or ride cut off by hand written as that note,
-        // as a kit with choke notes has them: x42 AVL Drumkits). Empty: written as any other hit.
+        // as a kit with choke notes has them: x42 AVL Drumkits; --chokes at: the hit kept and an aftertouch
+        // on its note where it was cut, as Pulsekit's choke tracks read it). Empty: written as any other hit.
         java.util.Map<Integer, Integer> chokeNotes = new java.util.LinkedHashMap<Integer, Integer>();
         for (int i = 2; i < args.length; i++) {
             String opt = args[i];
@@ -1299,7 +1334,7 @@ public class DrumMidi_CRT{
         events.add(new MidiEv(0, metaMsg(0x01, stamp.getBytes("UTF-8"))));
 
         Set<String> seen = new HashSet<String>();
-        int kicks = 0, snares = 0, closed = 0, pedals = 0, open = 0, rides = 0, crashes = 0, floors = 0, mids = 0, racks = 0;
+        int kicks = 0, snares = 0, closed = 0, pedals = 0, open = 0, rides = 0, crashes = 0, floors = 0, mids = 0, racks = 0, chokesWritten = 0;
         for (int i = 0; i < hits.size(); i++) {
             Hit h = hits.get(i);
             long tick = Math.round(h.time * tickPerSec);
@@ -1309,6 +1344,13 @@ public class DrumMidi_CRT{
             }
             if (!seen.add(h.note + ":" + tick)) continue;
             if (!writeToms && (h.note == FLOOR_TOM || h.note == MID_TOM || h.note == RACK_TOM)) continue;
+            if (h.note < 0) {
+                // A choke (--chokes at): aftertouch 127 on the cymbal's note, let go a tick later.
+                events.add(new MidiEv(tick, shortMsg(0xA0, -h.note, 127)));
+                events.add(new MidiEv(tick + 1, shortMsg(0xA0, -h.note, 0)));
+                chokesWritten++;
+                continue;
+            }
             int vel = (int) Math.max(40, Math.min(127, 45 + 55 * h.strength));
             int hold = h.note == CRASH_NOTE ? 180 : (h.note == OPEN_HAT || h.note == RIDE_NOTE ? 120 : 24);
             events.add(new MidiEv(tick, shortMsg(0x90, h.note, vel)));
@@ -1331,7 +1373,7 @@ public class DrumMidi_CRT{
         }
         made.add(written);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
-                written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (writeToms ? "" : " (--no-toms: toms not written)"));
+                written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (chokesWritten > 0 ? ", " + chokesWritten + " chokes (aftertouch)" : "") + (writeToms ? "" : " (--no-toms: toms not written)"));
         note("MIDI Extracted to: " + written.getAbsolutePath());
         finish("Succeeded: " + written.getName());
     }

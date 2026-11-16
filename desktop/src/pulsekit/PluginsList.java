@@ -46,6 +46,37 @@ final class PluginsList {
     /** The dialog shown last and the log of its last test (for the tests). */
     static JDialog last;
     static volatile String lastTest;
+    /**
+     * True when the last Edit settings was of a plugin tested before and went well: its test beat's WAV
+     * ready and the result's window are not shown again (Test shows them); the status line says it.
+     */
+    static volatile boolean lastEditQuiet;
+
+    /** The plugins whose test beat has played (Test, or Edit settings): ~/.pulsekit/plugins-tested.txt. */
+    static File testedFile() {
+        return new File(new File(System.getProperty("user.home"), ".pulsekit"), "plugins-tested.txt");
+    }
+
+    static boolean tested(File f) {
+        try {
+            File t = testedFile();
+            return t.isFile() && new String(java.nio.file.Files.readAllBytes(t.toPath()), java.nio.charset.StandardCharsets.UTF_8).contains(f.getAbsolutePath() + "\n");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    static void markTested(File f) {
+        if (tested(f)) return;
+        try {
+            File t = testedFile();
+            t.getParentFile().mkdirs();
+            java.nio.file.Files.write(t.toPath(), (f.getAbsolutePath() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+            // asked again next time
+        }
+    }
 
     /** The plugins in the usual VST folders and in `more` (folders, or plugins whose folder is looked at), by path. */
     static List<File> scan(List<File> more) {
@@ -422,6 +453,7 @@ final class PluginsList {
 
     /** The test with more arguments (`extra`: the row's --map, DrumMidi's jar for the kit's drums). */
     static void test(final PyJav pj, final File f, final boolean editFirst, final List<String> extra, final java.util.function.Consumer<String> done) {
+        final boolean testedBefore = tested(f);
         new Thread(() -> {
             String src = ProgramFiles.bundledSource("vst_render.py");
             List<String> argv = new ArrayList<String>(Arrays.asList("--plugin", f.getAbsolutePath(), "--check"));
@@ -433,10 +465,15 @@ final class PluginsList {
             PythonRun.FileOut wav = null;
             if (r != null) for (PythonRun.FileOut o : r.files) if (o.name.startsWith("vst-check-") && o.name.endsWith(".wav")) wav = o;
             final PythonRun.FileOut beat = wav;
+            final boolean played = log.contains("the test beat plays");
+            if (played) markTested(f);
+            // Edit settings of a plugin tested before: no WAV ready or result window again (Test shows them).
+            final boolean quiet = editFirst && testedBefore && played && failed(log) == null;
             SwingUtilities.invokeLater(() -> {
+                lastEditQuiet = quiet;
                 done.accept(log);
                 // The test beat: WAV ready (Play, favourites, group, tags, category, playlist).
-                if (beat != null && pj != null) {
+                if (beat != null && pj != null && !quiet) {
                     File saved = pj.saveProgramFile(beat.name, beat.bytes);
                     if (saved != null) pj.offerAudio(saved);
                 }

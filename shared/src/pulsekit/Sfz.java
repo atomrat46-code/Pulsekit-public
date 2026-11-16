@@ -57,7 +57,7 @@ public final class Sfz {
   }
 
   /** A pad's note when its own is not in the kit (as parseSf2 tries them). */
-  static final int[] ALIASES = {36, 36, 40, 39, 37, 44, 46, 57, 59, 43, 45, 48};
+  static final int[] ALIASES = {36, 36, 40, 39, 37, 44, 46, 57, 59, 43, 45, 48, 44, 46, 57, 52, 55, 53, 49, 51};
 
   public static boolean isKitName(String name) {
     String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
@@ -288,6 +288,8 @@ public final class Sfz {
     StringBuilder report = new StringBuilder("SFZ kit " + name + ": " + regions.size() + " regions\n");
     Map<String, AudioIo.Pcm> read = new HashMap<String, AudioIo.Pcm>();
     for (int t = 0; t < Engine.NOTES.length; t++) {
+      // The chokes have no sound; the semi-open hat is made from the open hat (ExtraPads.complete).
+      if (Engine.isChoke(t) || Engine.isSemi(t)) continue;
       int note = Engine.NOTES[t];
       Map<String, String> r = pick(regions, note);
       int used = note;
@@ -326,6 +328,7 @@ public final class Sfz {
     }
     Kit kit = new Kit(name, voices, report.toString());
     if (kit.pads == 0) throw new IOException("No drum samples could be read from " + name + "\n" + report);
+    ExtraPads.complete(voices);
     return kit;
   }
 

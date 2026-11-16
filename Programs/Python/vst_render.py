@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -125,6 +125,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   or a text file of them with [plugin name] sections, as --map. Empty: Pulsekit's
                   ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
                   The MIDI files themselves are not changed.
+  --padset F      Pulsekit's Pads tab drum set, written as a SoundFont (F; in Pulsekit, Params' Pads set
+                  list picks the set and Pulsekit writes it), played after the plugins (or alone) with
+                  Midi2Wav: its own WAVs, test and zips, as one more plugin. --padset_name: the set's name
+                  (its files are named "Pads <name>"). No note map: the set plays Pulsekit's own notes.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -132,6 +136,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   the plugin's map.txt section (--note_map's file) is used over this: each plugin its own. After the test beat a choke beat plays each
                   cymbal and then its choke 8 times, a second apart, and DrumMidi (--chokes, with the kit
                   profile) is asked what it hears there: the report says what each was written as.
+                  "49=at" (or "at" alone: 49, 57, 52, 55, 51, 53): the plugin chokes the cymbal with
+                  aftertouch on its own note (as Pulsekit's Crash choke and Ride choke tracks send it);
+                  the choke beat grabs each cymbal 0.12 s after its hit, DrumMidi runs with --chokes N=at
+                  and the report says how many came back with a choke (49+choke) and how many plain.
   --no-cymbal-check
                   with --test: no cymbal check. Else after the test beat each crash and ride the songs use
                   (49, 57, 52, 55, 51, 59, 53, through the note map) is struck 6 times alone and 6 times
@@ -190,7 +198,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   run's renders and tests: its new kits' zips are compared too). With --zip_outdir's
                   %n its zips go into the newest folder there (run last: the run's own), not a new one.
   --bench_dir     the folder with the tests' zips (vst-render-*.zip), its subfolders too (all the runs'
-                  folders: Claude/Samples). A kit tested in several runs counts once (its newest run).
+                  folders: Claude/Samples). A kit tested in several runs counts once (its newest run;
+                  its name's case, spaces and punctuation aside: KVLT_Mexico 1998 is KVLT: Mexico 1998;
+                  and a kit renamed in Pulsekit's kit list, its alias line there: New = Old).
                   Not given: --dir.
   --bench_unzip   where the kits' zips are unpacked (a drive with room, not the zips' own: a cloud
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
@@ -1035,8 +1045,37 @@ def stem(path):
     return os.path.splitext(base)[0]
 
 
-def state_home(plugin):
+# The kit this run plays (--kit_name): a plugin with several kits (Ugritone) keeps each kit's settings apart.
+CURRENT_KIT = [""]
+KIT_STATE_SAID = set()
+
+
+def plugin_state(plugin):
+    """The plugin's own settings file (the last saved with Edit settings, whatever its kit)."""
     return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", stem(plugin) + ".state")
+
+
+def kit_state(plugin):
+    """The settings file of the plugin with this run's kit (--kit_name): "<plugin> [<kit>].state"; None without one."""
+    kit = (CURRENT_KIT[0] or "").strip()
+    if not kit or kit == "parts":
+        return None
+    safe = re.sub(r'[\\/:*?"<>|]', "_", kit)
+    return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", "%s [%s].state" % (stem(plugin), safe))
+
+
+def state_home(plugin):
+    """The settings a run plays with: the kit's own (--kit_name), else the plugin's (said once: they are the
+    kit Edit settings loaded last, which may be another kit)."""
+    kit = kit_state(plugin)
+    if kit and os.path.isfile(kit):
+        return kit
+    base = plugin_state(plugin)
+    if kit and os.path.isfile(base) and (plugin, CURRENT_KIT[0]) not in KIT_STATE_SAID:
+        KIT_STATE_SAID.add((plugin, CURRENT_KIT[0]))
+        print("Kit settings: none saved for %s yet; %s plays with its last saved settings (the kit Edit settings loaded last, "
+              "maybe another one). Edit settings on its row saves this kit's." % (CURRENT_KIT[0], stem(plugin)))
+    return base
 
 
 def var_len(d, p):
@@ -1115,8 +1154,9 @@ def write_var(v):
     return bytes(b)
 
 
-def midi_notes(path):
-    """The MIDI file's length (its last event) in seconds and its notes as (seconds, note), following tempo changes."""
+def midi_notes(path, touch=False):
+    """The MIDI file's length (its last event) in seconds and its notes as (seconds, note), following tempo changes.
+    With `touch`, a choke (polyphonic aftertouch 64 or more) is in the notes too, as (seconds, -note)."""
     d = open(path, "rb").read()
     if d[:4] != b"MThd":
         raise ValueError("%s is not a MIDI file" % os.path.basename(path))
@@ -1154,6 +1194,8 @@ def midi_notes(path):
             else:
                 if hi == 0x90 and p + 1 < len(d) and d[p + 1] > 0:
                     ons.append((tick, d[p]))
+                elif touch and hi == 0xA0 and p + 1 < len(d) and d[p + 1] >= 64:
+                    ons.append((tick, -d[p]))
                 p += 2
             events.append(tick)
         i += 8 + size
@@ -1545,6 +1587,32 @@ def named_list(notes):
 CHOKES_LINE = re.compile(r"(?i)^chokes?\b\s*:?\s*(.*)$")
 # x42 AVL Drumkits' chokes: Crash 1 (49) choked on 50, the ride (51) on 52, Crash 2 (57) on 58.
 AVL_CHOKES = {49: 50, 51: 52, 57: 58}
+# A choke given as "at" (49=at, or "at" alone): the plugin chokes the cymbal with polyphonic aftertouch on its
+# own note (as Pulsekit's Crash choke and Ride choke, e-drums and many drum plugins do), not on a note of its own.
+CHOKE_AT = -1
+CHOKE_AT_NOTES = (49, 57, 52, 55, 51, 53)
+
+
+def chokes_pairs(text, plugin=None):
+    """--chokes or a map.txt chokes line: {cymbal: its choked note, or CHOKE_AT}. "at" alone: every crash and
+    ride (49, 57, 52, 55, 51, 53) choked by aftertouch; "49=at" one. Else as --map (a note=note text or file)."""
+    t = (text or "").strip()
+    if t.lower() == "at":
+        return dict((n, CHOKE_AT) for n in CHOKE_AT_NOTES)
+    pairs = [x for x in re.split(r"[,;\s]+", t) if x]
+    if not os.path.isfile(t) and any(re.match(r"(?i)^[^=]+=at$", x) for x in pairs):
+        out = {}
+        for pair in pairs:
+            m = re.match(r"^([^=\s]+)=([^=\s]+)$", pair)
+            if not m:
+                raise ValueError("%s is not note=note or note=at" % pair)
+            a = note_number(m.group(1))
+            b = CHOKE_AT if m.group(2).lower() == "at" else note_number(m.group(2))
+            if not 0 <= a <= 127 or not (b == CHOKE_AT or 0 <= b <= 127):
+                raise ValueError("%s: no such note" % pair)
+            out[a] = b
+        return out
+    return map_for(t, plugin)[0]
 
 
 # A map.txt section's hi-hat notes: "hats closed=42 pedal=44 semiopen=46 open=32" (the plugin's own notes).
@@ -1610,7 +1678,7 @@ def plugin_chokes(path, plugin):
     """The plugin's choke notes from map.txt: the "chokes" line of its section (else of the lines before any
     section); ({}, None) when there is none. The second: the section's name ("" for the lines before any)."""
     text, part = plugin_line(path, plugin, CHOKES_LINE)
-    return (map_for(text)[0], part) if text is not None else ({}, None)
+    return (chokes_pairs(text), part) if text is not None else ({}, None)
 
 
 def note_map_home():
@@ -1689,6 +1757,48 @@ def kit_name_guard(kit, plugin, home=None):
     return None
 
 
+REPORT_KIT = re.compile(r"^Plugin: (.+?), kit (.+)$", re.M)
+
+
+def kit_names_learn(reports, home=None):
+    """The kit names the tests' reports name (their "Plugin: X, kit Y" line) put back into kit-names.txt
+    with their plugin (Pulsekit's Kit loaded lists come from it): only those it has not got; a plugin's
+    saved or default kit left out. How many were added."""
+    path = os.path.join(home or os.path.join(os.path.expanduser("~"), ".pulsekit"), KIT_NAMES)
+    names = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                k, _, p = line.rstrip("\n").partition("\t")
+                if k and p:
+                    names[k] = p
+    except OSError:
+        pass
+    added = 0
+    for report in reports:
+        try:
+            with open(report, encoding="utf-8", errors="replace") as f:
+                m = REPORT_KIT.search(f.read(4000))
+        except OSError:
+            continue
+        if not m:
+            continue
+        plug = os.path.splitext(os.path.basename(os.path.normpath(m.group(1).strip())))[0]
+        kit = m.group(2).strip()
+        if not plug or not kit or kit.lower() in ("saved kit", "default kit", "parts") or kit in names:
+            continue
+        names[kit] = plug
+        added += 1
+    if added:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("".join("%s\t%s\n" % kv for kv in sorted(names.items())))
+        except OSError:
+            return 0
+    return added
+
+
 def avl_kit(plugin):
     """Whether the plugin is AVL Drumkits: avldrums (its LV2 bundle), or a kit's SoundFont (Black_Pearl_4_LV2)."""
     # (Its name, not its folder: an LV2 plugin comes as its bundle's path, C:\\...\\avldrums.lv2.)
@@ -1730,10 +1840,11 @@ def map_problems(text):
                 try:
                     if not cm:
                         raise ValueError(pair)
-                    if not all(0 <= note_number(cm.group(k)) <= 127 for k in (1, 2)):
+                    if not 0 <= note_number(cm.group(1)) <= 127 or not (cm.group(2).lower() == "at" or 0 <= note_number(cm.group(2)) <= 127):
                         raise ValueError(pair)
                 except ValueError:
-                    out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
+                    if pair.lower() != "at":
+                        out.append("line %d: chokes: %s is not note=note (a cymbal's note=its choked one, 49=50)" % (i, pair))
             if not ch.group(1).strip():
                 out.append("line %d: chokes has no notes (chokes 49=50, 51=52)" % i)
             continue
@@ -1900,6 +2011,46 @@ def plugin_runs(argv, opts):
     return runs
 
 
+# The switches of the plugins: the Pads set's run has none of them (it is a SoundFont of Pulsekit's own notes).
+PAD_SET_DROPPED = ("--plugin", "--plugin2", "--plugin3", "--plugin4", "--map", "--map2", "--map3", "--map4", "--kit_name", "--kit_name2",
+                   "--kit_name3", "--kit_name4", "--state", "--carla", "--clap", "--clap_id", "--drumgizmo", "--midimap", "--effect",
+                   "--effect_state", "--parts", "--note_map", "--chokes", "--padset", "--padset_name")
+
+
+def pad_set_runs(argv, opts, switches):
+    """--padset: the plugins' run(s) first (as given, without --padset), then the Pads set as a SoundFont
+    played with Midi2Wav, named "Pads <name>", with no note map (it plays Pulsekit's own notes)."""
+    pads = opts["--padset"]
+    if not os.path.isfile(pads):
+        fail("--padset: no SoundFont %s (in Pulsekit, pick the Pads set in Params' list)" % pads)
+    name = (opts["--padset_name"] or "").strip() or stem(os.path.basename(pads))
+    rest = drop_switch(drop_switch(argv, "--padset"), "--padset_name")
+    pad_run = list(rest)
+    for sw in PAD_SET_DROPPED:
+        pad_run = drop_switch(pad_run, sw)
+    pad_run = [a for a in pad_run if a not in ("--edit", "--no-map")]
+    pad_run += ["--plugin", pads, "--kit_name", "Pads " + name, "--note_map", "36=36", "--no-map"]
+    plugins = opts["--plugin"] or opts["--carla"] or opts["--drumgizmo"] or opts.get("--clap") or any(opts[k] for k, _, _ in MORE_PLUGINS)
+    done = []
+    if plugins:
+        try:
+            main(rest)
+            done.append(("the plugins", "done"))
+        except SystemExit as e:
+            done.append(("the plugins", "failed" if e.code else "done"))
+        print("")
+    print("== Pads set: %s" % name)
+    sys.stdout.flush()
+    try:
+        main(pad_run)
+        done.append(("Pads " + name, "done"))
+    except SystemExit as e:
+        done.append(("Pads " + name, "failed" if e.code else "done"))
+    print("Runs: " + ", ".join("%s %s" % d for d in done))
+    if all(r == "failed" for _, r in done):
+        sys.exit(1)
+
+
 def lead_first(argv, opts):
     """No --plugin but one of --plugin2 to --plugin4 (Params' first row unticked): the first given leads
     (as --plugin, its own map as --map) and the others follow as --plugin2, --plugin3; without --dir, --dir2 is --dir.
@@ -1966,7 +2117,7 @@ def whole_wav(path):
         return False
 
 
-def drum_midi(java, jar, wav, mid, extra=(), said=None):
+def drum_midi(java, jar, wav, mid, extra=(), said=None, touch=False):
     """DrumMidi_CRT on the WAV (with `extra` switches); returns its notes, or an error text.
     `said`, a list: DrumMidi's own lines go in it."""
     import subprocess
@@ -1988,7 +2139,7 @@ def drum_midi(java, jar, wav, mid, extra=(), said=None):
     if r.returncode != 0 or not os.path.isfile(mid):
         tail = lines[-1:] or [""]
         return "DrumMidi_CRT failed (%s)" % tail[0]
-    return midi_notes(mid)[1]
+    return midi_notes(mid, touch)[1]
 
 
 def read_wav(path, rate):
@@ -2068,8 +2219,9 @@ def apply_state(proc, plugin, given, label):
 
 
 def edit(proc, plugin, given, label):
-    """Opens the plugin's window; when it is closed, saves its settings. Returns the file saved."""
-    path = given or state_home(plugin)
+    """Opens the plugin's window; when it is closed, saves its settings (the kit's own with --kit_name, and as
+    the plugin's too). Returns the file saved."""
+    path = given or kit_state(plugin) or plugin_state(plugin)
     if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
         path = os.path.splitext(path)[0] + ".state"
     print("%s: its window is open. Load a kit or patch; press Stop timer in Pulsekit when the kit has loaded "
@@ -2111,6 +2263,11 @@ def edit(proc, plugin, given, label):
     print("Wrote %s settings: %s" % (label, path))
     with open(path + ".load", "w") as f:
         f.write("%.1f\n" % took)
+    # The kit's settings are the plugin's last too (a row without a kit name plays them).
+    if not given and path != plugin_state(plugin):
+        import shutil
+        for end in ("", ".params.json", ".load"):
+            shutil.copyfile(path + end, plugin_state(plugin) + end)
     print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if timer["stopped"] else "until the window closed"))
     return path
 
@@ -2349,13 +2506,18 @@ def warm_up(chain, np):
     return True
 
 
-def notes_midi(path, notes):
-    """A MIDI file of (seconds, note, velocity) hits on the drum channel, at 120 BPM (960 ticks a second)."""
+def notes_midi(path, notes, touches=()):
+    """A MIDI file of (seconds, note, velocity) hits on the drum channel, at 120 BPM (960 ticks a second);
+    `touches`, (seconds, note): a choke there (polyphonic aftertouch 127 on the note, let go a tick later)."""
     events = []
     for t, n, vel in notes:
         tick = int(round(t * 960))
         events.append((tick, 0x99, n, vel))
         events.append((tick + 120, 0x89, n, 0))
+    for t, n in touches:
+        tick = int(round(t * 960))
+        events.append((tick, 0xA9, n, 127))
+        events.append((tick + 1, 0xA9, n, 0))
     events.sort(key=lambda e: (e[0], e[1] == 0x99))
     data, last = bytearray(), 0
     for tick, status, note, vel in events:
@@ -2603,6 +2765,64 @@ def beat_shape(np, audio, rate):
     return [round(float(v) / top, 3) for v in env] if top > 0 else []
 
 
+# Two kits' profiles (kick and toms) this close are one sound: Ugritone's kits named differently but played
+# with the same settings were 0.001-0.006 apart; its real kits 0.026 and more.
+SAME_PROFILE = 0.012
+
+
+def profile_drums(path):
+    """A kit profile's kick and tom lines: {note: [16 bands]}."""
+    out = {}
+    try:
+        for line in open(path, encoding="utf-8"):
+            p = line.split()
+            if p and p[0].isdigit():
+                out[p[0]] = [float(x) for x in p[1:]]
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def profile_distance(a, b):
+    """How far two profiles' kick and toms are apart (root mean square over the notes both have); None: nothing shared."""
+    d, n = 0.0, 0
+    for note in set(a) & set(b):
+        for x, y in zip(a[note], b[note]):
+            d += (x - y) ** 2
+            n += 1
+    return (d / n) ** 0.5 if n else None
+
+
+def same_profile_check(kit_file, plugin, kit):
+    """Whether this kit's learned profile is another kit's of the same plugin (~/.pulsekit/vst/kit-profiles):
+    the kit named but the plugin played with another kit's settings. The line saying so, or None."""
+    import shutil
+    if not kit or not kit_file or not os.path.isfile(kit_file):
+        return None
+    store = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", "kit-profiles")
+    safe = re.sub(r'[\\/:*?"<>|]', "_", kit)
+    own = "%s [%s].kit" % (stem(plugin), safe)
+    mine = profile_drums(kit_file)
+    same = []
+    if os.path.isdir(store):
+        for f in sorted(os.listdir(store)):
+            if f == own or not f.startswith(stem(plugin) + " [") or not f.endswith("].kit"):
+                continue
+            d = profile_distance(mine, profile_drums(os.path.join(store, f)))
+            if d is not None and d < SAME_PROFILE:
+                same.append(f[len(stem(plugin)) + 2:-5])
+    try:
+        if not os.path.isdir(store):
+            os.makedirs(store)
+        shutil.copyfile(kit_file, os.path.join(store, own))
+    except OSError:
+        pass
+    if not same:
+        return None
+    return ("Kit check: the kit's kick and toms sound exactly as %s's did: was the kit really changed in the plugin? "
+            "(Edit settings on this kit's row loads and saves it; its results here may be another kit's)" % ", ".join(same))
+
+
 def same_kit_check(np, audio, rate, plugin, kit):
     """Whether this kit's test beat sounds as another kit's did through this plugin (the kit not changed in
     the plugin, only its name): kept in ~/.pulsekit/vst/<plugin>.sounds.json; the line saying so, or None."""
@@ -2649,28 +2869,41 @@ CHOKE_DRUMS = (35, 36, 37, 38, 39, 40, 41, 43, 45, 47, 48, 50)
 
 
 def chokes_text(pairs):
-    return ",".join("%d=%d" % kv for kv in sorted(pairs.items()))
+    return ",".join("%d=%s" % (a, "at" if b == CHOKE_AT else b) for a, b in sorted(pairs.items()))
+
+
+# Where an aftertouch choke grabs the cymbal in the choke beat (seconds after its hit), and how long after its
+# hit DrumMidi's choke (where it hears the ring cut) is taken as this one's.
+CHOKE_AT_GRAB, CHOKE_AT_FOUND = 0.12, 0.6
 
 
 def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     """--chokes: each cymbal (a pair's first note) and its choke (the second) played alone, CHOKE_HITS
     times each, through the plugin (its notes as they are: no note map), then DrumMidi with --chokes and
-    the kit profile on the render. Returns the lines saying what each was written as."""
+    the kit profile on the render. A choke "at": the cymbal struck and grabbed CHOKE_AT_GRAB s later
+    (aftertouch 127 on its note), and DrumMidi with --chokes N=at asked where it hears one. Returns the
+    lines saying what each was written as."""
     import tempfile
     pairs = dict((a, b) for a, b in pairs.items() if b is not None)
     if not pairs:
         return ["Chokes: no choke notes in --chokes"]
-    hits = []
+    # (seconds, note played, the pair's cymbal, choked)
+    hits, touches = [], []
     t = 0.5
     for plain, choked in sorted(pairs.items()):
-        for n in (plain, choked):
+        for grabbed in (False, True):
             for _ in range(CHOKE_HITS):
-                hits.append((t, n))
+                if choked == CHOKE_AT:
+                    hits.append((t, plain, plain, grabbed))
+                    if grabbed:
+                        touches.append((t + CHOKE_AT_GRAB, plain))
+                else:
+                    hits.append((t, choked if grabbed else plain, plain, grabbed))
                 t += CHOKE_GAP
             t += CHOKE_PAUSE - CHOKE_GAP
     work = tempfile.mkdtemp(prefix="vst-chokes-")
-    midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n in hits])
-    print("Working: playing each cymbal and its choke %d times, %.1f s apart (--chokes %s)" % (CHOKE_HITS, CHOKE_GAP, ", ".join("%d=%d" % kv for kv in sorted(pairs.items()))))
+    midi = notes_midi(os.path.join(work, "chokes.mid"), [(a, n, 110) for a, n, _, _ in hits], touches)
+    print("Working: playing each cymbal and its choke %d times, %.1f s apart (--chokes %s)" % (CHOKE_HITS, CHOKE_GAP, chokes_text(pairs)))
     sys.stdout.flush()
     try:
         audio, _, _ = chain.render(np, midi=midi, tail=1.5, raw=True)
@@ -2682,25 +2915,35 @@ def choke_beat(chain, np, rate, bits, opts, kit_file, pairs):
     said = []
     # DrumMidi writes the chokes on notes of their own (100 on), so a choke note that is a drum's too (AVL's
     # 50, Crash 1 choked, is the songs' high tom) is told apart; drums written with a cymbal are left out
-    # (a sampled kit's cymbal carries the room's low end: alone, it can pass for a kick or a tom).
-    private = dict((plain, CHOKE_PRIVATE + i) for i, plain in enumerate(sorted(pairs)))
+    # (a sampled kit's cymbal carries the room's low end: alone, it can pass for a kick or a tom). An
+    # aftertouch choke is asked for as one (N=at): DrumMidi writes the cymbal and an aftertouch where it was cut.
+    noted = sorted(a for a, b in pairs.items() if b != CHOKE_AT)
+    private = dict((plain, CHOKE_PRIVATE + i) for i, plain in enumerate(noted))
+    asked = dict(private)
+    asked.update((a, CHOKE_AT) for a, b in pairs.items() if b == CHOKE_AT)
     found = drum_midi(opts["--java"], opts["--drummidi"], wav, os.path.join(work, "chokes-dm.mid"),
-                      ["--chokes", ",".join("%d=%d" % kv for kv in sorted(private.items()))] + (["--kit", kit_file] if kit_file else []), said)
+                      ["--chokes", chokes_text(asked)] + (["--kit", kit_file] if kit_file else []), said, touch=True)
     if isinstance(found, str):
         return ["Chokes: %s" % found]
     back = dict((v, pairs[k]) for k, v in private.items())
-    found = [(u, back.get(k, k)) for u, k in found if k in back or k not in CHOKE_DRUMS]
-    said = [l.replace(chokes_text(private), chokes_text(pairs)) for l in said]
+    found = [(u, back.get(k, k)) for u, k in found if k in back or k < 0 or k not in CHOKE_DRUMS]
+    said = [l.replace(chokes_text(asked), chokes_text(pairs)) for l in said]
     for k, v in private.items():
         said = [re.sub(r"\b%d as %d\b" % (k, v), "%d as %d" % (k, pairs[k]), l) for l in said]
     out = []
     for plain, choked in sorted(pairs.items()):
-        for n, what in ((plain, "%d plain" % plain), (choked, "%d (%d choked)" % (choked, plain))):
+        for grabbed in (False, True):
+            if choked == CHOKE_AT:
+                what = "%d %s" % (plain, "choked (aftertouch)" if grabbed else "plain")
+            else:
+                what = "%d (%d choked)" % (choked, plain) if grabbed else "%d plain" % plain
             written = {}
-            for a, m in hits:
-                if m != n:
+            for a, m, p, g in hits:
+                if p != plain or g != grabbed:
                     continue
-                got = sorted(set(k for u, k in found if -0.06 < u - a < 0.2))  # (a sampled crash swells: found up to ~150 ms on)
+                got = sorted(set(k for u, k in found if k >= 0 and -0.06 < u - a < 0.2))  # (a sampled crash swells: found up to ~150 ms on)
+                # A choke DrumMidi heard: an aftertouch after the hit.
+                got += sorted(set("choke" for u, k in found if k < 0 and 0 <= u - a < CHOKE_AT_FOUND))
                 key = "+".join(str(k) for k in got) or "missed"
                 written[key] = written.get(key, 0) + 1
             out.append("Chokes: %s written as %s" % (what, ", ".join("%s %d of %d" % (k, c, CHOKE_HITS) for k, c in sorted(written.items()))))
@@ -3710,25 +3953,63 @@ BENCH_HOW = ("DrumMidi runs once on each song without its model; each model then
 RENDER_ZIP = re.compile(r"^(vst-render-.+?)-(\d{8}-\d{6})(?:-part\d+of\d+)?\.zip$", re.I)
 
 
-def render_kits(folder, recursive):
+def kit_aliases(home=None):
+    """Pulsekit's kit list's aliases (~/.pulsekit/maps/kits.txt: "New name = Old name" in a [plugin]
+    section): a kit's zip name's key under its old name → under its new one (as render_kits compares them)."""
+    path = os.path.join(home or os.path.join(os.path.expanduser("~"), ".pulsekit"), "maps", "kits.txt")
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return out
+    key = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    plugin = ""
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            plugin = line[1:-1]
+            continue
+        if not plugin or "=" not in line:
+            continue
+        now, _, was = line.partition("=")
+        if now.strip() and was.strip():
+            out["vstrender" + key(plugin) + key(was)] = "vstrender" + key(plugin) + key(now)
+    return out
+
+
+def render_kits(folder, recursive, aliases=None):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
     zips (the same zip in two folders counts once)."""
-    runs = {}
+    # A kit's zips by its name in them, case, spaces and punctuation aside: a kit named again ("KVLT_Mexico
+    # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then). So is a kit renamed
+    # in Pulsekit's kit list (its aliases: Speed Metal: 1983 Metal = 1983 Metal).
+    aliases = kit_aliases() if aliases is None else aliases
+
+    def resolved(k):
+        for _ in range(20):
+            if k not in aliases:
+                break
+            k = aliases[k]
+        return k
+    runs, named = {}, {}
     for root, dirs, names in os.walk(folder):
         dirs.sort()
         for n in sorted(names):
             m = RENDER_ZIP.match(n)
             if m:
-                at = runs.setdefault(m.group(1), {}).setdefault(m.group(2), {})
+                same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
+                at = runs.setdefault(same, {}).setdefault(m.group(2), {})
                 at.setdefault(n, os.path.join(root, n))
+                named.setdefault(same, {})[m.group(2)] = m.group(1)
         if not recursive:
             break
     out = []
-    for key, by_stamp in runs.items():
+    for same, by_stamp in runs.items():
         stamp = max(by_stamp)
         zips = [by_stamp[stamp][n] for n in sorted(by_stamp[stamp])]
-        out.append((key, stamp, zips, os.path.dirname(zips[0])))
+        out.append((named[same][stamp], stamp, zips, os.path.dirname(zips[0])))
     return sorted(out, key=lambda k: (k[1], k[0]))
 
 
@@ -4188,6 +4469,7 @@ def model_bench(opts, switches):
     sig = hashlib.sha1(open(jar, "rb").read()).hexdigest()[:12]
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
+    reports = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
@@ -4195,6 +4477,7 @@ def model_bench(opts, switches):
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
+        reports.append(info["report"])
         d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs)
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         if ran:
@@ -4206,6 +4489,11 @@ def model_bench(opts, switches):
         kits.append(k)
         print("Kit %d of %d: %s (%s): %d songs, %d cymbals%s" % (n + 1, len(found), k.name, stamp, len(k.songs), len(k.label),
                                                             ", DrumMidi ran on each" if ran else ", from the last bench"), flush=True)
+    # The kit names the reports give, with their plugins, back in kit-names.txt (Kit loaded's lists).
+    learned = kit_names_learn(reports)
+    if learned:
+        print("Kit names: %d kit name%s and %s plugin%s from the tests' reports kept for Kit loaded's lists (~/.pulsekit/%s)"
+              % (learned, "" if learned == 1 else "s", "its" if learned == 1 else "their", "" if learned == 1 else "s", KIT_NAMES))
     if len(kits) < 2:
         fail("--model_compare and --leave_one_out need two kits or more")
     # The kits counted as new: the newest run's (its folder), the newest N runs', named ones, or none.
@@ -4366,7 +4654,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None}
@@ -4392,6 +4680,7 @@ def main(argv):
     if "--scan" in switches:
         scan()
         return
+    CURRENT_KIT[0] = (opts.get("--kit_name") or "").strip()
     # The cymbal model comparison (Settings' switch; the Cymbal model tab's parts): run on its own (no
     # plugin played), or after the run's renders and tests (BENCH_STAGE). Off: the tab's parts are not run.
     parts_ticked = "--model_compare" in switches or "--leave_one_out" in switches
@@ -4436,6 +4725,9 @@ def main(argv):
             opts["--zip_outdir"] = filled
             argv = list(argv)
             argv[argv.index("--zip_outdir") + 1] = filled
+    # --padset: the Pads tab's drum set (a SoundFont Pulsekit wrote), played after the plugins.
+    if opts["--padset"]:
+        return pad_set_runs(argv, opts, switches)
     more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
     if more and not parts:
         if not opts["--plugin"]:
@@ -4828,6 +5120,10 @@ def main(argv):
             elif said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])
+                # The profile another kit's of this plugin: the kit was named, not changed.
+                twin = same_profile_check(kit_file, opts.get("--bridged") or opts["--clap"] or name, opts["--kit_name"])
+                if twin:
+                    print(twin)
             else:
                 kit_file = None
                 kit_said = "not learned (%s); the test went on without it" % said
@@ -4845,7 +5141,7 @@ def main(argv):
             choke_from = "%s%s" % (os.path.basename(choke_file), ", section [%s]" % part if part else "")
         elif opts["--chokes"]:
             try:
-                pairs = map_for(opts["--chokes"])[0]
+                pairs = chokes_pairs(opts["--chokes"])
             except ValueError as e:
                 fail("--chokes: %s" % e)
             choke_from = "--chokes"

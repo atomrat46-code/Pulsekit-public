@@ -158,6 +158,36 @@ final class VstLists {
         return out;
     }
 
+    /**
+     * The kit names kept before they were kept with their plugin (Kit loaded's list from runs before v446):
+     * those not named for any plugin since (the runs' pairs, vst_render's kit-names.txt). Listed for every
+     * plugin until a run, the Params or the cymbal bench ties them to one.
+     */
+    static List<String> unplacedKits() {
+        java.util.Set<String> placed = new java.util.HashSet<String>();
+        for (String line : kept(PLUGIN_KITS_KEY)) {
+            int tab = line.indexOf('\t');
+            if (tab > 0) placed.add(line.substring(tab + 1).trim().toLowerCase(java.util.Locale.ROOT));
+        }
+        File names = new File(new File(System.getProperty("user.home", "."), ".pulsekit"), "kit-names.txt");
+        if (names.isFile()) {
+            try {
+                for (String line : new String(Files.readAllBytes(names.toPath()), "UTF-8").split("\n")) {
+                    int tab = line.indexOf('\t');
+                    if (tab > 0) placed.add(line.substring(0, tab).trim().toLowerCase(java.util.Locale.ROOT));
+                }
+            } catch (Exception ignored) {
+                // the runs' pairs only
+            }
+        }
+        List<String> out = new ArrayList<String>();
+        for (String k : kitNames()) {
+            String low = k.trim().toLowerCase(java.util.Locale.ROOT);
+            if (low.length() > 0 && !placed.contains(low) && !NOT_KITS.contains(low) && !out.contains(k.trim())) out.add(k.trim());
+        }
+        return out;
+    }
+
     /** The run's plugins (--plugin to --plugin4, --effect): first among the recently used (Params' Plugins tab). */
     static void rememberPlugins(String args) {
         PluginLibrary.load(PromptDb.dir());

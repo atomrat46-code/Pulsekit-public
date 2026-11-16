@@ -42,11 +42,15 @@ final class Playback {
 
     Playback(Pulsekit app) {
         this.app = app;
+        this.kits = new PadKits(app);
     }
 
     final JButton[] padBtns = new JButton[Engine.TRACK_ID.length];
 
     int drumSetIndex = 0;
+
+    /** The drum sets' menus and the kits (Add SF2…, the kits' list). */
+    final PadKits kits;
 
     JPanel drumSetBar;
 
@@ -75,6 +79,8 @@ final class Playback {
         this.drumSetBar = new ChipStrip();
         this.drumSetBar.setAlignmentX(0.0f);
         north.add(this.drumSetBar);
+        // Add SF2… and the kits added: one picked loads into the drum set selected.
+        north.add(this.kits.kitRow());
         JPanel jPanel2 = new JPanel(new FlowLayout(0, 6, 4));
         jPanel2.setOpaque(false);
         jPanel2.setAlignmentX(0.0f);
@@ -98,22 +104,16 @@ final class Playback {
         });
         jPanel2.add(jButton);
         jPanel2.add(jButton2);
-        this.padMatchAll = app.outline("Match Original", true);
-        this.padMatchAll.setVisible(false);
-        this.padMatchAll.addActionListener(e -> this.matchWholeOriginal());
-        jPanel2.add(this.padMatchAll);
-        JLabel jLabel = new JLabel("  Tap Match Original for the whole kit");
-        jLabel.setForeground(SUBTLE);
-        jPanel2.add(jLabel);
         north.add(jPanel2);
         jPanel.add((Component)north, "North");
-        JPanel jPanel3 = new JPanel(new GridLayout(3, 4, 10, 10));
+        JPanel jPanel3 = new JPanel(new GridLayout((Engine.TRACK_ID.length + 3) / 4, 4, 10, 10));
         jPanel3.setOpaque(false);
         for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
             final int n = i;
             JButton jButton3 = app.action(Engine.TRACK_SHORT[i] + "  " + Engine.TRACK_LABEL[i] + "  \u00b7 " + Engine.padNote(i), ELEV, FG);
-            jButton3.setToolTipText(Engine.TRACK_LABEL[i] + ": MIDI note " + Engine.padNote(i));
-            jButton3.setPreferredSize(new Dimension(120, 88));
+            jButton3.setName("pad:" + Engine.TRACK_ID[i]);
+            jButton3.setToolTipText(padTip(i));
+            jButton3.setPreferredSize(new Dimension(210, 52));
             jButton3.addActionListener(actionEvent -> {
                 this.preview(n);
                 this.flashPad(n);
@@ -129,7 +129,11 @@ final class Playback {
             this.padBtns[i] = jButton3;
             jPanel3.add(jButton3);
         }
-        jPanel.add((Component)jPanel3, "Center");
+        // The pads at their own size (not stretched over the window), from the top left.
+        JPanel padsAt = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        padsAt.setOpaque(false);
+        padsAt.add(jPanel3);
+        jPanel.add((Component)padsAt, "Center");
         this.refreshDrumSets();
         return jPanel;
     }
@@ -273,12 +277,31 @@ final class Playback {
                         n7 += n3;
                     }
                     int gate = Engine.gateTicks(Engine.lenAt(srcLens, j, idx));
-                    track.add(new MidiEvent(new ShortMessage(144, 9, Engine.NOTES[j], n6), n7));
-                    track.add(new MidiEvent(new ShortMessage(128, 9, Engine.NOTES[j], 0), n7 + gate));
+                    addHit(track, j, n7, gate, n6);
                 }
             }
         }
         return sequence;
+    }
+
+    /**
+     * One hit of track `t` into the sequence (Engine.hitEvents: the semi-open hat's hi-hat pedal, a choke's
+     * aftertouch), a choke also letting its cymbals' notes go: the synth ends a ringing cymbal on its note off.
+     */
+    static void addHit(Track track, int t, long tick, int gate, int vel) throws Exception {
+        for (int[] e : Engine.hitEvents(t, (int) tick, gate, vel, 9)) {
+            track.add(new MidiEvent(new ShortMessage(e[1] & 0xF0, 9, e[2], e[3]), e[0]));
+        }
+        if (Engine.isChoke(t)) {
+            for (int c : Engine.chokedTracks(t)) track.add(new MidiEvent(new ShortMessage(ShortMessage.NOTE_OFF, 9, Engine.NOTES[c], 0), tick));
+        }
+    }
+
+    /** A pad's tooltip: its MIDI note, or what a choke stops. */
+    static String padTip(int t) {
+        if (Engine.isChoke(t)) return Engine.TRACK_LABEL[t] + ": stops the ringing " + ("chk".equals(Engine.TRACK_ID[t]) ? "crash, crash 2, china and splash" : "ride and ride bell") + " (aftertouch on " + Engine.NOTES[t] + ")";
+        if (Engine.isSemi(t)) return Engine.TRACK_LABEL[t] + ": MIDI note " + Engine.padNote(t) + " with the hi-hat pedal half down (CC4 " + Engine.SEMI_CC + ")";
+        return Engine.TRACK_LABEL[t] + ": MIDI note " + Engine.padNote(t);
     }
 
     Sequence sequenceFromSong() throws Exception {
@@ -301,8 +324,7 @@ final class Playback {
                         if (n5 <= 0) continue;
                         int n6 = n2 + k * n;
                         int gate = Engine.gateTicks(Engine.lenAt(part.lens, j, k));
-                        track.add(new MidiEvent(new ShortMessage(144, 9, Engine.NOTES[j], n5), n6));
-                        track.add(new MidiEvent(new ShortMessage(128, 9, Engine.NOTES[j], 0), n6 + gate));
+                        addHit(track, j, n6, gate, n5);
                     }
                 }
                 n2 += partSteps * n;
@@ -445,7 +467,8 @@ final class Playback {
         if (!app.styles.containsKey(app.style)) app.style = "house";
         app.styleLibrary.loadStyle(app.style, true);
         double d = 0.04 + (double)app.densBar.getVal() * 0.02;
-        for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
+        // The first 12 tracks: no random chokes, chinas or splashes.
+        for (int i = 0; i < Engine.BASE_TRACKS; ++i) {
             for (int j = 0; j < app.steps; ++j) {
                 if (!(random.nextDouble() < d)) continue;
                 if (app.cells[i][j] > 0 && random.nextBoolean()) {
@@ -492,10 +515,76 @@ final class Playback {
                 this.doubleKickTimer.start();
                 return;
             }
+            if (Engine.isChoke(n) || Engine.isSemi(n)) {
+                this.extraHit(n);
+                return;
+            }
             this.hit(midiChannel, Engine.NOTES[n]);
         }
         catch (Exception exception) {
             // empty catch block
+        }
+    }
+
+    /** The last choke or semi-open hat pad struck (for the tests). */
+    static String lastExtra;
+    Timer semiClose;
+
+    /**
+     * A choke or the semi-open hat struck: the semi-open hat the open hat's note with the hi-hat pedal half
+     * down, let go after SEMI_OPEN; a choke the crash's or the ride's notes let go (note off, which ends a
+     * SoundFont's cymbal) and full aftertouch to a MIDI output.
+     */
+    void extraHit(int i) {
+        lastExtra = Engine.TRACK_ID[i];
+        if (this.synth == null || app.muted) return;
+        try {
+            final MidiChannel ch = this.synth.getChannels()[9];
+            if (ch == null) return;
+            if (Engine.isChoke(i)) {
+                for (int c : Engine.chokedTracks(i)) {
+                    int note = Engine.NOTES[c];
+                    if (this.midiOutReceiver != null && this.midiOut != null) {
+                        try {
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.POLY_PRESSURE, 9, note, 127), -1);
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_OFF, 9, note, 0), -1);
+                            continue;
+                        } catch (Exception ignored) {
+                            // the synth
+                        }
+                    }
+                    ch.noteOff(note);
+                }
+                return;
+            }
+            final int note = Engine.NOTES[i];
+            if (this.midiOutReceiver != null && this.midiOut != null) {
+                try {
+                    this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.CONTROL_CHANGE, 9, 4, Engine.SEMI_CC), -1);
+                } catch (Exception ignored) {
+                    // the synth
+                }
+            }
+            this.hit(ch, note);
+            if (Engine.isSemi(i)) {
+                if (this.semiClose != null) this.semiClose.stop();
+                this.semiClose = new Timer((int) (ExtraPads.SEMI_OPEN * 1000), e -> {
+                    if (this.midiOutReceiver != null && this.midiOut != null) {
+                        try {
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_OFF, 9, note, 0), -1);
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.CONTROL_CHANGE, 9, 4, 0), -1);
+                            return;
+                        } catch (Exception ignored) {
+                            // the synth
+                        }
+                    }
+                    ch.noteOff(note);
+                });
+                this.semiClose.setRepeats(false);
+                this.semiClose.start();
+            }
+        } catch (Exception ignored) {
+            // no sound
         }
     }
 
@@ -535,6 +624,20 @@ final class Playback {
         return s.samples[src];
     }
 
+    /** A drum set's sounds as the pads play it (Original's for the pads matching it), by its name; null: no such set. */
+    short[][] voicesOfSet(String name) {
+        Engine.DrumSet s = null;
+        for (Engine.DrumSet d : app.drumSets) if (d.name.equals(name)) s = d;
+        if (s == null) return null;
+        this.fillMissingVoices();
+        short[][] out = new short[app.voices.length][];
+        for (int t = 0; t < Engine.TRACK_ID.length && t < out.length; t++) {
+            int src = Engine.soundTrack(t);
+            out[t] = s.original || s.matchOrig[src] ? app.voices[src] : s.samples[src];
+        }
+        return out;
+    }
+
     short[][] mixVoices() {
         this.fillMissingVoices();
         Engine.DrumSet s = this.activeDrumSet();
@@ -549,6 +652,7 @@ final class Playback {
     void refreshDrumSets() {
         if (this.drumSetBar == null) return;
         this.drumSetBar.removeAll();
+        if (this.drumSetIndex < 0 || this.drumSetIndex >= app.drumSets.size()) this.drumSetIndex = 0;
         JLabel lab = new JLabel("Drum sets  ");
         lab.setForeground(SUBTLE);
         this.drumSetBar.add(lab);
@@ -556,35 +660,27 @@ final class Playback {
             final int idx = i;
             Engine.DrumSet s = app.drumSets.get(i);
             JButton b = app.chip(s.name, idx == this.drumSetIndex);
-            if (!s.original) {
-                java.util.Map<TextAttribute, Object> attrs = new java.util.HashMap<TextAttribute, Object>();
-                attrs.put(TextAttribute.UNDERLINE, TextAttribute.UNDERLINE_ON);
-                b.setFont(b.getFont().deriveFont(attrs));
-            }
+            b.setName("drum-set:" + s.name);
+            b.setToolTipText(s.original ? "Pulsekit's own kit (right-click: Copy into new)" : s.name + (s.kit.isEmpty() ? "" : " \u00b7 " + s.kit) + " (right-click: Rename, Copy into new, Match Original, Delete\u2026)");
             b.addActionListener(e -> {
                 this.drumSetIndex = idx;
                 this.reloadDrumBank();
+                this.kits.saveSets();
                 this.refreshDrumSets();
-                this.refreshPadLabels();
                 app.setNow(s.original ? "Original kit" : s.name + " \u00b7 " + s.foundCount() + " pads");
             });
-            if (!s.original) app.onChipMenu(b, () -> this.drumSetMenu(idx));
+            app.onChipMenu(b, () -> this.kits.setMenu(idx));
             this.drumSetBar.add(b);
         }
+        JButton plus = app.chip("+", false);
+        plus.setName("drum-set-add");
+        plus.setToolTipText("A new drum set (its pads match Original until a kit is picked for it)");
+        plus.addActionListener(e -> this.kits.newSet());
+        this.drumSetBar.add(plus);
         this.drumSetBar.revalidate();
         this.drumSetBar.repaint();
         this.refreshPadLabels();
-        Engine.DrumSet cur = this.activeDrumSet();
-        if (this.padMatchAll != null) {
-            boolean iso = cur != null && !cur.original;
-            this.padMatchAll.setVisible(iso);
-            if (iso) {
-                boolean all = true;
-                for (int t = 0; t < Engine.TRACK_ID.length; t++) if (!cur.matchOrig[t]) { all = false; break; }
-                this.padMatchAll.setText(all ? "This set" : "Match Original");
-                app.paintOutline(this.padMatchAll, !all);
-            }
-        }
+        this.kits.refreshKits();
     }
 
     void matchWholeOriginal() {
@@ -647,6 +743,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 this set");
+                    this.kits.saveSets();
                 });
                 m.add(use);
             } else {
@@ -656,6 +753,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 Original");
+                    this.kits.saveSets();
                 });
                 m.add(match);
             }
@@ -666,6 +764,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 empty");
+                    this.kits.saveSets();
                 });
                 m.add(clear);
             }
@@ -684,8 +783,8 @@ final class Playback {
             String extra = Engine.TRACK_LABEL[t];
             if (!s.original) {
                 if (s.matchOrig[t]) extra = "Original";
-                else if (s.samples[t] != null) extra = "From song";
-                else extra = "Empty";
+                else if (s.samples[t] != null) extra = Engine.TRACK_LABEL[t];
+                else extra = Engine.isChoke(t) ? Engine.TRACK_LABEL[t] : "Empty";
             }
             this.padBtns[t].setText(Engine.TRACK_SHORT[t] + "  " + extra + "  \u00b7 " + Engine.padNote(t));
         }
@@ -748,6 +847,7 @@ final class Playback {
             set.samples[n] = sArray;
             set.matchOrig[n] = false;
         }
+        if (!set.original) this.kits.saveSets();
         this.reloadDrumBank();
         this.refreshPadLabels();
         app.setNow(Engine.TRACK_LABEL[n] + " \u00b7 " + string);

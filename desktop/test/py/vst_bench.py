@@ -15,6 +15,8 @@ spec = importlib.util.spec_from_file_location('vr', os.path.abspath(sys.argv[1])
 vr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vr)
 jar, work = os.path.abspath(sys.argv[2]), os.path.abspath(sys.argv[3])
+# vst_render's ~/.pulsekit (kit-names.txt) in the work folder, not the real one.
+os.environ['HOME'] = os.environ['USERPROFILE'] = work
 R = 44100
 
 
@@ -143,3 +145,16 @@ for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"],
         vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", out, "--model_compare", "--drummidi", jar] + bad)
     except SystemExit as e:
         print("refused", e.code)
+# A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
+again = os.path.join(work, "again")
+os.makedirs(again, exist_ok=True)
+for n in ("vst-render-Ugritone_Drums_KVLT_Mexico_1998_-20261101-100000.zip", "vst-render-Ugritone_Drums_KVLT__Mexico_1998_-20261116-100000.zip"):
+    open(os.path.join(again, n), "w").write("x")
+print("named again:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])
+# A kit given a pack later (1983 Metal, then Speed Metal: 1983 Metal): one kit with kits.txt's alias line.
+for n in ("vst-render-Ugritone_Drums_1983_Metal_-20261101-100000.zip", "vst-render-Ugritone_Drums_Speed_Metal__1983_Metal_-20261116-100000.zip"):
+    open(os.path.join(again, n), "w").write("x")
+print("without alias:", len(vr.render_kits(again, True, {})))
+os.makedirs(os.path.join(work, ".pulsekit", "maps"), exist_ok=True)
+open(os.path.join(work, ".pulsekit", "maps", "kits.txt"), "w").write("[Ugritone Drums]\nSpeed Metal: 1983 Metal = 1983 Metal\n")
+print("with alias:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])

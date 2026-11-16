@@ -835,7 +835,34 @@ public final class JavaRun {
    */
   /** vst_render.py runs DrumMidi_CRT.jar: --test, --mp3 (Wav2Mp3 is in it) and the cymbal model bench. */
   public static boolean needsDrumMidi(List<String> argv) {
-    return argv != null && (argv.contains("--test") || argv.contains("--mp3") || argv.contains("--model_compare") || argv.contains("--leave_one_out") || argv.contains("--cymbal_bench"));
+    return argv != null && (argv.contains("--test") || argv.contains("--padset") || argv.contains("--mp3") || argv.contains("--model_compare") || argv.contains("--leave_one_out") || argv.contains("--cymbal_bench"));
+  }
+
+  /**
+   * vst_render.py --padset NAME (Params' Pads set list): the drum set of that name written as a SoundFont
+   * (`dir`/<name>.sf2, the pads matching Original with Original's sounds), its path given instead, with
+   * --padset_name. Unchanged when there is none, or no such set.
+   */
+  public static List<String> withPadSet(String program, List<String> argv, File dir) {
+    if (!"vst_render.py".equals(program) || argv == null) return argv;
+    int at = argv.indexOf("--padset");
+    if (at < 0 || at + 1 >= argv.size()) return argv;
+    String name = argv.get(at + 1);
+    if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".sf2") || DrumSetStore.voicesOf == null) return argv;
+    short[][] v = DrumSetStore.voicesOf.apply(name);
+    if (v == null) return argv;
+    try {
+      dir.mkdirs();
+      File sf2 = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_") + ".sf2");
+      writeFile(sf2, AudioIo.encodeSf2(v, name));
+      List<String> out = new ArrayList<String>(argv);
+      out.set(at + 1, sf2.getAbsolutePath());
+      out.add("--padset_name");
+      out.add(name);
+      return out;
+    } catch (Exception ex) {
+      return argv;
+    }
   }
 
   public static List<String> withDrumMidi(String program, List<String> argv, File jar, byte[] jarBytes) {

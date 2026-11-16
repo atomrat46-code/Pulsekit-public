@@ -17,7 +17,7 @@ import javax.swing.SpinnerNumberModel;
 
 /**
  * A DrumPad track's MIDI editor (DrumGrid): a bar at a time, its timeline of 16th-note steps over a
- * grid of the 12 pads, and the pads under them. Select a step on the timeline (or ← and →), then press
+ * grid of the 20 pads, and the pads under them. Select a step on the timeline (or ← and →), then press
  * a pad (or its key, 1 to 0, - and =): it plays in that step, or comes out of it when it was there. A
  * cell of the grid does the same. ◀ ▶ go bar to bar; + Bar, Quantize, BPM and time signature, ▶ Play,
  * Export MIDI (into the program files folder). Each change makes the track's sound again.
@@ -182,7 +182,7 @@ final class DrumGridWindow {
         top.add(play);
         top.add(export);
         // The pads: each puts itself in the step selected (and sounds).
-        JPanel pads = new JPanel(new GridLayout(2, 6, 4, 4));
+        JPanel pads = new JPanel(new GridLayout((Engine.TRACK_ID.length + 4) / 5, 5, 4, 4));
         pads.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
         for (int i = 0; i < Engine.TRACK_ID.length; i++) {
             final int pad = i;

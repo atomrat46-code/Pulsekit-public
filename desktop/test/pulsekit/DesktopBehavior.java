@@ -10215,7 +10215,8 @@ public final class DesktopBehavior {
   /**
    * 15112026: the Kit loaded row's Choose: the plugin's packs and their sets, from the kits run with it and
    * maps/kits.txt ("Pack: Set"; a name without a pack under "(no pack)"); the kit there picked; Use gives
-   * "Pack: Set".
+   * "Pack: Set". 16112026: names kept before their plugin was, "Pack:Set", a kit saved in the Params; Add
+   * new… and a set dropped on a pack (kits.txt); Use as plugin's menu of packs and sets.
    */
   void s259_kit_packs() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -10237,8 +10238,92 @@ public final class DesktopBehavior {
     });
     idle();
     out.append("chosen: ").append(got[0]).append('\n');
+    // 16112026: a kit name kept before plugins were (no plugin to it), "Pack:Set" without a space, and one typed
+    // in the Params (saved, no run): listed; Add new… and a set dragged onto a pack write into kits.txt.
+    VstLists.rememberKits("--kit_name \"Tight Studio Drums:Ringy Studio Kit\"");
+    VstLists.rememberKits("--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums: A Taste Of Compression\"");
+    call("saveParams", "vst_render.py", "--plugin \"C:/VST3/Ugritone Drums.vst3\" --kit_name \"Tight Studio Drums:A taste of Compression\"");
+    call("saveParams", "vst_render.py", "");
+    out.append("more: ").append(KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"))).append('\n');
+    KitChooser.last = null;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> KitChooser.choose(frame, "C:/VST3/Ugritone Drums.vst3", ""));
+    for (int i = 0; i < 100 && (KitChooser.last == null || !KitChooser.last.dialog.isShowing()); i++) Thread.sleep(50);
+    final KitChooser c2 = KitChooser.last;
+    edt(() -> {
+      c2.pick("Total Studio Drums", null);
+      KitChooser.answer = "Smells like Nashville";
+      c2.addSet();
+      out.append("added: ").append(c2.packList.getSelectedValue()).append(" / ").append(c2.setList.getSelectedValue()).append('\n');
+      c2.moveTo("KVLT_Mexico 1998", "Tight Studio Drums");
+      out.append("moved: ").append(c2.packs).append('\n');
+      // 16112026: Add pack…, a set made a pack (dropped below the packs), Rename and Delete of a set, a pack renamed.
+      KitChooser.answer = "Speed Metal Drums";
+      c2.addSet();
+      c2.makePack("Speed Metal Drums");
+      KitChooser.answer = "KVLT";
+      c2.addPack();
+      out.append("packs added: ").append(c2.packs).append(", picked ").append(c2.packList.getSelectedValue()).append('\n');
+      c2.pick("Tight Studio Drums", "Noob Metal");
+      KitChooser.answer = "Noob Metal 2";
+      c2.renameSet();
+      c2.pick("Tight Studio Drums", "KVLT_Mexico 1998");
+      KitChooser.sure = true;
+      c2.deleteSet();
+      KitChooser.sure = null;
+      c2.pick("Total Studio Drums", null);
+      KitChooser.answer = "Total Drums";
+      c2.renamePack();
+      KitChooser.answer = null;
+      out.append("edited: ").append(c2.packs).append('\n');
+      java.awt.Component cell = c2.packList.getCellRenderer().getListCellRendererComponent(c2.packList, "Tight Studio Drums", 0, false, false);
+      out.append("pack row: ").append(((javax.swing.JLabel) cell).getText()).append('\n');
+      c2.dialog.dispose();
+    });
+    idle();
+    out.append("kits.txt: ").append(PluginFiles.read(KitPacks.file(home)).replace("\n", " | ")).append('\n');
+    // Use as plugin's menu: the plugin's packs and sets; a set picked sets the plugin and its Kit loaded.
+    final PyJav pj = (PyJav) get("pyJav");
+    final java.util.List<ProgramParams.Param> ps = ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"));
+    final String[] values = new String[ps.size()];
+    final javax.swing.JLabel[] labels = new javax.swing.JLabel[ps.size()];
+    final javax.swing.JCheckBox[] uses = new javax.swing.JCheckBox[ps.size()];
+    final StringBuilder menu = new StringBuilder();
+    edt(() -> {
+      javax.swing.JPopupMenu m = pj.useMenu(ps, values, labels, uses, "C:/VST3/Ugritone Drums.vst3");
+      javax.swing.JMenu one = (javax.swing.JMenu) m.getComponent(0);
+      for (Component x : one.getMenuComponents()) if (x instanceof javax.swing.JMenuItem) menu.append(((javax.swing.JMenuItem) x).getText()).append(x instanceof javax.swing.JMenu ? ">" : "").append("; ");
+      javax.swing.JMenu tight = null;
+      for (Component x : one.getMenuComponents()) if (x instanceof javax.swing.JMenu && ((javax.swing.JMenu) x).getText().equals("Tight Studio Drums")) tight = (javax.swing.JMenu) x;
+      for (Component x : tight.getMenuComponents()) if (((javax.swing.JMenuItem) x).getText().equals("Ringy Studio Kit")) ((javax.swing.JMenuItem) x).doClick();
+    });
+    int pl = -1, kn = -1;
+    for (int i = 0; i < ps.size(); i++) {
+      if (ps.get(i).token.equals("--plugin")) pl = i;
+      if (ps.get(i).token.equals("--kit_name")) kn = i;
+    }
+    out.append("menu: ").append(menu).append("\nused: ").append(values[pl]).append(" / ").append(values[kn]).append('\n');
+    // 16112026: Kit loaded's suggestions as a name is typed: packs ("Pack: " picked), then the pack's sets.
+    java.util.Map<String, java.util.List<String>> pk = KitPacks.packs(KitChooser.kits("C:/VST3/Ugritone Drums.vst3"));
+    java.util.function.Function<String, String> sug = t -> {
+      StringBuilder b = new StringBuilder();
+      for (String[] g : KitPacks.suggest(pk, t)) b.append(g[0]).append(" -> ").append(g[1]).append("; ");
+      return b.toString();
+    };
+    out.append("suggest T: ").append(sug.apply("T")).append("| Ti: ").append(sug.apply("ti")).append("| Tig: ").append(sug.apply("Tigx")).append("| set: ").append(sug.apply("Tight Studio Drums: r"))
+        .append("| empty: ").append(sug.apply("")).append('\n');
     String all = out.toString();
-    boolean ok = all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
+    boolean ok = all.contains("more: {Tight Studio Drums=[A taste of Compression, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits], (no pack)=[KVLT_Mexico 1998]}")
+        && all.contains("packs added: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville], Speed Metal Drums=[], KVLT=[]}, picked KVLT")
+        && all.contains("edited: {Tight Studio Drums=[A taste of Compression, Noob Metal 2, Ringy Studio Kit], Speed Metal Drums=[], KVLT=[], Total Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
+        && all.contains("pack row: Tight Studio Drums (3)")
+        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums: ; Total Drums (3) -> Total Drums: ; | Ti: Tight Studio Drums (3) -> Tight Studio Drums: ; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums: Ringy Studio Kit; | empty: \n")
+        && all.contains("kits.txt: [Ugritone Drums] | Tight Studio Drums: KVLT_Mexico 1998 = KVLT_Mexico 1998 | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums: Noob Metal 2 | Tight Studio Drums: Noob Metal 2 = Tight Studio Drums: Noob Metal | -KVLT_Mexico 1998 | Total Drums: Kind of metal | Total Drums: Pop Hits | Total Drums: Smells like Nashville | Total Drums: Kind of metal = Total Studio Drums: Kind of metal | Total Drums: Pop Hits = Total Studio Drums: Pop Hits | Total Drums: Smells like Nashville = Total Studio Drums: Smells like Nashville | [Riot Drums] | Default kit | ")
+        && all.contains("added: Total Studio Drums / Smells like Nashville")
+        && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
+        && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Drums>; ")
+        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums: Ringy Studio Kit")
+        && all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
         && all.contains("chosen: Total Studio Drums: Pop Hits");
     if (!ok) throw new AssertionError(all);
@@ -10486,6 +10571,9 @@ public final class DesktopBehavior {
         && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("Kit names: 2 kit names and their plugins from the tests' reports kept for Kit loaded's lists")
+        && all.contains("named again: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000')]") && all.contains("without alias: 3")
+        && all.contains("with alias: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000'), ('vst-render-Ugritone_Drums_Speed_Metal__1983_Metal_', '20261116-100000')]")
         && all.contains("from the last bench") && all.contains("copies: ['cymbal-compare-builtin-vs-2-kits', 'cymbal-leave-one-out']")
         && all.contains("Succeeded: 2 zips") && all.contains("cymbal-compare-none-vs-builtin") && all.contains("cymbal-compare-1-older-kits-vs-2-kits")
         && all.contains("Failed: Model B (--model_b): the first N kits needs how many (the row under it, --model_b_kits)")
@@ -10796,7 +10884,12 @@ public final class DesktopBehavior {
     String all = this.out.toString();
     boolean ok = all.contains("Working: playing each cymbal and its choke 8 times, 1.0 s apart (--chokes 49=50)") && all.contains("Chokes: 49 plain written as ")
         && all.contains("Chokes: 50 (49 choked) written as ") && all.contains("Chokes (--chokes 49=50): ")
-        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52): 49']")
+        && all.contains("refused: ['Failed: --chokes takes note=note pairs (49=50,51=52), note=at or at: 49']")
+        // v454: --chokes 49=at (aftertouch): the beat grabs the cymbal; DrumMidi --chokes N=at writes where it was cut.
+        && all.contains("(--chokes 49=at)") && all.contains("Chokes: 49 choked (aftertouch) written as ")
+        && all.contains("Chokes (--chokes 42=at): ") && all.contains("as aftertouch") && all.contains("42+choke ")
+        && !all.matches("(?s).*Chokes: 42 plain written as [^\\n]*choke.*")
+        && all.contains("at alone: 49=at,51=at,52=at,53=at,55=at,57=at")
         && label.startsWith("Chokes: the plugin's choke notes") && dmLabel.startsWith("Chokes: a crash or ride cut off by hand");
     if (!ok) throw new AssertionError(all);
   }
@@ -10905,6 +10998,305 @@ public final class DesktopBehavior {
         && all.contains("verdict: \u26a0 the test beat sounds exactly as it did for \"DigiDrum:kit 1\"")
         && all.contains("progress: 1:24 \u00b7 Working: playing each of its 5 pads alone, to hear what each one is | 0:03 \u00b7 starting");
     if (!ok) throw new AssertionError(all);
+  }
+
+  /**
+   * v455: the Pads tab's drum sets and kits. + makes a set (named); Add SF2… puts a SoundFont on the kits'
+   * list and loads it into the set selected; the list loads a kit into Original too (kept as kit.sf2). A
+   * set's menu: Rename, Copy into new, Match Original, Delete (asked first). The sets and the list are kept.
+   */
+  void s263_drum_sets_kits() throws Exception {
+    call("showView", "pads");
+    idle();
+    final Playback pb = (Playback) get("playback");
+    final StringBuilder seen = new StringBuilder();
+    File home = new File(System.getProperty("user.home"));
+    // A SoundFont: the built-in sounds with a long crash.
+    short[][] v = AudioIo.buildVoices(AudioIo.SR);
+    short[] crash = new short[AudioIo.SR];
+    for (int i = 0; i < crash.length; i++) crash[i] = (short) (((i * 7919) % 16000 - 8000) * (crash.length - i) / crash.length);
+    v[Engine.track("crash")] = crash;
+    File sf2 = new File(home, "Rock Kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(v, "Rock Kit"));
+    edt(() -> {
+      PadKits.answer = "Heavy";
+      ((javax.swing.JButton) component(frame, "drum-set-add")).doClick();
+    });
+    idle();
+    seen.append("new: ").append(pb.activeDrumSet().name).append(", sets ").append(((java.util.List<?>) get("drumSets")).size()).append('\n');
+    PadKits.addFile = sf2;
+    edt(() -> ((javax.swing.JButton) component(frame, "pads-add-kit")).doClick());
+    for (int i = 0; i < 200 && !"Rock Kit".equals(pb.activeDrumSet().kit); i++) Thread.sleep(50);
+    idle();
+    Engine.DrumSet heavy = pb.activeDrumSet();
+    seen.append("loaded: ").append(heavy.name).append(" kit ").append(heavy.kit).append(", crash own ").append(heavy.samples[Engine.track("crash")] != null && !heavy.matchOrig[Engine.track("crash")])
+        .append(" (a second long: ").append(heavy.samples[Engine.track("crash")] != null && heavy.samples[Engine.track("crash")].length > 20000).append(")")
+        .append(", list ").append(KitShelf.list(PadKits.kitsDir()).size()).append(" ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    seen.append("pad: ").append(pb.padBtns[Engine.track("crash")].getText()).append('\n');
+    // Original: the list's kit into Pulsekit's own kit.
+    edt(() -> ((javax.swing.JButton) component(frame, "drum-set:Original")).doClick());
+    idle();
+    edt(() -> pb.kits.kitList.setSelectedIndex(1));
+    final short[][] voices = (short[][]) get("voices");
+    for (int i = 0; i < 200 && voices[Engine.track("crash")].length < 20000; i++) Thread.sleep(50);
+    idle();
+    seen.append("original: crash a second long ").append(voices[Engine.track("crash")].length > 20000).append(", kit.sf2 ").append(new File(new File(home, ".pulsekit"), "kit.sf2").isFile())
+        .append(", kit ").append(pb.activeDrumSet().kit).append('\n');
+    // The set's menu: Rename, Copy into new, Delete.
+    edt(() -> {
+      javax.swing.JPopupMenu m = pb.kits.setMenu(1);
+      StringBuilder items = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("menu: ").append(items).append('\n');
+      StringBuilder orig = new StringBuilder();
+      for (java.awt.Component c : pb.kits.setMenu(0).getComponents()) if (c instanceof javax.swing.JMenuItem) orig.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("Original's menu: ").append(orig).append('\n');
+      PadKits.answer = "Metal";
+      item(m, "Rename").doClick();
+      PadKits.answer = "Metal 2";
+      item(pb.kits.setMenu(1), "Copy into new").doClick();
+    });
+    idle();
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (Engine.DrumSet d : (java.util.List<Engine.DrumSet>) get("drumSets")) names.add(d.name + (d.kit.isEmpty() ? "" : "/" + d.kit));
+    seen.append("sets: ").append(names).append(", selected ").append(pb.activeDrumSet().name).append('\n');
+    edt(() -> {
+      PadKits.sure = Boolean.FALSE;
+      item(pb.kits.setMenu(2), "Delete").doClick();
+    });
+    seen.append("kept when not sure: ").append(((java.util.List<?>) get("drumSets")).size()).append('\n');
+    edt(() -> {
+      PadKits.sure = Boolean.TRUE;
+      item(pb.kits.setMenu(2), "Delete").doClick();
+    });
+    idle();
+    names.clear();
+    for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir())) names.add(d.name + (d.kit.isEmpty() ? "" : "/" + d.kit) + ":" + d.foundCount());
+    seen.append("kept: ").append(names).append('\n');
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("new: Heavy, sets 2") && t.contains("loaded: Heavy kit Rock Kit, crash own true (a second long: true), list 1 Rock Kit")
+        && t.contains("pad: CSH  Crash  \u00b7 49") && t.contains("original: crash a second long true, kit.sf2 true, kit Rock Kit")
+        && t.contains("menu: Cancel | Rename | Copy into new | Match Original | Match empty from Original | Delete | ") && t.contains("Original's menu: Cancel | Copy into new | \n")
+        && t.contains("sets: [Original/Rock Kit, Metal/Rock Kit, Metal 2/Rock Kit], selected Metal 2") && t.contains("kept when not sure: 3")
+        && t.matches("(?s).*kept: \\[Original/Rock Kit:0, Metal/Rock Kit:1[0-9]\\].*");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * v456: vst_render's Pads set (Params' Plugins tab: Off, then the Pads tab's drum sets): the set picked is
+   * written as a SoundFont (the pads matching Original with Original's sounds) and given to vst_render, which
+   * plays it after the plugins. And a plugin tested once: its next Edit settings shows no result window
+   * or WAV ready (the record of tested plugins).
+   */
+  void s264_padset_and_tested() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    final Playback pb = (Playback) get("playback");
+    edt(() -> {
+      Engine.DrumSet heavy = Engine.DrumSet.isolated(null, "Heavy");
+      for (int t = 0; t < Engine.TRACK_ID.length; t++) heavy.matchOrig[t] = true;
+      short[] crash = new short[AudioIo.SR];
+      for (int i = 0; i < crash.length; i++) crash[i] = (short) ((i * 7919) % 16000 - 8000);
+      heavy.samples[Engine.track("crash")] = crash;
+      heavy.matchOrig[Engine.track("crash")] = false;
+      ((java.util.List<Engine.DrumSet>) get("drumSets")).add(heavy);
+    });
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (!p.token.equals("--padset")) continue;
+      seen.append("param: ").append(p.label.split(":")[0]).append(", tab ").append(ProgramParams.vstTab(p)).append(", list ").append(java.util.Arrays.toString(p.choices))
+          .append(" ").append(java.util.Arrays.toString(p.choiceValues)).append('\n');
+    }
+    File dir = new File(System.getProperty("user.home"), "padsets");
+    java.util.List<String> argv = JavaRun.withPadSet("vst_render.py", new java.util.ArrayList<String>(java.util.Arrays.asList("--plugin", "x.vst3", "--padset", "Heavy")), dir);
+    seen.append("argv: ").append(String.join(" ", argv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    short[][] v = AudioIo.parseSf2(Files.readAllBytes(new File(dir, "Heavy.sf2").toPath()));
+    short[][] own = (short[][]) get("voices");
+    seen.append("sf2: crash the set's ").append(v[Engine.track("crash")] != null && v[Engine.track("crash")].length > 20000)
+        .append(", kick Original's ").append(v[Engine.track("kick")] != null && own[Engine.track("kick")] != null && Math.abs(v[Engine.track("kick")].length - own[Engine.track("kick")].length) < 200)
+        .append(", needs DrumMidi's jar ").append(JavaRun.needsDrumMidi(java.util.Arrays.asList("--padset", "x"))).append('\n');
+    seen.append("no such set: ").append(JavaRun.withPadSet("vst_render.py", java.util.Arrays.asList("--padset", "Nope"), dir)).append('\n');
+    File plug = new File(System.getProperty("user.home"), "Drums.vst3");
+    seen.append("tested: ").append(PluginsList.tested(plug));
+    PluginsList.markTested(plug);
+    PluginsList.markTested(plug);
+    seen.append(" -> ").append(PluginsList.tested(plug)).append(", other ").append(PluginsList.tested(new File(System.getProperty("user.home"), "Drums2.vst3")))
+        .append(", lines ").append(Files.readAllLines(PluginsList.testedFile().toPath()).size()).append('\n');
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("param: Pads set, tab Plugins, list [Off, Original, Heavy] [, Original, Heavy]")
+        && t.contains("argv: --plugin x.vst3 --padset <dir>/Heavy.sf2 --padset_name Heavy")
+        && t.contains("sf2: crash the set's true, kick Original's true, needs DrumMidi's jar true") && t.contains("no such set: [--padset, Nope]")
+        && t.contains("tested: false -> true, other false, lines 1");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * v458: vst_render's Parts: a Use box and Configure… (the plugins chosen in a list, and for the one picked
+   * the drums it plays: a part ticked for one plugin is taken from the other). And the desktop's pads at their
+   * own size, not stretched over the window.
+   */
+  void s265_parts_window() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (p.token.equals("--parts")) seen.append("Use box: ").append(ProgramParams.canTurnOff(p)).append('\n');
+    }
+    final String[] plugins = {"C:/VST/Ugritone Drums.vst3", "C:/VST/Riot Drums.vst3", null, "C:/VST/Anarchy Drums.vst3"};
+    edt(() -> {
+      PartsDialog.Panel panel = new PartsDialog.Panel("snare=1", plugins);
+      StringBuilder list = new StringBuilder();
+      for (int i = 0; i < panel.plugin.getItemCount(); i++) list.append(panel.plugin.getItemAt(i)).append(" | ");
+      seen.append("plugins: ").append(list).append('\n');
+      panel.plugin.setSelectedIndex(1);
+      panel.boxes[0].doClick();
+      panel.boxes[4].doClick();
+      panel.plugin.setSelectedIndex(2);
+      panel.boxes[4].doClick();
+      panel.boxes[2].doClick();
+      StringBuilder ticks = new StringBuilder();
+      for (javax.swing.JCheckBox b : panel.boxes) ticks.append(b.isSelected() ? "x" : "-");
+      seen.append("Anarchy ticks: ").append(ticks).append('\n');
+      panel.plugin.setSelectedIndex(1);
+      ticks.setLength(0);
+      for (javax.swing.JCheckBox b : panel.boxes) ticks.append(b.isSelected() ? "x" : "-");
+      seen.append("Riot ticks: ").append(ticks).append('\n');
+      seen.append("parts: ").append(panel.result()).append('\n');
+      seen.append("summary: ").append(PartsDialog.summary(panel.result(), plugins)).append('\n');
+      seen.append("none: ").append(PartsDialog.summary("", plugins)).append(" | ").append(new PartsDialog.Panel("", new String[4]).said.getText()).append('\n');
+    });
+    call("showView", "pads");
+    idle();
+    final Playback pb = (Playback) get("playback");
+    edt(() -> seen.append("pad: ").append(pb.padBtns[0].getWidth()).append("x").append(pb.padBtns[0].getHeight()).append(" in a window ").append(frame.getWidth()).append('\n'));
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("Use box: true") && t.contains("plugins: 1 Ugritone Drums | 2 Riot Drums | 4 Anarchy Drums | ")
+        && t.contains("Anarchy ticks: --x-x") && t.contains("Riot ticks: x----") && t.contains("parts: kick=2,snare=1,toms=4,cymbals=4")
+        && t.contains("summary: 1 Ugritone Drums: snare \u00b7 2 Riot Drums: kick \u00b7 4 Anarchy Drums: toms, cymbals \u00b7 the rest: 1 Ugritone Drums")
+        && t.contains("none: Not set: Configure") && t.contains("Choose the plugins first") && t.matches("(?s).*pad: 210x52 .*");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  static javax.swing.JMenuItem item(javax.swing.JPopupMenu m, String text) {
+    for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals(text)) return (javax.swing.JMenuItem) c;
+    throw new AssertionError("no " + text + " in the menu");
+  }
+
+  /**
+   * v454: the pedal hat, semi-open hat, crash 2, china, splash, ride bell and the crash's and ride's chokes
+   * are drum tracks: pads of their own (struck: played), rows in the pattern, and in MIDI both ways (the
+   * semi-open hat its 46 with the hi-hat pedal half down, a choke aftertouch on its cymbal's note); a choke
+   * stops the crash ringing in a rendered WAV; old patterns (12 tracks) load with the new rows empty.
+   */
+  void s262_extra_pads() throws Exception {
+    call("showView", "pads");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    edt(() -> {
+      for (int t = Engine.BASE_TRACKS; t < Engine.TRACK_ID.length; t++) {
+        javax.swing.JButton b = (javax.swing.JButton) component(frame, "pad:" + Engine.TRACK_ID[t]);
+        seen.append(b == null ? "-" : b.getText().replaceAll(" [A-G]#?-?[0-9]$", "")).append(" | ");
+      }
+      Playback.lastExtra = null;
+      ((javax.swing.JButton) component(frame, "pad:semi")).doClick();
+      seen.append("\nstruck: ").append(Playback.lastExtra);
+      ((javax.swing.JButton) component(frame, "pad:rchk")).doClick();
+      seen.append(", then ").append(Playback.lastExtra);
+      seen.append("\nchoke tip: ").append(((javax.swing.JButton) component(frame, "pad:chk")).getToolTipText());
+    });
+    idle();
+    // MIDI both ways.
+    int[][] cells = Engine.emptyCells();
+    cells[Engine.track("ped")][0] = 90;
+    cells[Engine.track("semi")][2] = 100;
+    cells[Engine.track("cr2")][4] = 110;
+    cells[Engine.track("chn")][5] = 100;
+    cells[Engine.track("spl")][6] = 100;
+    cells[Engine.track("bel")][7] = 100;
+    cells[Engine.track("crash")][8] = 120;
+    cells[Engine.track("chk")][10] = 127;
+    cells[Engine.track("ride")][11] = 100;
+    cells[Engine.track("rchk")][12] = 127;
+    cells[Engine.track("ohh")][14] = 100;
+    byte[] midi = Engine.encodeMidi(cells, 120, 16, 4, 4);
+    StringBuilder hexb = new StringBuilder();
+    for (byte x : midi) hexb.append(String.format("%02X", x & 0xff));
+    String hex = hexb.toString();
+    seen.append("\nhi-hat pedal half down: ").append(hex.contains("B90440")).append(", crash choke: ").append(hex.contains("A9317F"))
+        .append(", ride choke: ").append(hex.contains("A9337F"));
+    int[][] back = Engine.parseMidi(midi);
+    seen.append("\nMIDI read back the same: ").append(Engine.patternSignature(back).equals(Engine.patternSignature(cells)));
+    // A choke in a WAV: the crash's ring after it is gone.
+    short[][] voices = AudioIo.buildVoices(AudioIo.SR);
+    // A crash ringing a second (the built-in one is 0.12 s).
+    short[] longCrash = new short[AudioIo.SR];
+    java.util.Random rnd = new java.util.Random(3);
+    for (int i = 0; i < longCrash.length; i++) longCrash[i] = (short) ((rnd.nextInt(16000) - 8000) * (longCrash.length - i) / longCrash.length);
+    voices[Engine.track("crash")] = longCrash;
+    int[][] crashOnly = Engine.emptyCells();
+    crashOnly[Engine.track("crash")][0] = 120;
+    int[][] choked = Engine.copyCells(crashOnly);
+    choked[Engine.track("chk")][2] = 127;
+    short[] ring = AudioIo.mixCells(crashOnly, 16, 120, 1, voices, AudioIo.SR);
+    short[] cut = AudioIo.mixCells(choked, 16, 120, 1, voices, AudioIo.SR);
+    int from = AudioIo.SR * 60 / 120 / 4 * 2 + AudioIo.SR / 20;
+    seen.append("\nring after the choke: ").append(peak(ring, from) > 500).append(" -> ").append(peak(cut, from));
+    // Old patterns: 12 tracks, the new rows empty.
+    int[][] old = Engine.emptyCells();
+    Engine.patternFromJson("{\"pattern\":{\"kick\":[100,0,0,0],\"chh\":[0,0,90,0]}}", old);
+    seen.append("\nold pattern rows: ").append(old.length).append(", kick ").append(old[0][0]).append(", pedal hat ").append(old[Engine.track("ped")][0]);
+    // Fills told by their tracks' names: a snare roll, a tom run, a groove ending on the china.
+    int[][] roll = Engine.emptyCells(), toms = Engine.emptyCells(), china = Engine.emptyCells();
+    for (int i = 0; i < 16; i += 2) {
+      roll[Engine.track("chh")][i] = 90;
+      toms[Engine.track("chh")][i] = 90;
+      china[Engine.track("chh")][i] = 90;
+    }
+    for (int i = 8; i < 16; i++) roll[Engine.track("snare")][i] = 100;
+    for (int i = 8; i < 16; i++) toms[Engine.track(i < 11 ? "htom" : i < 13 ? "mtom" : "ltom")][i] = 100;
+    for (int i = 12; i < 16; i++) china[Engine.track("chh")][i] = 0;
+    china[Engine.track("chn")][15] = 120;
+    china[Engine.track("kick")][15] = 110;
+    china[Engine.track("snare")][13] = 110;
+    china[Engine.track("snare")][14] = 110;
+    seen.append("\nfills: ").append(Engine.classifyFill(roll)).append(' ').append(Engine.classifyFill(toms)).append(' ').append(Engine.classifyFill(china));
+    // A project (.prj) keeps the new rows, and each pad's own sound (the double kick's not taken for the kick's).
+    final ProjectIo io = (ProjectIo) get("projectIo");
+    final short[][] appVoices = (short[][]) get("voices");
+    final int[][] appCells = (int[][]) get("cells");
+    final byte[][] prj = new byte[1][];
+    edt(() -> {
+      appCells[Engine.track("chn")][3] = 111;
+      appCells[Engine.track("rchk")][5] = 127;
+      appVoices[Engine.track("kick")] = new short[3000];
+      appVoices[Engine.track("dkick")] = new short[5000];
+      try {
+        prj[0] = io.encodePrjBytes();
+        appCells[Engine.track("chn")][3] = 0;
+        appCells[Engine.track("rchk")][5] = 0;
+        io.loadPrj(prj[0], "extra.prj");
+      } catch (Exception ex) {
+        seen.append("\nprj failed: ").append(ex);
+      }
+    });
+    idle();
+    int[][] loaded = (int[][]) get("cells");
+    short[][] lv = (short[][]) get("voices");
+    seen.append("\nproject: china ").append(loaded[Engine.track("chn")][3]).append(", ride choke ").append(loaded[Engine.track("rchk")][5])
+        .append(", kick ").append(lv[Engine.track("kick")].length).append(", double kick ").append(lv[Engine.track("dkick")].length);
+    this.out.append(seen).append('\n');
+    String t = seen.toString();
+    boolean ok = t.contains("PED  Pedal hat  \u00b7 44 | SEMI  Semi-open hat  \u00b7 46 | CR2  Crash 2  \u00b7 57 | CHN  China  \u00b7 52 | SPL  Splash  \u00b7 55 | BEL  Ride bell  \u00b7 53 | CHK  Crash choke  \u00b7 49 | RCHK  Ride choke  \u00b7 51 | ")
+        && t.contains("struck: semi, then rchk") && t.contains("choke tip: Crash choke: stops the ringing crash, crash 2, china and splash")
+        && t.contains("hi-hat pedal half down: true, crash choke: true, ride choke: true") && t.contains("MIDI read back the same: true")
+        && t.contains("ring after the choke: true -> 0") && t.contains("old pattern rows: 20, kick 100, pedal hat 0")
+        && t.contains("project: china 111, ride choke 127, kick 3000, double kick 5000") && t.contains("fills: roll toms crash");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  static int peak(short[] pcm, int from) {
+    int p = 0;
+    for (int i = from; i < pcm.length; i++) p = Math.max(p, Math.abs(pcm[i]));
+    return p;
   }
 
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
@@ -14857,6 +15249,18 @@ public final class DesktopBehavior {
     String[] names = dir.list();
     java.util.Arrays.sort(names);
     out.append("files: ").append(java.util.Arrays.toString(names)).append('\n');
+    // v454: the grooves' semi-open hats (46 with the pedal half down) and chokes (aftertouch) on Pulsekit's tracks.
+    int semis = 0, chokes = 0;
+    for (String n : names) {
+      if (!n.endsWith(".mid")) continue;
+      Engine.MidiBars mb = Engine.parseMidiBars(Files.readAllBytes(new File(dir, n).toPath()));
+      for (int[][] b : mb.bars) {
+        for (int v : b[Engine.track("semi")]) if (v > 0) semis++;
+        for (int v : b[Engine.track("chk")]) if (v > 0) chokes++;
+      }
+    }
+    out.append("semi-opens ").append(semis).append(", chokes ").append(chokes).append('\n');
+    if (semis < 1 || chokes < 2) throw new AssertionError(out.toString());
     String list = new String(Files.readAllBytes(new File(dir, "batch.txt").toPath()), StandardCharsets.UTF_8);
     int grooves = 0;
     for (String line : list.split("\n")) if (line.startsWith("gen-")) grooves++;

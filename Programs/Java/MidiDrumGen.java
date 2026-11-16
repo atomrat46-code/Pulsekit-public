@@ -32,6 +32,12 @@ import java.util.*;
  * --zip: the batch's MIDI files and batch.txt also in a zip beside them (<folder>.zip); --zip_mb N
  * (--zip implied) in zips of at most N MB each, <folder>-part1of3.zip and so on.
  *
+ * Semi-open hats (the open hat's 46 with the hi-hat pedal half down: CC4 64 before it, 0 after) on the
+ * "and of 2" of the bars with an open hat, and chokes (a cymbal grabbed: polyphonic aftertouch 127 on its note, as
+ * e-drums, drum plugins and Pulsekit's Crash choke and Ride choke tracks send it): a crash stab at the
+ * drive's start and the heavy choruses' china, each choked an eighth later. --no-semi-opens and
+ * --no-chokes leave them out (the open hat then, the cymbal let ring).
+ *
  * --towav: PyJav then plays the MIDI into a WAV with Midi2Wav (Pulsekit's kit).
  * --test: PyJav then runs Midi2Wav's test on it: the WAV, DrumMidi_CRT on the WAV, and CompareHits
  * on the results against this MIDI (the drums played), ending with a report.
@@ -41,13 +47,17 @@ import java.util.*;
 public class MidiDrumGen {
 
     static final String USAGE = "Usage: java MidiDrumGen [output.mid] [--style name] [--tempo N] [--bars N] [--swing N] [--intensity 1-10] "
-            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] [--vst] "
+            + "[--hats auto|8ths|16ths|offbeat] [--humanize 0-12] [--no-fills] [--no-crashes] [--no-half-time] [--no-semi-opens] [--no-chokes] [--any-tempo] [--timesig 3/4|6/8|...] [--saveprompt] [--towav] [--test] [--vst] "
             + "[--count N] [--outdir <folder>] [--seed N] [--styles rock,funk,...] [--zip] [--zip_mb N]";
 
     public static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLAP = 39;
     public static final int CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
     public static final int CRASH = 49, RIDE = 51, CHINA = 52, RIDE_BELL = 53, CRASH2 = 57;
     public static final int FLOOR_TOM = 41, LOW_TOM = 45, MID_TOM = 47, HIGH_TOM = 50;
+    /** The hi-hat pedal (foot controller, CC4) value a semi-open hat is sent with (0 open, 127 closed). */
+    public static final int SEMI_PEDAL = 64;
+    /** Semi-open hats and chokes written (--no-semi-opens, --no-chokes: not). */
+    static boolean semiOpens = true, chokes = true;
 
     public static final List<String> STYLES = new ArrayList<>();
     public static final Map<String, DefaultArgs> DEFAULTS = new HashMap<>();
@@ -476,6 +486,45 @@ public class MidiDrumGen {
             }
         }
 
+        /** A semi-open hat: the open hat's note with the hi-hat pedal half down (CC4) until it ends. */
+        public void addSemi(double t, double dur, int vel, String tag) {
+            if (!semiOpens) {
+                add(OPEN_HH, t, dur, vel, tag);
+                return;
+            }
+            if (t < winStart - 1e-6 || t >= winEnd - 1e-6) return;
+            if (used.contains(OPEN_HH + ":" + String.format(Locale.US, "%.4f", t))) return;
+            try {
+                ShortMessage down = new ShortMessage();
+                down.setMessage(0xB0, channel, 4, SEMI_PEDAL);
+                track.add(new MidiEvent(down, (long) (t * ppq)));
+                add(OPEN_HH, t, dur, vel, tag);
+                ShortMessage up = new ShortMessage();
+                up.setMessage(0xB0, channel, 4, 0);
+                track.add(new MidiEvent(up, (long) ((t + dur) * ppq)));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        /** A choke: the cymbal on `pitch` grabbed at t (polyphonic aftertouch 127, let go a tick later). */
+        public void choke(int pitch, double t) {
+            if (!chokes || t < winStart - 1e-6 || t >= winEnd - 1e-6) return;
+            String key = "choke" + pitch + ":" + String.format(Locale.US, "%.4f", t);
+            if (!used.add(key)) return;
+            try {
+                long tick = (long) (t * ppq);
+                ShortMessage grab = new ShortMessage();
+                grab.setMessage(0xA0, channel, pitch, 127);
+                track.add(new MidiEvent(grab, tick));
+                ShortMessage let = new ShortMessage();
+                let.setMessage(0xA0, channel, pitch, 0);
+                track.add(new MidiEvent(let, tick + 1));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
         public boolean write(String path) {
             try {
                 MidiSystem.write(sequence, 1, new File(path));
@@ -500,7 +549,12 @@ public class MidiDrumGen {
         for (int i = 0; i < 8; i++) {
             double raw = t0 + i * 0.5;
             double t = swingTime(raw, swing);
-            if (openAnds && (i == 3 || i == 7)) {
+            if (openAnds && i == 3) {
+                // The and of 2: half open (the pedal half down), the and of 4 fully.
+                w.addSemi(t, 0.3, heavy ? 90 : 78, "soh");
+                continue;
+            }
+            if (openAnds && i == 7) {
                 w.add(OPEN_HH, t, 0.32, heavy ? 94 : 80, "oh");
                 continue;
             }
@@ -518,6 +572,12 @@ public class MidiDrumGen {
                 continue;
             }
             if (openOn != null && i == openOn + 1) continue;
+            // A bar with an open hat also has a semi-open one on the and of 2 (its next 16th left out).
+            if (openOn != null && openOn != 6 && i == 6) {
+                w.addSemi(swingTime(raw, swing), 0.22, 76, "soh16");
+                continue;
+            }
+            if (openOn != null && openOn != 6 && i == 7) continue;
             double t = swingTime(raw, swing);
             int v = (i % 4 == 0) ? 86 : ((i % 2 == 0) ? 68 : 50);
             w.add(CLOSED_HH, t, 0.16, v, "hh16");
@@ -742,6 +802,7 @@ public class MidiDrumGen {
         String s = resolveStyle(rawStyle);
         double barQ = tsNum * 4.0 / tsDen;
         boolean compound = tsDen == 8 && tsNum % 3 == 0 && tsNum >= 6;
+        arrangedBars = bars;
 
         for (int bar = 0; bar < bars; bar++) {
             double t0 = bar * barQ;
@@ -811,6 +872,14 @@ public class MidiDrumGen {
         }
     }
 
+    /** The bars of the arrangement being written (for a section's first bar). */
+    static int arrangedBars = 1;
+
+    /** A bar's place in the arrangement, 0 to 1 (0.25 on: drive, 0.5: chorus, 0.75: half time). */
+    static double sectionOf(int bar, int bars) {
+        return (double) bar / Math.max(1, bars);
+    }
+
     /** One 4/4 bar of the style from t0: kick and snare, the bar's crash (when `first`), and the hats or ride. */
     static void playBar(DrumWriter w, double t0, int bar, String s, String rawStyle, String section, double swing,
                         int intensity, String hatsMode, boolean crashes, boolean first) {
@@ -823,6 +892,13 @@ public class MidiDrumGen {
             List<String> heavyStyles = Arrays.asList("hard_rock", "metal", "punk", "thrash_metal", "pop_punk");
             if (crashes && section.equals("chorus") && heavyStyles.contains(s) && bar % 4 == 2) {
                 w.add(CHINA, t0 + 3.0, 0.9, 96, "ch");
+                // The china grabbed an eighth later: a short stab.
+                w.choke(CHINA, t0 + 3.5);
+            }
+            // The drive's first bar: a crash stab on 1, grabbed an eighth later.
+            if (first && crashes && section.equals("drive") && bar > 0 && sectionOf(bar - 1, arrangedBars) < 0.25) {
+                w.add(CRASH, t0, 0.5, 112, "stab");
+                w.choke(CRASH, t0 + 0.5);
             }
 
             if (s.equals("jazz") || s.equals("blues_shuffle")) {
@@ -965,6 +1041,8 @@ public class MidiDrumGen {
                 case "--no-crashes": crashes = false; crashesGiven = true; break;
                 case "--half-time": halfTime = true; halfTimeGiven = true; break;
                 case "--no-half-time": halfTime = false; halfTimeGiven = true; break;
+                case "--no-semi-opens": semiOpens = false; break;
+                case "--no-chokes": chokes = false; break;
                 case "--count": count = Integer.parseInt(args[++i].trim()); break;
                 case "--outdir": outdir = args[++i]; break;
                 case "--seed": seed = Long.parseLong(args[++i].trim()); break;

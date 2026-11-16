@@ -355,6 +355,47 @@ final class SoundOut {
     }
 
     /** A drum hit to the MIDI output picked (channel 10, its note off 100 ms later); false: none is open. */
+    /** A choke to the MIDI output picked: each cymbal note's note off and full aftertouch (many drum plugins choke on it). */
+    static boolean drumChoke(int[] notes) {
+        MidiInputPort port = drumPort;
+        if (port == null) return false;
+        try {
+            for (int note : notes) {
+                port.send(new byte[] {(byte) 0xA9, (byte) note, 127}, 0, 3);
+                port.send(new byte[] {(byte) 0x89, (byte) note, 0}, 0, 3);
+            }
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * A hit on a drum track to the MIDI output: its note; the semi-open hat with the hi-hat pedal half down
+     * (CC4) until its note ends; a choke as aftertouch on the cymbals it stops.
+     */
+    static boolean drumTrackHit(int t, int velocity) {
+        if (Engine.isChoke(t)) {
+            int[] tracks = Engine.chokedTracks(t);
+            int[] notes = new int[tracks.length];
+            for (int i = 0; i < tracks.length; i++) notes[i] = Engine.NOTES[tracks[i]];
+            return drumChoke(notes);
+        }
+        if (!Engine.isSemi(t)) return drumHit(Engine.NOTES[t], velocity);
+        MidiInputPort port = drumPort;
+        if (port == null) return false;
+        try {
+            long off = System.nanoTime() + (long) (ExtraPads.SEMI_OPEN * 1e9);
+            port.send(new byte[] {(byte) 0xB9, 4, (byte) Engine.SEMI_CC}, 0, 3);
+            port.send(new byte[] {(byte) 0x99, (byte) Engine.NOTES[t], (byte) velocity}, 0, 3);
+            port.send(new byte[] {(byte) 0x89, (byte) Engine.NOTES[t], 0}, 0, 3, off);
+            port.send(new byte[] {(byte) 0xB9, 4, 0}, 0, 3, off);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     static boolean drumHit(int note, int velocity) {
         MidiInputPort port = drumPort;
         if (port == null) return false;

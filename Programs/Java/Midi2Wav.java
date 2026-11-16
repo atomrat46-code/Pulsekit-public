@@ -305,9 +305,17 @@ public class Midi2Wav {
     static final class Note {
         double start;
         double end;
+        /** Where it is stopped (a choke, a semi-open hat closed), seconds; MAX_VALUE: it is not. */
+        double stop = Double.MAX_VALUE;
         int key;
         int velocity;
     }
+
+    /** Event kinds (tempo, note on, note off, hi-hat pedal, choke) in their order at one tick. */
+    static final int[] KIND_ORDER = {0, 3, 2, 1, 4};
+    /** The hi-hat pedal (CC4) values an open hat is read as half open at, and how long it rings then (s). */
+    static final int SEMI_LOW = 20, SEMI_HIGH = 105;
+    static final double SEMI_OPEN = 0.35;
 
     static final class Song {
         final List<Note> notes = new ArrayList<Note>();
@@ -387,6 +395,12 @@ public class Midi2Wav {
                     int vel = d[p + 1] & 0x7f;
                     boolean on = kind == 0x90 && vel > 0;
                     events.add(new long[] {tick, order++, on ? 1 : 2, ch, key, vel});
+                } else if (kind == 0xb0 && (d[p] & 0x7f) == 4) {
+                    // The hi-hat pedal (foot controller): how far down it is.
+                    events.add(new long[] {tick, order++, 3, ch, 4, d[p + 1] & 0x7f});
+                } else if (kind == 0xa0 && (d[p + 1] & 0x7f) >= 64) {
+                    // A choke: polyphonic aftertouch on a cymbal's note grabs it.
+                    events.add(new long[] {tick, order++, 4, ch, d[p] & 0x7f, d[p + 1] & 0x7f});
                 }
                 p += data;
             }
@@ -396,9 +410,9 @@ public class Midi2Wav {
             @Override
             public int compare(long[] a, long[] b) {
                 if (a[0] != b[0]) return a[0] < b[0] ? -1 : 1;
-                // At the same tick: tempo first, then note offs, then note ons.
-                int ka = a[2] == 0 ? 0 : a[2] == 2 ? 1 : 2;
-                int kb = b[2] == 0 ? 0 : b[2] == 2 ? 1 : 2;
+                // At the same tick: tempo first, the hi-hat pedal, note offs, note ons, then chokes.
+                int ka = KIND_ORDER[(int) a[2]];
+                int kb = KIND_ORDER[(int) b[2]];
                 if (ka != kb) return ka - kb;
                 return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
             }
@@ -412,6 +426,7 @@ public class Midi2Wav {
         long lastTick = 0;
         double now = 0;
         Map<Integer, Note> open = new HashMap<Integer, Note>();
+        int pedal = 0;
         for (long[] e : events) {
             now += (e[0] - lastTick) * us / 1e6 / division;
             lastTick = e[0];
@@ -421,6 +436,15 @@ public class Midi2Wav {
                 continue;
             }
             if (drums && e[3] != 9) continue;
+            if (e[2] == 3) {
+                pedal = (int) e[5];
+                continue;
+            }
+            if (e[2] == 4) {
+                // A choke: the cymbal's notes still sounding stop here.
+                for (Note n : song.notes) if (n.key == e[4] && n.start <= now && n.stop > now) n.stop = now;
+                continue;
+            }
             int id = (int) (e[3] * 128 + e[4]);
             if (e[2] == 1) {
                 Note n = new Note();
@@ -428,6 +452,8 @@ public class Midi2Wav {
                 n.end = now + 0.25;
                 n.key = (int) e[4];
                 n.velocity = (int) e[5];
+                // The open hat with the pedal half down: a semi-open hat, closed SEMI_OPEN later.
+                if (n.key == 46 && pedal >= SEMI_LOW && pedal <= SEMI_HIGH) n.stop = now + SEMI_OPEN;
                 Note was = open.put(Integer.valueOf(id), n);
                 if (was != null) was.end = now;
                 song.notes.add(n);
@@ -831,7 +857,7 @@ public class Midi2Wav {
                 le = Math.min(smp.length - 1, z.loopEnd - base);
             }
             Double stop = cut.get(v);
-            double stopAt = stop == null ? Double.MAX_VALUE : stop.doubleValue();
+            double stopAt = Math.min(stop == null ? Double.MAX_VALUE : stop.doubleValue(), n.stop);
             double vel = n.velocity / 127.0;
             double gain = vel * vel * Math.pow(10, -z.attenuation * 0.4 / 20.0);
             double left = gain * Math.cos((z.pan + 1) * Math.PI / 4);

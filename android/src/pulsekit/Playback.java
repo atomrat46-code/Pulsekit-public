@@ -28,6 +28,7 @@ final class Playback {
 
     Playback(MainActivity app) {
         this.app = app;
+        this.kits = new PadKits(app);
     }
 
     /** Builds the Pads page: drum sets, Live/Silent/Match Original, and the pad grid. */
@@ -40,13 +41,14 @@ final class Playback {
         TextView textView3;
         app.padsPane = app.col();
         app.padsPane.setVisibility(8);
-        app.padsPane.addView((View)app.text("Drum sets", 11, true));
         HorizontalScrollView horizontalScrollView3 = new HorizontalScrollView((Context)app);
         horizontalScrollView3.setHorizontalScrollBarEnabled(false);
         app.drumSetBar = new FlowLayout((Context)app, app.dp(6), app.dp(6));
         app.drumSetBar.setSingleLine(true);
         horizontalScrollView3.addView((View)app.drumSetBar);
         app.padsPane.addView((View)horizontalScrollView3);
+        // Add SF2 and the kits added: one picked loads into the drum set selected.
+        app.padsPane.addView((View)this.kits.kitRow());
         LinearLayout linearLayout13 = app.row();
         textView3 = app.outline("Live", false, view -> {
             app.livePads = !app.livePads;
@@ -64,16 +66,11 @@ final class Playback {
             app.styleLibrary.syncBuiltinFill();
             app.gridEditor.refreshGrid();
         }));
-        app.padMatchAll = app.outline("Match Original", true, view -> this.matchWholeOriginal());
-        app.padMatchAll.setVisibility(8);
-        linearLayout13.addView((View)app.padMatchAll);
-        TextView textView15 = app.text("  Tap Match Original for the whole kit", 11, false);
-        textView15.setTextColor(SUBTLE);
-        linearLayout13.addView((View)textView15);
         app.padsPane.addView((View)linearLayout13);
         ScrollView scrollView = new ScrollView((Context)app);
         LinearLayout padGrid = app.col();
-        for (int i = 0; i < 3; ++i) {
+        // 5 rows of 4: the first 12 tracks, then the pedal hat .. ride choke.
+        for (int i = 0; i < (Engine.TRACK_ID.length + 3) / 4; ++i) {
             linearLayout = app.row();
             for (int j = 0; j < 4; ++j) {
                 int n7 = i * 4 + j;
@@ -82,7 +79,8 @@ final class Playback {
                     continue;
                 }
                 int n8 = n7;
-                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], Engine.TRACK_LABEL[n7] + " \u00b7 " + Engine.padNote(n7), view -> {
+                String padSub = Engine.TRACK_LABEL[n7] + " \u00b7 " + Engine.padNote(n7);
+                app.padBtns[n7] = textView = app.pad(Engine.TRACK_SHORT[n7], padSub, view -> {
                     this.bang(n8, 110);
                     this.flashPad(n8);
                     if (app.livePads) {
@@ -115,6 +113,9 @@ final class Playback {
 
     int drumSetIndex = 0;
 
+    /** The drum sets' menus and the kits (Add SF2, the kits' list). */
+    final PadKits kits;
+
     short[] oneShot;
 
     int oneShotPos = -1;
@@ -127,6 +128,10 @@ final class Playback {
 
     final int[] mixGain = new int[Engine.NOTES.length];
 
+    /** A choke's fade (frames at 22050): 30 ms. */
+    static final int CHOKE_FADE = 660;
+    /** Frames left of a choke's fade, per pad sound (0: none). */
+    final int[] chokeLeft = new int[Engine.NOTES.length];
     Runnable pendingDouble;
 
     volatile boolean mixNeedHit;
@@ -400,20 +405,28 @@ final class Playback {
                             continue;
                         }
                         float f = (float)this.mixGain[n] / 127.0f;
-                        if (n >= 8) {
+                        if (n >= 8 && n < Engine.BASE_TRACKS) {
                             f *= 1.4f;
                         }
                         n2 = Math.min(256, sArray2.length - n3);
+                        boolean choked = false;
                         for (int i = 0; i < n2; ++i) {
-                            int n4 = sArray[i] + (int)((float)sArray2[n3 + i] * f);
+                            float fi = f;
+                            // A choke (the extra pads' Crash choke, Ride choke): faded out over CHOKE_FADE frames.
+                            if (this.chokeLeft[n] > 0) {
+                                fi = f * this.chokeLeft[n] / (float)CHOKE_FADE;
+                                if (--this.chokeLeft[n] == 0) choked = true;
+                            }
+                            int n4 = sArray[i] + (int)((float)sArray2[n3 + i] * fi);
                             if (n4 > Short.MAX_VALUE) {
                                 n4 = Short.MAX_VALUE;
                             } else if (n4 < Short.MIN_VALUE) {
                                 n4 = Short.MIN_VALUE;
                             }
                             sArray[i] = (short)n4;
+                            if (choked) break;
                         }
-                        app.mixPos[n] = (n3 += n2) >= sArray2.length ? -1 : n3;
+                        app.mixPos[n] = choked || (n3 += n2) >= sArray2.length ? -1 : n3;
                     }
                     if (this.oneShot != null && this.oneShotPos >= 0) {
                         n = this.oneShotPos;
@@ -508,13 +521,25 @@ final class Playback {
      */
     void triggerMix(int n, int n2) {
         // File > Sound devices: a MIDI output picked plays the drums instead of Pulsekit's own sounds.
-        if (SoundOut.drumHit(Engine.NOTES[n], Engine.clamp(n2, 1, 127))) return;
+        if (SoundOut.drumTrackHit(n, Engine.clamp(n2, 1, 127))) return;
         Object object = app.mixLock;
+        if (Engine.isChoke(n)) {
+            // A choke: the crash's (or the ride's) cymbals still ringing fade out over CHOKE_FADE.
+            synchronized (object) {
+                for (int t : Engine.chokedTracks(n)) if (app.mixPos[t] >= 0) this.chokeLeft[t] = CHOKE_FADE;
+            }
+            lastChoke = Engine.TRACK_ID[n];
+            return;
+        }
         synchronized (object) {
             app.mixPos[n] = 0;
+            this.chokeLeft[n] = 0;
             this.mixGain[n] = Engine.clamp(n2, 1, 127);
         }
     }
+
+    /** The last choke track played (for the tests). */
+    static volatile String lastChoke = "";
 
     void flashPad(int n) {
         if (app.padBtns[n] == null) {
@@ -589,62 +614,30 @@ final class Playback {
             return;
         }
         app.drumSetBar.removeAllViews();
+        if (this.drumSetIndex < 0 || this.drumSetIndex >= app.drumSets.size()) this.drumSetIndex = 0;
         for (int i = 0; i < app.drumSets.size(); ++i) {
             int n = i;
             Engine.DrumSet drumSet = app.drumSets.get(i);
             TextView textView = app.pill(drumSet.name, n == this.drumSetIndex, view -> {
                 this.drumSetIndex = n;
+                this.kits.saveSets();
                 this.refreshDrumSets();
-                this.refreshPadLabels();
                 app.setNow(drumSet.original ? "Original kit" : drumSet.name + " \u00b7 " + drumSet.foundCount() + " pads");
             });
-            if (!drumSet.original) {
-                textView.setOnLongClickListener(view -> {
-                    new AlertDialog.Builder((Context)app).setItems(new CharSequence[]{"Match Original", "Match empty from Original", "Delete set"}, (dialogInterface, n2) -> {
-                        if (n2 == 0) {
-                            this.drumSetIndex = n;
-                            this.matchWholeOriginal();
-                        } else if (n2 == 1) {
-                            this.drumSetIndex = n;
-                            for (int t = 0; t < Engine.TRACK_ID.length; ++t) {
-                                if (drumSet.samples[t] != null) continue;
-                                drumSet.matchOrig[t] = true;
-                            }
-                            this.refreshDrumSets();
-                            this.refreshPadLabels();
-                            Toast.makeText((Context)app, (CharSequence)"Empty pads match Original", (int)0).show();
-                        } else if (n > 0 && n < app.drumSets.size()) {
-                            app.drumSets.remove(n);
-                            if (this.drumSetIndex >= app.drumSets.size()) {
-                                this.drumSetIndex = 0;
-                            }
-                            this.refreshDrumSets();
-                            this.refreshPadLabels();
-                            Toast.makeText((Context)app, (CharSequence)"Drum set removed", (int)0).show();
-                        }
-                    }).setNegativeButton("Cancel", null).show();
-                    return true;
-                });
-            }
+            textView.setTag("drum-set:" + drumSet.name);
+            // A long press: Rename, Copy into new, Match Original, Match empty from Original, Delete.
+            textView.setOnLongClickListener(view -> {
+                this.kits.setMenu(n);
+                return true;
+            });
             app.drumSetBar.addView((View)textView);
         }
+        TextView plus = app.pill("+", false, view -> this.kits.newSet());
+        plus.setTag("drum-set-add");
+        app.drumSetBar.addView((View)plus);
         app.drumSetBar.requestLayout();
         this.refreshPadLabels();
-        Engine.DrumSet drumSet = this.activeDrumSet();
-        if (app.padMatchAll != null) {
-            int n = !drumSet.original ? 1 : 0;
-            app.padMatchAll.setVisibility(n != 0 ? 0 : 8);
-            if (n != 0) {
-                boolean bl = true;
-                for (int i = 0; i < Engine.TRACK_ID.length; ++i) {
-                    if (drumSet.matchOrig[i]) continue;
-                    bl = false;
-                    break;
-                }
-                app.padMatchAll.setText((CharSequence)(bl ? "This set" : "Match Original"));
-                app.paintOutline(app.padMatchAll, !bl);
-            }
-        }
+        this.kits.refreshKits();
     }
 
     void matchWholeOriginal() {
@@ -673,7 +666,7 @@ final class Playback {
             if (app.padBtns[i] == null) continue;
             String string = Engine.TRACK_LABEL[i];
             if (!drumSet.original) {
-                string = drumSet.matchOrig[i] ? "Original" : (drumSet.samples[i] != null ? "From song" : "Empty");
+                string = drumSet.matchOrig[i] ? "Original" : (drumSet.samples[i] != null ? Engine.TRACK_LABEL[i] : Engine.isChoke(i) ? Engine.TRACK_LABEL[i] : "Empty");
             }
             app.padBtns[i].setText((CharSequence)(Engine.TRACK_SHORT[i] + "\n" + string + " \u00b7 " + Engine.padNote(i)));
         }
@@ -722,6 +715,8 @@ final class Playback {
         short[][] sArray = AudioIo.buildVoices(22050);
         Object object = app.mixLock;
         synchronized (object) {
+            // The pedal hat, crash 2, china... the kit has not got: made from its own hats and cymbals first.
+            ExtraPads.complete(app.voices);
             for (int i = 0; i < app.voices.length; ++i) {
                 if (app.voices[i] != null) continue;
                 app.voices[i] = sArray[i];
@@ -744,10 +739,12 @@ final class Playback {
             drumSet.matchOrig[n] = true;
             this.refreshPadLabels();
             Toast.makeText((Context)app, (CharSequence)(Engine.TRACK_LABEL[n] + " \u00b7 Original"), (int)0).show();
+            this.kits.saveSets();
         } else if ("Use this set's sound".equals(string)) {
             drumSet.matchOrig[n] = false;
             this.refreshPadLabels();
             Toast.makeText((Context)app, (CharSequence)(Engine.TRACK_LABEL[n] + " \u00b7 this set"), (int)0).show();
+            this.kits.saveSets();
         } else if (DrumLibrary.ADD.equals(string)) {
             DrumLibraryScreen.addMenu(app, n);
         } else if ("Remove sample".equals(string)) {
@@ -756,6 +753,7 @@ final class Playback {
                 drumSet.samples[n] = null;
             }
             this.refreshPadLabels();
+            this.kits.saveSets();
         }
     }
 
