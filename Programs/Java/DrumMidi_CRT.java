@@ -1108,7 +1108,7 @@ public class DrumMidi_CRT{
         for (Integer p : pickPeaks(kickOnset, delta)) {
             int t = p.intValue();
             double jk = jump(kickLevel, t);
-            if (bass && !clickless ? !bandKick(jk, jump(noiseLevel, t)) || jk < KICK_WITH_SNARE && maskedSnare(lv, t, sens, rideRings(rideEnergy, t)) : jk < KICK_JUMP) continue;
+            if (bass && !clickless ? !(bandKick(jk, jump(noiseLevel, t)) || shortLow(kickLevel, t, jk)) || jk < KICK_WITH_SNARE && maskedSnare(lv, t, sens, rideRings(rideEnergy, t)) : jk < KICK_JUMP) continue;
             if (snareAt[t] && jk < KICK_WITH_SNARE) continue;
             kickFrames.add(p);
             hits.add(new Hit(t * (double) HOP / sr, KICK_NOTE, kick[t]));
@@ -1281,7 +1281,9 @@ public class DrumMidi_CRT{
         darkCrashes(hits, shape, fps);
         if (cymbals && !bass) riddenCrashes(hits, shape, fps);
         if (cymbals) ringingCrashes(hits, shape, fps);
-        if (writeToms && !bassTones && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
+        // Not over a bass line either: its notes ring in the tom bands (a bench of kits with a bass
+        // over them: ringing toms took kicks and hats for toms, kicks 37% found, hats 65%).
+        if (writeToms && !bass && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
         if (kit != null) kit.sort(hits, audio.samples, sr);
         else if (library != null) library.sort(hits, audio.samples, sr);
         if (writeToms) tomClicks(hits);
@@ -2339,6 +2341,20 @@ public class DrumMidi_CRT{
      * note under a hat rises 0.05-0.15 there, a lone ride up to 0.46, kicks 0.67 and more). A kick
      * band jump of KICK_JUMP_STRONG needs no click (a kick without a beater sound).
      */
+    /**
+     * A kick over a bass line without a click to show (a soft beater, the bass's own attack over it):
+     * its band rises by KICK_SHORT_JUMP and dies to KICK_SHORT of its peak 8 frames (about 90 ms) on.
+     * A kick's thump dies (bench kicks over a bass: median 0.39), a bass note holds (0.66, toms 0.67).
+     */
+    static final double KICK_SHORT = 0.5, KICK_SHORT_JUMP = 0.2;
+
+    static boolean shortLow(double[] level, int t, double jk) {
+        if (jk < KICK_SHORT_JUMP || t + 8 >= level.length) return false;
+        double peak = 0;
+        for (int k = Math.max(0, t - 1); k <= Math.min(level.length - 1, t + 2); k++) peak = Math.max(peak, level[k]);
+        return peak > 0 && level[t + 8] <= KICK_SHORT * peak;
+    }
+
     static boolean bandKick(double kickJump, double noiseJump) {
         return kickJump >= KICK_JUMP_STRONG || kickJump >= KICK_JUMP_BAND && noiseJump >= KICK_CLICK_JUMP;
     }
