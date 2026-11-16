@@ -303,14 +303,20 @@ public final class Engine {
   /**
    * The MIDI events of one hit on track `t` at `tick` (gate `gate` ticks): {tick, status, data1, data2} each.
    * A plain note on and off; the semi-open hat with the hi-hat pedal half down before it and up after; a
-   * choke as aftertouch 127 on its cymbal's note.
+   * choke as aftertouch 127 on the notes of the cymbals it stops.
    */
   public static List<int[]> hitEvents(int t, int tick, int gate, int vel, int ch) {
     List<int[]> ev = new ArrayList<>(4);
     int note = NOTES[t];
     if (isChoke(t)) {
-      ev.add(new int[] {tick, 0xA0 | ch, note, 127});
-      ev.add(new int[] {tick + 1, 0xA0 | ch, note, 0});
+      // Each cymbal the choke stops (crash, crash 2, china, splash; or ride, ride bell) grabbed.
+      java.util.LinkedHashSet<Integer> notes = new java.util.LinkedHashSet<Integer>();
+      notes.add(note);
+      for (int c : chokedTracks(t)) notes.add(NOTES[c]);
+      for (int n : notes) {
+        ev.add(new int[] {tick, 0xA0 | ch, n, 127});
+        ev.add(new int[] {tick + 1, 0xA0 | ch, n, 0});
+      }
       return ev;
     }
     if (isSemi(t)) ev.add(new int[] {tick, 0xB0 | ch, 4, SEMI_CC});
