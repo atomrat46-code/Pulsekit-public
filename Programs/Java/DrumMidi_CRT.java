@@ -979,18 +979,18 @@ public class DrumMidi_CRT{
         // found by the kick band alone, and before HPSS, which takes much of such a kick away as a held tone.
         final boolean clickless = kit != null && kit.kickClick >= 0 && kit.kickClick < KICK_CLICKLESS;
         double[] kickBeforeHpss = clickless ? flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin)) : null;
-        double midTone = -1, lowTone = -1;
+        double midTone = -1;
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
             float[][] raw = mag.clone();
             applyHpss(mag);
             midTone = toneShare(raw, mag, bin(GUITAR_TONE_LO, sr, maxBin), bin(GUITAR_TONE_HI, sr, maxBin));
-            lowTone = toneShare(raw, mag, bin(40, sr, maxBin), bin(250, sr, maxBin));
             progress(70);
         }
-        if (System.getProperty("dm.forceGuitar") != null) guitar = true;
-        if (System.getProperty("dm.guitarTone") != null && midTone >= Double.parseDouble(System.getProperty("dm.guitarTone"))) guitar = true;
-        if (System.getProperty("dm.flags") != null) System.out.println("DBGT midTone=" + midTone + " lowTone=" + lowTone + " guitarLine=" + guitar);
+        // Guitars or keys held over the drums: HPSS takes GUITAR_TONE of the 250-2000 Hz band away as held
+        // tones (SogniMusic's guitar sessions: 0.71 median, nine in ten over 0.47; its drum sessions 0.36,
+        // three in four under 0.47; a bench of kits alone 0.30). guitarLine alone heard 16% of the guitar sessions.
+        if (midTone >= GUITAR_TONE) guitar = true;
 
         double[] kick = clickless ? kickBeforeHpss : flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
@@ -1142,10 +1142,6 @@ public class DrumMidi_CRT{
         if (writeToms) snareToms(hits, lowPitch, lv.kick, sr);
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
-        if (System.getProperty("dm.flags") != null) {
-            double[] ks = kickLevel.clone(); Arrays.sort(ks);
-            System.out.println("DBGF bass=" + bass + " guitar=" + guitar + " median=" + ks[ks.length / 2] + " q1=" + ks[ks.length / 4]);
-        }
         boolean bassTones = bassNotes(kickLevel);
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
@@ -2077,7 +2073,7 @@ public class DrumMidi_CRT{
     }
 
     /** Guitars (or keys) hold their notes: the share of the 250-2000 Hz band HPSS takes away as held tones. */
-    static final double GUITAR_TONE_LO = 250, GUITAR_TONE_HI = 2000;
+    static final double GUITAR_TONE_LO = 250, GUITAR_TONE_HI = 2000, GUITAR_TONE = 0.6;
 
     static double toneShare(float[][] raw, float[][] perc, int lo, int hi) {
         double all = 0, kept = 0;
@@ -2395,12 +2391,6 @@ public class DrumMidi_CRT{
     }
 
     /**
-     * A kick over a bass line: the bass keeps the kick band up, so the kick's own rise there can be
-     * small (KICK_JUMP_BAND), but its beater clicks in the 2-6 kHz band (KICK_CLICK_JUMP; a bass
-     * note under a hat rises 0.05-0.15 there, a lone ride up to 0.46, kicks 0.67 and more). A kick
-     * band jump of KICK_JUMP_STRONG needs no click (a kick without a beater sound).
-     */
-    /**
      * A kick over a bass line without a click to show (a soft beater, the bass's own attack over it):
      * its band rises by KICK_SHORT_JUMP and dies to KICK_SHORT of its peak 8 frames (about 90 ms) on.
      * A kick's thump dies (bench kicks over a bass: median 0.39), a bass note holds (0.66, toms 0.67).
@@ -2414,6 +2404,12 @@ public class DrumMidi_CRT{
         return peak > 0 && level[t + 8] <= KICK_SHORT * peak;
     }
 
+    /**
+     * A kick over a bass line: the bass keeps the kick band up, so the kick's own rise there can be
+     * small (KICK_JUMP_BAND), but its beater clicks in the 2-6 kHz band (KICK_CLICK_JUMP; a bass
+     * note under a hat rises 0.05-0.15 there, a lone ride up to 0.46, kicks 0.67 and more). A kick
+     * band jump of KICK_JUMP_STRONG needs no click (a kick without a beater sound).
+     */
     static boolean bandKick(double kickJump, double noiseJump) {
         return kickJump >= KICK_JUMP_STRONG || kickJump >= KICK_JUMP_BAND && noiseJump >= KICK_CLICK_JUMP;
     }
@@ -4115,8 +4111,15 @@ public class DrumMidi_CRT{
     static boolean bassLine(double[] kickLevel) {
         double[] s = kickLevel.clone();
         Arrays.sort(s);
-        return s[s.length / 2] >= QUIET_BEFORE;
+        return s[s.length / 2] >= BASS_LINE;
     }
+
+    /**
+     * The kick band's median level at which a bass line is taken to play. Was QUIET_BEFORE (0.25): a
+     * bass mixed under the drums (a bench of kits with one at 40% of their level: 0.18-0.28; drums
+     * alone up to 0.13, SogniMusic's drum sessions 0.14 for nine in ten) went unheard, kicks 81% right.
+     */
+    static final double BASS_LINE = 0.2;
 
     /**
      * The kick band kept up by bass notes, not by ringing toms: a bass line holds it steady (its
