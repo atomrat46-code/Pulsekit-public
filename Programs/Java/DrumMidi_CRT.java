@@ -964,6 +964,11 @@ public class DrumMidi_CRT{
         double[] ringRaw = bandMean(mag, bin(RING_TOM_RING_LO, sr, maxBin), bin(RING_TOM_RING_HI, sr, maxBin));
         // Before HPSS, which takes a guitar's held notes away.
         boolean guitar = guitarLine(mag, sr, maxBin);
+        // 2-8 kHz before HPSS: how a snare's wires rise and die over a guitar (GuitarSnare).
+        double[] upper = bandMean(mag, bin(2000, sr, maxBin), bin(8000, sr, maxBin));
+        // 1-4 kHz and 150-600 Hz before HPSS: a guitar's chord against a hat (GuitarHat).
+        double[] midRaw = bandMean(mag, bin(1000, sr, maxBin), bin(4000, sr, maxBin));
+        double[] lowMidRaw = bandMean(mag, bin(150, sr, maxBin), bin(600, sr, maxBin));
         double[] hatLevel = hatRaw.clone();
         normalize(hatLevel);
         normalize(kickLevel);
@@ -974,11 +979,18 @@ public class DrumMidi_CRT{
         // found by the kick band alone, and before HPSS, which takes much of such a kick away as a held tone.
         final boolean clickless = kit != null && kit.kickClick >= 0 && kit.kickClick < KICK_CLICKLESS;
         double[] kickBeforeHpss = clickless ? flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin)) : null;
+        double midTone = -1, lowTone = -1;
         if (hpss) {
             System.out.println("Separating percussive content (a few seconds)...");
+            float[][] raw = mag.clone();
             applyHpss(mag);
+            midTone = toneShare(raw, mag, bin(GUITAR_TONE_LO, sr, maxBin), bin(GUITAR_TONE_HI, sr, maxBin));
+            lowTone = toneShare(raw, mag, bin(40, sr, maxBin), bin(250, sr, maxBin));
             progress(70);
         }
+        if (System.getProperty("dm.forceGuitar") != null) guitar = true;
+        if (System.getProperty("dm.guitarTone") != null && midTone >= Double.parseDouble(System.getProperty("dm.guitarTone"))) guitar = true;
+        if (System.getProperty("dm.flags") != null) System.out.println("DBGT midTone=" + midTone + " lowTone=" + lowTone + " guitarLine=" + guitar);
 
         double[] kick = clickless ? kickBeforeHpss : flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
@@ -1099,12 +1111,44 @@ public class DrumMidi_CRT{
             }
         }
         rollSnares(lv, mag, snare, notSnares, snarePeaks, snareBodies, near, hits, bodyLevel, kickLevel, sens, sr);
+        // Over a guitar its chords' attacks look like snares and hide the snares' body: the snares
+        // are told by GuitarSnare's weighing of what each onset does instead (a bench of kits with a
+        // guitar over them, kits it was not fitted on: snares 54% right and 54% found -> 76% and 77%).
+        // (The kicks keep asking the first pass's snares: GuitarSnare takes some toms' onsets for snares'
+        // that the kick pass would have found, then written as floor toms.)
+        List<Integer> kickSnares = new ArrayList<Integer>(snarePeaks);
+        if (guitar) {
+            // The first pass's snares at a tom's pitch (snareToms) stay toms.
+            List<Hit> first = new ArrayList<Hit>();
+            for (Hit h : hits) if (h.note == SNARE_NOTE) first.add(h);
+            if (writeToms) snareToms(first, lowPitch, lv.kick, sr);
+            for (int h = hits.size() - 1; h >= 0; h--) if (hits.get(h).note == SNARE_NOTE) hits.remove(h);
+            snarePeaks.clear();
+            snareBodies.clear();
+            for (Integer p : pickPeaks(snare, delta * GHOST_DELTA, 3)) {
+                int t = p.intValue();
+                if (GuitarSnare.chance(lv, mag, loudSnare, upper, snare, t) < GuitarSnare.TAKE) continue;
+                snarePeaks.add(p);
+                snareBodies.add(Double.valueOf(jump(bodyLevel, t)));
+                hits.add(new Hit(t * (double) HOP / sr, SNARE_NOTE, snare[t]));
+            }
+            for (Hit h : first) {
+                if (h.note != MID_TOM) continue;
+                boolean taken = false;
+                for (Integer p : snarePeaks) taken |= Math.abs(p.intValue() * (double) HOP / sr - h.time) < SAME_CYMBAL;
+                if (!taken) hits.add(h);
+            }
+        }
         if (writeToms) snareToms(hits, lowPitch, lv.kick, sr);
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
+        if (System.getProperty("dm.flags") != null) {
+            double[] ks = kickLevel.clone(); Arrays.sort(ks);
+            System.out.println("DBGF bass=" + bass + " guitar=" + guitar + " median=" + ks[ks.length / 2] + " q1=" + ks[ks.length / 4]);
+        }
         boolean bassTones = bassNotes(kickLevel);
         boolean[] snareAt = new boolean[kick.length];
-        for (Integer p : snarePeaks) mark(snareAt, p.intValue(), 1);
+        for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
             int t = p.intValue();
             double jk = jump(kickLevel, t);
@@ -1295,6 +1339,7 @@ public class DrumMidi_CRT{
         if (kit != null && cymbals) kit.rideVote(hits, audio.samples, sr);
         if (cymbals && System.getProperty("dm.cymFeatures") != null) CymModel.dump(hits, audio.samples, sr, System.getProperty("dm.cymFeatures"), kit);
         if (cymbals && cymModel) CymModel.apply(hits, audio.samples, sr, kit);
+        if (cymbals && guitar) GuitarHat.drop(hits, hatRaw, midRaw, lowMidRaw, sr);
         if (cymbals && !chokeNotes.isEmpty()) chokes(hits, audio.samples, sr, chokeNotes);
         progress(90);
         note("Hits: " + hits.size());
@@ -2029,6 +2074,20 @@ public class DrumMidi_CRT{
                 }
             }
         }
+    }
+
+    /** Guitars (or keys) hold their notes: the share of the 250-2000 Hz band HPSS takes away as held tones. */
+    static final double GUITAR_TONE_LO = 250, GUITAR_TONE_HI = 2000;
+
+    static double toneShare(float[][] raw, float[][] perc, int lo, int hi) {
+        double all = 0, kept = 0;
+        for (int t = 0; t < raw.length; t++) {
+            for (int f = lo; f <= hi; f++) {
+                all += (double) raw[t][f] * raw[t][f];
+                kept += (double) perc[t][f] * perc[t][f];
+            }
+        }
+        return all > 0 ? 1 - kept / all : 0;
     }
 
     static void applyHpss(float[][] mag) {
@@ -3837,6 +3896,87 @@ public class DrumMidi_CRT{
     }
 
     /** The song's loud snares' body spectrum (120-450 Hz), to tell its ghost notes from toms. */
+    /**
+     * A snare over a guitar: a logistic weighing of the onset's measures, fitted on kits rendered
+     * from known MIDI with a distorted or clean guitar over them (tools/accomp_mix.py): the song's
+     * snare body (ghost), the body, kick and hat bands' jumps, the wires left, the snare onset, and
+     * how the 2-8 kHz level rises and dies (a snare's wires die, a chord rings on).
+     */
+    static final class GuitarSnare {
+        static final double TAKE = 0.4;
+        static final double[] MEAN = {0.19685, 0.39879, 0.31473, 0.42606, 0.33621, 0.86352, 0.6313, 1.01344};
+        static final double[] SD = {0.39762, 0.28568, 0.35183, 1.28533, 0.28105, 0.51521, 0.42008, 0.97584};
+        static final double[] W = {0.40241, 1.43963, -0.4319, -0.40747, 0.93743, -0.90283, -0.50328, 0.2083};
+        static final double BIAS = -1.34753;
+
+        static double chance(Levels lv, float[][] mag, SnareBody loud, double[] upper, double[] snare, int t) {
+            // (The fit's frames were not centred: its frame t is this one's t + 2.)
+            double peak = 0;
+            for (int k = t + 1; k <= t + 4; k++) if (k < upper.length) peak = Math.max(peak, upper[k]);
+            double dec = t + 10 < upper.length && peak > 0 ? upper[t + 10] / peak : 1;
+            double rise = t >= 1 && upper[t - 1] > 0 ? peak / upper[t - 1] : 1;
+            double[] x = {loud.ghost(mag, t) ? 1 : 0, jump(lv.body, t), jump(lv.kick, t), wiresLeft(lv.noise, t), jump(lv.hat, t), snare[t], dec,
+                Math.log(Math.max(rise, 1e-3))};
+            double z = BIAS;
+            for (int i = 0; i < x.length; i++) z += W[i] * (x[i] - MEAN[i]) / SD[i];
+            return 1 / (1 + Math.exp(-z));
+        }
+    }
+
+    /**
+     * Hats over a guitar: its chords' attacks reach the hat band, and ring on as open hats. A logistic
+     * weighing (fitted as GuitarSnare's) of each hat's rise at 6-14 kHz, at 1-4 kHz (a chord's) and
+     * their ratio, how both fade, the 150-600 Hz rise, a drum written with it and whether it is open;
+     * a hat under DROP is left out (kits it was not fitted on: 485 hats dropped, 410 of them wrong).
+     */
+    static final class GuitarHat {
+        static final double DROP = 0.3;
+        static final double[] MEAN = {1.62401, 0.92565, -1.03661, 0.58309, 0.68695, 0.71184, 0.48872, 0.10768};
+        static final double[] SD = {1.34905, 0.99806, 0.60491, 0.2816, 0.26778, 0.96183, 0.49987, 0.30998};
+        static final double[] W = {-0.31649, 0.67598, 2.93073, -0.16522, 0.73709, -0.21965, 0.35954, 0.03176};
+        static final double BIAS = 1.70403;
+
+        static void drop(List<Hit> hits, double[] hat, double[] mid, double[] low, double sr) {
+            List<Hit> out = new ArrayList<Hit>();
+            for (Hit h : hits) {
+                if ((h.note != CLOSED_HAT && h.note != OPEN_HAT) || chance(h, hits, hat, mid, low, sr) >= DROP && !(h.note == OPEN_HAT && chordOpen(h, hat, mid, sr))) out.add(h);
+            }
+            hits.clear();
+            hits.addAll(out);
+        }
+
+        static double chance(Hit h, List<Hit> hits, double[] hat, double[] mid, double[] low, double sr) {
+            int k = (int) Math.round(h.time * sr / HOP);
+            if (k < 3 || k + 6 >= hat.length) return 1;
+            double hp = peak(hat, k), mp = peak(mid, k), lp = peak(low, k);
+            boolean drum = false;
+            for (Hit o : hits) drum |= Math.abs(o.time - h.time) < 0.03 && (o.note == KICK_NOTE || o.note == SNARE_NOTE || isTomNote(o.note));
+            double[] x = {Math.log(hp / (hat[k - 3] + 1e-9)), Math.log(mp / (mid[k - 3] + 1e-9)), Math.log(hp / (mp + 1e-9)), hat[k + 6] / (hp + 1e-12),
+                mid[k + 6] / (mp + 1e-9), Math.log(lp / (low[k - 3] + 1e-9)), drum ? 1 : 0, h.note == OPEN_HAT ? 1 : 0};
+            double z = BIAS;
+            for (int i = 0; i < x.length; i++) z += W[i] * (x[i] - MEAN[i]) / SD[i];
+            return 1 / (1 + Math.exp(-z));
+        }
+
+        /**
+         * An open hat whose 6-14 kHz rise is under OPEN_CHORD (log) of its 1-4 kHz rise: a chord ringing
+         * on (the fit's wrong open hats: -1.46 and under for nine in ten; real ones' median -0.95).
+         */
+        static final double OPEN_CHORD = -1.4;
+
+        static boolean chordOpen(Hit h, double[] hat, double[] mid, double sr) {
+            int k = (int) Math.round(h.time * sr / HOP);
+            if (k < 3 || k + 2 >= hat.length) return false;
+            return Math.log(peak(hat, k) / (peak(mid, k) + 1e-9)) < OPEN_CHORD;
+        }
+
+        static double peak(double[] v, int k) {
+            double p = 0;
+            for (int i = k - 1; i <= Math.min(v.length - 1, k + 2); i++) p = Math.max(p, v[i]);
+            return p;
+        }
+    }
+
     static final class SnareBody {
         final int b0, b1;
         final double[] spec;
