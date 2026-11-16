@@ -11094,14 +11094,26 @@ public final class DesktopBehavior {
     for (int i = 0; i < 200 && kitSf2.isFile(); i++) Thread.sleep(50);
     idle();
     seen.append("default: kit.sf2 ").append(kitSf2.isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append(", crash ").append(((short[][]) get("voices"))[Engine.track("crash")].length < 20000).append('\n');
+    // Default kit picked: kept as Original's choice. A kit lost (no kit, no kit.sf2): the kit added last loaded.
+    seen.append("Original's kit after Default: ").append(pb.activeDrumSet().kit).append('\n');
+    edt(() -> {
+      pb.activeDrumSet().kit = "";
+      pb.kits.recentTried = false;
+      pb.kits.refreshKits();
+    });
+    for (int i = 0; i < 200 && pb.activeDrumSet().kit.isEmpty(); i++) Thread.sleep(50);
+    idle();
+    seen.append("lost kit: ").append(pb.activeDrumSet().kit).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
     this.out.append(seen);
+
     String t = seen.toString();
     boolean ok = t.contains("new: Heavy, sets 2") && t.contains("loaded: Heavy kit Rock Kit, crash own true (a second long: true), list 1 Rock Kit")
         && t.contains("pad: CSH  Crash  \u00b7 49") && t.contains("original: crash a second long true, kit.sf2 true, kit Rock Kit")
         && t.contains("menu: Cancel | Rename | Copy into new | Match Original | Match empty from Original | Delete | ") && t.contains("Original's menu: Cancel | Copy into new | \n")
         && t.contains("sets: [Original/Rock Kit, Metal/Rock Kit, Metal 2/Rock Kit], selected Metal 2") && t.contains("kept when not sure: 3")
         && t.matches("(?s).*kept: \\[Original/Rock Kit:0, Metal/Rock Kit:1[0-9]\\].*")
-        && t.contains("adopted: SF2 name unknown (Old Kit), list Default kit | Rock Kit | SF2 name unknown (Old Kit) | selected SF2 name unknown (Old Kit)") && t.contains("default: kit.sf2 false, selected Default kit, crash true");
+        && t.contains("adopted: SF2 name unknown (Old Kit), list Default kit | Rock Kit | SF2 name unknown (Old Kit) | selected SF2 name unknown (Old Kit)") && t.contains("default: kit.sf2 false, selected Default kit, crash true") && t.contains("Original's kit after Default: Default kit")
+        && t.contains("lost kit: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit)");
     if (!ok) throw new AssertionError(t);
   }
 

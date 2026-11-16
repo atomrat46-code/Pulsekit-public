@@ -93,6 +93,15 @@ final class PadKits {
         this.listed.addAll(KitShelf.list(kitsDir(app)));
         Engine.DrumSet set = app.playback.activeDrumSet();
         String cur = set.kit == null || set.kit.isEmpty() ? (set.original ? KitShelf.DEFAULT : "") : set.kit;
+        // Original without a kit and without its saved SoundFont (lost): the kit added last loaded into it, once.
+        if (set.original && (set.kit == null || set.kit.isEmpty()) && !this.recentTried && !app.persistence.kitFile().isFile()) {
+            this.recentTried = true;
+            KitShelf.Kit recent = KitShelf.mostRecent(kitsDir(app));
+            if (recent != null) {
+                this.load(recent);
+                cur = recent.name;
+            }
+        }
         // Original playing sounds that are not Pulsekit's own, with no kit named: not Default kit.
         if (set.original && KitShelf.DEFAULT.equals(cur) && !KitShelf.ownSounds(app.voices)) cur = "";
         this.offset = cur.isEmpty() ? 1 : 0;
@@ -113,6 +122,9 @@ final class PadKits {
         this.shownPos = at;
         this.kitList.post(() -> this.quiet = false);
     }
+
+    /** Whether Original's lost kit was looked for this run (the kit added last loaded into it). */
+    boolean recentTried;
 
     /** 1 while the list starts with "Kit…" (a set without a kit), else 0. */
     int offset;
@@ -205,7 +217,8 @@ final class PadKits {
                         // Pulsekit's own sounds again: no kit.sf2 at the next start either.
                         app.playback.applySf2(v);
                         app.persistence.kitFile().delete();
-                        set.kit = "";
+                        // Picked: kept as Original's choice (not taken for a kit lost).
+                        set.kit = KitShelf.DEFAULT;
                     } else if (set.original) {
                         app.playback.applySf2(v);
                         app.persistence.persistSf2(sf2);

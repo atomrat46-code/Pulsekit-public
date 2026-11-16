@@ -214,6 +214,20 @@ public final class KitShelf {
     return java.util.Arrays.equals(voices[k], AudioIo.buildVoices(AudioIo.SR)[k]);
   }
 
+  /** The kit added last (its copy's time; a lone .sfz: its file's), or null. */
+  public static Kit mostRecent(File dir) {
+    Kit best = null;
+    long at = Long.MIN_VALUE;
+    for (Kit k : list(dir)) {
+      File f = file(dir, k);
+      if (f.isFile() && f.lastModified() >= at) {
+        at = f.lastModified();
+        best = k;
+      }
+    }
+    return best;
+  }
+
   public static Kit named(File dir, String name) {
     for (Kit k : list(dir)) if (k.name.equals(name)) return k;
     return null;
