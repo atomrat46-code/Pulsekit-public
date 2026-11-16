@@ -11001,6 +11001,94 @@ public final class DesktopBehavior {
   }
 
   /**
+   * v455: the Pads tab's drum sets and kits. + makes a set (named); Add SF2… puts a SoundFont on the kits'
+   * list and loads it into the set selected; the list loads a kit into Original too (kept as kit.sf2). A
+   * set's menu: Rename, Copy into new, Match Original, Delete (asked first). The sets and the list are kept.
+   */
+  void s263_drum_sets_kits() throws Exception {
+    call("showView", "pads");
+    idle();
+    final Playback pb = (Playback) get("playback");
+    final StringBuilder seen = new StringBuilder();
+    File home = new File(System.getProperty("user.home"));
+    // A SoundFont: the built-in sounds with a long crash.
+    short[][] v = AudioIo.buildVoices(AudioIo.SR);
+    short[] crash = new short[AudioIo.SR];
+    for (int i = 0; i < crash.length; i++) crash[i] = (short) (((i * 7919) % 16000 - 8000) * (crash.length - i) / crash.length);
+    v[Engine.track("crash")] = crash;
+    File sf2 = new File(home, "Rock Kit.sf2");
+    Files.write(sf2.toPath(), AudioIo.encodeSf2(v, "Rock Kit"));
+    edt(() -> {
+      PadKits.answer = "Heavy";
+      ((javax.swing.JButton) component(frame, "drum-set-add")).doClick();
+    });
+    idle();
+    seen.append("new: ").append(pb.activeDrumSet().name).append(", sets ").append(((java.util.List<?>) get("drumSets")).size()).append('\n');
+    PadKits.addFile = sf2;
+    edt(() -> ((javax.swing.JButton) component(frame, "pads-add-kit")).doClick());
+    for (int i = 0; i < 200 && !"Rock Kit".equals(pb.activeDrumSet().kit); i++) Thread.sleep(50);
+    idle();
+    Engine.DrumSet heavy = pb.activeDrumSet();
+    seen.append("loaded: ").append(heavy.name).append(" kit ").append(heavy.kit).append(", crash own ").append(heavy.samples[Engine.track("crash")] != null && !heavy.matchOrig[Engine.track("crash")])
+        .append(" (a second long: ").append(heavy.samples[Engine.track("crash")] != null && heavy.samples[Engine.track("crash")].length > 20000).append(")")
+        .append(", list ").append(KitShelf.list(PadKits.kitsDir()).size()).append(" ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    seen.append("pad: ").append(pb.padBtns[Engine.track("crash")].getText()).append('\n');
+    // Original: the list's kit into Pulsekit's own kit.
+    edt(() -> ((javax.swing.JButton) component(frame, "drum-set:Original")).doClick());
+    idle();
+    edt(() -> pb.kits.kitList.setSelectedIndex(1));
+    final short[][] voices = (short[][]) get("voices");
+    for (int i = 0; i < 200 && voices[Engine.track("crash")].length < 20000; i++) Thread.sleep(50);
+    idle();
+    seen.append("original: crash a second long ").append(voices[Engine.track("crash")].length > 20000).append(", kit.sf2 ").append(new File(new File(home, ".pulsekit"), "kit.sf2").isFile())
+        .append(", kit ").append(pb.activeDrumSet().kit).append('\n');
+    // The set's menu: Rename, Copy into new, Delete.
+    edt(() -> {
+      javax.swing.JPopupMenu m = pb.kits.setMenu(1);
+      StringBuilder items = new StringBuilder();
+      for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("menu: ").append(items).append('\n');
+      StringBuilder orig = new StringBuilder();
+      for (java.awt.Component c : pb.kits.setMenu(0).getComponents()) if (c instanceof javax.swing.JMenuItem) orig.append(((javax.swing.JMenuItem) c).getText()).append(" | ");
+      seen.append("Original's menu: ").append(orig).append('\n');
+      PadKits.answer = "Metal";
+      item(m, "Rename").doClick();
+      PadKits.answer = "Metal 2";
+      item(pb.kits.setMenu(1), "Copy into new").doClick();
+    });
+    idle();
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (Engine.DrumSet d : (java.util.List<Engine.DrumSet>) get("drumSets")) names.add(d.name + (d.kit.isEmpty() ? "" : "/" + d.kit));
+    seen.append("sets: ").append(names).append(", selected ").append(pb.activeDrumSet().name).append('\n');
+    edt(() -> {
+      PadKits.sure = Boolean.FALSE;
+      item(pb.kits.setMenu(2), "Delete").doClick();
+    });
+    seen.append("kept when not sure: ").append(((java.util.List<?>) get("drumSets")).size()).append('\n');
+    edt(() -> {
+      PadKits.sure = Boolean.TRUE;
+      item(pb.kits.setMenu(2), "Delete").doClick();
+    });
+    idle();
+    names.clear();
+    for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir())) names.add(d.name + (d.kit.isEmpty() ? "" : "/" + d.kit) + ":" + d.foundCount());
+    seen.append("kept: ").append(names).append('\n');
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("new: Heavy, sets 2") && t.contains("loaded: Heavy kit Rock Kit, crash own true (a second long: true), list 1 Rock Kit")
+        && t.contains("pad: CSH  Crash  \u00b7 49") && t.contains("original: crash a second long true, kit.sf2 true, kit Rock Kit")
+        && t.contains("menu: Cancel | Rename | Copy into new | Match Original | Match empty from Original | Delete | ") && t.contains("Original's menu: Cancel | Copy into new | \n")
+        && t.contains("sets: [Original/Rock Kit, Metal/Rock Kit, Metal 2/Rock Kit], selected Metal 2") && t.contains("kept when not sure: 3")
+        && t.matches("(?s).*kept: \\[Original/Rock Kit:0, Metal/Rock Kit:1[0-9]\\].*");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  static javax.swing.JMenuItem item(javax.swing.JPopupMenu m, String text) {
+    for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals(text)) return (javax.swing.JMenuItem) c;
+    throw new AssertionError("no " + text + " in the menu");
+  }
+
+  /**
    * v454: the pedal hat, semi-open hat, crash 2, china, splash, ride bell and the crash's and ride's chokes
    * are drum tracks: pads of their own (struck: played), rows in the pattern, and in MIDI both ways (the
    * semi-open hat its 46 with the hi-hat pedal half down, a choke aftertouch on its cymbal's note); a choke

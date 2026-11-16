@@ -298,6 +298,84 @@ public class BehaviorTest {
       throw new AssertionError(t);
   }
 
+  /**
+   * v455: the Pads page's drum sets and kits: + makes a set (named); Add SF2's file goes onto the kits'
+   * list and into the set selected; the list loads a kit into Original too; a set's long press: Rename,
+   * Copy into new, Match Original, Delete (asked first). The sets are kept; the status line is not shown.
+   */
+  @Test
+  public void s13c_drum_sets_kits() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "pads");
+    idle();
+    Playback pb = (Playback) get("playback");
+    app.setNow("Pulsekit plays through the phone's own routing");
+    out.append("status line shown: ").append(app.now.getVisibility() == View.VISIBLE).append('\n');
+    short[][] v = AudioIo.buildVoices(AudioIo.SR);
+    short[] crash = new short[AudioIo.SR];
+    for (int i = 0; i < crash.length; i++) crash[i] = (short) (((i * 7919) % 16000 - 8000) * (crash.length - i) / crash.length);
+    v[Engine.track("crash")] = crash;
+    java.io.File sf2 = new java.io.File(app.getCacheDir(), "Rock Kit.sf2");
+    java.nio.file.Files.write(sf2.toPath(), AudioIo.encodeSf2(v, "Rock Kit"));
+    PadKits.answer = "Heavy";
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set-add").performClick();
+    idle();
+    out.append("new: ").append(pb.activeDrumSet().name).append(", sets ").append(app.drumSets.size()).append('\n');
+    pb.kits.added(sf2, "Rock Kit.sf2");
+    for (int i = 0; i < 200 && !"Rock Kit".equals(pb.activeDrumSet().kit); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    Engine.DrumSet heavy = pb.activeDrumSet();
+    out.append("loaded: ").append(heavy.name).append(" kit ").append(heavy.kit).append(", crash own ").append(heavy.samples[Engine.track("crash")] != null && heavy.samples[Engine.track("crash")].length > 20000)
+        .append(", list ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    // Original: the list's kit into the pads' own kit.
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Original").performClick();
+    idle();
+    pb.kits.kitList.setSelection(1);
+    for (int i = 0; i < 200 && (app.voices[Engine.track("crash")] == null || app.voices[Engine.track("crash")].length < 20000); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("original: crash a second long ").append(app.voices[Engine.track("crash")] != null && app.voices[Engine.track("crash")].length > 20000).append(", kit ").append(pb.activeDrumSet().kit).append('\n');
+    // Heavy's long press: Rename, Copy into new; Delete asked first.
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Heavy").performLongClick();
+    idle();
+    android.widget.ListView items = PadKits.lastDialog.getListView();
+    StringBuilder menu = new StringBuilder();
+    for (int i = 0; i < items.getAdapter().getCount(); i++) menu.append(items.getAdapter().getItem(i)).append(" | ");
+    out.append("menu: ").append(menu).append('\n');
+    PadKits.answer = "Metal";
+    items.performItemClick(null, 0, 0);
+    idle();
+    PadKits.lastDialog.dismiss();
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Metal").performLongClick();
+    idle();
+    PadKits.answer = "Metal 2";
+    PadKits.lastDialog.getListView().performItemClick(null, 1, 1);
+    idle();
+    PadKits.lastDialog.dismiss();
+    StringBuilder names = new StringBuilder();
+    for (Engine.DrumSet d : app.drumSets) names.append(d.name).append(d.kit.isEmpty() ? "" : "/" + d.kit).append(' ');
+    out.append("sets: ").append(names).append("selected ").append(pb.activeDrumSet().name).append('\n');
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Metal 2").performLongClick();
+    idle();
+    PadKits.lastDialog.getListView().performItemClick(null, 4, 4);
+    idle();
+    out.append("asked: ").append(PadKits.lastDialog.isShowing()).append('\n');
+    PadKits.lastDialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    names.setLength(0);
+    for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir(app))) names.append(d.name).append(d.kit.isEmpty() ? "" : "/" + d.kit).append(' ');
+    out.append("kept: ").append(names).append('\n');
+    write("s13c_drum_sets_kits", out.toString());
+    String t = out.toString();
+    if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
+        || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
+        || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n"))
+      throw new AssertionError(t);
+  }
+
   @Test
   public void s14_persistence_restart() throws Exception {
     byte[] midi = Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 128);

@@ -325,7 +325,8 @@ public class MainActivity extends UiKit {
             this.getWindow().setNavigationBarColor(SURFACE);
         }
         Arrays.fill(this.mixPos, -1);
-        this.drumSets.add(Engine.DrumSet.originalSet());
+        // The drum sets made on the Pads page (Original first).
+        this.drumSets.addAll(DrumSetStore.load(PadKits.setsDir(this)));
         Engine.defaultAccents(this.accents, this.steps, Engine.stepsPerBeat(this.tsDen));
         this.styleLibrary.loadStyle("house", false);
         this.setContentView(this.buildUi());
@@ -756,7 +757,7 @@ public class MainActivity extends UiKit {
         this.pyPane.setVisibility(bl2 ? 0 : 8);
         if (this.now != null) {
             CharSequence shown = this.now.getText();
-            this.now.setVisibility(!bl2 && shown != null && shown.toString().trim().length() > 0 ? 0 : 8);
+            this.now.setVisibility(!bl2 && !bl3 && shown != null && shown.toString().trim().length() > 0 ? 0 : 8);
         }
         this.importPane.setVisibility(bl7 ? 0 : 8);
         this.exportPane.setVisibility(bl8 ? 0 : 8);
@@ -881,6 +882,11 @@ public class MainActivity extends UiKit {
         if (n == 27) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) this.pyJav.takePromptRef(intent.getData());
+            return;
+        }
+        if (n == PadKits.PICK) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) this.playback.kits.picked(intent.getData());
             return;
         }
         if (n == DrumMidiSettingsPage.PICK_KEY) {
@@ -1017,6 +1023,7 @@ public class MainActivity extends UiKit {
                     this.mixPos[n3] = -1;
                 }
                 this.playback.refreshPadLabels();
+                if (!this.playback.activeDrumSet().original) this.playback.kits.saveSets();
                 Toast.makeText((Context)this, (CharSequence)(Engine.TRACK_LABEL[n3] + " sample loaded"), (int)0).show();
                 return;
             }
@@ -1157,7 +1164,8 @@ public class MainActivity extends UiKit {
         boolean bl = string != null && !string.trim().isEmpty();
         this.now.setText((CharSequence)(bl ? string : " "));
         // PyJav shows its status under the program buttons: the line at the top stays hidden there.
-        this.now.setVisibility(bl && !"py".equals(this.view) ? 0 : 8);
+        // (The Pads page has no room for it either: its drum sets and kits are there.)
+        this.now.setVisibility(bl && !"py".equals(this.view) && !"pads".equals(this.view) ? 0 : 8);
     }
 
     static interface IntFn {

@@ -42,11 +42,15 @@ final class Playback {
 
     Playback(Pulsekit app) {
         this.app = app;
+        this.kits = new PadKits(app);
     }
 
     final JButton[] padBtns = new JButton[Engine.TRACK_ID.length];
 
     int drumSetIndex = 0;
+
+    /** The drum sets' menus and the kits (Add SF2…, the kits' list). */
+    final PadKits kits;
 
     JPanel drumSetBar;
 
@@ -75,6 +79,8 @@ final class Playback {
         this.drumSetBar = new ChipStrip();
         this.drumSetBar.setAlignmentX(0.0f);
         north.add(this.drumSetBar);
+        // Add SF2… and the kits added: one picked loads into the drum set selected.
+        north.add(this.kits.kitRow());
         JPanel jPanel2 = new JPanel(new FlowLayout(0, 6, 4));
         jPanel2.setOpaque(false);
         jPanel2.setAlignmentX(0.0f);
@@ -98,13 +104,6 @@ final class Playback {
         });
         jPanel2.add(jButton);
         jPanel2.add(jButton2);
-        this.padMatchAll = app.outline("Match Original", true);
-        this.padMatchAll.setVisible(false);
-        this.padMatchAll.addActionListener(e -> this.matchWholeOriginal());
-        jPanel2.add(this.padMatchAll);
-        JLabel jLabel = new JLabel("  Tap Match Original for the whole kit");
-        jLabel.setForeground(SUBTLE);
-        jPanel2.add(jLabel);
         north.add(jPanel2);
         jPanel.add((Component)north, "North");
         JPanel jPanel3 = new JPanel(new GridLayout((Engine.TRACK_ID.length + 3) / 4, 4, 10, 10));
@@ -635,6 +634,7 @@ final class Playback {
     void refreshDrumSets() {
         if (this.drumSetBar == null) return;
         this.drumSetBar.removeAll();
+        if (this.drumSetIndex < 0 || this.drumSetIndex >= app.drumSets.size()) this.drumSetIndex = 0;
         JLabel lab = new JLabel("Drum sets  ");
         lab.setForeground(SUBTLE);
         this.drumSetBar.add(lab);
@@ -642,35 +642,27 @@ final class Playback {
             final int idx = i;
             Engine.DrumSet s = app.drumSets.get(i);
             JButton b = app.chip(s.name, idx == this.drumSetIndex);
-            if (!s.original) {
-                java.util.Map<TextAttribute, Object> attrs = new java.util.HashMap<TextAttribute, Object>();
-                attrs.put(TextAttribute.UNDERLINE, TextAttribute.UNDERLINE_ON);
-                b.setFont(b.getFont().deriveFont(attrs));
-            }
+            b.setName("drum-set:" + s.name);
+            b.setToolTipText(s.original ? "Pulsekit's own kit (right-click: Copy into new)" : s.name + (s.kit.isEmpty() ? "" : " \u00b7 " + s.kit) + " (right-click: Rename, Copy into new, Match Original, Delete\u2026)");
             b.addActionListener(e -> {
                 this.drumSetIndex = idx;
                 this.reloadDrumBank();
+                this.kits.saveSets();
                 this.refreshDrumSets();
-                this.refreshPadLabels();
                 app.setNow(s.original ? "Original kit" : s.name + " \u00b7 " + s.foundCount() + " pads");
             });
-            if (!s.original) app.onChipMenu(b, () -> this.drumSetMenu(idx));
+            app.onChipMenu(b, () -> this.kits.setMenu(idx));
             this.drumSetBar.add(b);
         }
+        JButton plus = app.chip("+", false);
+        plus.setName("drum-set-add");
+        plus.setToolTipText("A new drum set (its pads match Original until a kit is picked for it)");
+        plus.addActionListener(e -> this.kits.newSet());
+        this.drumSetBar.add(plus);
         this.drumSetBar.revalidate();
         this.drumSetBar.repaint();
         this.refreshPadLabels();
-        Engine.DrumSet cur = this.activeDrumSet();
-        if (this.padMatchAll != null) {
-            boolean iso = cur != null && !cur.original;
-            this.padMatchAll.setVisible(iso);
-            if (iso) {
-                boolean all = true;
-                for (int t = 0; t < Engine.TRACK_ID.length; t++) if (!cur.matchOrig[t]) { all = false; break; }
-                this.padMatchAll.setText(all ? "This set" : "Match Original");
-                app.paintOutline(this.padMatchAll, !all);
-            }
-        }
+        this.kits.refreshKits();
     }
 
     void matchWholeOriginal() {
@@ -733,6 +725,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 this set");
+                    this.kits.saveSets();
                 });
                 m.add(use);
             } else {
@@ -742,6 +735,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 Original");
+                    this.kits.saveSets();
                 });
                 m.add(match);
             }
@@ -752,6 +746,7 @@ final class Playback {
                     this.reloadDrumBank();
                     this.refreshPadLabels();
                     app.setNow(Engine.TRACK_LABEL[t] + " \u00b7 empty");
+                    this.kits.saveSets();
                 });
                 m.add(clear);
             }
@@ -770,8 +765,8 @@ final class Playback {
             String extra = Engine.TRACK_LABEL[t];
             if (!s.original) {
                 if (s.matchOrig[t]) extra = "Original";
-                else if (s.samples[t] != null) extra = "From song";
-                else extra = "Empty";
+                else if (s.samples[t] != null) extra = Engine.TRACK_LABEL[t];
+                else extra = Engine.isChoke(t) ? Engine.TRACK_LABEL[t] : "Empty";
             }
             this.padBtns[t].setText(Engine.TRACK_SHORT[t] + "  " + extra + "  \u00b7 " + Engine.padNote(t));
         }
@@ -834,6 +829,7 @@ final class Playback {
             set.samples[n] = sArray;
             set.matchOrig[n] = false;
         }
+        if (!set.original) this.kits.saveSets();
         this.reloadDrumBank();
         this.refreshPadLabels();
         app.setNow(Engine.TRACK_LABEL[n] + " \u00b7 " + string);

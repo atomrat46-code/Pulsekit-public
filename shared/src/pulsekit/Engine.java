@@ -2191,6 +2191,19 @@ public final class Engine {
     public boolean original = true;
     public final short[][] samples = new short[TRACK_ID.length][];
     public final boolean[] matchOrig = new boolean[TRACK_ID.length];
+    /** The Pads page's kit (KitShelf) loaded into it last, "" for none. */
+    public String kit = "";
+
+    /** A copy under a new id and name (Copy into new). */
+    public DrumSet copyAs(String newName) {
+      DrumSet c = isolated(null, newName);
+      for (int t = 0; t < TRACK_ID.length; t++) {
+        c.samples[t] = samples[t];
+        c.matchOrig[t] = original || matchOrig[t];
+      }
+      c.kit = kit;
+      return c;
+    }
 
     public static DrumSet originalSet() {
       DrumSet s = new DrumSet();
