@@ -1182,6 +1182,7 @@ public final class AudioIo {
       }
     }
     int[] aliases = { 36, 36, 40, 39, 37, 44, 46, 57, 59, 43, 45, 48 };
+    boolean[] byKey = new boolean[Engine.NOTES.length];
     for (int t = 0; t < Engine.NOTES.length; t++) {
       int sid = -1;
       int note = Engine.NOTES[t];
@@ -1191,6 +1192,8 @@ public final class AudioIo {
       else if (aliases[t] < 128 && range[aliases[t]] >= 0) sid = range[aliases[t]];
       if (sid < 0) continue;
       takeSample(d, smplOff, smplLen, shdrOff, sid, t, voices, peaks);
+      // The kit's own sample for the note: no louder sample of a like name takes its place below.
+      if (voices[t] != null) byKey[t] = true;
     }
     for (int i = 0; i < count; i++) {
       int b = shdrOff + i * rec;
@@ -1202,7 +1205,7 @@ public final class AudioIo {
       int pitch = d[b + 40] & 0xff;
       int noteTrack = Engine.trackForNote(pitch);
       if (noteTrack < 0) noteTrack = nameToTrack(nm);
-      if (noteTrack < 0) continue;
+      if (noteTrack < 0 || byKey[noteTrack]) continue;
       takeSample(d, smplOff, smplLen, shdrOff, i, noteTrack, voices, peaks);
     }
     int got = 0;
@@ -1234,12 +1237,13 @@ public final class AudioIo {
 
   static int drumCap(int t) {
     String id = t >= 0 && t < Engine.TRACK_ID.length ? Engine.TRACK_ID[t] : "";
-    if ("chh".equals(id)) return SR / 6;
-    if ("rim".equals(id)) return SR / 5;
-    if ("ohh".equals(id)) return SR / 2;
-    if ("crash".equals(id) || "ride".equals(id)) return (int) (SR * 0.85);
-    if ("ltom".equals(id) || "mtom".equals(id) || "htom".equals(id)) return (int) (SR * 0.55);
-    return (int) (SR * 0.45);
+    // How long the pads keep a kit's hit: a cymbal rings on (its own length up to this), a closed hat does not.
+    if ("chh".equals(id)) return SR / 4;
+    if ("rim".equals(id)) return SR / 4;
+    if ("ohh".equals(id)) return (int) (SR * 1.2);
+    if ("crash".equals(id) || "ride".equals(id)) return SR * 2;
+    if ("ltom".equals(id) || "mtom".equals(id) || "htom".equals(id)) return (int) (SR * 0.9);
+    return (int) (SR * 0.6);
   }
 
   private static void takeSample(
@@ -1264,19 +1268,41 @@ public final class AudioIo {
 
   private static short[] extractDrum(
       byte[] d, int smplOff, int smplLen, int start, int end, int srcRate, int maxFrames, boolean tom) {
-    int ratio = Math.max(1, (srcRate + SR / 2) / SR);
+    // The sample at the pads' rate (SR): read between its own samples at its rate's step (a 32 kHz kit's
+    // samples played as they are would sound 1.38 times too fast, higher and shorter), averaged over the
+    // step when its rate is higher.
+    double step = srcRate / (double) SR;
     int avail = smplLen / 2 - start;
     if (avail < 8) return null;
     int frames = Math.min(end - start, avail);
-    frames = Math.min(frames, maxFrames * ratio + SR);
-    int rawLen = Math.max(8, frames / ratio);
+    frames = (int) Math.min(frames, maxFrames * step + SR);
+    int rawLen = Math.max(8, (int) (frames / step));
     short[] raw = new short[rawLen];
+    int last = Math.min(start + frames, start + avail) - 1;
     for (int s = 0; s < rawLen; s++) {
-      int o = smplOff + (start + s * ratio) * 2;
-      if (o + 1 >= d.length || o + 1 >= smplOff + smplLen) break;
-      raw[s] = (short) ((d[o] & 0xff) | (d[o + 1] << 8));
+      double pos = start + s * step;
+      int i0 = (int) pos;
+      if (i0 > last) break;
+      double v;
+      if (step > 1.05) {
+        // Averaged over the source samples this one covers (fewer highs folding back down).
+        int i1 = Math.min(last, (int) (pos + step));
+        double sum = 0;
+        int n = 0;
+        for (int i = i0; i <= i1; i++, n++) sum += sampleAt(d, smplOff, i);
+        v = sum / Math.max(1, n);
+      } else {
+        double f = pos - i0;
+        v = sampleAt(d, smplOff, i0) * (1 - f) + (i0 + 1 <= last ? sampleAt(d, smplOff, i0 + 1) : 0) * f;
+      }
+      raw[s] = (short) Math.max(-32768, Math.min(32767, Math.round(v)));
     }
     return shapeDrum(raw, maxFrames, tom);
+  }
+
+  private static int sampleAt(byte[] d, int smplOff, int i) {
+    int o = smplOff + i * 2;
+    return o + 1 < d.length ? (short) ((d[o] & 0xff) | (d[o + 1] << 8)) : 0;
   }
 
   /** A drum hit as the pads play it: the silence before it off, its tail kept short, its level evened (SF2 and SFZ kits). */
@@ -1296,8 +1322,12 @@ public final class AudioIo {
     if (g > 3.5f) g = 3.5f;
     if (g < 0.55f) g = 0.55f;
     short[] out = new short[len];
+    // Cut short (its ring longer than the pads keep): faded out over its last 40 ms, not stopped dead.
+    boolean cut = tail - a + 1 > maxFrames;
+    int fade = cut ? Math.min(len / 3, SR / 25) : 0;
     for (int i = 0; i < len; i++) {
-      int v = Math.round(raw[a + i] * g);
+      float gi = g * (fade > 0 && i >= len - fade ? (len - i) / (float) fade : 1f);
+      int v = Math.round(raw[a + i] * gi);
       if (v > 32767) v = 32767;
       else if (v < -32767) v = -32767;
       out[i] = (short) v;
