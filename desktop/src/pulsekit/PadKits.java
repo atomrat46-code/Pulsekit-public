@@ -54,31 +54,65 @@ final class PadKits {
         this.kitList.setName("pads-kit-list");
         this.kitList.setToolTipText("The kits added: one picked loads into the drum set selected (right-click Add SF2…: remove one)");
         this.kitList.addActionListener(e -> {
-            int i = this.kitList.getSelectedIndex();
-            if (this.quiet || i <= 0 || i > this.listed.size()) return;
-            this.load(this.listed.get(i - 1));
+            int i = this.kitList.getSelectedIndex() - this.offset;
+            if (this.quiet || i < 0 || i >= this.listed.size()) return;
+            this.load(this.listed.get(i));
         });
         app.onChipMenu(add, this::kitMenu);
         row.add(this.kitList);
         this.refreshKits();
+        // A SoundFont the pads have from before (File, or an earlier version): on the list as Original's kit.
+        Engine.DrumSet original = app.drumSets.isEmpty() ? null : app.drumSets.get(0);
+        if (original != null && original.original && (original.kit == null || original.kit.isEmpty())
+            && new File(new File(System.getProperty("user.home"), ".pulsekit"), "kit.sf2").isFile()) this.adoptLoaded(null);
         return row;
     }
 
+    /** 1 while the list starts with "Kit…" (a set without a kit), else 0. */
+    int offset;
+
+    /**
+     * The list again: Default kit (Pulsekit's own sounds), then the kits added; the selected set's kit
+     * selected (Original without one: Default kit; another set without one: "Kit…" first).
+     */
     void refreshKits() {
         if (this.kitList == null) return;
         this.quiet = true;
         this.listed.clear();
+        KitShelf.Kit def = new KitShelf.Kit();
+        def.name = KitShelf.DEFAULT;
+        this.listed.add(def);
         this.listed.addAll(KitShelf.list(kitsDir()));
+        Engine.DrumSet set = app.playback.activeDrumSet();
+        String cur = set.kit == null || set.kit.isEmpty() ? (set.original ? KitShelf.DEFAULT : "") : set.kit;
+        this.offset = cur.isEmpty() ? 1 : 0;
         this.kitList.removeAllItems();
-        this.kitList.addItem(this.listed.isEmpty() ? "No kits yet: Add SF2…" : "Kit…");
+        if (this.offset == 1) this.kitList.addItem("Kit\u2026");
         int at = 0;
-        String cur = app.playback.activeDrumSet().kit;
         for (int i = 0; i < this.listed.size(); i++) {
             this.kitList.addItem(this.listed.get(i).name);
-            if (this.listed.get(i).name.equals(cur)) at = i + 1;
+            if (this.listed.get(i).name.equals(cur)) at = i + this.offset;
         }
         this.kitList.setSelectedIndex(at);
         this.quiet = false;
+    }
+
+    /**
+     * The pads' own kit (kit.sf2: a SoundFont or SFZ kit loaded from File, or before the list was there)
+     * onto the list, as Original's kit; `name`: the file's name (null: the SoundFont's own).
+     */
+    void adoptLoaded(final String name) {
+        final File kit = new File(new File(System.getProperty("user.home"), ".pulsekit"), "kit.sf2");
+        loading = new Thread(() -> {
+            final String got = KitShelf.adopt(kitsDir(), kit, name);
+            if (got == null) return;
+            SwingUtilities.invokeLater(() -> {
+                for (Engine.DrumSet d : app.drumSets) if (d.original) d.kit = got;
+                this.saveSets();
+                this.refreshKits();
+            });
+        }, "pulsekit-kit-adopt");
+        loading.start();
     }
 
     void add() {
@@ -113,19 +147,22 @@ final class PadKits {
         app.setNow("Loading " + kit.name + "…");
         loading = new Thread(() -> {
             try {
-                final short[][] v = KitShelf.voices(kitsDir(), kit);
-                final byte[] sf2 = set.original ? AudioIo.encodeSf2(v, kit.name) : null;
+                final boolean def = KitShelf.DEFAULT.equals(kit.name) && kit.file.isEmpty();
+                final short[][] v = def ? AudioIo.buildVoices(AudioIo.SR) : KitShelf.voices(kitsDir(), kit);
+                final byte[] sf2 = set.original && !def ? AudioIo.encodeSf2(v, kit.name) : null;
                 SwingUtilities.invokeLater(() -> {
                     int n = 0;
                     for (short[] x : v) if (x != null) n++;
                     if (set.original) {
                         for (int t = 0; t < app.voices.length && t < v.length; t++) if (v[t] != null) app.voices[t] = v[t];
                         app.playback.fillMissingVoices();
-                        app.persistence.persistSf2(sf2);
+                        // Default kit: Pulsekit's own sounds again, no kit.sf2 at the next start either.
+                        if (def) new File(new File(System.getProperty("user.home"), ".pulsekit"), "kit.sf2").delete();
+                        else app.persistence.persistSf2(sf2);
                     } else {
                         DrumSetStore.fill(set, v, kit.name);
                     }
-                    set.kit = kit.name;
+                    set.kit = set.original && def ? "" : kit.name;
                     app.playback.reloadDrumBank();
                     this.saveSets();
                     app.playback.refreshDrumSets();

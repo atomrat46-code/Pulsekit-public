@@ -917,6 +917,7 @@ final class ProjectIo {
         app.playback.fillMissingVoices();
         app.playback.reloadDrumBank();
         app.persistence.persistSf2(kit.sf2());
+        app.playback.kits.adoptLoaded(kit.name);
         Logs.write(Logs.KITS, "SFZ kit " + kit.name + " (" + kit.pads + " pads)", kit.report);
         app.setNow("SFZ kit \u00b7 " + kit.name + " \u00b7 " + kit.pads + " drums");
     }
@@ -1029,6 +1030,7 @@ final class ProjectIo {
             app.playback.fillMissingVoices();
             app.playback.reloadDrumBank();
             app.persistence.persistSf2(byArray);
+            app.playback.kits.adoptLoaded(string);
             n2 = 0;
             for (short[] sArray2 : sArray) {
                 if (sArray2 == null) continue;

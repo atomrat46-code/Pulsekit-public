@@ -311,6 +311,7 @@ public class BehaviorTest {
     Playback pb = (Playback) get("playback");
     app.setNow("Pulsekit plays through the phone's own routing");
     out.append("status line shown: ").append(app.now.getVisibility() == View.VISIBLE).append('\n');
+    out.append("list at first: ").append(pb.kits.kitList.getSelectedItem()).append(" of ").append(pb.kits.kitList.getCount()).append('\n');
     short[][] v = AudioIo.buildVoices(AudioIo.SR);
     short[] crash = new short[AudioIo.SR];
     for (int i = 0; i < crash.length; i++) crash[i] = (short) (((i * 7919) % 16000 - 8000) * (crash.length - i) / crash.length);
@@ -368,11 +369,29 @@ public class BehaviorTest {
     names.setLength(0);
     for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir(app))) names.append(d.name).append(d.kit.isEmpty() ? "" : "/" + d.kit).append(' ');
     out.append("kept: ").append(names).append('\n');
+    // A SoundFont the pads had before the list (File's): on the list as Original's kit.
+    java.nio.file.Files.write(app.persistence.kitFile().toPath(), AudioIo.encodeSf2(v, "Old Kit"));
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Original").performClick();
+    idle();
+    for (Engine.DrumSet d : app.drumSets) if (d.original) d.kit = "";
+    pb.kits.adoptLoaded(null);
+    for (int i = 0; i < 200 && !"Old Kit".equals(pb.activeDrumSet().kit); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("adopted: ").append(pb.activeDrumSet().kit).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    pb.kits.kitList.setSelection(0);
+    for (int i = 0; i < 200 && app.persistence.kitFile().isFile(); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("default: kit.sf2 ").append(app.persistence.kitFile().isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
     write("s13c_drum_sets_kits", out.toString());
     String t = out.toString();
     if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
         || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
-        || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n"))
+        || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n") || !t.contains("list at first: Default kit of 1")
+        || !t.contains("adopted: Old Kit, selected Old Kit") || !t.contains("default: kit.sf2 false, selected Default kit"))
       throw new AssertionError(t);
   }
 

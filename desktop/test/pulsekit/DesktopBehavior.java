@@ -11073,13 +11073,35 @@ public final class DesktopBehavior {
     names.clear();
     for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir())) names.add(d.name + (d.kit.isEmpty() ? "" : "/" + d.kit) + ":" + d.foundCount());
     seen.append("kept: ").append(names).append('\n');
+    // A SoundFont the pads had from before the list (File's, an earlier version): on the list as Original's kit.
+    File kitSf2 = new File(new File(home, ".pulsekit"), "kit.sf2");
+    Files.write(kitSf2.toPath(), AudioIo.encodeSf2(v, "Old Kit"));
+    edt(() -> ((javax.swing.JButton) component(frame, "drum-set:Original")).doClick());
+    idle();
+    edt(() -> {
+      for (Engine.DrumSet d : (java.util.List<Engine.DrumSet>) get("drumSets")) if (d.original) d.kit = "";
+      pb.kits.adoptLoaded(null);
+    });
+    PadKits.loading.join(10000);
+    idle();
+    StringBuilder items = new StringBuilder();
+    edt(() -> {
+      for (int i = 0; i < pb.kits.kitList.getItemCount(); i++) items.append(pb.kits.kitList.getItemAt(i)).append(" | ");
+    });
+    seen.append("adopted: ").append(pb.activeDrumSet().kit).append(", list ").append(items).append("selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    // Default kit: Pulsekit's own sounds, no kit.sf2.
+    edt(() -> pb.kits.kitList.setSelectedIndex(0));
+    for (int i = 0; i < 200 && kitSf2.isFile(); i++) Thread.sleep(50);
+    idle();
+    seen.append("default: kit.sf2 ").append(kitSf2.isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append(", crash ").append(((short[][]) get("voices"))[Engine.track("crash")].length < 20000).append('\n');
     this.out.append(seen);
     String t = seen.toString();
     boolean ok = t.contains("new: Heavy, sets 2") && t.contains("loaded: Heavy kit Rock Kit, crash own true (a second long: true), list 1 Rock Kit")
         && t.contains("pad: CSH  Crash  \u00b7 49") && t.contains("original: crash a second long true, kit.sf2 true, kit Rock Kit")
         && t.contains("menu: Cancel | Rename | Copy into new | Match Original | Match empty from Original | Delete | ") && t.contains("Original's menu: Cancel | Copy into new | \n")
         && t.contains("sets: [Original/Rock Kit, Metal/Rock Kit, Metal 2/Rock Kit], selected Metal 2") && t.contains("kept when not sure: 3")
-        && t.matches("(?s).*kept: \\[Original/Rock Kit:0, Metal/Rock Kit:1[0-9]\\].*");
+        && t.matches("(?s).*kept: \\[Original/Rock Kit:0, Metal/Rock Kit:1[0-9]\\].*")
+        && t.contains("adopted: Old Kit, list Default kit | Rock Kit | Old Kit | selected Old Kit") && t.contains("default: kit.sf2 false, selected Default kit, crash true");
     if (!ok) throw new AssertionError(t);
   }
 

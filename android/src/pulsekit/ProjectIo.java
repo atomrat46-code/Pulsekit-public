@@ -540,6 +540,8 @@ final class ProjectIo {
                 app.handler.post(() -> {
                     app.playback.applySf2(kit.voices);
                     app.persistence.persistSf2(sf2);
+                    // On the Pads page's kit list too, as Original's kit.
+                    app.playback.kits.adoptLoaded(kit.name);
                     Logs.write(Logs.KITS, "SFZ kit " + kit.name + " (" + kit.pads + " pads)", kit.report);
                     lastSfz = "SFZ kit \u00b7 " + kit.name + " \u00b7 " + kit.pads + " drums";
                     app.setNow(lastSfz);
@@ -686,6 +688,7 @@ final class ProjectIo {
                     app.handler.post(() -> {
                         app.playback.applySf2(sArray);
                         app.persistence.persistSf2(byArray);
+                        app.playback.kits.adoptLoaded(string);
                     });
                 }
                 catch (Exception exception) {
