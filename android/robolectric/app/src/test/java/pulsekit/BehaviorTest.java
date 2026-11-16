@@ -265,6 +265,37 @@ public class BehaviorTest {
     snap("s13_pads_and_styles");
   }
 
+  /**
+   * 16112026: the Pads page's second row: pedal hat, semi-open hat, crash 2, china, splash, ride bell (each
+   * its own sound) and the crash's and ride's chokes (a ringing crash faded out); not written into the pattern.
+   */
+  @Test
+  public void s13b_extra_pads() throws Exception {
+    StringBuilder out = new StringBuilder();
+    call("show", "pads");
+    idle();
+    Playback pb = (Playback) get("playback");
+    StringBuilder labels = new StringBuilder();
+    for (TextView t : pb.extraBtns) labels.append(t.getText().toString().replace('\n', ' ')).append(" | ");
+    out.append("pads: ").append(labels).append('\n');
+    int[][] before = Engine.copyCells(app.cells);
+    pb.extraBtns[2].performClick();
+    idle();
+    out.append("crash 2 plays: ").append(pb.extraPos[2] == 0 && pb.extraVoices[2] != null).append(", semi-open made: ").append(pb.extraVoices[1] != null).append(", chokes none: ").append(pb.extraVoices[6] == null && pb.extraVoices[7] == null).append('\n');
+    // A crash ringing, then Crash choke: the crash and crash 2 fade out.
+    int crash = Engine.track("crash");
+    pb.triggerMix(crash, 110);
+    pb.extraBtns[6].performClick();
+    idle();
+    out.append("choke: crash fading ").append(pb.chokeLeft[crash] == Playback.CHOKE_FADE || app.mixPos[crash] < 0).append(", crash 2 fading ").append(pb.extraChokeLeft[2] == Playback.CHOKE_FADE || pb.extraPos[2] < 0).append('\n');
+    out.append("pattern unchanged: ").append(java.util.Arrays.deepEquals(before, app.cells)).append('\n');
+    write("s13b_extra_pads", out.toString());
+    String t = out.toString();
+    if (!t.contains("pads: PED Pedal hat \u00b7 44 | SEMI Semi-open hat \u00b7 46 | CR2 Crash 2 \u00b7 57 | CHN China \u00b7 52 | SPL Splash \u00b7 55 | BEL Ride bell \u00b7 53 | CHK Crash choke | RCHK Ride choke | ")
+        || !t.contains("crash 2 plays: true, semi-open made: true, chokes none: true") || !t.contains("choke: crash fading true, crash 2 fading true") || !t.contains("pattern unchanged: true"))
+      throw new AssertionError(t);
+  }
+
   @Test
   public void s14_persistence_restart() throws Exception {
     byte[] midi = Engine.encodeMidi(Engine.styleCells(Engine.styles().get("rock")), 128);

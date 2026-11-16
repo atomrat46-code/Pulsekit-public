@@ -129,7 +129,36 @@ final class Playback {
             this.padBtns[i] = jButton3;
             jPanel3.add(jButton3);
         }
-        jPanel.add((Component)jPanel3, "Center");
+        // The extra pads: played by hand only (not written into the pattern).
+        JPanel center = new JPanel(new java.awt.BorderLayout(0, 8));
+        center.setOpaque(false);
+        center.add(jPanel3, java.awt.BorderLayout.CENTER);
+        JPanel extraBox = new JPanel(new java.awt.BorderLayout(0, 4));
+        extraBox.setOpaque(false);
+        JLabel extraTitle = new JLabel("More pads (played, not written into the pattern)");
+        extraTitle.setForeground(SUBTLE);
+        extraBox.add(extraTitle, java.awt.BorderLayout.NORTH);
+        JPanel extraGrid = new JPanel(new GridLayout(2, 4, 10, 10));
+        extraGrid.setOpaque(false);
+        for (int x = 0; x < ExtraPads.ID.length; ++x) {
+            final int ex = x;
+            String sub = ExtraPads.isChoke(x) ? ExtraPads.LABEL[x] : ExtraPads.LABEL[x] + "  \u00b7 " + ExtraPads.NOTES[x];
+            JButton b = app.action(ExtraPads.SHORT[x] + "  " + sub, ELEV, FG);
+            b.setName("extra-pad:" + ExtraPads.ID[x]);
+            b.setToolTipText(ExtraPads.isChoke(x) ? "Stops the ringing " + (ExtraPads.crashChoke(x) ? "crash, crash 2, china and splash" : "ride and ride bell") : ExtraPads.LABEL[x] + ": MIDI note " + ExtraPads.NOTES[x]);
+            b.setPreferredSize(new Dimension(120, 60));
+            b.addActionListener(e -> {
+                this.extraHit(ex);
+                b.setBackground(HIT);
+                Timer t = new Timer(90, ev -> b.setBackground(ELEV));
+                t.setRepeats(false);
+                t.start();
+            });
+            extraGrid.add(b);
+        }
+        extraBox.add(extraGrid, java.awt.BorderLayout.CENTER);
+        center.add(extraBox, java.awt.BorderLayout.SOUTH);
+        jPanel.add((Component)center, "Center");
         this.refreshDrumSets();
         return jPanel;
     }
@@ -496,6 +525,59 @@ final class Playback {
         }
         catch (Exception exception) {
             // empty catch block
+        }
+    }
+
+    /** The last extra pad struck and its semi-open hat's close (for the tests). */
+    static String lastExtra;
+    Timer semiClose;
+
+    /**
+     * An extra pad struck (ExtraPads): its note on the drum channel (or the MIDI output picked); the
+     * semi-open hat the open hat let go after SEMI_OPEN; a choke the crash's or the ride's notes let go
+     * (note off, which ends a SoundFont's cymbal) and full aftertouch to a MIDI output.
+     */
+    void extraHit(int i) {
+        lastExtra = ExtraPads.ID[i];
+        if (this.synth == null || app.muted) return;
+        try {
+            final MidiChannel ch = this.synth.getChannels()[9];
+            if (ch == null) return;
+            if (ExtraPads.isChoke(i)) {
+                for (int note : ExtraPads.crashChoke(i) ? ExtraPads.CRASH_NOTES : ExtraPads.RIDE_NOTES) {
+                    if (this.midiOutReceiver != null && this.midiOut != null) {
+                        try {
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.POLY_PRESSURE, 9, note, 127), -1);
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_OFF, 9, note, 0), -1);
+                            continue;
+                        } catch (Exception ignored) {
+                            // the synth
+                        }
+                    }
+                    ch.noteOff(note);
+                }
+                return;
+            }
+            final int note = ExtraPads.NOTES[i];
+            this.hit(ch, note);
+            if ("semi".equals(ExtraPads.ID[i])) {
+                if (this.semiClose != null) this.semiClose.stop();
+                this.semiClose = new Timer((int) (ExtraPads.SEMI_OPEN * 1000), e -> {
+                    if (this.midiOutReceiver != null && this.midiOut != null) {
+                        try {
+                            this.midiOutReceiver.send(new javax.sound.midi.ShortMessage(javax.sound.midi.ShortMessage.NOTE_OFF, 9, note, 0), -1);
+                            return;
+                        } catch (Exception ignored) {
+                            // the synth
+                        }
+                    }
+                    ch.noteOff(note);
+                });
+                this.semiClose.setRepeats(false);
+                this.semiClose.start();
+            }
+        } catch (Exception ignored) {
+            // no sound
         }
     }
 

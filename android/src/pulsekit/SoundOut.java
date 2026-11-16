@@ -355,6 +355,21 @@ final class SoundOut {
     }
 
     /** A drum hit to the MIDI output picked (channel 10, its note off 100 ms later); false: none is open. */
+    /** A choke to the MIDI output picked: each cymbal note's note off and full aftertouch (many drum plugins choke on it). */
+    static boolean drumChoke(int[] notes) {
+        MidiInputPort port = drumPort;
+        if (port == null) return false;
+        try {
+            for (int note : notes) {
+                port.send(new byte[] {(byte) 0xA9, (byte) note, 127}, 0, 3);
+                port.send(new byte[] {(byte) 0x89, (byte) note, 0}, 0, 3);
+            }
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     static boolean drumHit(int note, int velocity) {
         MidiInputPort port = drumPort;
         if (port == null) return false;

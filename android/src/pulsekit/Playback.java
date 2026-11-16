@@ -107,6 +107,28 @@ final class Playback {
             }
             padGrid.addView((View)linearLayout);
         }
+        // The extra pads: played by hand only (not written into the pattern).
+        TextView extraTitle = app.text("More pads (played, not written into the pattern)", 11, true);
+        extraTitle.setPadding(app.dp(4), app.dp(10), 0, app.dp(2));
+        padGrid.addView((View)extraTitle);
+        for (int r = 0; r < 2; ++r) {
+            LinearLayout extraRow = app.row();
+            for (int c = 0; c < 4; ++c) {
+                final int x = r * 4 + c;
+                String sub = ExtraPads.isChoke(x) ? ExtraPads.LABEL[x] : ExtraPads.LABEL[x] + " \u00b7 " + ExtraPads.NOTES[x];
+                TextView extra = app.pad(ExtraPads.SHORT[x], sub, view -> {
+                    this.extraHit(x);
+                    this.flashExtra(x);
+                });
+                extra.setTag("extra-pad:" + ExtraPads.ID[x]);
+                this.extraBtns[x] = extra;
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, app.dp(72), 1.0f);
+                lp.setMargins(app.dp(4), app.dp(4), app.dp(4), app.dp(4));
+                extra.setLayoutParams((ViewGroup.LayoutParams)lp);
+                extraRow.addView((View)extra);
+            }
+            padGrid.addView((View)extraRow);
+        }
         scrollView.addView((View)padGrid);
         app.padsPane.addView((View)scrollView, (ViewGroup.LayoutParams)app.flexFill());
         frameLayout.addView((View)app.padsPane);
@@ -126,6 +148,66 @@ final class Playback {
     static final int MIX_CHUNK = 256;
 
     final int[] mixGain = new int[Engine.NOTES.length];
+
+    /** A choke's fade (frames at 22050): 30 ms. */
+    static final int CHOKE_FADE = 660;
+    /** Frames left of a choke's fade, per pad sound (0: none). */
+    final int[] chokeLeft = new int[Engine.NOTES.length];
+    /** The extra pads' sounds (ExtraPads, built from the kit's SoundFont when it has them), where each plays, its gain, its choke's fade. */
+    short[][] extraVoices;
+    String extraFor = "";
+    final int[] extraPos = new int[ExtraPads.ID.length];
+    final float[] extraGain = new float[ExtraPads.ID.length];
+    final int[] extraChokeLeft = new int[ExtraPads.ID.length];
+    {
+        Arrays.fill(this.extraPos, -1);
+    }
+
+    /** The extra pads' sounds, made again when the kit (its SoundFont, the pads' own hats and cymbals) changed. */
+    short[][] extraVoices() {
+        java.io.File kit = app.persistence.kitFile();
+        String key = (kit.isFile() ? kit.length() + ":" + kit.lastModified() : "-") + ":" + System.identityHashCode(app.voices[5]) + ":" + System.identityHashCode(app.voices[6])
+            + ":" + System.identityHashCode(app.voices[7]) + ":" + System.identityHashCode(app.voices[8]);
+        if (this.extraVoices != null && key.equals(this.extraFor)) return this.extraVoices;
+        byte[] sf2 = null;
+        try {
+            if (kit.isFile() && kit.length() > 64) sf2 = java.nio.file.Files.readAllBytes(kit.toPath());
+        } catch (Exception ignored) {
+            // the pads' own sounds
+        }
+        short[][] made = ExtraPads.voices(sf2, app.voices);
+        synchronized (app.mixLock) {
+            this.extraVoices = made;
+            this.extraFor = key;
+        }
+        return made;
+    }
+
+    /** An extra pad struck: its sound (or a MIDI output's note), or a choke stopping the crash's or the ride's ring. */
+    void extraHit(int i) {
+        this.ensureAudio();
+        if (app.muted) return;
+        if (ExtraPads.isChoke(i)) {
+            int[] notes = ExtraPads.crashChoke(i) ? ExtraPads.CRASH_NOTES : ExtraPads.RIDE_NOTES;
+            SoundOut.drumChoke(notes);
+            synchronized (app.mixLock) {
+                for (int t = 0; t < Engine.NOTES.length; t++) {
+                    boolean hit = false;
+                    for (int n : notes) if (Engine.NOTES[t] == n) hit = true;
+                    if (hit && app.mixPos[t] >= 0) this.chokeLeft[t] = CHOKE_FADE;
+                }
+                for (int x : ExtraPads.chokedExtras(i)) if (this.extraPos[x] >= 0) this.extraChokeLeft[x] = CHOKE_FADE;
+            }
+            return;
+        }
+        if (SoundOut.drumHit(ExtraPads.NOTES[i], 110)) return;
+        this.extraVoices();
+        synchronized (app.mixLock) {
+            this.extraPos[i] = 0;
+            this.extraGain[i] = 110 / 127f;
+            this.extraChokeLeft[i] = 0;
+        }
+    }
 
     Runnable pendingDouble;
 
@@ -404,16 +486,46 @@ final class Playback {
                             f *= 1.4f;
                         }
                         n2 = Math.min(256, sArray2.length - n3);
+                        boolean choked = false;
                         for (int i = 0; i < n2; ++i) {
-                            int n4 = sArray[i] + (int)((float)sArray2[n3 + i] * f);
+                            float fi = f;
+                            // A choke (the extra pads' Crash choke, Ride choke): faded out over CHOKE_FADE frames.
+                            if (this.chokeLeft[n] > 0) {
+                                fi = f * this.chokeLeft[n] / (float)CHOKE_FADE;
+                                if (--this.chokeLeft[n] == 0) choked = true;
+                            }
+                            int n4 = sArray[i] + (int)((float)sArray2[n3 + i] * fi);
                             if (n4 > Short.MAX_VALUE) {
                                 n4 = Short.MAX_VALUE;
                             } else if (n4 < Short.MIN_VALUE) {
                                 n4 = Short.MIN_VALUE;
                             }
                             sArray[i] = (short)n4;
+                            if (choked) break;
                         }
-                        app.mixPos[n] = (n3 += n2) >= sArray2.length ? -1 : n3;
+                        app.mixPos[n] = choked || (n3 += n2) >= sArray2.length ? -1 : n3;
+                    }
+                    // The extra pads (pedal hat, semi-open hat, crash 2, china, splash, ride bell).
+                    for (int x = 0; x < this.extraPos.length; ++x) {
+                        int at = this.extraPos[x];
+                        short[] v = this.extraVoices == null ? null : this.extraVoices[x];
+                        if (at < 0 || v == null || at >= v.length) {
+                            this.extraPos[x] = -1;
+                            continue;
+                        }
+                        int k = Math.min(256, v.length - at);
+                        boolean choked = false;
+                        for (int i = 0; i < k; ++i) {
+                            float fx = this.extraGain[x];
+                            if (this.extraChokeLeft[x] > 0) {
+                                fx = fx * this.extraChokeLeft[x] / (float)CHOKE_FADE;
+                                if (--this.extraChokeLeft[x] == 0) choked = true;
+                            }
+                            int m = sArray[i] + (int)(v[at + i] * fx);
+                            sArray[i] = (short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, m));
+                            if (choked) break;
+                        }
+                        this.extraPos[x] = choked || at + k >= v.length ? -1 : at + k;
                     }
                     if (this.oneShot != null && this.oneShotPos >= 0) {
                         n = this.oneShotPos;
@@ -512,8 +624,19 @@ final class Playback {
         Object object = app.mixLock;
         synchronized (object) {
             app.mixPos[n] = 0;
+            this.chokeLeft[n] = 0;
             this.mixGain[n] = Engine.clamp(n2, 1, 127);
         }
+    }
+
+    final TextView[] extraBtns = new TextView[ExtraPads.ID.length];
+
+    void flashExtra(int x) {
+        if (this.extraBtns[x] == null) return;
+        this.extraBtns[x].setBackground((Drawable)app.round(HIT, 12));
+        app.handler.postDelayed(() -> {
+            if (this.extraBtns[x] != null) this.extraBtns[x].setBackground((Drawable)app.round(ELEV, 12));
+        }, 90L);
     }
 
     void flashPad(int n) {

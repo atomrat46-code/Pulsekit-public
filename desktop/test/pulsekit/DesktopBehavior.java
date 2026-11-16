@@ -10995,6 +10995,35 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(all);
   }
 
+  /**
+   * 16112026: the Pads tab's second row: pedal hat, semi-open hat, crash 2, china, splash, ride bell and the
+   * crash's and ride's chokes; struck, each plays (the synth's drum channel), the pattern left as it was.
+   */
+  void s262_extra_pads() throws Exception {
+    call("showView", "pads");
+    idle();
+    final StringBuilder seen = new StringBuilder();
+    final int[][] before = Engine.copyCells((int[][]) get("cells"));
+    edt(() -> {
+      for (String id : ExtraPads.ID) {
+        javax.swing.JButton b = (javax.swing.JButton) component(frame, "extra-pad:" + id);
+        seen.append(b == null ? "-" : b.getText()).append(" | ");
+      }
+      Playback.lastExtra = null;
+      ((javax.swing.JButton) component(frame, "extra-pad:cr2")).doClick();
+      seen.append("\nstruck: ").append(Playback.lastExtra);
+      ((javax.swing.JButton) component(frame, "extra-pad:rchk")).doClick();
+      seen.append(", then ").append(Playback.lastExtra);
+    });
+    idle();
+    seen.append("\npattern unchanged: ").append(java.util.Arrays.deepEquals(before, (int[][]) get("cells"))).append('\n');
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("PED  Pedal hat  \u00b7 44 | SEMI  Semi-open hat  \u00b7 46 | CR2  Crash 2  \u00b7 57 | CHN  China  \u00b7 52 | SPL  Splash  \u00b7 55 | BEL  Ride bell  \u00b7 53 | CHK  Crash choke | RCHK  Ride choke | ")
+        && t.contains("struck: cr2, then rchk") && t.contains("pattern unchanged: true");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** v405: the Pads tab's pads say their MIDI notes (Kick 36, Snare 38, Closed hat 42...). */
   void s241_pad_notes() throws Exception {
     call("showView", "pads");

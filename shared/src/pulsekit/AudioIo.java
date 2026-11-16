@@ -1214,6 +1214,56 @@ public final class AudioIo {
     return voices;
   }
 
+  /**
+   * The SoundFont's own samples for these notes (its instrument zones' key ranges: the kit's 44, 52, 53,
+   * 55, 57...), each kept up to its cap in frames at SR; null for a note it has none for.
+   */
+  public static short[][] sf2Notes(byte[] d, int[] notes, int[] caps) {
+    short[][] out = new short[notes.length][];
+    if (d == null || d.length < 16 || !"RIFF".equals(four(d, 0)) || !"sfbk".equals(four(d, 8))) return out;
+    int smplOff = -1, smplLen = 0, shdrOff = -1, shdrLen = 0, ibagOff = -1, ibagLen = 0, igenOff = -1, igenLen = 0;
+    List<int[]> chunks = new ArrayList<>();
+    walk(d, 12, Math.min(d.length, 8 + Math.max(0, u32(d, 4))), chunks);
+    for (int[] c : chunks) {
+      String id = four(d, c[0]);
+      if ("smpl".equals(id)) { smplOff = c[0] + 8; smplLen = c[1]; }
+      else if ("shdr".equals(id)) { shdrOff = c[0] + 8; shdrLen = c[1]; }
+      else if ("ibag".equals(id)) { ibagOff = c[0] + 8; ibagLen = c[1]; }
+      else if ("igen".equals(id)) { igenOff = c[0] + 8; igenLen = c[1]; }
+    }
+    if (smplOff < 0 || shdrOff < 0 || ibagOff < 0 || igenOff < 0 || ibagLen < 8) return out;
+    int count = Math.min(shdrLen / 46, 4000);
+    int[] exact = new int[128];
+    Arrays.fill(exact, -1);
+    int bags = Math.min(ibagLen / 4, 8000);
+    for (int b = 0; b < bags - 1; b++) {
+      int g0 = u16(d, ibagOff + b * 4), g1 = u16(d, ibagOff + (b + 1) * 4);
+      int lo = 0, hi = 127, sid = -1;
+      for (int g = g0; g < Math.min(g1, igenLen / 4); g++) {
+        int off = igenOff + g * 4;
+        if (off + 4 > d.length) break;
+        int op = u16(d, off), amt = u16(d, off + 2);
+        if (op == 43) {
+          lo = amt & 0xff;
+          hi = (amt >> 8) & 0xff;
+        } else if (op == 53) sid = amt;
+      }
+      if (sid < 0 || sid >= count || hi < lo) continue;
+      for (int n = Math.max(0, lo); n <= Math.min(hi, 127); n++) if (exact[n] < 0 && (lo == hi || hi - lo < 4)) exact[n] = sid;
+    }
+    for (int i = 0; i < notes.length; i++) {
+      int note = notes[i];
+      if (note < 0 || note > 127 || exact[note] < 0) continue;
+      int b = shdrOff + exact[note] * 46;
+      if (b + 46 > d.length || (u16(d, b + 44) & 0x8000) != 0) continue;
+      int start = u32(d, b + 20), end = u32(d, b + 24), rate = u32(d, b + 36);
+      if (start < 0 || end <= start) continue;
+      if (rate < 8000 || rate > 96000) rate = 44100;
+      out[i] = extractDrum(d, smplOff, smplLen, start, end, rate, caps[i], false);
+    }
+    return out;
+  }
+
   static int nameToTrack(String nm) {
     String low = nm.toLowerCase();
     if (low.contains("double") || low.contains("dkick") || low.contains("pedal")) return Engine.track("dkick");
