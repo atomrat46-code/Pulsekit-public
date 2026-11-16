@@ -1672,7 +1672,8 @@ public class BehaviorTest {
     fileTab.performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-    ViewGroup items = (ViewGroup) pop.getContentView();
+    // The menu scrolls (a ScrollView round its items).
+    ViewGroup items = (ViewGroup) ((ViewGroup) pop.getContentView()).getChildAt(0);
     StringBuilder looks = new StringBuilder();
     for (int i = 0; i < items.getChildCount(); i++) {
       TextView t = (TextView) items.getChildAt(i);
