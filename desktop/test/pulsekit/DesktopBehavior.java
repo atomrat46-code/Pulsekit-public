@@ -11083,6 +11083,53 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * v456: vst_render's Pads set (Params' Plugins tab: Off, then the Pads tab's drum sets): the set picked is
+   * written as a SoundFont (the pads matching Original with Original's sounds) and given to vst_render, which
+   * plays it after the plugins. And a plugin tested once: its next Edit settings shows no result window
+   * or WAV ready (the record of tested plugins).
+   */
+  void s264_padset_and_tested() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    final Playback pb = (Playback) get("playback");
+    edt(() -> {
+      Engine.DrumSet heavy = Engine.DrumSet.isolated(null, "Heavy");
+      for (int t = 0; t < Engine.TRACK_ID.length; t++) heavy.matchOrig[t] = true;
+      short[] crash = new short[AudioIo.SR];
+      for (int i = 0; i < crash.length; i++) crash[i] = (short) ((i * 7919) % 16000 - 8000);
+      heavy.samples[Engine.track("crash")] = crash;
+      heavy.matchOrig[Engine.track("crash")] = false;
+      ((java.util.List<Engine.DrumSet>) get("drumSets")).add(heavy);
+    });
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (!p.token.equals("--padset")) continue;
+      seen.append("param: ").append(p.label.split(":")[0]).append(", tab ").append(ProgramParams.vstTab(p)).append(", list ").append(java.util.Arrays.toString(p.choices))
+          .append(" ").append(java.util.Arrays.toString(p.choiceValues)).append('\n');
+    }
+    File dir = new File(System.getProperty("user.home"), "padsets");
+    java.util.List<String> argv = JavaRun.withPadSet("vst_render.py", new java.util.ArrayList<String>(java.util.Arrays.asList("--plugin", "x.vst3", "--padset", "Heavy")), dir);
+    seen.append("argv: ").append(String.join(" ", argv).replace(dir.getAbsolutePath(), "<dir>")).append('\n');
+    short[][] v = AudioIo.parseSf2(Files.readAllBytes(new File(dir, "Heavy.sf2").toPath()));
+    short[][] own = (short[][]) get("voices");
+    seen.append("sf2: crash the set's ").append(v[Engine.track("crash")] != null && v[Engine.track("crash")].length > 20000)
+        .append(", kick Original's ").append(v[Engine.track("kick")] != null && own[Engine.track("kick")] != null && Math.abs(v[Engine.track("kick")].length - own[Engine.track("kick")].length) < 200)
+        .append(", needs DrumMidi's jar ").append(JavaRun.needsDrumMidi(java.util.Arrays.asList("--padset", "x"))).append('\n');
+    seen.append("no such set: ").append(JavaRun.withPadSet("vst_render.py", java.util.Arrays.asList("--padset", "Nope"), dir)).append('\n');
+    File plug = new File(System.getProperty("user.home"), "Drums.vst3");
+    seen.append("tested: ").append(PluginsList.tested(plug));
+    PluginsList.markTested(plug);
+    PluginsList.markTested(plug);
+    seen.append(" -> ").append(PluginsList.tested(plug)).append(", other ").append(PluginsList.tested(new File(System.getProperty("user.home"), "Drums2.vst3")))
+        .append(", lines ").append(Files.readAllLines(PluginsList.testedFile().toPath()).size()).append('\n');
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("param: Pads set, tab Plugins, list [Off, Original, Heavy] [, Original, Heavy]")
+        && t.contains("argv: --plugin x.vst3 --padset <dir>/Heavy.sf2 --padset_name Heavy")
+        && t.contains("sf2: crash the set's true, kick Original's true, needs DrumMidi's jar true") && t.contains("no such set: [--padset, Nope]")
+        && t.contains("tested: false -> true, other false, lines 1");
+    if (!ok) throw new AssertionError(t);
+  }
+
   static javax.swing.JMenuItem item(javax.swing.JPopupMenu m, String text) {
     for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals(text)) return (javax.swing.JMenuItem) c;
     throw new AssertionError("no " + text + " in the menu");

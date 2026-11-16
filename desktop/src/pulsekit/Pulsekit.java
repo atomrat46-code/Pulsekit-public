@@ -233,6 +233,9 @@ public final class Pulsekit extends UiKit {
         StorageScreen.startup(this);
         // The drum sets made on the Pads tab (Original first).
         this.drumSets.addAll(DrumSetStore.load(PadKits.setsDir()));
+        // vst_render's Pads set list and its SoundFont of the set picked.
+        DrumSetStore.live = this.drumSets;
+        DrumSetStore.voicesOf = name -> this.playback == null ? null : this.playback.voicesOfSet(name);
         for (int i = 0; i < Engine.MAX_STEPS; ++i) {
             this.accents[i] = i % 4 == 0;
         }

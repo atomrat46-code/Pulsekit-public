@@ -18,6 +18,20 @@ public final class DrumSetStore {
 
   public static final String INDEX = "sets.txt";
 
+  /** The app's drum sets (Original first), for vst_render's Pads set list; null: none known. */
+  public static volatile List<Engine.DrumSet> live;
+  /** A set's sounds as the pads play it (Original's for the pads matching it), by its name; set by the app. */
+  public static volatile java.util.function.Function<String, short[][]> voicesOf;
+
+  /** The drum sets' names, Original first. */
+  public static List<String> names() {
+    List<String> out = new ArrayList<String>();
+    List<Engine.DrumSet> sets = live;
+    if (sets != null) for (Engine.DrumSet s : new ArrayList<Engine.DrumSet>(sets)) out.add(s.name);
+    if (out.isEmpty()) out.add("Original");
+    return out;
+  }
+
   public static void save(File dir, List<Engine.DrumSet> sets) throws IOException {
     dir.mkdirs();
     StringBuilder b = new StringBuilder();

@@ -327,6 +327,7 @@ public class MainActivity extends UiKit {
         Arrays.fill(this.mixPos, -1);
         // The drum sets made on the Pads page (Original first).
         this.drumSets.addAll(DrumSetStore.load(PadKits.setsDir(this)));
+        DrumSetStore.live = this.drumSets;
         Engine.defaultAccents(this.accents, this.steps, Engine.stepsPerBeat(this.tsDen));
         this.styleLibrary.loadStyle("house", false);
         this.setContentView(this.buildUi());

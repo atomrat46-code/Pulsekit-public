@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -125,6 +125,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   or a text file of them with [plugin name] sections, as --map. Empty: Pulsekit's
                   ~/.pulsekit/maps/map.txt (Files & locations: Edit), when it has lines for the plugin.
                   The MIDI files themselves are not changed.
+  --padset F      Pulsekit's Pads tab drum set, written as a SoundFont (F; in Pulsekit, Params' Pads set
+                  list picks the set and Pulsekit writes it), played after the plugins (or alone) with
+                  Midi2Wav: its own WAVs, test and zips, as one more plugin. --padset_name: the set's name
+                  (its files are named "Pads <name>"). No note map: the set plays Pulsekit's own notes.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -1976,6 +1980,46 @@ def plugin_runs(argv, opts):
             one += ["--kit_name", own_kit]
         runs.append((plug, one))
     return runs
+
+
+# The switches of the plugins: the Pads set's run has none of them (it is a SoundFont of Pulsekit's own notes).
+PAD_SET_DROPPED = ("--plugin", "--plugin2", "--plugin3", "--plugin4", "--map", "--map2", "--map3", "--map4", "--kit_name", "--kit_name2",
+                   "--kit_name3", "--kit_name4", "--state", "--carla", "--clap", "--clap_id", "--drumgizmo", "--midimap", "--effect",
+                   "--effect_state", "--parts", "--note_map", "--chokes", "--padset", "--padset_name")
+
+
+def pad_set_runs(argv, opts, switches):
+    """--padset: the plugins' run(s) first (as given, without --padset), then the Pads set as a SoundFont
+    played with Midi2Wav, named "Pads <name>", with no note map (it plays Pulsekit's own notes)."""
+    pads = opts["--padset"]
+    if not os.path.isfile(pads):
+        fail("--padset: no SoundFont %s (in Pulsekit, pick the Pads set in Params' list)" % pads)
+    name = (opts["--padset_name"] or "").strip() or stem(os.path.basename(pads))
+    rest = drop_switch(drop_switch(argv, "--padset"), "--padset_name")
+    pad_run = list(rest)
+    for sw in PAD_SET_DROPPED:
+        pad_run = drop_switch(pad_run, sw)
+    pad_run = [a for a in pad_run if a not in ("--edit", "--no-map")]
+    pad_run += ["--plugin", pads, "--kit_name", "Pads " + name, "--note_map", "36=36", "--no-map"]
+    plugins = opts["--plugin"] or opts["--carla"] or opts["--drumgizmo"] or opts.get("--clap") or any(opts[k] for k, _, _ in MORE_PLUGINS)
+    done = []
+    if plugins:
+        try:
+            main(rest)
+            done.append(("the plugins", "done"))
+        except SystemExit as e:
+            done.append(("the plugins", "failed" if e.code else "done"))
+        print("")
+    print("== Pads set: %s" % name)
+    sys.stdout.flush()
+    try:
+        main(pad_run)
+        done.append(("Pads " + name, "done"))
+    except SystemExit as e:
+        done.append(("Pads " + name, "failed" if e.code else "done"))
+    print("Runs: " + ", ".join("%s %s" % d for d in done))
+    if all(r == "failed" for _, r in done):
+        sys.exit(1)
 
 
 def lead_first(argv, opts):
@@ -4517,7 +4561,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None}
@@ -4587,6 +4631,9 @@ def main(argv):
             opts["--zip_outdir"] = filled
             argv = list(argv)
             argv[argv.index("--zip_outdir") + 1] = filled
+    # --padset: the Pads tab's drum set (a SoundFont Pulsekit wrote), played after the plugins.
+    if opts["--padset"]:
+        return pad_set_runs(argv, opts, switches)
     more = [opts[k] for k, _, _ in MORE_PLUGINS if opts[k]]
     if more and not parts:
         if not opts["--plugin"]:

@@ -620,6 +620,20 @@ final class Playback {
         return s.samples[src];
     }
 
+    /** A drum set's sounds as the pads play it (Original's for the pads matching it), by its name; null: no such set. */
+    short[][] voicesOfSet(String name) {
+        Engine.DrumSet s = null;
+        for (Engine.DrumSet d : app.drumSets) if (d.name.equals(name)) s = d;
+        if (s == null) return null;
+        this.fillMissingVoices();
+        short[][] out = new short[app.voices.length][];
+        for (int t = 0; t < Engine.TRACK_ID.length && t < out.length; t++) {
+            int src = Engine.soundTrack(t);
+            out[t] = s.original || s.matchOrig[src] ? app.voices[src] : s.samples[src];
+        }
+        return out;
+    }
+
     short[][] mixVoices() {
         this.fillMissingVoices();
         Engine.DrumSet s = this.activeDrumSet();

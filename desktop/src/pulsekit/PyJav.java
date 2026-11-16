@@ -768,6 +768,8 @@ final class PyJav {
         // A batch (MidiDrumGen --count, vst_render.py --dir, CompareHits --batch): a plain folder name is
         // in the program files folder, not the run's temporary one.
         runArgs = ProgramFolder.batchFolders(name, runArgs, this.programFolder());
+        // vst_render.py --padset: the Pads tab's drum set picked, written as a SoundFont for it.
+        runArgs = JavaRun.withPadSet(name, runArgs, new File(new File(PromptDb.dir(), "pyjav-in"), "padsets"));
         // vst_render.py --test, --mp3 (Wav2Mp3 being in it) and the cymbal model bench: Pulsekit's DrumMidi_CRT.jar and this Java for it.
         if ("vst_render.py".equals(name) && JavaRun.needsDrumMidi(runArgs)) {
             try {
@@ -3671,7 +3673,9 @@ final class PyJav {
                                 // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
                                 pluginTestSaid = failed == null ? "" : failed;
-                                if (!pluginTestQuiet)
+                                // A plugin tested before: its settings saved, said in the status line only (Test shows the result).
+                                if (PluginsList.lastEditQuiet) app.setNow("Edit settings \u00b7 " + plug.getName() + ": settings saved \u00b7 " + PluginsList.summary(log).split("\n")[0]);
+                                else if (!pluginTestQuiet)
                                     JOptionPane.showMessageDialog(editSettings, PluginsList.result(plug, true, log), "Edit settings \u00b7 " + plug.getName(),
                                         failed != null ? JOptionPane.WARNING_MESSAGE : JOptionPane.PLAIN_MESSAGE);
                             });
