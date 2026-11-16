@@ -311,6 +311,7 @@ public class BehaviorTest {
     Playback pb = (Playback) get("playback");
     app.setNow("Pulsekit plays through the phone's own routing");
     out.append("status line shown: ").append(app.now.getVisibility() == View.VISIBLE).append('\n');
+    out.append("list at first: ").append(pb.kits.kitList.getSelectedItem()).append(" of ").append(pb.kits.kitList.getCount()).append('\n');
     short[][] v = AudioIo.buildVoices(AudioIo.SR);
     short[] crash = new short[AudioIo.SR];
     for (int i = 0; i < crash.length; i++) crash[i] = (short) (((i * 7919) % 16000 - 8000) * (crash.length - i) / crash.length);
@@ -368,11 +369,34 @@ public class BehaviorTest {
     names.setLength(0);
     for (Engine.DrumSet d : DrumSetStore.load(PadKits.setsDir(app))) names.append(d.name).append(d.kit.isEmpty() ? "" : "/" + d.kit).append(' ');
     out.append("kept: ").append(names).append('\n');
+    // A SoundFont the pads had before the list (File's): on the list as Original's kit.
+    java.nio.file.Files.write(app.persistence.kitFile().toPath(), AudioIo.encodeSf2(v, "Old Kit"));
+    app.findViewById(android.R.id.content).findViewWithTag("drum-set:Original").performClick();
+    idle();
+    for (Engine.DrumSet d : app.drumSets) if (d.original) d.kit = "";
+    pb.kits.adoptLoaded(null);
+    for (int i = 0; i < 200 && !pb.activeDrumSet().kit.startsWith("SF2 name unknown"); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    // The list laid out again (it tells of the entry it shows): the kit stays, kit.sf2 too.
+    for (int i = 0; i < 5; i++) {
+      pb.kits.kitList.requestLayout();
+      idle();
+    }
+    out.append("adopted: ").append(pb.activeDrumSet().kit).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append(", kit.sf2 kept ").append(app.persistence.kitFile().isFile()).append('\n');
+    pb.kits.kitList.setSelection(0);
+    for (int i = 0; i < 200 && app.persistence.kitFile().isFile(); i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("default: kit.sf2 ").append(app.persistence.kitFile().isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
     write("s13c_drum_sets_kits", out.toString());
     String t = out.toString();
     if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
         || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
-        || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n"))
+        || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n") || !t.contains("list at first: Default kit of 1")
+        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit"))
       throw new AssertionError(t);
   }
 
@@ -482,7 +506,7 @@ public class BehaviorTest {
 
   @Test
   public void s19_drum_midi_settings() throws Exception {
-    TextView file = findText(root(), "File");
+    TextView file = findText(root(), "Media");
     file.performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
@@ -1648,7 +1672,8 @@ public class BehaviorTest {
     fileTab.performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-    ViewGroup items = (ViewGroup) pop.getContentView();
+    // The menu scrolls (a ScrollView round its items).
+    ViewGroup items = (ViewGroup) ((ViewGroup) pop.getContentView()).getChildAt(0);
     StringBuilder looks = new StringBuilder();
     for (int i = 0; i < items.getChildCount(); i++) {
       TextView t = (TextView) items.getChildAt(i);
@@ -13396,11 +13421,11 @@ public class BehaviorTest {
     parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
     File mid = new File(dir, "beat.mid");
     Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
-    findText(root(), "File").performClick();
+    findText(root(), "Media").performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-    View item = pop.getContentView().findViewWithTag("file-audiomixer");
-    out.append("File menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
+    View item = pop.getContentView().findViewWithTag("media-audiomixer");
+    out.append("Media menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
     item.performClick();
     idle();
     android.app.AlertDialog d = AudioMixerScreen.last;
@@ -13942,10 +13967,10 @@ public class BehaviorTest {
       DrumLibrary.Entry bd = DrumLibrary.find(new File(dir, "BD 01.wav").getAbsolutePath()), hh = DrumLibrary.find(new File(dir, "hihat closed.wav").getAbsolutePath());
       out.append(String.format(java.util.Locale.ROOT, "BD 01: %s, %s, pitch %.0f Hz | hihat closed: %s, %s, bright %.0f Hz%n", DrumLibrary.label(bd.part), bd.state, bd.measures[5],
           DrumLibrary.label(hh.part), hh.state, hh.measures[6]));
-      findText(root(), "File").performClick();
+      findText(root(), "Media").performClick();
       idle();
       android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-      pop.getContentView().findViewWithTag("file-drum-library").performClick();
+      pop.getContentView().findViewWithTag("media-drum-library").performClick();
       idle();
       View w = DrumLibraryScreen.last.getWindow().getDecorView();
       android.widget.Spinner part = (android.widget.Spinner) w.findViewWithTag("library-part");

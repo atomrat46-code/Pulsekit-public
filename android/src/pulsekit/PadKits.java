@@ -58,8 +58,10 @@ final class PadKits {
         this.kitList.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
-                if (PadKits.this.quiet || pos <= 0 || pos > PadKits.this.listed.size()) return;
-                PadKits.this.load(PadKits.this.listed.get(pos - 1));
+                int i = pos - PadKits.this.offset;
+                if (PadKits.this.quiet || pos == PadKits.this.shownPos || i < 0 || i >= PadKits.this.listed.size()) return;
+                PadKits.this.shownPos = pos;
+                PadKits.this.load(PadKits.this.listed.get(i));
             }
 
             @Override
@@ -72,28 +74,78 @@ final class PadKits {
         });
         row.addView(this.kitList, new LinearLayout.LayoutParams(0, -2, 1f));
         this.refreshKits();
+        // A SoundFont the pads have from before (File, or an earlier version): on the list as Original's kit.
+        Engine.DrumSet original = app.drumSets.isEmpty() ? null : app.drumSets.get(0);
+        if (original != null && original.original && (original.kit == null || original.kit.isEmpty()) && app.persistence.kitFile().isFile()) this.adoptLoaded(null);
         return row;
     }
 
-    /** The list again: the kits on the shelf, the selected set's kit selected. */
+    /**
+     * The list again: Default kit (Pulsekit's own sounds), then the kits added; the selected set's kit
+     * selected (Original without one: Default kit; another set without one: "Kit…" first).
+     */
     void refreshKits() {
         if (this.kitList == null) return;
         this.listed.clear();
+        KitShelf.Kit def = new KitShelf.Kit();
+        def.name = KitShelf.DEFAULT;
+        this.listed.add(def);
         this.listed.addAll(KitShelf.list(kitsDir(app)));
+        Engine.DrumSet set = app.playback.activeDrumSet();
+        String cur = set.kit == null || set.kit.isEmpty() ? (set.original ? KitShelf.DEFAULT : "") : set.kit;
+        // Original without a kit and without its saved SoundFont (lost): the kit added last loaded into it, once.
+        if (set.original && (set.kit == null || set.kit.isEmpty()) && !this.recentTried && !app.persistence.kitFile().isFile()) {
+            this.recentTried = true;
+            KitShelf.Kit recent = KitShelf.mostRecent(kitsDir(app));
+            if (recent != null) {
+                this.load(recent);
+                cur = recent.name;
+            }
+        }
+        // Original playing sounds that are not Pulsekit's own, with no kit named: not Default kit.
+        if (set.original && KitShelf.DEFAULT.equals(cur) && !KitShelf.ownSounds(app.voices)) cur = "";
+        this.offset = cur.isEmpty() ? 1 : 0;
+        String top = set.original ? KitShelf.UNKNOWN : "Kit\u2026";
         List<String> names = new ArrayList<String>();
-        names.add(this.listed.isEmpty() ? "No kits yet: Add SF2" : "Kit…");
+        if (this.offset == 1) names.add(top);
         int at = 0;
-        String cur = app.playback.activeDrumSet().kit;
         for (int i = 0; i < this.listed.size(); i++) {
             names.add(this.listed.get(i).name);
-            if (this.listed.get(i).name.equals(cur)) at = i + 1;
+            if (this.listed.get(i).name.equals(cur)) at = i + this.offset;
         }
         ArrayAdapter<String> a = new ArrayAdapter<String>(app, android.R.layout.simple_spinner_item, names);
         a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         this.quiet = true;
         this.kitList.setAdapter(a);
         this.kitList.setSelection(at, false);
+        // The list tells its listener of the entry shown once it is laid out: only another pick loads a kit.
+        this.shownPos = at;
         this.kitList.post(() -> this.quiet = false);
+    }
+
+    /** Whether Original's lost kit was looked for this run (the kit added last loaded into it). */
+    boolean recentTried;
+
+    /** 1 while the list starts with "Kit…" (a set without a kit), else 0. */
+    int offset;
+    /** The entry the list shows (set from code or picked): telling of it again loads nothing. */
+    int shownPos = -1;
+
+    /**
+     * The pads' own kit (kit.sf2: a SoundFont or SFZ kit loaded from File, or before the list was there)
+     * onto the list, as Original's kit; `name`: the file's name (null: the SoundFont's own).
+     */
+    void adoptLoaded(final String name) {
+        final java.io.File kit = app.persistence.kitFile();
+        new Thread(() -> {
+            final String got = KitShelf.adopt(kitsDir(app), kit, name);
+            if (got == null) return;
+            app.handler.post(() -> {
+                for (Engine.DrumSet d : app.drumSets) if (d.original) d.kit = got;
+                this.saveSets();
+                this.refreshKits();
+            });
+        }, "pulsekit-kit-adopt").start();
     }
 
     /** Add SF2: Pulsekit's file browser (its DB, Download, the folders), Other… the phone's picker. */
@@ -157,10 +209,17 @@ final class PadKits {
         app.setNow("Loading " + kit.name + "…");
         new Thread(() -> {
             try {
-                final short[][] v = KitShelf.voices(kitsDir(app), kit);
-                final byte[] sf2 = set.original ? AudioIo.encodeSf2(v, kit.name) : null;
+                final boolean def = KitShelf.DEFAULT.equals(kit.name) && kit.file.isEmpty();
+                final short[][] v = def ? AudioIo.buildVoices(AudioIo.SR) : KitShelf.voices(kitsDir(app), kit);
+                final byte[] sf2 = set.original && !def ? AudioIo.encodeSf2(v, kit.name) : null;
                 app.handler.post(() -> {
-                    if (set.original) {
+                    if (set.original && def) {
+                        // Pulsekit's own sounds again: no kit.sf2 at the next start either.
+                        app.playback.applySf2(v);
+                        app.persistence.kitFile().delete();
+                        // Picked: kept as Original's choice (not taken for a kit lost).
+                        set.kit = KitShelf.DEFAULT;
+                    } else if (set.original) {
                         app.playback.applySf2(v);
                         app.persistence.persistSf2(sf2);
                         set.kit = kit.name;
@@ -184,11 +243,12 @@ final class PadKits {
 
     /** A long press on the list: take a kit off it. */
     void kitMenu() {
-        if (this.listed.isEmpty()) return;
-        String[] items = new String[this.listed.size()];
-        for (int i = 0; i < items.length; i++) items[i] = this.listed.get(i).name;
+        final List<KitShelf.Kit> kits = KitShelf.list(kitsDir(app));
+        if (kits.isEmpty()) return;
+        String[] items = new String[kits.size()];
+        for (int i = 0; i < items.length; i++) items[i] = kits.get(i).name;
         lastDialog = new AlertDialog.Builder(app).setTitle("Remove a kit from the list").setItems(items, (d, w) -> {
-            final KitShelf.Kit k = this.listed.get(w);
+            final KitShelf.Kit k = kits.get(w);
             lastDialog = new AlertDialog.Builder(app).setMessage("Remove " + k.name + " from the list? The drum sets keep their sounds.")
                 .setPositiveButton("Remove", (d2, w2) -> {
                     try {

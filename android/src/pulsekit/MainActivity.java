@@ -492,6 +492,7 @@ public class MainActivity extends UiKit {
         linearLayout10.setPadding(0, this.dp(4), 0, 0);
         this.addTab(linearLayout10, "py", "PyJav");
         this.addFileTab(linearLayout10);
+        this.addMediaTab(linearLayout10);
         // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
         this.drumSubtabs = this.col();
         this.drumSubtabs.setTag("drum-subtabs");
@@ -716,6 +717,19 @@ public class MainActivity extends UiKit {
         textView.setGravity(17);
         textView.setTag((Object)"file");
         textView.setOnClickListener(this::showFileMenu);
+        textView.setPadding(0, this.dp(8), 0, this.dp(8));
+        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
+        layoutParams.setMargins(this.dp(2), 0, this.dp(2), 0);
+        textView.setLayoutParams((ViewGroup.LayoutParams)layoutParams);
+        linearLayout.addView((View)textView);
+        this.tabs.add(textView);
+    }
+
+    void addMediaTab(LinearLayout linearLayout) {
+        TextView textView = this.text("Media", 13, true);
+        textView.setGravity(17);
+        textView.setTag((Object)"media");
+        textView.setOnClickListener(this::showMediaMenu);
         textView.setPadding(0, this.dp(8), 0, this.dp(8));
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, this.dp(36), 1.0f);
         layoutParams.setMargins(this.dp(2), 0, this.dp(2), 0);
@@ -1315,9 +1329,6 @@ public class MainActivity extends UiKit {
         importResult.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         importResult.setTextColor(FG);
         importResult.setTag("file-import-result");
-        android.widget.TextView midi = this.text("Drum Midi Settings", 14, true);
-        midi.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        midi.setTextColor("midisettings".equals(this.view) ? HIT : FG);
         // Use encrypted DB, the DBs and their space, Send db to zip, Import db zip.
         android.widget.TextView dbSettings = this.text(DbSlots.TITLE, 14, true);
         dbSettings.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
@@ -1337,39 +1348,16 @@ public class MainActivity extends UiKit {
         logs.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         logs.setTextColor(FG);
         logs.setTag("file-logs");
-        // AudioMixer: tracks mixed into one (also in PyJav's Java list).
-        // The drum sound library: links to drum sounds, by part, measured.
-        android.widget.TextView library = this.text(DrumLibrary.TITLE, 14, true);
-        library.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        library.setTextColor(FG);
-        library.setTag("file-drum-library");
-        android.widget.TextView mixer = this.text(AudioMix.TITLE, 14, true);
-        mixer.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        mixer.setTextColor(FG);
-        mixer.setTag("file-audiomixer");
-        // The outputs, inputs, MIDI and USB devices; Pulsekit's output and drum MIDI output.
-        android.widget.TextView sound = this.text("Sound devices", 14, true);
-        sound.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        sound.setTextColor(FG);
-        sound.setTag("file-sound-devices");
         // What uninstalling would delete, kept in a zip, and back from one (AppBackup).
         android.widget.TextView backup = this.text(AppBackup.BACKUP + " / restore", 14, true);
         backup.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         backup.setTextColor(FG);
         backup.setTag("file-backup");
-        // Playlists (.pls): the Editor and Viewer tabs.
-        android.widget.TextView playlists = this.text("Playlist viewer/editor", 14, true);
-        playlists.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        playlists.setTextColor(FG);
-        playlists.setTag("file-playlists");
         // Collections: containers of links to files, DB files, playlists and file sets.
         android.widget.TextView collections = this.text(MediaCollections.TITLE, 14, true);
         collections.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         collections.setTextColor(FG);
         collections.setTag("file-collections");
-        android.widget.TextView compare = this.text("Compare Hits", 14, true);
-        compare.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
-        compare.setTextColor("comparehits".equals(this.view) ? HIT : FG);
         android.widget.TextView help = this.text("Help-Android", 14, true);
         help.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
         help.setTextColor("help".equals(this.view) ? HIT : FG);
@@ -1381,16 +1369,10 @@ public class MainActivity extends UiKit {
         menu.addView(importResult);
         menu.addView(downloads);
         menu.addView(logs);
-        menu.addView(mixer);
-        menu.addView(library);
-        menu.addView(sound);
         menu.addView(backup);
-        menu.addView(playlists);
         menu.addView(collections);
         menu.addView(general);
         menu.addView(dbSettings);
-        menu.addView(midi);
-        menu.addView(compare);
         menu.addView(help);
         // Exit: the editors' unsaved edits asked about first (ExitCheck).
         android.widget.TextView exit = this.text(ExitCheck.EXIT, 14, true);
@@ -1398,11 +1380,7 @@ public class MainActivity extends UiKit {
         exit.setTextColor(FG);
         exit.setTag("file-exit");
         menu.addView(exit);
-        menu.measure(0, 0);
-        android.widget.PopupWindow pop = new android.widget.PopupWindow(menu, menu.getMeasuredWidth(), menu.getMeasuredHeight(), true);
-        pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
-        pop.setOutsideTouchable(true);
-        pop.setElevation((float) this.dp(8));
+        android.widget.PopupWindow pop = this.menuPopup(menu);
         imp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "import"));
         exp.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "export"));
         saveCode.setOnClickListener(v -> {
@@ -1439,37 +1417,82 @@ public class MainActivity extends UiKit {
             pop.dismiss();
             LogsScreen.show(this);
         });
-        sound.setOnClickListener(v -> {
-            pop.dismiss();
-            SoundDevicesScreen.show(this);
-        });
-        library.setOnClickListener(v -> {
-            pop.dismiss();
-            DrumLibraryScreen.show(this);
-        });
-        mixer.setOnClickListener(v -> {
-            pop.dismiss();
-            AudioMixerScreen.show(this);
-        });
         backup.setOnClickListener(v -> {
             pop.dismiss();
             BackupScreen.show(this);
-        });
-        playlists.setOnClickListener(v -> {
-            pop.dismiss();
-            PlaylistScreen.show(this, null);
         });
         collections.setOnClickListener(v -> {
             pop.dismiss();
             CollectionsScreen.show(this);
         });
-        midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
-        compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
         help.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "help"));
         exit.setOnClickListener(v -> {
             pop.dismiss();
             ExitScreen.show(this);
         });
+        pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
+    }
+
+    /** A menu's popup: as tall as its items, at most the screen's height less the tabs above it (it scrolls then). */
+    android.widget.PopupWindow menuPopup(android.widget.LinearLayout menu) {
+        menu.measure(0, 0);
+        int most = this.getResources().getDisplayMetrics().heightPixels - this.dp(140);
+        int h = Math.max(this.dp(120), Math.min(menu.getMeasuredHeight(), most));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setTag("menu-scroll");
+        scroll.addView(menu);
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(scroll, menu.getMeasuredWidth(), h, true);
+        pop.setBackgroundDrawable(new android.graphics.drawable.GradientDrawable());
+        pop.setOutsideTouchable(true);
+        pop.setElevation((float) this.dp(8));
+        return pop;
+    }
+
+    android.widget.TextView menuItem(android.widget.LinearLayout menu, String label, String tag, boolean on) {
+        android.widget.TextView t = this.text(label, 14, true);
+        t.setPadding(this.dp(18), this.dp(12), this.dp(28), this.dp(12));
+        t.setTextColor(on ? HIT : FG);
+        t.setTag(tag);
+        menu.addView(t);
+        return t;
+    }
+
+    /** Media: the mixer, the drum sound library, the sound devices, playlists, Compare Hits and Drum Midi Settings. */
+    void showMediaMenu(View anchor) {
+        android.widget.LinearLayout menu = this.col();
+        android.graphics.drawable.GradientDrawable bg = this.round(SURFACE, 8);
+        bg.setStroke(this.dp(1), BORDER);
+        menu.setBackground(bg);
+        menu.setPadding(this.dp(4), this.dp(4), this.dp(4), this.dp(4));
+        // AudioMixer: tracks mixed into one (also in PyJav's Java list).
+        android.widget.TextView mixer = this.menuItem(menu, AudioMix.TITLE, "media-audiomixer", false);
+        // The drum sound library: links to drum sounds, by part, measured.
+        android.widget.TextView library = this.menuItem(menu, DrumLibrary.TITLE, "media-drum-library", false);
+        // The outputs, inputs, MIDI and USB devices; Pulsekit's output and drum MIDI output.
+        android.widget.TextView sound = this.menuItem(menu, "Sound devices", "media-sound-devices", false);
+        // Playlists (.pls): the Editor and Viewer tabs.
+        android.widget.TextView playlists = this.menuItem(menu, "Playlist viewer/editor", "media-playlists", false);
+        android.widget.TextView compare = this.menuItem(menu, "Compare Hits", "media-compare-hits", "comparehits".equals(this.view));
+        android.widget.TextView midi = this.menuItem(menu, "Drum Midi Settings", "media-midi-settings", "midisettings".equals(this.view));
+        android.widget.PopupWindow pop = this.menuPopup(menu);
+        mixer.setOnClickListener(v -> {
+            pop.dismiss();
+            AudioMixerScreen.show(this);
+        });
+        library.setOnClickListener(v -> {
+            pop.dismiss();
+            DrumLibraryScreen.show(this);
+        });
+        sound.setOnClickListener(v -> {
+            pop.dismiss();
+            SoundDevicesScreen.show(this);
+        });
+        playlists.setOnClickListener(v -> {
+            pop.dismiss();
+            PlaylistScreen.show(this, null);
+        });
+        compare.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "comparehits"));
+        midi.setOnClickListener(pulsekit.FileSetClicks.fileItem(this, pop, "midisettings"));
         pop.showAsDropDown(anchor, 0, this.dp(4), 8388613);
     }
 
@@ -1481,7 +1504,8 @@ public class MainActivity extends UiKit {
             java.lang.Object tag = tab.getTag();
             boolean on = this.view.equals(tag)
                     || (DRUM_TRACKS.equals(tag) && drumView(this.view))
-                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
+                    || ("file".equals(tag) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)))
+                    || ("media".equals(tag) && ("midisettings".equals(this.view) || "comparehits".equals(this.view)));
             // General settings > Show DB/Prompts tab.
             if ("prompts".equals(tag)) tab.setVisibility(AppSettings.showPromptsTab() ? android.view.View.VISIBLE : android.view.View.GONE);
             tab.setBackground(this.round(on ? ELEV : 0, 8));

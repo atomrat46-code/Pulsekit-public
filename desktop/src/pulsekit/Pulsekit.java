@@ -381,6 +381,7 @@ public final class Pulsekit extends UiKit {
         this.addTab(jPanel7, "py", "PyJav");
         this.addTab(jPanel7, "prompts", "DB/Prompts");
         this.addFileTab(jPanel7);
+        this.addMediaTab(jPanel7);
         // The Drum Tracks page: its header, as PyJav has, and Pattern, Fillern and Fills below it.
         this.drumSubtabs = new JPanel();
         this.drumSubtabs.setLayout(new BoxLayout(this.drumSubtabs, 1));
@@ -725,26 +726,10 @@ public final class Pulsekit extends UiKit {
             JMenuItem logs = new JMenuItem("Logs");
             logs.setName("file-logs");
             logs.addActionListener(e -> LogsScreen.show(this));
-            // The outputs, inputs, MIDI devices and drivers; Pulsekit's output and drum MIDI output.
-            // AudioMixer: tracks mixed into one (also in PyJav's Java list).
-            JMenuItem mixer = new JMenuItem(AudioMix.TITLE);
-            mixer.setName("file-audiomixer");
-            mixer.addActionListener(e -> AudioMixerWindow.show(this));
-            // The drum sound library: links to drum sounds, by part, measured.
-            JMenuItem library = new JMenuItem(DrumLibrary.TITLE);
-            library.setName("file-drum-library");
-            library.addActionListener(e -> DrumLibraryWindow.show(this));
-            JMenuItem sound = new JMenuItem("Sound devices");
-            sound.setName("file-sound-devices");
-            sound.addActionListener(e -> SoundDevicesScreen.show(this));
             // What reinstalling would lose, kept in a zip, and back from one (AppBackup).
             JMenuItem backup = new JMenuItem(AppBackup.BACKUP + " / restore");
             backup.setName("file-backup");
             backup.addActionListener(e -> BackupScreen.show(this));
-            // Playlists (.pls): the Editor and Viewer tabs.
-            JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
-            playlists.setName("file-playlists");
-            playlists.addActionListener(e -> PlaylistWindow.open(this, null));
             // Collections: containers of links to files, DB files, playlists and file sets.
             JMenuItem collections = new JMenuItem(MediaCollections.TITLE);
             collections.setName("file-collections");
@@ -755,10 +740,6 @@ public final class Pulsekit extends UiKit {
             JMenuItem dbSettings = new JMenuItem(DbSlots.TITLE);
             dbSettings.setName("file-db-settings");
             dbSettings.addActionListener(e -> DbSettings.show(this));
-            JMenuItem midi = new JMenuItem("Drum Midi Settings");
-            midi.addActionListener(e -> this.showView("midisettings"));
-            JMenuItem compare = new JMenuItem("Compare Hits");
-            compare.addActionListener(e -> this.showView("comparehits"));
             JMenuItem help = new JMenuItem("Help-Desktop");
             help.addActionListener(e -> this.showView("help"));
             menu.add(imp);
@@ -769,22 +750,59 @@ public final class Pulsekit extends UiKit {
             menu.add(saveCodeAs);
             menu.add(downloads);
             menu.add(logs);
-            menu.add(mixer);
-            menu.add(library);
-            menu.add(sound);
             menu.add(backup);
-            menu.add(playlists);
             menu.add(collections);
             menu.add(general);
             menu.add(dbSettings);
-            menu.add(midi);
-            menu.add(compare);
             menu.add(help);
             // Exit: the editors' unsaved edits asked about first (ExitCheck).
             JMenuItem exit = new JMenuItem(ExitCheck.EXIT);
             exit.setName("file-exit");
             exit.addActionListener(e -> ExitScreen.show(this));
             menu.add(exit);
+            MenuCancel.add(menu);
+            menu.show(jButton, 0, jButton.getHeight());
+        });
+        jPanel.add(jButton);
+        this.tabs.add(jButton);
+    }
+
+    /** Media: the mixer, the drum sound library, the sound devices, playlists, Compare Hits and Drum Midi Settings. */
+    void addMediaTab(JPanel jPanel) {
+        JButton jButton = new JButton("Media");
+        this.flatten(jButton);
+        jButton.setFont(new Font("SansSerif", 1, 13));
+        jButton.putClientProperty("tab", "media");
+        jButton.addActionListener(actionEvent -> {
+            JPopupMenu menu = new JPopupMenu();
+            // AudioMixer: tracks mixed into one (also in PyJav's Java list).
+            JMenuItem mixer = new JMenuItem(AudioMix.TITLE);
+            mixer.setName("media-audiomixer");
+            mixer.addActionListener(e -> AudioMixerWindow.show(this));
+            // The drum sound library: links to drum sounds, by part, measured.
+            JMenuItem library = new JMenuItem(DrumLibrary.TITLE);
+            library.setName("media-drum-library");
+            library.addActionListener(e -> DrumLibraryWindow.show(this));
+            // The outputs, inputs, MIDI devices and drivers; Pulsekit's output and drum MIDI output.
+            JMenuItem sound = new JMenuItem("Sound devices");
+            sound.setName("media-sound-devices");
+            sound.addActionListener(e -> SoundDevicesScreen.show(this));
+            // Playlists (.pls): the Editor and Viewer tabs.
+            JMenuItem playlists = new JMenuItem("Playlist viewer/editor");
+            playlists.setName("media-playlists");
+            playlists.addActionListener(e -> PlaylistWindow.open(this, null));
+            JMenuItem compare = new JMenuItem("Compare Hits");
+            compare.setName("media-compare-hits");
+            compare.addActionListener(e -> this.showView("comparehits"));
+            JMenuItem midi = new JMenuItem("Drum Midi Settings");
+            midi.setName("media-midi-settings");
+            midi.addActionListener(e -> this.showView("midisettings"));
+            menu.add(mixer);
+            menu.add(library);
+            menu.add(sound);
+            menu.add(playlists);
+            menu.add(compare);
+            menu.add(midi);
             MenuCancel.add(menu);
             menu.show(jButton, 0, jButton.getHeight());
         });
@@ -1005,7 +1023,8 @@ public final class Pulsekit extends UiKit {
             String tab = String.valueOf(jButton.getClientProperty("tab"));
             boolean bl = this.view.equals(tab)
                 || (DRUM_TRACKS.equals(tab) && drumView(this.view))
-                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "midisettings".equals(this.view) || "comparehits".equals(this.view) || "fsetinfo".equals(this.view)));
+                || ("file".equals(tab) && ("import".equals(this.view) || "export".equals(this.view) || "help".equals(this.view) || "fsetinfo".equals(this.view)))
+                || ("media".equals(tab) && ("midisettings".equals(this.view) || "comparehits".equals(this.view)));
             jButton.setBackground(bl ? ELEV : BG);
             jButton.setForeground(bl ? FG : MUTED);
             // The modern look marks the open tab with the gold accent under it.
