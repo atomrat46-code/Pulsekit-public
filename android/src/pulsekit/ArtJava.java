@@ -180,7 +180,7 @@ public final class ArtJava {
     // SogniMusic --outdir: the run's files kept in Download/<that folder> (% codes filled in).
     String sub = runSub(main.replaceAll(".*\\.", "") + ".java", argv);
     lastSub = sub;
-    if (sub != null) System.setProperty("pulsekit.outdir", new File(downloads(), sub).getAbsolutePath());
+    if (sub != null && !sub.startsWith("content:")) System.setProperty("pulsekit.outdir", new File(downloads(), sub).getAbsolutePath());
     final int[] code = new int[] {0};
     final StringBuilder err = new StringBuilder();
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -835,14 +835,23 @@ public final class ArtJava {
   static String runSub(String program, List<String> argv) {
     String pattern = ProgramFolder.outdirArg(program, argv);
     if (pattern == null) return null;
+    // A folder picked with Browse outside Download: the folder itself (Android's address for it).
+    if (pattern.startsWith("content:")) return pattern;
     String sub = ProgramFolder.subdir(pattern, downloads()).replaceAll("(^|/)\\.\\.?(?=/|$)", "").replaceAll("/+", "/").replaceAll("^/|/$", "");
     return sub.length() == 0 ? null : sub;
   }
 
-  /** As publish(), into Download/`sub` when it is given (the chosen program files folder, when one is, takes it as it is). */
+  /**
+   * As publish(), into Download/`sub` when it is given (with a program files folder chosen in Drum Midi
+   * Settings: into `sub` in that folder); `sub` a picked folder's address: into that folder.
+   */
   static String publish(Context ctx, String name, byte[] data, String sub) {
     if (sub == null || sub.length() == 0) return publish(ctx, name, data);
-    String chosen = ProgramFolder.get() != null ? toFolder(ctx, name.replace('\\', '_').replace('/', '_'), data) : null;
+    if (sub.startsWith("content:")) {
+      String picked = toTree(ctx, sub, ProgramFolder.labelOf(sub), name.replace('\\', '_').replace('/', '_'), data);
+      return picked != null ? picked : publish(ctx, name, data);
+    }
+    String chosen = ProgramFolder.get() != null ? toTree(ctx, ProgramFolder.get(), ProgramFolder.label(), sub, name.replace('\\', '_').replace('/', '_'), data) : null;
     if (chosen != null) return chosen;
     if (android.os.Build.VERSION.SDK_INT >= 29) {
       String safe = name.replace('\\', '_').replace('/', '_');
@@ -958,10 +967,31 @@ public final class ArtJava {
   private static String toFolder(Context ctx, String safe, byte[] data) {
     String tree = ProgramFolder.get();
     if (tree == null || android.os.Build.VERSION.SDK_INT < 21) return null;
+    return toTree(ctx, tree, ProgramFolder.label(), safe, data);
+  }
+
+  /** `safe` written into the picked folder `tree` (a document tree); where it went as people read it, or null. */
+  static String toTree(Context ctx, String tree, String label, String safe, byte[] data) {
+    return toTree(ctx, tree, label, null, safe, data);
+  }
+
+  /** As above, into the folder `sub` (a path, made when missing) in it. */
+  static String toTree(Context ctx, String tree, String label, String sub, String safe, byte[] data) {
+    if (tree == null || android.os.Build.VERSION.SDK_INT < 21) return null;
     try {
       android.net.Uri treeUri = android.net.Uri.parse(tree);
       android.net.Uri dir = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri,
           android.provider.DocumentsContract.getTreeDocumentId(treeUri));
+      if (sub != null) {
+        for (String part : sub.split("/")) {
+          if (part.isEmpty()) continue;
+          android.net.Uri child = childDir(ctx, treeUri, dir, part);
+          if (child == null) child = android.provider.DocumentsContract.createDocument(ctx.getContentResolver(), dir, android.provider.DocumentsContract.Document.MIME_TYPE_DIR, part);
+          if (child == null) return null;
+          dir = child;
+          label = label + "/" + part;
+        }
+      }
       android.net.Uri file = android.provider.DocumentsContract.createDocument(ctx.getContentResolver(), dir, mimeOf(safe), safe);
       if (file == null) return null;
       java.io.OutputStream os = ctx.getContentResolver().openOutputStream(file);
@@ -971,11 +1001,28 @@ public final class ArtJava {
       } finally {
         os.close();
       }
-      SAVED.put(ProgramFolder.label() + "/" + safe, file.toString());
-      return ProgramFolder.label() + "/" + safe;
+      String shown = label + "/" + safe;
+      SAVED.put(shown, file.toString());
+      return shown;
     } catch (Throwable ex) {
       return null;
     }
+  }
+
+  /** The folder `name` in `dir` (a document tree's folder), or null. */
+  static android.net.Uri childDir(Context ctx, android.net.Uri treeUri, android.net.Uri dir, String name) {
+    android.net.Uri kids = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, android.provider.DocumentsContract.getDocumentId(dir));
+    try (android.database.Cursor c = ctx.getContentResolver().query(kids, new String[] {android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME, android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
+      while (c != null && c.moveToNext()) {
+        if (name.equals(c.getString(1)) && android.provider.DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) {
+          return android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
+        }
+      }
+    } catch (Throwable ignored) {
+      // none
+    }
+    return null;
   }
 
   /**

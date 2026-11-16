@@ -2029,6 +2029,21 @@ public final class PyJavParams {
   /** What the last video picked for a picture row gave (for the tests). */
   static String lastFramesNote;
 
+  /** A picked folder's path under Download ("" for Download itself), or null when it is elsewhere. */
+  static String underDownload(android.net.Uri tree) {
+    try {
+      String id = android.provider.DocumentsContract.getTreeDocumentId(tree);
+      if (id == null) return null;
+      if (!id.startsWith("primary:")) return null;
+      id = id.substring(8);
+      if (id.equals("Download")) return "";
+      if (id.startsWith("Download/")) return id.substring(9);
+      return null;
+    } catch (Throwable ex) {
+      return null;
+    }
+  }
+
   /** The folder picked for the waiting Directory row: kept readable, shown, and opened in the Media browser. */
   public static void dirPicked(MainActivity app, android.net.Uri tree) {
     if (tree == null) return;
@@ -2036,8 +2051,16 @@ public final class PyJavParams {
     String dir = tree.toString();
     if (pendingValues != null && pendingIndex >= 0 && pendingIndex < pendingValues.length) {
       pendingValues[pendingIndex] = dir;
-      // A path field (vst_render's --zip_outdir) shows the folder as it is, to write on.
-      if (pendingLabel instanceof android.widget.EditText) pendingLabel.setText(dir);
+      // A path field (SogniMusic's --outdir, DrumMidi's --zip_outdir) shows the folder as it is, to write on:
+      // a folder in Download as its path under Download (% codes can be added to it), another as Android's address.
+      if (pendingLabel instanceof android.widget.EditText) {
+        String under = underDownload(tree);
+        if (under != null) {
+          dir = under;
+          pendingValues[pendingIndex] = dir;
+        }
+        pendingLabel.setText(dir);
+      }
       else if (pendingLabel != null) pendingLabel.setText(MediaDir.label(dir));
     }
     pendingValues = null;

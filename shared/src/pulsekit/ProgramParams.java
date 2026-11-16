@@ -689,7 +689,10 @@ public final class ProgramParams {
 
   private static void knownSogniMusic(Param p) {
     if (p.flag && p.takesValue && p.token.equals("--outdir")) {
-      p.label = "Output folder: the tracks, WAVs and zip go here";
+      // Browse puts the picked folder in the field; a name typed (Sogni) is a folder under Download, made when missing.
+      p.dir = true;
+      p.typed = true;
+      p.label = "Output folder: the tracks, WAVs and zip go here (a name: a folder in Download, made when missing)";
       p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
     }
     if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy, Song-%g (its group, picked in its ready dialog; also %c, %t1)";

@@ -5296,6 +5296,10 @@ public class BehaviorTest {
     // The download progress line shows on the running line.
     out.append("running line: ").append(JavaRun.news("Status: completed\nDownloading: 40% (12.3 of 30.1 MB)")).append('\n');
     if (!String.valueOf(JavaRun.news("Downloading: 40% (12.3 of 30.1 MB)")).contains("40%")) throw new AssertionError(out.toString());
+    // A batch: how many of its tracks are done, first on the line.
+    String batch = JavaRun.news("Tracks: 11 of 300 done (11 made)\nWorkflow: wf_2\nTracks: 12 of 300 done (11 made, 1 failed)\nStatus: running");
+    out.append("batch line: ").append(batch).append('\n');
+    if (!"12/300 \u00b7 Status: running".equals(batch)) throw new AssertionError(out.toString());
     write("s121_notes_batch", out.toString());
   }
 
@@ -13128,8 +13132,19 @@ public class BehaviorTest {
     String year = new java.text.SimpleDateFormat("yyyy", java.util.Locale.ROOT).format(new java.util.Date());
     out.append("dated ").append(dated).append(", numbered ").append(numbered).append(", cleaned ").append(cleaned).append(", plain ").append(plain)
         .append(", MidiDrumGen ").append(other).append(", none ").append(none).append('\n');
+    // Browse: a folder in Download goes in as its path there; another folder as Android's address, kept as it is.
+    String picked = "content://com.android.externalstorage.documents/tree/primary%3AMusic%2FSogni";
+    String tree = sub.apply(picked);
+    String inDl = PyJavParams.underDownload(android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload%2FSogn"));
+    String dlItself = PyJavParams.underDownload(android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload"));
+    String elsewhere = PyJavParams.underDownload(android.net.Uri.parse(picked));
+    out.append("picked tree ").append(tree.equals(picked) ? "kept" : tree).append(" (").append(ProgramFolder.labelOf(picked)).append("), Download/Sogn picked: ").append(inDl)
+        .append(", Download picked: '").append(dlItself).append("', Music/Sogni picked: ").append(elsewhere).append('\n');
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"));
+    for (ProgramParams.Param p : ps) if (p.token.equals("--outdir")) out.append("--outdir row: browse ").append(p.dir).append(", typed ").append(p.typed).append('\n');
     write("s234_sogni_music_outdir", out.toString().replace(today, "<today>"));
-    boolean ok = ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
+    boolean ok = tree.equals(picked) && "Sogn".equals(inDl) && "".equals(dlItself) && elsewhere == null && out.toString().contains("--outdir row: browse true, typed true")
+        && ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
     if (!ok) throw new AssertionError(out.toString());
   }
 
