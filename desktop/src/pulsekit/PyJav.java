@@ -3664,7 +3664,8 @@ final class PyJav {
                             stopTimer.setText("Stop timer");
                             app.setNow(PluginsList.testing(plug, true));
                             final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
-                            PluginsList.test(this, plug, true, log -> {
+                            // The row's kit name: its settings saved for that kit (one plugin, a kit a row).
+                            PluginsList.test(this, plug, true, rowKit(ps, values, p.token), log -> {
                                 tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
@@ -4572,6 +4573,19 @@ final class PyJav {
     static volatile String pluginTestSaid = "";
     static boolean pluginTestQuiet;
 
+    /** The row's kit name as vst_render's --kit_name (its settings are that kit's), or none. */
+    static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, String pluginToken) {
+        List<String> out = new ArrayList<String>();
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        for (int i = 0; i < ps.size() && i < values.length; i++) {
+            if (ps.get(i).token.equals(kitToken) && values[i] != null && values[i].trim().length() > 0) {
+                out.add("--kit_name");
+                out.add(values[i].trim());
+            }
+        }
+        return out;
+    }
+
     /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
     void testPluginRow(final JButton test, List<ProgramParams.Param> ps, String[] values, String token, String path) {
         if (path == null || path.length() == 0 || !new File(path).exists()) {
@@ -4593,6 +4607,7 @@ final class PyJav {
             extra.add("--map");
             extra.add(values[i].trim());
         }
+        extra.addAll(rowKit(ps, values, token));
         VstLists.unpackMaps();
         try {
             File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");

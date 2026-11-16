@@ -1045,8 +1045,37 @@ def stem(path):
     return os.path.splitext(base)[0]
 
 
-def state_home(plugin):
+# The kit this run plays (--kit_name): a plugin with several kits (Ugritone) keeps each kit's settings apart.
+CURRENT_KIT = [""]
+KIT_STATE_SAID = set()
+
+
+def plugin_state(plugin):
+    """The plugin's own settings file (the last saved with Edit settings, whatever its kit)."""
     return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", stem(plugin) + ".state")
+
+
+def kit_state(plugin):
+    """The settings file of the plugin with this run's kit (--kit_name): "<plugin> [<kit>].state"; None without one."""
+    kit = (CURRENT_KIT[0] or "").strip()
+    if not kit or kit == "parts":
+        return None
+    safe = re.sub(r'[\\/:*?"<>|]', "_", kit)
+    return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", "%s [%s].state" % (stem(plugin), safe))
+
+
+def state_home(plugin):
+    """The settings a run plays with: the kit's own (--kit_name), else the plugin's (said once: they are the
+    kit Edit settings loaded last, which may be another kit)."""
+    kit = kit_state(plugin)
+    if kit and os.path.isfile(kit):
+        return kit
+    base = plugin_state(plugin)
+    if kit and os.path.isfile(base) and (plugin, CURRENT_KIT[0]) not in KIT_STATE_SAID:
+        KIT_STATE_SAID.add((plugin, CURRENT_KIT[0]))
+        print("Kit settings: none saved for %s yet; %s plays with its last saved settings (the kit Edit settings loaded last, "
+              "maybe another one). Edit settings on its row saves this kit's." % (CURRENT_KIT[0], stem(plugin)))
+    return base
 
 
 def var_len(d, p):
@@ -2190,8 +2219,9 @@ def apply_state(proc, plugin, given, label):
 
 
 def edit(proc, plugin, given, label):
-    """Opens the plugin's window; when it is closed, saves its settings. Returns the file saved."""
-    path = given or state_home(plugin)
+    """Opens the plugin's window; when it is closed, saves its settings (the kit's own with --kit_name, and as
+    the plugin's too). Returns the file saved."""
+    path = given or kit_state(plugin) or plugin_state(plugin)
     if path.lower().endswith((".fxp", ".fxb", ".vstpreset")):
         path = os.path.splitext(path)[0] + ".state"
     print("%s: its window is open. Load a kit or patch; press Stop timer in Pulsekit when the kit has loaded "
@@ -2233,6 +2263,11 @@ def edit(proc, plugin, given, label):
     print("Wrote %s settings: %s" % (label, path))
     with open(path + ".load", "w") as f:
         f.write("%.1f\n" % took)
+    # The kit's settings are the plugin's last too (a row without a kit name plays them).
+    if not given and path != plugin_state(plugin):
+        import shutil
+        for end in ("", ".params.json", ".load"):
+            shutil.copyfile(path + end, plugin_state(plugin) + end)
     print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if timer["stopped"] else "until the window closed"))
     return path
 
@@ -2728,6 +2763,64 @@ def beat_shape(np, audio, rate):
     env = mono[:n * blk].reshape(n, blk).max(axis=1)
     top = float(env.max()) if n else 0.0
     return [round(float(v) / top, 3) for v in env] if top > 0 else []
+
+
+# Two kits' profiles (kick and toms) this close are one sound: Ugritone's kits named differently but played
+# with the same settings were 0.001-0.006 apart; its real kits 0.026 and more.
+SAME_PROFILE = 0.012
+
+
+def profile_drums(path):
+    """A kit profile's kick and tom lines: {note: [16 bands]}."""
+    out = {}
+    try:
+        for line in open(path, encoding="utf-8"):
+            p = line.split()
+            if p and p[0].isdigit():
+                out[p[0]] = [float(x) for x in p[1:]]
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def profile_distance(a, b):
+    """How far two profiles' kick and toms are apart (root mean square over the notes both have); None: nothing shared."""
+    d, n = 0.0, 0
+    for note in set(a) & set(b):
+        for x, y in zip(a[note], b[note]):
+            d += (x - y) ** 2
+            n += 1
+    return (d / n) ** 0.5 if n else None
+
+
+def same_profile_check(kit_file, plugin, kit):
+    """Whether this kit's learned profile is another kit's of the same plugin (~/.pulsekit/vst/kit-profiles):
+    the kit named but the plugin played with another kit's settings. The line saying so, or None."""
+    import shutil
+    if not kit or not kit_file or not os.path.isfile(kit_file):
+        return None
+    store = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", "kit-profiles")
+    safe = re.sub(r'[\\/:*?"<>|]', "_", kit)
+    own = "%s [%s].kit" % (stem(plugin), safe)
+    mine = profile_drums(kit_file)
+    same = []
+    if os.path.isdir(store):
+        for f in sorted(os.listdir(store)):
+            if f == own or not f.startswith(stem(plugin) + " [") or not f.endswith("].kit"):
+                continue
+            d = profile_distance(mine, profile_drums(os.path.join(store, f)))
+            if d is not None and d < SAME_PROFILE:
+                same.append(f[len(stem(plugin)) + 2:-5])
+    try:
+        if not os.path.isdir(store):
+            os.makedirs(store)
+        shutil.copyfile(kit_file, os.path.join(store, own))
+    except OSError:
+        pass
+    if not same:
+        return None
+    return ("Kit check: the kit's kick and toms sound exactly as %s's did: was the kit really changed in the plugin? "
+            "(Edit settings on this kit's row loads and saves it; its results here may be another kit's)" % ", ".join(same))
 
 
 def same_kit_check(np, audio, rate, plugin, kit):
@@ -4587,6 +4680,7 @@ def main(argv):
     if "--scan" in switches:
         scan()
         return
+    CURRENT_KIT[0] = (opts.get("--kit_name") or "").strip()
     # The cymbal model comparison (Settings' switch; the Cymbal model tab's parts): run on its own (no
     # plugin played), or after the run's renders and tests (BENCH_STAGE). Off: the tab's parts are not run.
     parts_ticked = "--model_compare" in switches or "--leave_one_out" in switches
@@ -5026,6 +5120,10 @@ def main(argv):
             elif said.startswith("Wrote "):
                 kit_said = said[6:]
                 print("Kit: " + said[6:])
+                # The profile another kit's of this plugin: the kit was named, not changed.
+                twin = same_profile_check(kit_file, opts.get("--bridged") or opts["--clap"] or name, opts["--kit_name"])
+                if twin:
+                    print(twin)
             else:
                 kit_file = None
                 kit_said = "not learned (%s); the test went on without it" % said
