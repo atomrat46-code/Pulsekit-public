@@ -1609,7 +1609,7 @@ public final class ProgramParams {
    * with its file kept (the row's Use box unticked), so it is back with one tick.
    */
   public static boolean canTurnOff(Param p) {
-    return p.flag && p.takesValue && (p.isFile() || p.dir);
+    return p.flag && p.takesValue && (p.isFile() || p.dir || p.token.equals("--parts"));
   }
 
   /**

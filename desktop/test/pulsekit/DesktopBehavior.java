@@ -11130,6 +11130,52 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * v458: vst_render's Parts: a Use box and Configure… (the plugins chosen in a list, and for the one picked
+   * the drums it plays: a part ticked for one plugin is taken from the other). And the desktop's pads at their
+   * own size, not stretched over the window.
+   */
+  void s265_parts_window() throws Exception {
+    final StringBuilder seen = new StringBuilder();
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (p.token.equals("--parts")) seen.append("Use box: ").append(ProgramParams.canTurnOff(p)).append('\n');
+    }
+    final String[] plugins = {"C:/VST/Ugritone Drums.vst3", "C:/VST/Riot Drums.vst3", null, "C:/VST/Anarchy Drums.vst3"};
+    edt(() -> {
+      PartsDialog.Panel panel = new PartsDialog.Panel("snare=1", plugins);
+      StringBuilder list = new StringBuilder();
+      for (int i = 0; i < panel.plugin.getItemCount(); i++) list.append(panel.plugin.getItemAt(i)).append(" | ");
+      seen.append("plugins: ").append(list).append('\n');
+      panel.plugin.setSelectedIndex(1);
+      panel.boxes[0].doClick();
+      panel.boxes[4].doClick();
+      panel.plugin.setSelectedIndex(2);
+      panel.boxes[4].doClick();
+      panel.boxes[2].doClick();
+      StringBuilder ticks = new StringBuilder();
+      for (javax.swing.JCheckBox b : panel.boxes) ticks.append(b.isSelected() ? "x" : "-");
+      seen.append("Anarchy ticks: ").append(ticks).append('\n');
+      panel.plugin.setSelectedIndex(1);
+      ticks.setLength(0);
+      for (javax.swing.JCheckBox b : panel.boxes) ticks.append(b.isSelected() ? "x" : "-");
+      seen.append("Riot ticks: ").append(ticks).append('\n');
+      seen.append("parts: ").append(panel.result()).append('\n');
+      seen.append("summary: ").append(PartsDialog.summary(panel.result(), plugins)).append('\n');
+      seen.append("none: ").append(PartsDialog.summary("", plugins)).append(" | ").append(new PartsDialog.Panel("", new String[4]).said.getText()).append('\n');
+    });
+    call("showView", "pads");
+    idle();
+    final Playback pb = (Playback) get("playback");
+    edt(() -> seen.append("pad: ").append(pb.padBtns[0].getWidth()).append("x").append(pb.padBtns[0].getHeight()).append(" in a window ").append(frame.getWidth()).append('\n'));
+    this.out.append(seen);
+    String t = seen.toString();
+    boolean ok = t.contains("Use box: true") && t.contains("plugins: 1 Ugritone Drums | 2 Riot Drums | 4 Anarchy Drums | ")
+        && t.contains("Anarchy ticks: --x-x") && t.contains("Riot ticks: x----") && t.contains("parts: kick=2,snare=1,toms=4,cymbals=4")
+        && t.contains("summary: 1 Ugritone Drums: snare \u00b7 2 Riot Drums: kick \u00b7 4 Anarchy Drums: toms, cymbals \u00b7 the rest: 1 Ugritone Drums")
+        && t.contains("none: Not set: Configure") && t.contains("Choose the plugins first") && t.matches("(?s).*pad: 210x52 .*");
+    if (!ok) throw new AssertionError(t);
+  }
+
   static javax.swing.JMenuItem item(javax.swing.JPopupMenu m, String text) {
     for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem && ((javax.swing.JMenuItem) c).getText().equals(text)) return (javax.swing.JMenuItem) c;
     throw new AssertionError("no " + text + " in the menu");

@@ -113,7 +113,7 @@ final class Playback {
             JButton jButton3 = app.action(Engine.TRACK_SHORT[i] + "  " + Engine.TRACK_LABEL[i] + "  \u00b7 " + Engine.padNote(i), ELEV, FG);
             jButton3.setName("pad:" + Engine.TRACK_ID[i]);
             jButton3.setToolTipText(padTip(i));
-            jButton3.setPreferredSize(new Dimension(120, 72));
+            jButton3.setPreferredSize(new Dimension(210, 52));
             jButton3.addActionListener(actionEvent -> {
                 this.preview(n);
                 this.flashPad(n);
@@ -129,7 +129,11 @@ final class Playback {
             this.padBtns[i] = jButton3;
             jPanel3.add(jButton3);
         }
-        jPanel.add((Component)jPanel3, "Center");
+        // The pads at their own size (not stretched over the window), from the top left.
+        JPanel padsAt = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        padsAt.setOpaque(false);
+        padsAt.add(jPanel3);
+        jPanel.add((Component)padsAt, "Center");
         this.refreshDrumSets();
         return jPanel;
     }

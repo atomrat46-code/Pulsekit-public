@@ -3845,6 +3845,28 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (p.token.equals("--parts")) {
+                // Parts: Use, what the split is, and Configure… (each plugin chosen and the drums it plays).
+                final javax.swing.JLabel shown = new javax.swing.JLabel(PartsDialog.summary(values[i], this.pluginRows(ps, values, uses)));
+                shown.setName("params-parts-summary");
+                JButton configure = new JButton("Configure\u2026");
+                configure.setName("params-parts-configure");
+                configure.addActionListener(e -> {
+                    String[] plugins = this.pluginRows(ps, values, uses);
+                    PartsDialog.Panel panel = new PartsDialog.Panel(field.getText(), plugins);
+                    lastParts = panel;
+                    int ok = partsAnswer != null ? partsAnswer.apply(panel)
+                        : JOptionPane.showConfirmDialog(configure, panel, "Parts \u00b7 which plugin plays which drums", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                    if (ok != JOptionPane.OK_OPTION) return;
+                    field.setText(panel.result());
+                    shown.setText(PartsDialog.summary(panel.result(), plugins));
+                });
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                row.add(configure, BorderLayout.WEST);
+                row.add(shown, BorderLayout.CENTER);
+                form.add(this.withUse(p, i, row, configure, uses, off));
+                continue;
+            }
             if (p.importList) {
                 // A list row with Import (vst_render's Kits left out): a text file's lines into it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -4572,6 +4594,23 @@ final class PyJav {
     /** The tests: the Params' plugin Test said last (the verdict), and whether to show it in a window. */
     static volatile String pluginTestSaid = "";
     static boolean pluginTestQuiet;
+
+    /** Parts' window shown last, and the tests' answer to it (null: asked). */
+    static PartsDialog.Panel lastParts;
+    static java.util.function.Function<PartsDialog.Panel, Integer> partsAnswer;
+
+    /** Plugin rows 1 to 4's files (null: none chosen, or its row unticked). */
+    String[] pluginRows(List<ProgramParams.Param> ps, String[] values, javax.swing.JCheckBox[] uses) {
+        String[] out = new String[4];
+        for (int i = 0; i < ps.size() && i < values.length; i++) {
+            String t = ps.get(i).token;
+            if (!t.matches("--plugin[234]?")) continue;
+            if (uses != null && i < uses.length && uses[i] != null && !uses[i].isSelected()) continue;
+            int r = t.equals("--plugin") ? 1 : t.charAt(t.length() - 1) - '0';
+            out[r - 1] = values[i] == null || values[i].trim().isEmpty() ? null : values[i];
+        }
+        return out;
+    }
 
     /** The row's kit name as vst_render's --kit_name (its settings are that kit's), or none. */
     static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, String pluginToken) {
