@@ -506,7 +506,7 @@ public class BehaviorTest {
 
   @Test
   public void s19_drum_midi_settings() throws Exception {
-    TextView file = findText(root(), "File");
+    TextView file = findText(root(), "Media");
     file.performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
@@ -13420,11 +13420,11 @@ public class BehaviorTest {
     parts.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 1));
     File mid = new File(dir, "beat.mid");
     Files.write(mid.toPath(), Engine.encodeSongMidi(parts));
-    findText(root(), "File").performClick();
+    findText(root(), "Media").performClick();
     idle();
     android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-    View item = pop.getContentView().findViewWithTag("file-audiomixer");
-    out.append("File menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
+    View item = pop.getContentView().findViewWithTag("media-audiomixer");
+    out.append("Media menu: ").append(item == null ? "no AudioMixer" : ((TextView) item).getText()).append('\n');
     item.performClick();
     idle();
     android.app.AlertDialog d = AudioMixerScreen.last;
@@ -13966,10 +13966,10 @@ public class BehaviorTest {
       DrumLibrary.Entry bd = DrumLibrary.find(new File(dir, "BD 01.wav").getAbsolutePath()), hh = DrumLibrary.find(new File(dir, "hihat closed.wav").getAbsolutePath());
       out.append(String.format(java.util.Locale.ROOT, "BD 01: %s, %s, pitch %.0f Hz | hihat closed: %s, %s, bright %.0f Hz%n", DrumLibrary.label(bd.part), bd.state, bd.measures[5],
           DrumLibrary.label(hh.part), hh.state, hh.measures[6]));
-      findText(root(), "File").performClick();
+      findText(root(), "Media").performClick();
       idle();
       android.widget.PopupWindow pop = org.robolectric.shadows.ShadowApplication.getInstance().getLatestPopupWindow();
-      pop.getContentView().findViewWithTag("file-drum-library").performClick();
+      pop.getContentView().findViewWithTag("media-drum-library").performClick();
       idle();
       View w = DrumLibraryScreen.last.getWindow().getDecorView();
       android.widget.Spinner part = (android.widget.Spinner) w.findViewWithTag("library-part");

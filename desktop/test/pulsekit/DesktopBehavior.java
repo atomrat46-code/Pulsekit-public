@@ -859,13 +859,13 @@ public final class DesktopBehavior {
     javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
     edt(() -> {
       javax.swing.JButton fileTab = null;
-      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      for (javax.swing.JButton b : buttons(frame)) if ("media".equals(b.getClientProperty("tab"))) fileTab = b;
       fileTab.doClick();
     });
     Thread.sleep(300);
     edt(() -> {
       for (java.awt.Window w : java.awt.Window.getWindows()) {
-        java.awt.Component c = component(w, "file-audiomixer");
+        java.awt.Component c = component(w, "media-audiomixer");
         if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
       }
       if (found[0] != null) ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
@@ -8514,13 +8514,13 @@ public final class DesktopBehavior {
     javax.swing.JMenuItem[] found = new javax.swing.JMenuItem[1];
     edt(() -> {
       javax.swing.JButton fileTab = null;
-      for (javax.swing.JButton b : buttons(frame)) if ("file".equals(b.getClientProperty("tab"))) fileTab = b;
+      for (javax.swing.JButton b : buttons(frame)) if ("media".equals(b.getClientProperty("tab"))) fileTab = b;
       fileTab.doClick();
     });
     Thread.sleep(300);
     edt(() -> {
       for (java.awt.Window w : java.awt.Window.getWindows()) {
-        java.awt.Component c = component(w, "file-drum-library");
+        java.awt.Component c = component(w, "media-drum-library");
         if (c instanceof javax.swing.JMenuItem) found[0] = (javax.swing.JMenuItem) c;
       }
       ((javax.swing.JPopupMenu) found[0].getParent()).setVisible(false);
