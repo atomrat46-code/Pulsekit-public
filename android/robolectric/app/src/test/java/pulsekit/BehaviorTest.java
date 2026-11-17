@@ -13882,6 +13882,65 @@ public class BehaviorTest {
   }
 
   /**
+   * DrumMidi's Params: its folder row (--dir) and Add the result to the AudioMixer untick each other
+   * (a folder of zips makes many results); Zip folder has Browse; a zip folder picked outside
+   * Download is written into as picked (ArtJava.zipsHere).
+   */
+  @Test
+  public void s245b_drummidi_dir_mixer_zipdir() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("DrumMidi_CRT.java");
+    PyJavParams.store(app, "DrumMidi_CRT.jar", "");
+    PyJavParams.open(app, "DrumMidi_CRT.jar", "", src);
+    idle();
+    View root = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.CheckBox dirUse = (android.widget.CheckBox) root.findViewWithTag("params-use:--dir");
+    android.widget.CheckBox mixer = null;
+    java.util.List<View> all = new ArrayList<>();
+    collect(root, all);
+    for (View v : all) if (v instanceof android.widget.CheckBox && String.valueOf(((android.widget.CheckBox) v).getText()).contains(MixerOut.FLAG)) mixer = (android.widget.CheckBox) v;
+    out.append("dir Use: ").append(dirUse != null).append(", mixer box: ").append(mixer != null).append('\n');
+    dirUse.setChecked(true);
+    mixer.setChecked(true);
+    boolean mixerUnticksDir = !dirUse.isChecked();
+    dirUse.setChecked(true);
+    boolean dirUnticksMixer = !mixer.isChecked();
+    out.append("mixer ticked: dir Use ").append(dirUse.isChecked() ? "" : "un").append("ticked first; dir ticked again: mixer ").append(mixer.isChecked()).append('\n');
+    boolean browse = root.findViewWithTag("params-dir:--zip_outdir") != null && root.findViewWithTag("params-dir-text:--zip_outdir") != null;
+    out.append("Zip folder Browse: ").append(browse).append('\n');
+    PyJavParams.shown.dismiss();
+    String picked = "content://com.android.externalstorage.documents/tree/primary%3AMusic%2FZips";
+    File work = new File(app.getCacheDir(), "zd-work");
+    work.mkdirs();
+    String[] args = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"--dir", "/x", "--zip", "--zip_outdir", picked});
+    out.append("picked zip folder: ").append(ArtJava.zipSub == null ? "none" : ArtJava.zipSub.equals(picked) ? "kept" : ArtJava.zipSub)
+        .append(", DrumMidi writes into ").append(args[args.length - 1].replace(work.getAbsolutePath(), "<work>")).append('\n');
+    String said0 = null;
+    String said = MixerOut.around("DrumMidi_CRT.jar", java.util.Arrays.asList("--dir", "/x", MixerOut.FLAG),
+        a -> new JavaRun.Result("ran", new ArrayList<JavaRun.FileOut>(), 0)).log;
+    out.append("folder run with the mixer box: ").append(said.trim().replace("\n", " | ")).append('\n');
+    boolean ok = mixerUnticksDir && dirUnticksMixer && browse && picked.equals(ArtJava.zipSub) && args[args.length - 1].endsWith(ArtJava.ZIPS)
+        && said.contains("the run was on a folder");
+    // The folder run's MIDIs into file sets: a SogniMusic run's tracks a set a model and session, others one set.
+    File folder = new File(app.getCacheDir(), "dm-folder/SogniMusic");
+    File inZip = new File(folder, "sogni-random-1-part1of2");
+    inZip.mkdirs();
+    java.util.List<Engine.Part> g = new ArrayList<>();
+    g.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 2));
+    byte[] groove = Engine.encodeSongMidi(g);
+    for (String n : new String[] {"sogni-Funk-1a2b3c4d-drums-sft-dm.mid", "sogni-Disco-5e6f7a8b-drums-sft-dm.mid", "sogni-Funk-9c8d7e6f-drums_bass-turbo-dm.mid"})
+      Files.write(new File(inZip, n).toPath(), groove);
+    Files.write(new File(folder, "my take-dm.mid").toPath(), groove);
+    java.util.List<Object[]> sets = MusicCompare.folderSets(folder, Engine.fileSetSources(app.learned, app.learnedFills));
+    StringBuilder setNames = new StringBuilder();
+    for (Object[] h : sets) setNames.append(h[0]).append(' ').append(h[3]).append("; ");
+    out.append("folder's file sets: ").append(setNames.toString().replaceAll("SogniMusic run \\d+", "SogniMusic run <n>")).append('\n');
+    write("s245b_drummidi_dir_mixer_zipdir", out.toString());
+    ok &= sets.size() == 3 && setNames.toString().matches("SogniMusic\\.mid \\[my take\\.mid\\]; SogniMusic run \\d+ sft drums\\.mid \\[Disco-drums-sft\\.mid, Funk-drums-sft\\.mid\\]; SogniMusic run \\d+ turbo drums_bass\\.mid \\[Funk-drums_bass-turbo\\.mid\\]; ");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
    * vst_render's --zip_outdir in Params on the phone: a text field with the folder as it is; the folder
    * Browse picks goes into it as it is, % codes are written on after it, OK keeps it as written, and
    * the Params opened again show it so; Clear empties it.

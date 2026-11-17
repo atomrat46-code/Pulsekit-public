@@ -58,7 +58,9 @@ public final class MixerOut {
     p.takesValue = false;
     p.optional = true;
     p.label = LABEL;
-    p.hint = "one file at a time only (not with --zip)";
+    p.hint = "one file at a time only (not with --zip or a folder)";
+    // A folder's run (DrumMidi's --dir, its zips) or a zipped one makes many: not both.
+    p.clears = new String[] {"--dir", "--zip", "--zip_mb"};
     return p;
   }
 
@@ -72,7 +74,8 @@ public final class MixerOut {
     JavaRun.Result r = run.apply(args);
     if (r.code != 0) return r;
     String said;
-    if (args.contains("--zip") || args.contains("--zip_mb")) said = "Not added to the AudioMixer: the run made a zip (" + FLAG + " is for one file at a time)";
+    if (args.contains("--dir")) said = "Not added to the AudioMixer: the run was on a folder (" + FLAG + " is for one file at a time)";
+    else if (args.contains("--zip") || args.contains("--zip_mb")) said = "Not added to the AudioMixer: the run made a zip (" + FLAG + " is for one file at a time)";
     else said = add(r.files);
     return new JavaRun.Result(r.log + (r.log.endsWith("\n") || r.log.isEmpty() ? "" : "\n") + said + "\n", r.files, r.code);
   }

@@ -133,8 +133,13 @@ final class MidiFolder {
      * (DrumMidi cannot read the picker's folder), and --zip's zips kept in Download (--zip_outdir ".":
      * the run's pk-zips, ArtJava.zipsHere) unless a zip folder is given.
      */
+    /** The folder DrumMidi --dir ran on last (a picked folder's copy, or the folder given). */
+    static volatile File lastDrumDir;
+
     static List<String> forDrumMidi(Context ctx, List<String> argv, File work, StringBuilder note) {
         if (argv == null) return null;
+        int at = argv.indexOf("--dir");
+        lastDrumDir = at >= 0 && at + 1 < argv.size() && new File(argv.get(at + 1)).isAbsolute() ? new File(argv.get(at + 1)) : null;
         List<String> out = new ArrayList<String>(argv);
         boolean recursive = out.contains("--recursive");
         boolean dir = false;
@@ -150,6 +155,7 @@ final class MidiFolder {
             int n = copy(ctx, Uri.parse(v), dest, recursive, AUDIO_ZIPS);
             note.append(n).append(" WAV, MP3 or zip file").append(n == 1 ? "" : "s").append(" from ").append(label);
             out.set(i + 1, dest.getAbsolutePath());
+            lastDrumDir = dest;
         }
         if (dir && (out.contains("--zip") || out.contains("--zip_mb")) && !out.contains("--zip_outdir")) {
             out.add("--zip_outdir");

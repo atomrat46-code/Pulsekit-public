@@ -384,6 +384,7 @@ public final class ProgramParams {
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--dir")) {
       p.dir = true;
       p.label = "Folder of audio files (DrumMidi on each WAV and MP3, and on those in its zips)";
+      p.clears = new String[] {MixerOut.FLAG};
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
@@ -392,6 +393,9 @@ public final class ProgramParams {
       p.hint = "empty: none; a .kit file";
     }
     if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
+      // Browse puts the picked folder in the field; % codes can be added to it.
+      p.dir = true;
+      p.typed = true;
       p.label = "Zip folder (made when missing)";
       p.hint = "empty: beside the MIDI (Download / the program files folder); % codes: dm%ddmmyy, zips%n";
     }

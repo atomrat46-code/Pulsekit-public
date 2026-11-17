@@ -678,14 +678,21 @@ public final class PyJavParams {
       }
     };
     // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
+    // (A folder row's Use box counts as its tick: Add to the AudioMixer and DrumMidi's folder untick each other.)
     for (int i = 0; i < checks.length; i++) {
-      if (checks[i] == null || ps.get(i).clears == null) continue;
+      final android.widget.CheckBox tickBox = checks[i] != null ? checks[i] : uses[i];
+      if (tickBox == null || ps.get(i).clears == null) continue;
       final int at = i;
-      checks[i].setOnCheckedChangeListener((b, on) -> {
+      final android.widget.CompoundButton.OnCheckedChangeListener useOwn = checks[i] == null ? usesListener(tickBox) : null;
+      tickBox.setOnCheckedChangeListener((b, on) -> {
+        if (useOwn != null) useOwn.onCheckedChanged(b, on);
         if (!on) return;
         boolean[] now = new boolean[checks.length];
-        for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null && checks[k].isChecked();
-        for (int k : ProgramParams.toClear(ps, at, now)) checks[k].setChecked(false);
+        for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null ? checks[k].isChecked() : uses[k] != null && uses[k].isChecked();
+        for (int k : ProgramParams.toClear(ps, at, now)) {
+          if (checks[k] != null) checks[k].setChecked(false);
+          else if (uses[k] != null) uses[k].setChecked(false);
+        }
       });
     }
     AlertDialog.Builder built = new AlertDialog.Builder(activity)
@@ -1188,9 +1195,19 @@ public final class PyJavParams {
     use.setTag("params-use:" + p.token);
     use.setChecked(!off.contains(p.token));
     chosen.setAlpha(use.isChecked() ? 1f : 0.4f);
-    use.setOnCheckedChangeListener((b, on) -> chosen.setAlpha(on ? 1f : 0.4f));
+    android.widget.CompoundButton.OnCheckedChangeListener dim = (b, on) -> chosen.setAlpha(on ? 1f : 0.4f);
+    use.setOnCheckedChangeListener(dim);
+    use.setTag(R_USE_LISTENER, dim);
     uses[i] = use;
     row.addView(use, 0);
+  }
+
+  /** (A key for the Use box's own listener, kept on it for a later one to call too.) */
+  static final int R_USE_LISTENER = 0x7f0b0f01;
+
+  static android.widget.CompoundButton.OnCheckedChangeListener usesListener(android.view.View box) {
+    Object o = box.getTag(R_USE_LISTENER);
+    return o instanceof android.widget.CompoundButton.OnCheckedChangeListener ? (android.widget.CompoundButton.OnCheckedChangeListener) o : null;
   }
 
   /** The Params dialog shown last, and the program it is for. */

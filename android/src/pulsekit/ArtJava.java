@@ -811,6 +811,12 @@ public final class ArtJava {
     if (at >= 0 && at + 1 < a.size()) {
       String given = a.get(at + 1).trim();
       if (new File(given).isAbsolute()) return args;
+      // A folder picked with Browse outside Download: the zips are written there (publish's content: sub).
+      if (given.startsWith("content:")) {
+        zipSub = given;
+        a.set(at + 1, to);
+        return a.toArray(new String[0]);
+      }
       String sub = ProgramFolder.subdir(given, downloads()).replaceAll("(^|/)\\.\\.?(?=/|$)", "").replaceAll("/+", "/").replaceAll("^/|/$", "");
       zipSub = sub.length() == 0 ? null : sub;
       a.set(at + 1, to);

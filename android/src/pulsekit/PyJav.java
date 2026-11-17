@@ -967,6 +967,26 @@ final class PyJav {
         return this.pkChainDone;
     }
 
+    /** DrumMidi --dir's MIDIs as file sets (MusicCompare.folderSets). */
+    void pkImportFolderSets(java.io.File dir) {
+        java.util.List<Object[]> sets = pulsekit.MusicCompare.folderSets(dir, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills));
+        if (sets.isEmpty()) return;
+        pulsekit.MusicCompare.heldImport = true;
+        try {
+            for (Object[] h : sets) {
+                @SuppressWarnings("unchecked") java.util.List<pulsekit.Engine.MidiBars> tracks = (java.util.List<pulsekit.Engine.MidiBars>) h[2];
+                @SuppressWarnings("unchecked") java.util.List<String> names = (java.util.List<String>) h[3];
+                @SuppressWarnings("unchecked") java.util.List<byte[]> midis = (java.util.List<byte[]>) h[4];
+                pulsekit.AudioIo.stageTracks(tracks, names, midis);
+                String r = this.pkImportProgramMidi((byte[]) h[1], (String) h[0]);
+                pulsekit.AudioIo.stageTracks(null, null, null);
+                this.pkAddLogLine(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+            }
+        } finally {
+            pulsekit.MusicCompare.heldImport = false;
+        }
+    }
+
     /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
     void pkImportHeld(pulsekit.MusicCompare.Chain c) {
         if (c == null) return;
@@ -1842,6 +1862,8 @@ final class PyJav {
                 this.pkZipFinish();
             }
         }
+        // DrumMidi on a folder: its MIDIs into file sets (a SogniMusic run's tracks a set a model and session).
+        if (ok && pulsekit.ProgramFolder.isDrumMidi(program) && argv != null && argv.contains("--dir") && MidiFolder.lastDrumDir != null) this.pkImportFolderSets(MidiFolder.lastDrumDir);
         // SogniMusic --compare_models: its tracks measured and ranked, under the run's log.
         if (ok && pulsekit.MusicCompare.wanted(program, argv)) this.pkCompareModels(argv, made, madeLog);
         // A run of a batch (BatchRun): what it made is saved, not shown; the next run follows.

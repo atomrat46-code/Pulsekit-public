@@ -182,6 +182,66 @@ public final class MusicCompare {
     }
   }
 
+  /**
+   * DrumMidi_CRT --dir's MIDIs (each <name>-dm.mid under `dir`, its zips' folders too) as file sets, as
+   * a --random SogniMusic run makes them: its tracks ("sogni-Funk-1a2b3c4d-drums_bass-sft.mp3") one set a
+   * model and session ("SogniMusic run N sft drums_bass", N the next run), each track named
+   * "Funk-drums_bass-sft.mid"; other files one set named after the folder. Each {file name, the joined
+   * MIDI, the tracks' bars, their names, their MIDIs}.
+   */
+  public static List<Object[]> folderSets(java.io.File dir, List<String> fileSets) {
+    List<java.io.File> mids = new ArrayList<java.io.File>();
+    dmMidis(dir, mids, 0);
+    Chain c = new Chain(runName(fileSets), null, null);
+    c.random = true;
+    Map<String, List<Object[]>> sets = new LinkedHashMap<String, List<Object[]>>();
+    java.util.regex.Pattern sogni = java.util.regex.Pattern.compile("^sogni-(.+)-[0-9a-f]{8}-(.+)-dm\\.midi?$");
+    for (java.io.File f : mids) {
+      java.util.regex.Matcher m = sogni.matcher(f.getName());
+      String set, name;
+      if (m.matches()) {
+        String label = m.group(1) + "-" + m.group(2);
+        set = c.setFor(label);
+        name = label + ".mid";
+      } else {
+        set = dir.getName();
+        name = f.getName().replaceAll("(?i)-dm\\.midi?$", ".mid");
+      }
+      try {
+        List<Object[]> l = sets.get(set);
+        if (l == null) sets.put(set, l = new ArrayList<Object[]>());
+        l.add(new Object[] {name, java.nio.file.Files.readAllBytes(f.toPath())});
+      } catch (java.io.IOException ignored) {
+        // left out
+      }
+    }
+    List<Object[]> out = new ArrayList<Object[]>();
+    for (Map.Entry<String, List<Object[]>> e : sets.entrySet()) {
+      List<Engine.MidiBars> bars = new ArrayList<Engine.MidiBars>();
+      List<String> names = new ArrayList<String>();
+      List<byte[]> midis = new ArrayList<byte[]>();
+      for (Object[] m : e.getValue()) {
+        Engine.MidiBars b = Engine.parseMidiBars((byte[]) m[1]);
+        if (b == null || b.bars.isEmpty()) continue;
+        bars.add(b);
+        names.add((String) m[0]);
+        midis.add((byte[]) m[1]);
+      }
+      if (!bars.isEmpty()) out.add(new Object[] {e.getKey() + ".mid", joined(bars), bars, names, midis});
+    }
+    return out;
+  }
+
+  static void dmMidis(java.io.File dir, List<java.io.File> into, int depth) {
+    java.io.File[] in = dir.listFiles();
+    if (in == null) return;
+    java.util.Arrays.sort(in);
+    for (java.io.File f : in) {
+      if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).matches(".+-dm\\.midi?")) into.add(f);
+      else if (f.isDirectory() && depth < 8 && !f.getName().startsWith(".")) dmMidis(f, into, depth + 1);
+    }
+  }
+
   /** A style's name as a key: "Ballad 6/8" and the label's "Ballad-6-8" alike. */
   static String styleKey(String style) {
     return (style == null ? "" : style).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
