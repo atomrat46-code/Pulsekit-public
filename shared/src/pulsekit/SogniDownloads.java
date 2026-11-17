@@ -529,11 +529,14 @@ public final class SogniDownloads {
 
   /** "picture", "video", "audio", "text" or "file". */
   public static String kindOf(String name) {
+    // (The ending looked up, no pattern compiled for each file.)
     String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
-    if (n.matches(".*\\.(png|jpe?g|webp|gif|bmp)$")) return "picture";
-    if (n.matches(".*\\.(mp4|m4v|webm|mov|mkv)$")) return "video";
-    if (n.matches(".*\\.(mp3|wav|flac|m4a|ogg|aac)$")) return "audio";
-    if (n.matches(".*\\.(txt|md|json|prompt)$")) return "text";
+    int dot = n.lastIndexOf('.');
+    String e = dot >= 0 ? n.substring(dot + 1) : "";
+    if (e.equals("png") || e.equals("jpg") || e.equals("jpeg") || e.equals("webp") || e.equals("gif") || e.equals("bmp")) return "picture";
+    if (e.equals("mp4") || e.equals("m4v") || e.equals("webm") || e.equals("mov") || e.equals("mkv")) return "video";
+    if (e.equals("mp3") || e.equals("wav") || e.equals("flac") || e.equals("m4a") || e.equals("ogg") || e.equals("aac")) return "audio";
+    if (e.equals("txt") || e.equals("md") || e.equals("json") || e.equals("prompt")) return "text";
     return "file";
   }
 

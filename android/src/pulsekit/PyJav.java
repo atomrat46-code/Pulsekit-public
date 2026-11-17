@@ -967,24 +967,52 @@ final class PyJav {
         return this.pkChainDone;
     }
 
-    /** DrumMidi --dir's MIDIs as file sets (MusicCompare.folderSets). */
+    /**
+     * DrumMidi --dir's MIDIs as file sets (MusicCompare.folderSets). A run of 295 songs made 295 sets on the
+     * main thread, each redrawing the Imported lists: Android said not responding. Now a slice of sets at a
+     * time (about 0.1 s), the screen answering between them, the lists built and saved once at the end.
+     */
     void pkImportFolderSets(java.io.File dir) {
-        java.util.List<Object[]> sets = pulsekit.MusicCompare.folderSets(dir, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills));
+        final java.util.List<Object[]> sets = pulsekit.MusicCompare.folderSets(dir, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills));
         if (sets.isEmpty()) return;
         pulsekit.MusicCompare.heldImport = true;
-        try {
-            for (Object[] h : sets) {
-                @SuppressWarnings("unchecked") java.util.List<pulsekit.Engine.MidiBars> tracks = (java.util.List<pulsekit.Engine.MidiBars>) h[2];
-                @SuppressWarnings("unchecked") java.util.List<String> names = (java.util.List<String>) h[3];
-                @SuppressWarnings("unchecked") java.util.List<byte[]> midis = (java.util.List<byte[]>) h[4];
-                pulsekit.AudioIo.stageTracks(tracks, names, midis);
-                String r = this.pkImportProgramMidi((byte[]) h[1], (String) h[0]);
-                pulsekit.AudioIo.stageTracks(null, null, null);
-                this.pkAddLogLine(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+        app.importLibrary.beginBulk();
+        final java.util.Iterator<Object[]> it = sets.iterator();
+        final int[] done = {0};
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable step = new Runnable() {
+            public void run() {
+                long start = android.os.SystemClock.uptimeMillis();
+                try {
+                    while (it.hasNext() && android.os.SystemClock.uptimeMillis() - start < 100) {
+                        Object[] h = it.next();
+                        @SuppressWarnings("unchecked") java.util.List<pulsekit.Engine.MidiBars> tracks = (java.util.List<pulsekit.Engine.MidiBars>) h[2];
+                        @SuppressWarnings("unchecked") java.util.List<String> names = (java.util.List<String>) h[3];
+                        @SuppressWarnings("unchecked") java.util.List<byte[]> midis = (java.util.List<byte[]>) h[4];
+                        pulsekit.AudioIo.stageTracks(tracks, names, midis);
+                        try {
+                            String r = PyJav.this.pkImportProgramMidi((byte[]) h[1], (String) h[0]);
+                            PyJav.this.pkAddLogLine(r + " (" + tracks.size() + (tracks.size() == 1 ? " track)" : " tracks)"));
+                        } finally {
+                            pulsekit.AudioIo.stageTracks(null, null, null);
+                        }
+                        done[0]++;
+                    }
+                } catch (Throwable t) {
+                    PyJav.this.pkAddLogLine("File sets stopped: " + t);
+                    while (it.hasNext()) it.next();
+                }
+                if (it.hasNext()) {
+                    app.setNow("File sets: " + done[0] + " of " + sets.size());
+                    main.post(this);
+                    return;
+                }
+                pulsekit.MusicCompare.heldImport = false;
+                app.importLibrary.endBulk();
+                app.setNow("File sets: " + done[0] + " made");
             }
-        } finally {
-            pulsekit.MusicCompare.heldImport = false;
-        }
+        };
+        step.run();
     }
 
     /** A --random run's tracks: one file set a model ("SogniMusic run 4 sft"), all its tracks in it. */
