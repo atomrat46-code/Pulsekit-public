@@ -25,13 +25,16 @@ public final class DrumMidiArgs {
     "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on", "1 to turn on", "1 to turn the model off", "off; AVL Drumkits: 49=50,51=52,57=58; Pulsekit's choke tracks: at"
   };
   /**
-   * Suggested values, tested on a drum and bass guitar mix (Passing Ships): lower sensitivity
-   * keeps bass notes and cymbal wash out. Empty means the program's own default.
+   * Suggested values for drums with a bass or guitar playing, from a bench of kits rendered from known
+   * MIDI with a bass, a distorted and a clean guitar over them (tools/accomp_mix.py): sensitivities
+   * 0.4 to 1.2 tried, the program's own 1.0 as good as any for kick, snare and cymbals (0.4, the
+   * suggestion before, lost a third of the hits: F 51-60 against 59-70); toms found best at 1.3 (+1).
+   * Empty means the program's own default.
    */
   public static final String[] SUGGESTED = {
-    "0.4", "0.4", "0.4", "0.4", "0.4", "", "", "", "", "", "", "", "", ""
+    "", "", "1.3", "", "", "", "", "", "", "", "", "", "", ""
   };
-  public static final String NOTE = "Defaults: the program's own values (empty fields). Suggested: tested on a drum and bass guitar mix.";
+  public static final String NOTE = "Defaults: the program's own values (empty fields). Suggested: tested on drums with a bass or guitar playing (toms 1.3, the rest as the defaults).";
 
   /** The switches from field values, in FLAGS order. Empty fields are left out. */
   public static String build(String[] values) {
