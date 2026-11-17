@@ -284,8 +284,27 @@ final class ImportLibrary {
         return bl2 != null ? bl2 : bl;
     }
 
+    /** Imported's Find: only the file sets whose name has this, or with a MIDI file whose name has it (that file shown); "" for all. */
+    static String find = "";
+
+    static boolean has(String text, String part) {
+        return text != null && text.toLowerCase(java.util.Locale.ROOT).contains(part.toLowerCase(java.util.Locale.ROOT));
+    }
+
     void addImportPackBase(LinearLayout linearLayout, String string, String string2, int n, boolean bl, Runnable runnable, Runnable runnable2, Consumer<FlowLayout> consumer) {
         boolean bl2 = this.packOpen(string, bl);
+        // Find: a set whose MIDI files match is shown open with those files only; one that matches nowhere is left out.
+        java.util.Set<Integer> found = null;
+        if (find.length() > 0) {
+            found = new java.util.HashSet<Integer>();
+            if (string.startsWith("f:")) {
+                java.util.List<Engine.FileSetTrack> all = Engine.fileSetTracks(string.substring(2));
+                for (int i = 0; i < all.size(); i++) if (has(all.get(i).name, find)) found.add(Integer.valueOf(i));
+            }
+            if (found.isEmpty() && !has(string2, find)) return;
+            if (!found.isEmpty()) bl2 = true;
+            else found = null;
+        }
         // A set made of several MIDI files says how many too ("· 118 · 50 MIDI").
         int midis = string.startsWith("f:") ? Engine.fileSetTracks(string.substring(2)).size() : 0;
         TextView textView = app.pill((bl2 ? "\u25be " : "\u25b8 ") + string2 + " \u00b7 " + n + (midis > 0 ? " \u00b7 " + midis + " MIDI" : ""), bl, view -> {
@@ -322,6 +341,7 @@ final class ImportLibrary {
         if (!tracks.isEmpty()) {
             // A set made of several MIDI files: each file, then what came from it (patterns, Fillerns or fills).
             for (int i = 0; i < tracks.size(); i++) {
+                if (found != null && !found.contains(Integer.valueOf(i))) continue;
                 LinearLayout row = app.fileSets.trackMidiRow(string.substring(2), i);
                 if (row != null) linearLayout.addView((View)row);
                 FlowLayout flowLayout = new FlowLayout((Context)app, app.dp(6), app.dp(6));
@@ -332,7 +352,7 @@ final class ImportLibrary {
             // What was added to the set later (no MIDI file's), and its + buttons.
             FlowLayout rest = new FlowLayout((Context)app, app.dp(6), app.dp(6));
             rest.setSingleLine(true);
-            this.pkTrackChips.accept(rest, null);
+            if (found == null) this.pkTrackChips.accept(rest, null);
             if (rest.getChildCount() > 0) {
                 TextView head = app.text("Added to the file set", 12, false);
                 head.setTextColor(MUTED);

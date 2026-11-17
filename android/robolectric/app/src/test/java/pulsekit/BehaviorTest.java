@@ -13881,6 +13881,47 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(text);
   }
 
+  /** Imported's Find: only the file sets (or their MIDI files) with the text in their names; Clear shows all. */
+  @Test
+  public void s245c_imported_find() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<Engine.Part> g = new ArrayList<>();
+    g.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 2));
+    g.add(Engine.groove("B", 120, Engine.styleCells(Engine.styles().get("funk")), 2));
+    for (String n : new String[] {"EDM-drums-turbo.mid", "Grime-drums-sft.mid"}) {
+      byte[] midi = Engine.encodeSongMidi(g);
+      Engine.stageSourceMidi(midi, n);
+      call("ingest", midi, n, null);
+      idle();
+    }
+    call("show", "pattern");
+    idle();
+    java.util.function.Supplier<String> packs = () -> {
+      StringBuilder b = new StringBuilder();
+      java.util.List<View> all = new ArrayList<>();
+      collect(app.importedHost, all);
+      for (View v : all) if ("pack".equals(v.getTag())) b.append(((TextView) v).getText().toString().replaceAll("^[\u25b8\u25be] ", "").replaceAll(" \u00b7.*", "")).append("; ");
+      return b.toString();
+    };
+    String before = packs.get();
+    View btn = root().findViewWithTag("imported-find");
+    btn.performClick();
+    idle();
+    ((android.widget.EditText) StyleLibrary.lastFind.findViewById(android.R.id.content).findViewWithTag("imported-find-text")).setText("edm");
+    StyleLibrary.lastFind.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String found = packs.get();
+    String label = ((TextView) btn).getText().toString();
+    app.styleLibrary.setFind("");
+    idle();
+    String cleared = packs.get();
+    out.append("all: ").append(before).append("\nFind edm: ").append(found).append(" (button ").append(label).append(")\nClear: ").append(cleared).append('\n');
+    write("s245c_imported_find", out.toString());
+    boolean ok = before.contains("EDM") && before.contains("Grime") && found.contains("EDM") && !found.contains("Grime") && "Find: edm".equals(label)
+        && cleared.equals(before);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   /**
    * DrumMidi's Params: its folder row (--dir) and Add the result to the AudioMixer untick each other
    * (a folder of zips makes many results); Zip folder has Browse; a zip folder picked outside
