@@ -8995,6 +8995,17 @@ public final class DesktopBehavior {
       }
     });
     idle();
+    // 17112026: a plugin dragged onto plugin 4's Kit loaded field: plugin 4, not its path typed in the field.
+    final java.io.File anarchy = new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3");
+    anarchy.createNewFile();
+    final javax.swing.JTextField kit4 = (javax.swing.JTextField) component(d, "params-field:--kit_name4");
+    final String[] dropped = new String[1];
+    edt(() -> {
+      boolean took = kit4.getTransferHandler().importData(new javax.swing.TransferHandler.TransferSupport(kit4, new java.awt.datatransfer.StringSelection(anarchy.getAbsolutePath())));
+      dropped[0] = took + " field '" + kit4.getText() + "'";
+    });
+    idle();
+    this.out.append("dropped on Kit loaded 4: ").append(dropped[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9003,7 +9014,8 @@ public final class DesktopBehavior {
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
     boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
-        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
+        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
+        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");
@@ -10558,7 +10570,7 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_bench --hit_loo(--hit_bench) --hit_model_file= |")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_bench --hit_loo(--hit_bench) --hit_model_file= --hit_dir= --hit_zip_outdir= |")
         && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
         && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
         && all.contains("Cymbal model, Hit model]")

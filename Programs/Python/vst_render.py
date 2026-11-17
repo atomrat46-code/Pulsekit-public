@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_loo] [--hit_model_file <file>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -230,6 +230,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
+  --hit_dir       its input folder: the tests' zips (vst-render-*.zip), its subfolders too. Not given:
+                  --bench_dir (the Cymbal model tab's), else --dir.
+  --hit_zip_outdir
+                  its zip (and hit-model-<date>.txt) copied into this folder too (% codes as
+                  --zip_outdir's). Not given: --zip_outdir.
   --hit_model_file
                   a hit model file (hit-model.txt) DrumMidi uses in place of its own: in the tests
                   (--test) and in the bench.
@@ -4814,10 +4819,10 @@ def hit_bench(opts, switches):
         import numpy as np
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
-    folder = opts["--bench_dir"] or opts["--dir"]
+    folder = opts["--hit_dir"] or opts["--bench_dir"] or opts["--dir"]
     if not folder or not os.path.isdir(folder):
         fail("The hit model bench reads the tests' zips (vst-render-*.zip) in its input folder (the Cymbal model tab's, --bench_dir), "
-             "and in its subfolders: give the folder that holds the runs' folders%s" % (" (%s is not one)" % folder if folder else ""))
+             "and in its subfolders: give the folder that holds the runs' folders (the Hit model tab's Input folder)%s" % (" (%s is not one)" % folder if folder else ""))
     jar = opts["--drummidi"]
     if not jar or not os.path.isfile(jar):
         fail("The hit model bench runs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
@@ -4920,8 +4925,10 @@ def hit_bench(opts, switches):
     files["summary.txt"] = "\n".join(lines) + "\n"
     made = bench_zip(os.path.join(outdir, "hit-bench-%s.zip" % time.strftime("%Y%m%d-%H%M%S")), files)
     print("Zip: %s" % made)
-    if opts["--zip_outdir"]:
-        copy_zips([made], expand_folder(opts["--zip_outdir"], newest=True))
+    # Its own zip folder (the Hit model tab's), else the run's --zip_outdir.
+    copy_to = opts["--hit_zip_outdir"] or opts["--zip_outdir"]
+    if copy_to:
+        copy_zips([made] + ([saved] if "--hit_loo" in switches else []), expand_folder(copy_to, newest=True))
     print("Succeeded: the hit model bench")
 
 
@@ -4968,7 +4975,7 @@ def main(argv):
             "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
-            "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None}
+            "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_zip_outdir": None}
     switches = set()
     files = []
     argv = bench_args(argv)

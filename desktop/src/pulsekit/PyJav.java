@@ -3940,6 +3940,8 @@ final class PyJav {
                         for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) return values[k];
                         return "";
                     });
+                    // A plugin dragged from Favourites or Recently used onto Kit loaded: the row's plugin, not its path typed in.
+                    field.setTransferHandler(this.kitFieldDrop(field.getTransferHandler(), this.pluginDrop(ps, values, fileLabels, uses, plugToken)));
                 }
                 if (p.token.startsWith("--map")) {
                     // vst_render's map: one of its files above, or another text file.
@@ -5270,6 +5272,60 @@ final class PyJav {
         };
     }
 
+    /**
+     * Kit loaded's field: a plugin dropped on it (a plugin file's path, from Favourites, Recently used or the
+     * desktop) goes to its row's plugin (pluginDrop); other text is typed in as before (`text`).
+     */
+    javax.swing.TransferHandler kitFieldDrop(final javax.swing.TransferHandler text, final javax.swing.TransferHandler plugin) {
+        return new javax.swing.TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport s) {
+                return plugin.canImport(s) || text != null && text.canImport(s);
+            }
+
+            @Override
+            public boolean importData(TransferSupport s) {
+                if (isPluginPath(s) && plugin.importData(s)) return true;
+                return text != null && text.importData(s);
+            }
+
+            @Override
+            public int getSourceActions(javax.swing.JComponent c) {
+                return text == null ? NONE : text.getSourceActions(c);
+            }
+
+            @Override
+            protected java.awt.datatransfer.Transferable createTransferable(javax.swing.JComponent c) {
+                // (The field's own copy and drag of its text, as before.)
+                if (!(c instanceof javax.swing.text.JTextComponent)) return null;
+                String sel = ((javax.swing.text.JTextComponent) c).getSelectedText();
+                return sel == null ? null : new java.awt.datatransfer.StringSelection(sel);
+            }
+
+            @Override
+            public void exportToClipboard(javax.swing.JComponent c, java.awt.datatransfer.Clipboard clip, int action) {
+                if (text != null) text.exportToClipboard(c, clip, action);
+            }
+
+            @Override
+            public boolean importData(javax.swing.JComponent c, java.awt.datatransfer.Transferable t) {
+                return text != null && text.importData(c, t);
+            }
+        };
+    }
+
+    /** What is dropped is a plugin: a file list, or one line of text naming a plugin file (.vst3, .dll, .clap...). */
+    static boolean isPluginPath(javax.swing.TransferHandler.TransferSupport s) {
+        try {
+            if (s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) return true;
+            if (!s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) return false;
+            String v = String.valueOf(s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor)).trim();
+            return !v.contains("\n") && v.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(vst3|dll|clap|lv2|so|vst|component|sf2|sfz)$");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     /** The menu a listed plugin shows: Use as plugin 1 to 4 (the page's plugin rows). */
     javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
         javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
@@ -5327,7 +5383,15 @@ final class PyJav {
         for (int i = 0; i < ps.size(); i++) {
             if (!ps.get(i).token.equals(token)) continue;
             values[i] = path;
-            if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+            if (fileLabels[i] != null) {
+                fileLabels[i].setText(plugName(path));
+                // The row brought into view: the lists are below the plugin rows, plugin 4 may be scrolled away.
+                final JLabel shown = fileLabels[i];
+                SwingUtilities.invokeLater(() -> {
+                    java.awt.Container row = shown.getParent();
+                    if (row instanceof javax.swing.JComponent) ((javax.swing.JComponent) row).scrollRectToVisible(new java.awt.Rectangle(0, 0, row.getWidth(), row.getHeight()));
+                });
+            }
             if (uses[i] != null) uses[i].setSelected(true);
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
             this.kitForPlugin(fileLabels[i], token, path);

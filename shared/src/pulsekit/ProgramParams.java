@@ -999,8 +999,17 @@ public final class ProgramParams {
       p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
       p.hint = "Riot Default kit, Cardinal; empty: every kit found";
       p.importList = true;
+    } else if (p.token.equals("--hit_dir")) {
+      p.dir = true;
+      p.label = "Input folder: the tests' zips (vst-render-*.zip), its subfolders too (the folder that holds the runs' folders)";
+      p.hint = "empty: the Cymbal model tab's input folder";
+    } else if (p.token.equals("--hit_zip_outdir")) {
+      p.dir = true;
+      p.typed = true;
+      p.label = "Zip folder: the bench's zip (and the hit-model file) copied into this folder too";
+      p.hint = "empty: the Output tab's zip folder; % codes: %ddmmyyyy, run-%n (the next free number)";
     } else if (p.token.equals("--hit_bench")) {
-      p.label = "Hit model bench: DrumMidi on the kits' tests (the Cymbal model tab's folder) with its rules alone and with its hit model: kicks, snares and toms; its zip into the output folder (no plugin played)";
+      p.label = "Hit model bench: DrumMidi on the kits' tests (the input folder below) with its rules alone and with its hit model: kicks, snares and toms; its zip into the output folder (no plugin played)";
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder)";
       p.showWhen = "--hit_bench";
