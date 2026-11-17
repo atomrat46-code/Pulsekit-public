@@ -1393,7 +1393,10 @@ public class DrumMidi_CRT{
             for (Hit h : hits) if (h.note == KICK_NOTE || h.note == SNARE_NOTE || isTomNote(h.note)) cand.add(Integer.valueOf((int) Math.round(h.time * sr / HOP)));
             String dump = System.getProperty("dm.hitFeatures");
             if (dump != null) HitModel.dump(hits, cand, audio.samples, sr, bass, guitar, dump);
-            if (hitModel && HitModel.ready() && writeToms) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack);
+            // Not for a kit whose kick has no beater click (its profile says so: an 808's): the kits the model
+            // learned from all click, and on an 808's long sine it took snares where there were none (+12 of 32).
+            if (hitModel && HitModel.ready() && writeToms && !clickless) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack);
+            else if (hitModel && HitModel.ready() && writeToms) note("Hit model not used: the kit's kick has no beater click (the model learned from kits whose kicks click)");
         }
         if (kit != null) kit.sort(hits, audio.samples, sr);
         else if (library != null) library.sort(hits, audio.samples, sr);

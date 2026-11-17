@@ -4862,6 +4862,7 @@ def hit_bench(opts, switches):
     lines = ["Hit model bench: DrumMidi with its rules alone and with %s, %d kits' test songs (DrumMidi_CRT.jar %s)." % (which, len(kits), sig),
              "F: found where the MIDI played them (within 30 ms) and not found where it did not, in %: 100 is every hit right, none extra.",
              "", "%-*s %15s %15s %15s" % (width, "Kit", "Kick", "Snare", "Toms")]
+    print(lines[0])
     details = []
     tot = {"rules": 0, "model": 0}
     for k in kits:
