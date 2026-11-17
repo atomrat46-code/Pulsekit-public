@@ -1,8 +1,12 @@
 """hit_model.py: DrumMidi's hit model (DrumMidi_CRT.HitModel): kicks, snares and toms, learned from kits
-rendered from known MIDI.
+rendered from known MIDI. A small network (one hidden layer of 32) told each onset DrumMidi considers a kick,
+snare or tom from its bands' energies around it and the rules' own say. The built-in one: 51 kits (5
+DrumGizmo kits, also under a bass and guitars; 46 VST kits), 487,000 onsets. Each plugin family held out
+in turn (check): kick F 83 -> 93, snare 84 -> 94, tom 45 -> 85; all of DrumMidi on held-out songs: kick
+P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
 
   python tools/hit_model.py data   <kits.txt> <work> [jar]   the training data, a .npz a kit
-  python tools/hit_model.py check  <work>                    leave one kit out: how it does on kits it never saw
+  python tools/hit_model.py check  <work>                    leave one kit family out: how it does on kits it never saw
   python tools/hit_model.py export <work> [--write] [--file <model.txt>]  the model from every kit; --write puts
                                                              it in DrumMidi_CRT.java, --file writes a model file
                                                              (DrumMidi -Ddm.hitModelFile=<file>)
@@ -140,25 +144,50 @@ def load(work):
     return {os.path.splitext(os.path.basename(f))[0]: dict(np.load(f)) for f in sorted(glob.glob(os.path.join(work, "*.npz")))}
 
 
-def fit(X, Y, l2=1e-3, iters=3000, lr=0.2):
+def fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3):
+    """A small network: one hidden layer of ReLU units, three sigmoid outputs (kick, snare, tom), trained with Adam."""
+    r = np.random.default_rng(seed)
     mu = X.mean(0)
     sd = X.std(0) + 1e-6
     Z = (X - mu) / sd
-    W = np.zeros((X.shape[1], 3))
-    b = np.zeros(3)
-    pos = Y.mean(0).clip(1e-3, 1 - 1e-3)
-    b[:] = np.log(pos / (1 - pos))
-    for _ in range(iters):
-        P = 1 / (1 + np.exp(-(Z @ W + b)))
-        G = P - Y
-        W -= lr * (Z.T @ G / len(Z) + l2 * W)
-        b -= lr * G.mean(0)
-    return mu, sd, W, b
+    W1 = r.normal(0, 1 / np.sqrt(Z.shape[1]), (Z.shape[1], hidden))
+    b1 = np.zeros(hidden)
+    W2 = r.normal(0, 1 / np.sqrt(hidden), (hidden, 3))
+    b2 = np.zeros(3)
+    ps = [W1, b1, W2, b2]
+    m1 = [np.zeros_like(p) for p in ps]
+    m2 = [np.zeros_like(p) for p in ps]
+    t = 0
+    for _ in range(epochs):
+        idx = r.permutation(len(Z))
+        for s in range(0, len(Z), 512):
+            i = idx[s:s + 512]
+            z, y = Z[i], Y[i]
+            a = z @ W1 + b1
+            h = np.maximum(a, 0)
+            P = 1 / (1 + np.exp(-(h @ W2 + b2)))
+            g = (P - y) / len(i)
+            gh = g @ W2.T * (a > 0)
+            grads = [z.T @ gh + 1e-4 * W1, gh.sum(0), h.T @ g, g.sum(0)]
+            t += 1
+            for k, (p, gr) in enumerate(zip(ps, grads)):
+                m1[k] = 0.9 * m1[k] + 0.1 * gr
+                m2[k] = 0.999 * m2[k] + 0.001 * gr * gr
+                p -= lr * (m1[k] / (1 - 0.9 ** t)) / (np.sqrt(m2[k] / (1 - 0.999 ** t)) + 1e-8)
+    return mu, sd, W1, b1, W2, b2
 
 
 def predict(m, X):
-    mu, sd, W, b = m[:4]
-    return 1 / (1 + np.exp(-(((X - mu) / sd) @ W + b)))
+    mu, sd, W1, b1, W2, b2 = m
+    return 1 / (1 + np.exp(-(np.maximum(((X - mu) / sd) @ W1 + b1, 0) @ W2 + b2)))
+
+
+def model_text(m, th):
+    """The model as DrumMidi reads it with -Ddm.hitModelFile."""
+    mu, sd, W1, b1, W2, b2 = m
+    row = lambda key, v: key + " " + " ".join("%.6g" % x for x in v) + "\n"
+    return (row("mu", mu) + row("sd", sd) + row("t", th) + row("b1", b1) + row("b2", b2)
+            + "".join(row("w1", r) for r in W1) + "".join(row("w2", r) for r in W2))
 
 
 def thresholds(P, Y):
@@ -193,13 +222,14 @@ def check(work):
     d = load(work)
     names = list(d)
     tot = {k: [np.zeros(4), np.zeros(4)] for k in DRUMS}
-    for held in names:
-        tr = [n for n in names if family(n) != family(held)]
+    for held in sorted({family(n) for n in names}):
+        tr = [n for n in names if family(n) != held]
         X = np.vstack([d[n]["X"] for n in tr])
         Y = np.vstack([d[n]["Y"] for n in tr])
         m = fit(X, Y)
         th = thresholds(predict(m, X), Y)
-        Xh, Yh = d[held]["X"], d[held]["Y"]
+        Xh = np.vstack([d[n]["X"] for n in names if family(n) == held])
+        Yh = np.vstack([d[n]["Y"] for n in names if family(n) == held])
         P = predict(m, Xh)
         line = "%-16s" % held
         for k, dr in enumerate(DRUMS):
@@ -219,20 +249,17 @@ def export(work, write, file):
     d = load(work)
     X = np.vstack([v["X"] for v in d.values()])
     Y = np.vstack([v["Y"] for v in d.values()])
-    mu, sd, W, b = fit(X, Y)
-    th = thresholds(predict((mu, sd, W, b), X), Y)
+    m = fit(X, Y)
+    th = thresholds(predict(m, X), Y)
+    mu, sd, W1, b1, W2, b2 = m
     if file:
         with open(file, "w") as f:
-            f.write("mu " + " ".join("%.6g" % v for v in mu) + "\n")
-            f.write("sd " + " ".join("%.6g" % v for v in sd) + "\n")
-            f.write("b " + " ".join("%.6g" % v for v in b) + "\n")
-            f.write("t " + " ".join("%.6g" % v for v in th) + "\n")
-            for row in W:
-                f.write("w " + " ".join("%.6g" % v for v in row) + "\n")
+            f.write(model_text(m, th))
         print("Wrote " + file)
     arr = lambda v: "{" + ", ".join("%.6g" % x for x in v) + "}"
-    java = ("        static double[] HM_MU = %s, HM_SD = %s;\n        static double[][] HM_W = {%s};\n        static double[] HM_B = %s, HM_T = %s;\n"
-            % (arr(mu), arr(sd), ", ".join(arr(r) for r in W), arr(b), arr(th)))
+    java = ("        static double[] HM_MU = %s, HM_SD = %s;\n        static double[][] HM_W = null;\n        static double[] HM_B = null, HM_T = %s;\n"
+            "        static double[][] HM_W1 = {%s}, HM_W2 = {%s};\n        static double[] HM_B1 = %s, HM_B2 = %s;\n"
+            % (arr(mu), arr(sd), arr(th), ", ".join(arr(r) for r in W1), ", ".join(arr(r) for r in W2), arr(b1), arr(b2)))
     if write:
         p = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
         s = open(p, encoding="utf-8").read()
@@ -260,10 +287,7 @@ def bench(kits_txt, work, jar):
         fd, mfile = tempfile.mkstemp(suffix=".txt")
         os.close(fd)
         with open(mfile, "w") as f:
-            for key, v in (("mu", m[0]), ("sd", m[1]), ("b", m[3]), ("t", th)):
-                f.write(key + " " + " ".join("%.6g" % x for x in v) + "\n")
-            for row in m[2]:
-                f.write("w " + " ".join("%.6g" % x for x in row) + "\n")
+            f.write(model_text(m, th))
         pairs = [p for f in folders for p in songs(f)]
         for way, opts in (("rules", ["-Ddm.hitModel=0"]), ("model", ["-Ddm.hitModelFile=" + mfile])):
             fam = {}

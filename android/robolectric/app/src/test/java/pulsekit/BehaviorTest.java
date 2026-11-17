@@ -16178,7 +16178,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
         && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }
