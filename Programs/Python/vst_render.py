@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -226,9 +226,11 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   The hit model bench (Params' Hit model tab): DrumMidi's kicks, snares and toms on the tests' zips
   (the Cymbal model tab's folders: --bench_dir, --bench_unzip, --bench_skip, --bench_work). Needs numpy.
   --hit_bench     runs it: each kit's songs through DrumMidi with its rules alone and with its hit model,
-                  kick, snare and toms F (hit-bench-<date>.zip). With plugins given, after the run (its
-                  renders, --test and --zip: the tests' zips the bench reads; --hit_dir not given: the
-                  run's --zip_outdir, else --outdir); else no plugin is played.
+                  kick, snare and toms F (hit-bench-<date>.zip) (Settings' Hit model bench).
+  --hit_bench_when
+                  separately (the default: the bench only, no plugin played) or last (after the run's
+                  renders, --test and --zip: their zips are read, --hit_dir when it has tests' zips, else
+                  the run's --zip_outdir or --outdir).
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
@@ -4861,7 +4863,9 @@ def hit_bench(opts, switches):
         plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
         found = [k for k in found if not any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
     if not found:
-        fail("The hit model bench found no tests' zips (vst-render-*.zip) in %s or its subfolders" % folder)
+        fail("The hit model bench found no tests' zips (vst-render-*.zip) in %s or its subfolders. It reads the zips a run with Test and "
+             "Zip makes (renders and the MIDI played), not a zip of MIDI files: put that folder on the Input tab, the plugins on the Plugins tab, "
+             "and set Settings' Hit model bench to Run last (the bench then reads the run's zips)" % folder)
     print("Hit model bench: %d tested kits' zips in %s; unzip folder %s; DrumMidi's results kept in %s" % (len(found), folder, unzip, os.path.join(work, "hits")))
     sig = hashlib.sha1(open(jar, "rb").read() + (open(model_file, "rb").read() if model_file else b"")).hexdigest()[:12]
     jobs = max(1, min(8, os.cpu_count() or 1))
@@ -4986,8 +4990,38 @@ def bench_last(argv):
         sys.exit(code)
 
 
+# The hit model bench run last (--hit_bench_when last): None at the top; "render" while the run goes, "bench" after.
+HIT_STAGE = [None]
+
+
+def hit_last(argv):
+    """--hit_bench --hit_bench_when last: the run (its renders, tests, zips; the cymbal comparison too if it
+    runs last), then the hit model bench on the tests' zips (also when the run failed: its exit code is kept)."""
+    HIT_STAGE[0] = "render"
+    code = 0
+    try:
+        main([a for a in argv if a != "--hit_bench"])
+    except SystemExit as e:
+        code = e.code or 0
+    HIT_STAGE[0] = "bench"
+    print("")
+    print("== Hit model bench (after the run)")
+    try:
+        main(argv)
+    except SystemExit as e:
+        code = code or e.code or 0
+    finally:
+        HIT_STAGE[0] = None
+    if code:
+        sys.exit(code)
+
+
 def main(argv):
-    if BENCH_STAGE[0] is None and "--cymbal_bench" in argv and "--cymbal_bench_when" in argv:
+    if HIT_STAGE[0] is None and "--hit_bench" in argv and "--hit_bench_when" in argv:
+        at = argv.index("--hit_bench_when")
+        if at + 1 < len(argv) and argv[at + 1].strip().lower() == "last":
+            return hit_last(argv)
+    if BENCH_STAGE[0] is None and HIT_STAGE[0] != "bench" and "--cymbal_bench" in argv and "--cymbal_bench_when" in argv:
         at = argv.index("--cymbal_bench_when")
         if at + 1 < len(argv) and argv[at + 1].strip().lower() == "last":
             return bench_last(argv)
@@ -5002,7 +5036,7 @@ def main(argv):
             "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
-            "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_zip_outdir": None}
+            "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_zip_outdir": None, "--hit_bench_when": None}
     switches = set()
     files = []
     argv = bench_args(argv)
@@ -5033,24 +5067,19 @@ def main(argv):
             fail("Hit model file (--hit_model_file) not found: %s" % opts["--hit_model_file"])
         HIT_MODEL_FILE[0] = os.path.abspath(opts["--hit_model_file"])
     # The hit model bench (the Hit model tab): on its own, no plugin played (then the cymbal comparison, if on).
+    if HIT_STAGE[0] == "bench":
+        # Run last: the run's own tests' zips (the Hit model tab's input folder when it has tests' zips).
+        run_zips = expand_folder(opts["--zip_outdir"], newest=True) if opts["--zip_outdir"] else (opts["--outdir"] or opts["--dir"])
+        given = opts["--hit_dir"]
+        if not given or not (os.path.isdir(given) and render_kits(given, True)):
+            if given:
+                print("Hit model bench: no tests' zips (vst-render-*.zip) in %s; this run's zip folder is read" % given)
+            opts["--hit_dir"] = run_zips
+        print("Hit model bench: the tests' zips in %s" % opts["--hit_dir"])
+        hit_bench(opts, switches)
+        return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
-        plays = any(opts[k] for k in ("--plugin", "--carla", "--clap", "--drumgizmo", "--parts", "--padset"))
-        if plays and "--cymbal_bench" not in switches:
-            # Plugins given: the run (its renders, tests and zips) first, then the bench on the tests' zips:
-            # the Hit model tab's input folder, else this run's zip folder (or its output folder).
-            code = 0
-            try:
-                main([a for a in argv if a != "--hit_bench"])
-            except SystemExit as e:
-                code = e.code or 0
-            if not opts["--hit_dir"]:
-                opts["--hit_dir"] = expand_folder(opts["--zip_outdir"], newest=True) if opts["--zip_outdir"] else (opts["--outdir"] or opts["--dir"])
-            print("")
-            print("== Hit model bench (after the run): the tests' zips in %s" % opts["--hit_dir"])
-            hit_bench(opts, switches)
-            if code:
-                sys.exit(code)
-            return
+        # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on).
         hit_bench(opts, switches)
         if "--cymbal_bench" not in switches:
             return
