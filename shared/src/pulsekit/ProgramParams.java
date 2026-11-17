@@ -209,6 +209,11 @@ public final class ProgramParams {
         p.choices = StyleDb.names();
       }
     }
+    // vst_render's --edit (the plugin's window before the run, one plugin only) is not a row: each plugin row's
+    // Edit settings does it, for one plugin or four; a box ticked by mistake stopped runs of several plugins.
+    if (vstRender) {
+      for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) if (it.next().token.equals("--edit")) it.remove();
+    }
     // The Sogni programs that download pictures, videos and music: Destination subfolder (PyJav takes it off
     // and keeps it with the run; Downloads' Move puts the run's files there).
     if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.SUB_PARAM)) {
