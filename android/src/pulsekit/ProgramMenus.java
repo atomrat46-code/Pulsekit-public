@@ -103,6 +103,16 @@ final class ProgramMenus {
         }
     }
 
+    /** A bundled binary program's bytes as the app ships them now (Programs/Java/<name>), or null. */
+    byte[] bundledBytes(String name) {
+        if (name == null || !(name.endsWith(".jar") || name.endsWith(".class"))) return null;
+        try {
+            return read("Java", name);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     byte[] read(String kind, String name) throws Exception {
         InputStream in = app.getAssets().open("Programs/" + kind + "/" + name);
         try {

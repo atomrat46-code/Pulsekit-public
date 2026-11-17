@@ -55,6 +55,20 @@ final class ProgramFiles {
         return null;
     }
 
+    /** A bundled binary program's bytes as Pulsekit ships them now (Programs/Java/<name>), or null. */
+    static byte[] bundledBytes(String name) {
+        if (name == null || !(name.toLowerCase().endsWith(".jar") || name.toLowerCase().endsWith(".class"))) return null;
+        for (String n : list("Java")) {
+            if (!n.equals(name)) continue;
+            try {
+                return read("Java", n);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     static byte[] read(String kind, String name) throws Exception {
         try (InputStream in = ProgramFiles.class.getResourceAsStream("/Programs/" + kind + "/" + name)) {
             if (in != null) return readAll(in);

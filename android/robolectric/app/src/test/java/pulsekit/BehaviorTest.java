@@ -1183,7 +1183,18 @@ public class BehaviorTest {
     out.append("editor has old copy=").append(editor.contains("old copy")).append('\n');
     out.append("editor has bundled program=").append(editor.contains("public final class CompareHits")).append('\n');
     out.append("args kept=").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    // A bundled jar too: DrumMidi_CRT.jar as the app ships it, not the bytes kept when it last ran.
+    PyJavRecent.remember(app.getFilesDir(), "DrumMidi_CRT.jar", "--dir x", null, new byte[] {'P', 'K', 3, 4, 'o', 'l', 'd'});
+    call("pkRefreshRecent", 0);
+    idle();
+    call("pkApplyRecent", 1);
+    idle();
+    byte[] now = (byte[]) get("pkPyBytes");
+    byte[] shipped = app.programMenus.read("Java", "DrumMidi_CRT.jar");
+    boolean jarFresh = java.util.Arrays.equals(now, shipped);
+    out.append("DrumMidi_CRT.jar from Recent is the shipped one=").append(jarFresh).append('\n');
     write("s35_recent_uses_bundled_program", out.toString());
+    if (!jarFresh) throw new AssertionError(out.toString());
   }
 
   /** Params: a .mid can come from a file set's source MIDI, copied into PyJav's input folder. */

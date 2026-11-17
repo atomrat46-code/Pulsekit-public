@@ -3111,7 +3111,9 @@ final class PyJav {
         // saved when it last ran, so fixes reach programs picked from Recent.
         String bundled = binary ? null : ProgramFiles.bundledSource(item.name);
         String source = bundled != null ? bundled : item.source;
-        byte[] data = binary ? item.bytes : (source == null ? new byte[0] : source.getBytes(StandardCharsets.UTF_8));
+        // A bundled binary (DrumMidi_CRT.jar) likewise: Pulsekit's own, not the copy kept with Recent.
+        byte[] shipped = binary ? ProgramFiles.bundledBytes(item.name) : null;
+        byte[] data = binary ? (shipped != null ? shipped : item.bytes) : (source == null ? new byte[0] : source.getBytes(StandardCharsets.UTF_8));
         this.rememberProgram(item.name, data, binary, false);
         app.pyInputPath = null;
         this.showPyHint(PyJavHints.status(item.name, source, item.bytes));

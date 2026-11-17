@@ -372,7 +372,9 @@ final class PyJav {
         app.pyName = item.name;
         this.pkPyInputPath = null;
         boolean binary = item.bytes != null && item.bytes.length > 0;
-        if (binary) app.pkPyBytes = item.bytes;
+        // A bundled binary (DrumMidi_CRT.jar) likewise: the app's own, not the copy kept with Recent.
+        byte[] shipped = binary ? app.programMenus.bundledBytes(item.name) : null;
+        if (binary) app.pkPyBytes = shipped != null ? shipped : item.bytes;
         else app.pkPyBytes = null;
         if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
         if (app.pyEditor != null) {
