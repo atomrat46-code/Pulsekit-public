@@ -228,17 +228,18 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --hit_bench     runs it: each kit's songs through DrumMidi with its rules alone and with its hit model,
                   kick, snare and toms F (hit-bench-<date>.zip) (Settings' Hit model bench).
   --hit_bench_when
-                  separately (the default: the bench only, no plugin played) or last (after the run's
-                  renders, --test and --zip: their zips are read, --hit_dir when it has tests' zips, else
-                  the run's --zip_outdir or --outdir).
+                  separately (the default: the bench only, no plugin played, on --hit_dir's tests' zips)
+                  or last (--hit_dir's MIDI rendered through the plugins, --test and --zip on, then the
+                  bench on that run's zips).
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
-  --hit_dir       its input folder: the tests' zips (vst-render-*.zip), its subfolders too. Not given:
-                  --bench_dir (the Cymbal model tab's), else --dir.
+  --hit_dir       its input folder: run separately, the tests' zips (vst-render-*.zip), its subfolders
+                  too; run last, the MIDI files to render (or zips of them: DrumMidi's SogniMusic-dm.zip,
+                  unpacked there): --dir, --dir2, --outdir and --zip_outdir are then not used.
   --hit_zip_outdir
                   its zip (and hit-model-<date>.txt) copied into this folder too (% codes as
-                  --zip_outdir's). Not given: --zip_outdir.
+                  --zip_outdir's); run last, the run's zips too.
   --hit_model_file
                   a hit model file (hit-model.txt) DrumMidi uses in place of its own: in the tests
                   (--test) and in the bench.
@@ -4846,18 +4847,19 @@ def hit_bench(opts, switches):
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
     only = opts.get("_hit_zips")
-    folder = os.path.dirname(os.path.abspath(only[0])) if only else (opts["--hit_dir"] or opts["--bench_dir"] or opts["--dir"])
+    folder = os.path.dirname(os.path.abspath(only[0])) if only else opts["--hit_dir"]
     if not folder or not os.path.isdir(folder):
         fail("The hit model bench reads the tests' zips (vst-render-*.zip) in its input folder (the Cymbal model tab's, --bench_dir), "
-             "and in its subfolders: give the folder that holds the runs' folders (the Hit model tab's Input folder)%s" % (" (%s is not one)" % folder if folder else ""))
+             "and in its subfolders: give it as the Hit model tab's Input folder%s; or MIDI files to render there, with Settings' Hit model bench on Run last" % (" (%s is not one)" % folder if folder else ""))
     jar = opts["--drummidi"]
     if not jar or not os.path.isfile(jar):
         fail("The hit model bench runs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
     model_file = HIT_MODEL_FILE[0]
     outdir = opts["--outdir"] or folder
     os.makedirs(outdir, exist_ok=True)
-    work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
-    unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
+    # (Its own work folder: the Cymbal model tab's folders are not used.)
+    work = os.path.join(outdir, "hit-bench")
+    unzip = os.path.join(work, "kits")
     if only:
         # (This run's zips: each from its own folder, nothing else there.)
         mine = set(os.path.normcase(os.path.abspath(z)) for z in only)
@@ -4965,7 +4967,7 @@ def hit_bench(opts, switches):
     made = bench_zip(os.path.join(outdir, "hit-bench-%s.zip" % time.strftime("%Y%m%d-%H%M%S")), files)
     print("Zip: %s" % made)
     # Its own zip folder (the Hit model tab's), else the run's --zip_outdir.
-    copy_to = opts["--hit_zip_outdir"] or opts["--zip_outdir"]
+    copy_to = opts["--hit_zip_outdir"]
     if copy_to:
         copy_zips([made] + ([saved] if loo else []), expand_folder(copy_to, newest=True))
     print("Succeeded: the hit model bench")
@@ -5004,21 +5006,57 @@ HIT_STAGE = [None]
 RUN_TEST_ZIPS = []
 
 
+def switch_value(argv, name):
+    """A switch's value in the arguments (None when not given)."""
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+def without_switches(argv, valued, plain=()):
+    """The arguments without those switches (and the values of `valued`)."""
+    out = []
+    i = 0
+    while i < len(argv):
+        if argv[i] in valued:
+            i += 2
+            continue
+        if argv[i] not in plain:
+            out.append(argv[i])
+        i += 1
+    return out
+
+
 def hit_last(argv):
-    """--hit_bench --hit_bench_when last: the run (its renders, tests, zips; the cymbal comparison too if it
-    runs last), then the hit model bench on the tests' zips (also when the run failed: its exit code is kept)."""
+    """--hit_bench --hit_bench_when last: a job of its own, on the Hit model tab's folders alone (the Input
+    tab's --dir, --dir2 and the Output tab's --outdir, --zip_outdir are not used):
+    1. the MIDI files in its input folder (--hit_dir: MIDI files, or zips of them, DrumMidi's SogniMusic-dm
+       zip say, unpacked there), 2. rendered through the plugins, tested (--test) and zipped (--zip; the
+       zips copied into its zip folder, --hit_zip_outdir), 3. the hit model bench on those zips."""
+    hit_dir = switch_value(argv, "--hit_dir")
+    if not hit_dir or not os.path.isdir(hit_dir):
+        fail("Hit model bench, Run last: give the Hit model tab's Input folder (MIDI files or a zip of them, to render)%s"
+             % (" (%s is not a folder)" % hit_dir if hit_dir else ""))
+    zip_to = switch_value(argv, "--hit_zip_outdir")
+    run = without_switches(argv, ("--dir", "--dir2", "--outdir", "--zip_outdir", "--hit_dir", "--hit_zip_outdir"), ("--hit_bench",))
+    run += ["--dir", hit_dir] + (["--zip_outdir", zip_to] if zip_to else []) + [s for s in ("--test", "--zip") if s not in run]
+    print("Hit model bench, Run last: the MIDI in %s rendered through the plugins, tested and zipped%s; then the bench on those zips"
+          % (hit_dir, " (the zips copied to %s)" % zip_to if zip_to else ""))
+    print("(The Input tab's and Output tab's folders are not used in this run.)")
     HIT_STAGE[0] = "render"
     del RUN_TEST_ZIPS[:]
     code = 0
     try:
-        main([a for a in argv if a != "--hit_bench"])
+        main(run)
     except SystemExit as e:
         code = e.code or 0
     HIT_STAGE[0] = "bench"
     print("")
     print("== Hit model bench (after the run)")
     try:
-        main(argv)
+        # The bench on this run's zips; its work (the kits unpacked, DrumMidi's results) in the input folder.
+        main(without_switches(argv, ("--dir", "--dir2", "--outdir", "--zip_outdir", "--hit_dir")) + ["--outdir", hit_dir])
     except SystemExit as e:
         code = code or e.code or 0
     finally:
@@ -5079,19 +5117,11 @@ def main(argv):
         HIT_MODEL_FILE[0] = os.path.abspath(opts["--hit_model_file"])
     # The hit model bench (the Hit model tab): on its own, no plugin played (then the cymbal comparison, if on).
     if HIT_STAGE[0] == "bench":
-        # Run last: the Hit model tab's input folder when it has tests' zips; else the zips this run made
-        # (none made: the run failed, or Test or Zip is off; no older zips are taken in their place).
-        given = opts["--hit_dir"]
-        if given and os.path.isdir(given) and render_kits(given, True):
-            print("Hit model bench: the tests' zips in %s (the Hit model tab's input folder)" % given)
-        else:
-            if given:
-                print("Hit model bench: no tests' zips (vst-render-*.zip) in %s (the Hit model tab's input folder); this run's are read" % given)
-            if not RUN_TEST_ZIPS:
-                fail("Hit model bench not run: this run made no tests' zips (it failed above, or Test or Zip is off)")
-            opts["--hit_dir"] = None
-            opts["_hit_zips"] = list(RUN_TEST_ZIPS)
-            print("Hit model bench: this run's %d tests' zip%s" % (len(RUN_TEST_ZIPS), "" if len(RUN_TEST_ZIPS) == 1 else "s"))
+        # Run last: the tests' zips this run made (none: the run failed; no older zips are taken instead).
+        if not RUN_TEST_ZIPS:
+            fail("Hit model bench not run: the run made no tests' zips (it failed above)")
+        opts["_hit_zips"] = list(RUN_TEST_ZIPS)
+        print("Hit model bench: this run's %d tests' zip%s" % (len(RUN_TEST_ZIPS), "" if len(RUN_TEST_ZIPS) == 1 else "s"))
         hit_bench(opts, switches)
         return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:

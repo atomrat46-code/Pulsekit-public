@@ -1007,20 +1007,21 @@ public final class ProgramParams {
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;
-      p.label = "Input folder: the tests' zips (vst-render-*.zip, not the MIDI zip: that goes on the Input tab), its subfolders too";
-      p.hint = "empty: Run last reads the run's zip folder; Run separately the Cymbal model tab's input folder";
+      p.label = "Input folder: Run separately, the tests' zips (vst-render-*.zip); Render first, the MIDI files to render or a zip of them (the Input and Output tabs' folders are not used)";
+      p.hint = "a folder";
     } else if (p.token.equals("--hit_zip_outdir")) {
       p.dir = true;
       p.typed = true;
-      p.label = "Zip folder: the bench's zip (and the hit-model file) copied into this folder too";
-      p.hint = "empty: the Output tab's zip folder; % codes: %ddmmyyyy, run-%n (the next free number)";
+      p.label = "Zip folder: the bench's zip and the hit-model file (Render first: the run's tests' zips too) copied into this folder";
+      p.hint = "empty: they stay in the input folder; % codes: %ddmmyyyy, run-%n (the next free number)";
     } else if (p.token.equals("--hit_bench")) {
       p.label = "Hit model bench: DrumMidi on the kits' tests (vst-render zips) with its rules alone and with its hit model, kicks, snares and toms; the Hit model tab's parts (off: not run)";
     } else if (p.token.equals("--hit_bench_when")) {
       p.label = "Hit model bench: when";
       p.dropdown = true;
       p.showWhen = "--hit_bench";
-      p.choices = new String[] {"Run separately (no plugin played; the Hit model tab's input folder)", "Run last, after the run's renders, tests and zips (their zips)"};
+      p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
+          "Render first: the MIDI in the Hit model tab's input folder (or its zip) through the plugins, tested, then the bench"};
       p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";

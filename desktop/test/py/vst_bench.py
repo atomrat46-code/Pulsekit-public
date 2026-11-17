@@ -148,7 +148,7 @@ for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"],
 # The hit model bench (the Hit model tab): each kit with DrumMidi's rules alone and with its hit model; leave one
 # out (one plugin: kit by kit) and the model learned from both, then that model file used.
 hout = os.path.join(work, "hits-out")
-vr.main(["--hit_bench", "--hit_loo", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar])
+vr.main(["--hit_bench", "--hit_loo", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar])
 learned = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-") and f.endswith(".txt")]
 for f in sorted(os.listdir(hout)):
     if f.endswith(".zip"):
@@ -157,7 +157,7 @@ for f in sorted(os.listdir(hout)):
             for line in z.read("summary.txt").decode().splitlines()[:3]:
                 print("  " + line)
 print("hit model file:", len(learned), open(os.path.join(hout, learned[0])).read().split("\n")[0] if learned else "")
-vr.main(["--hit_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar, "--hit_model_file", os.path.join(hout, learned[0])])
+vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar, "--hit_model_file", os.path.join(hout, learned[0])])
 # A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
 again = os.path.join(work, "again")
 os.makedirs(again, exist_ok=True)
