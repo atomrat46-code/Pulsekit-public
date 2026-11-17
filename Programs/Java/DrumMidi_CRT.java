@@ -3610,6 +3610,7 @@ public class DrumMidi_CRT{
      */
     static final class HitModel {
         static final double CAND_DELTA = 0.5;
+        static final double ACC_TOM_CUT = Double.parseDouble(System.getProperty("dm.hitAccTomCut", "0.95"));
         static final double[] EDGES = {30, 60, 100, 150, 250, 400, 700, 1200, 2000, 3500, 6000, 10000, 16000};
         static final double[] OFFS = {-0.03, 0.0, 0.02, 0.05, 0.1, 0.2};
         static final int B = EDGES.length - 1, F = 5 * B + 6;
@@ -3807,6 +3808,10 @@ public class DrumMidi_CRT{
                             note = floor[c] >= mid[c] && floor[c] >= rack[c] ? FLOOR_TOM : mid[c] >= rack[c] ? MID_TOM : RACK_TOM;
                         }
                     }
+                    // Over a bass or guitar a tom of its own only when it is sure (ACC_TOM_CUT): real songs' guitars
+                    // (SogniMusic's 50 styles) gave it 3x the toms of the same styles' drums alone (1093 against
+                    // ~400); at 0.95, 469. On the bench's mixes toms then P 97-98, R 58-70 (the rules: R 24-36).
+                    if (k == 2 && was == null && (bass || guitar) && p < ACC_TOM_CUT) continue;
                     if (was == null) added++;
                     keep.add(was != null ? was : new Hit(time, note, p));
                 }
