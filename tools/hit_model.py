@@ -9,7 +9,8 @@ rendered from known MIDI.
   python tools/hit_model.py bench  <kits.txt> <work> [jar]   DrumMidi itself, each kit with a model learned without
                                                              it, scored as vst_render --test does, beside the rules
 
-kits.txt: a kit a line, tab-separated: a short name and a folder of renders: each <song>.wav (or .mp3) with
+kits.txt: a kit a line, tab-separated: a short name ("family~kit": a plugin's kits, which share samples, are
+held out together in check and bench) and a folder of renders: each <song>.wav (or .mp3) with
 the MIDI played, <song>.mid beside it (kit_bench.py render's layout), or mp3/ and midi/ under it (vst-render
 zips unzipped). Several folders of one kit (the kit with a bass over it, say) go on lines of the same name.
 "#" lines are left out.
@@ -183,12 +184,17 @@ def f1(pred, y):
     return 100.0 * 2 * tp / max(1, 2 * tp + fp + fn), int(tp), int(fp), int(fn)
 
 
+def family(name):
+    """A kit's family: the part of its name before "~" (kits of one plugin share samples: held out together)."""
+    return name.split("~")[0]
+
+
 def check(work):
     d = load(work)
     names = list(d)
     tot = {k: [np.zeros(4), np.zeros(4)] for k in DRUMS}
     for held in names:
-        tr = [n for n in names if n != held]
+        tr = [n for n in names if family(n) != family(held)]
         X = np.vstack([d[n]["X"] for n in tr])
         Y = np.vstack([d[n]["Y"] for n in tr])
         m = fit(X, Y)
@@ -244,7 +250,7 @@ def bench(kits_txt, work, jar):
     ks = kits(kits_txt)
     tot = {"rules": {}, "model": {}}
     for name, folders in ks.items():
-        others = [n for n in d if n != name]
+        others = [n for n in d if family(n) != family(name)]
         if not others:
             continue
         X = np.vstack([d[n]["X"] for n in others])
