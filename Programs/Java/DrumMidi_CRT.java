@@ -940,6 +940,7 @@ public class DrumMidi_CRT{
         boolean cymbals = true;
         // No toms: they are still told apart from kicks and snares, but not written.
         boolean writeToms = true;
+        boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -966,6 +967,7 @@ public class DrumMidi_CRT{
             else if ("--no-hpss".equals(opt)) hpss = false;
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
+            else if ("--no-hit-model".equals(opt)) hitModel = false;
             else if ("--snare-leak".equals(opt)) snareLeak = true;
             else if ("--faded-opens".equals(opt)) fadedOpens = true;
             else if ("--no-cymbal-model".equals(opt)) cymModel = false;
@@ -1379,6 +1381,17 @@ public class DrumMidi_CRT{
         // Not over a bass line either: its notes ring in the tom bands (a bench of kits with a bass
         // over them: ringing toms took kicks and hats for toms, kicks 37% found, hats 65%).
         if (writeToms && !bass && !guitar) ringingToms(hits, lowRaw, ringRaw, lowPitch, fps);
+        // The hit model (HitModel): kicks, snares and toms told again from every onset that could be one.
+        {
+            List<Integer> cand = new ArrayList<Integer>();
+            for (Integer p : pickPeaks(kickOnset, delta * HitModel.CAND_DELTA, 3)) cand.add(p);
+            for (Integer p : pickPeaks(snare, delta * HitModel.CAND_DELTA, 3)) cand.add(p);
+            for (Integer p : pickPeaks(toms, delta * HitModel.CAND_DELTA, 3)) cand.add(p);
+            for (Hit h : hits) if (h.note == KICK_NOTE || h.note == SNARE_NOTE || isTomNote(h.note)) cand.add(Integer.valueOf((int) Math.round(h.time * sr / HOP)));
+            String dump = System.getProperty("dm.hitFeatures");
+            if (dump != null) HitModel.dump(hits, cand, audio.samples, sr, bass, guitar, dump);
+            if (hitModel && HitModel.ready() && writeToms) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack);
+        }
         if (kit != null) kit.sort(hits, audio.samples, sr);
         else if (library != null) library.sort(hits, audio.samples, sr);
         if (writeToms) tomClicks(hits);
@@ -3582,6 +3595,192 @@ public class DrumMidi_CRT{
      * Roomy Boomy +78, Nickel Rear +64, Gone Country +55); its own 32 kits -503 (-20 to -50 each).
      * On by default; --no-cymbal-model leaves it out.
      */
+    /**
+     * The hit model: each onset that could be a kick, snare or tom (the rules' hits and the onsets their
+     * bands peak at under the rules' threshold), weighed for each drum by a logistic model of how the
+     * sound rises and dies in 12 bands (30 Hz to 16 kHz), with the rules' own decision there, whether a
+     * bass line or guitar plays, and the onset's level against the song's. Learned by tools/hit_model.py
+     * from kits rendered from known MIDI; the lines between its markers are its numbers.
+     */
+    static final class HitModel {
+        static final double CAND_DELTA = 0.5;
+        static final double[] EDGES = {30, 60, 100, 150, 250, 400, 700, 1200, 2000, 3500, 6000, 10000, 16000};
+        static final double[] OFFS = {-0.03, 0.0, 0.02, 0.05, 0.1, 0.2};
+        static final int B = EDGES.length - 1, F = 5 * B + 6;
+        static final int N = 2048;
+        // hit model: begin
+        static double[] HM_MU = null, HM_SD = null;
+        static double[][] HM_W = null;
+        static double[] HM_B = null, HM_T = null;
+        // hit model: end
+        static double[] mu = HM_MU, sd = HM_SD, b = HM_B, th = HM_T;
+        static double[][] w = HM_W;
+
+        static boolean ready() {
+            String f = System.getProperty("dm.hitModelFile");
+            if (f != null) {
+                try {
+                    load(f);
+                } catch (Exception ex) {
+                    System.out.println("Hit model file not read: " + ex.getMessage());
+                }
+            }
+            return mu != null && w != null && b != null;
+        }
+
+        static void load(String path) throws Exception {
+            List<double[]> rows = new ArrayList<double[]>();
+            for (String line : new String(java.nio.file.Files.readAllBytes(new File(path).toPath()), "UTF-8").split("\n")) {
+                String[] p = line.trim().split("\\s+");
+                if (p.length < 2) continue;
+                double[] v = new double[p.length - 1];
+                for (int i = 1; i < p.length; i++) v[i - 1] = Double.parseDouble(p[i]);
+                if (p[0].equals("mu")) mu = v;
+                else if (p[0].equals("sd")) sd = v;
+                else if (p[0].equals("b")) b = v;
+                else if (p[0].equals("t")) th = v;
+                else rows.add(v);
+            }
+            w = rows.toArray(new double[0][]);
+        }
+
+        /** Log energy in each band of an N-sample window starting at t (seconds). */
+        static double[] bands(double[] x, double sr, double t) {
+            double[] re = new double[N], im = new double[N];
+            int a = (int) Math.round(t * sr);
+            for (int i = 0; i < N; i++) {
+                int k = a + i;
+                double win = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+                re[i] = k >= 0 && k < x.length ? x[k] * win : 0;
+            }
+            fft(re, im);
+            double[] out = new double[B];
+            for (int j = 0; j < B; j++) {
+                int lo = Math.max(1, (int) Math.round(EDGES[j] * N / sr)), hi = Math.min(N / 2, (int) Math.round(EDGES[j + 1] * N / sr));
+                double e = 0;
+                for (int k = lo; k < hi; k++) e += re[k] * re[k] + im[k] * im[k];
+                out[j] = Math.log(e / Math.max(1, hi - lo) + 1e-10);
+            }
+            return out;
+        }
+
+        /** The onsets as frames, one within 3 frames (the first kept), in time order. */
+        static List<Integer> unique(List<Integer> cand) {
+            List<Integer> s = new ArrayList<Integer>(cand);
+            Collections.sort(s);
+            List<Integer> out = new ArrayList<Integer>();
+            for (Integer c : s) if (out.isEmpty() || c.intValue() - out.get(out.size() - 1).intValue() > 3) out.add(c);
+            return out;
+        }
+
+        /**
+         * Each onset's features: the bands' level at the peak (against the song's onsets' mean), their rise
+         * from before, and how much is left 50, 100 and 200 ms on; then the rules' kick, snare, tom there,
+         * bass, guitar, and the onset's whole level against the song's.
+         */
+        static double[][] feats(List<Hit> hits, List<Integer> frames, double[] x, double sr, boolean bass, boolean guitar) {
+            int n = frames.size();
+            double[][] out = new double[n][F];
+            double[][] peak = new double[n][];
+            double[] whole = new double[n];
+            double[] mean = new double[B];
+            double wm = 0;
+            for (int i = 0; i < n; i++) {
+                double t = frames.get(i).intValue() * (double) HOP / sr - N / 2.0 / sr;
+                double[][] e = new double[OFFS.length][];
+                for (int o = 0; o < OFFS.length; o++) e[o] = bands(x, sr, t + OFFS[o]);
+                double[] pk = new double[B];
+                for (int j = 0; j < B; j++) pk[j] = Math.max(e[1][j], e[2][j]);
+                peak[i] = pk;
+                double sum = 0;
+                for (int j = 0; j < B; j++) {
+                    out[i][B + j] = pk[j] - e[0][j];
+                    out[i][2 * B + j] = e[3][j] - pk[j];
+                    out[i][3 * B + j] = e[4][j] - pk[j];
+                    out[i][4 * B + j] = e[5][j] - pk[j];
+                    mean[j] += pk[j] / n;
+                    sum += Math.exp(pk[j]);
+                }
+                whole[i] = Math.log(sum + 1e-10);
+                wm += whole[i] / n;
+                double time = frames.get(i).intValue() * (double) HOP / sr;
+                for (Hit h : hits) {
+                    if (Math.abs(h.time - time) > 0.035) continue;
+                    if (h.note == KICK_NOTE) out[i][5 * B] = 1;
+                    else if (h.note == SNARE_NOTE) out[i][5 * B + 1] = 1;
+                    else if (isTomNote(h.note)) out[i][5 * B + 2] = 1;
+                }
+                out[i][5 * B + 3] = bass ? 1 : 0;
+                out[i][5 * B + 4] = guitar ? 1 : 0;
+            }
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < B; j++) out[i][j] = peak[i][j] - mean[j];
+                out[i][5 * B + 5] = whole[i] - wm;
+            }
+            return out;
+        }
+
+        static void dump(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, String file) {
+            List<Integer> frames = unique(cand);
+            double[][] f = feats(hits, frames, x, sr, bass, guitar);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < frames.size(); i++) {
+                sb.append(String.format(java.util.Locale.ROOT, "%.4f", frames.get(i).intValue() * (double) HOP / sr));
+                for (double v : f[i]) sb.append(' ').append(String.format(java.util.Locale.ROOT, "%.4f", v));
+                sb.append('\n');
+            }
+            try {
+                java.nio.file.Files.write(new File(file).toPath(), sb.toString().getBytes("UTF-8"));
+            } catch (Exception ex) {
+                System.out.println("Hit features not written: " + ex.getMessage());
+            }
+        }
+
+        /** The kicks, snares and toms as the model has them (a tom's note as the rules had it there, else by its band). */
+        static void apply(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, double[] floor, double[] mid, double[] rack) {
+            List<Integer> frames = unique(cand);
+            double[][] f = feats(hits, frames, x, sr, bass, guitar);
+            List<Hit> keep = new ArrayList<Hit>();
+            List<Hit> old = new ArrayList<Hit>();
+            for (Hit h : hits) {
+                if (h.note == KICK_NOTE || h.note == SNARE_NOTE || isTomNote(h.note)) old.add(h);
+                else keep.add(h);
+            }
+            int[] notes = {KICK_NOTE, SNARE_NOTE, -1};
+            int added = 0, dropped = 0;
+            for (int i = 0; i < frames.size(); i++) {
+                int t = frames.get(i).intValue();
+                double time = t * (double) HOP / sr;
+                for (int k = 0; k < 3; k++) {
+                    double z = b[k];
+                    for (int j = 0; j < F && j < mu.length; j++) z += w[j][k] * (f[i][j] - mu[j]) / sd[j];
+                    double p = 1 / (1 + Math.exp(-z));
+                    if (p < (th != null && k < th.length ? th[k] : 0.5)) continue;
+                    int note = notes[k];
+                    Hit was = null;
+                    for (Hit h : old) if (Math.abs(h.time - time) <= 0.035 && (k == 2 ? isTomNote(h.note) : h.note == note)) was = h;
+                    if (k == 2) {
+                        if (was != null) note = was.note;
+                        else {
+                            int c = Math.max(0, Math.min(floor.length - 1, t));
+                            note = floor[c] >= mid[c] && floor[c] >= rack[c] ? FLOOR_TOM : mid[c] >= rack[c] ? MID_TOM : RACK_TOM;
+                        }
+                    }
+                    if (was == null) added++;
+                    keep.add(was != null ? was : new Hit(time, note, p));
+                }
+            }
+            for (Hit h : old) {
+                boolean kept = false;
+                for (Hit k : keep) kept |= k == h;
+                if (!kept) dropped++;
+            }
+            hits.clear();
+            hits.addAll(keep);
+            note("Kicks, snares and toms by the hit model: " + added + " added, " + dropped + " left out");
+        }
+    }
+
     static final class CymModel {
         static final int N = 1024, F = 29, X = 63;
         /**
