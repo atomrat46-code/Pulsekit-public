@@ -11,27 +11,31 @@ public final class DrumMidiArgs {
   private DrumMidiArgs() {}
 
   public static final String[] FLAGS = {
-    "--sens", "--hat", "--tom", "--ride", "--crash", "--bpm", "--quantize", "--no-hpss", "--no-cymbals", "--no-toms", "--snare-leak", "--faded-opens", "--no-cymbal-model", "--chokes"
+    "--sens", "--hat", "--tom", "--ride", "--crash", "--bpm", "--quantize", "--no-hpss", "--no-cymbals", "--no-toms", "--snare-leak", "--faded-opens", "--no-cymbal-model", "--chokes", "--no-hit-model"
   };
   public static final String[] LABELS = {
     "Sensitivity", "Hi-hat", "Toms", "Ride", "Crash", "BPM", "Quantize", "No HPSS", "Kick, snare and toms only", "No toms (kick, snare and cymbals only)",
     "Snare leak: fewer false hats on a bright snare (a few real ones may go)",
     "Faded opens: open hats that fade like closed ones written closed (many more closed hats right, some open ones lost)",
     "No cymbal model: cymbals as found, not told apart again by their sound in the song (learned from 44 kits)",
-    "Chokes: a crash or ride cut off by hand written as its choke note (x42 AVL Drumkits: 49=50,51=52,57=58), or at: as aftertouch on its own note (Pulsekit's Crash choke and Ride choke tracks)"
+    "Chokes: a crash or ride cut off by hand written as its choke note (x42 AVL Drumkits: 49=50,51=52,57=58), or at: as aftertouch on its own note (Pulsekit's Crash choke and Ride choke tracks)",
+    "No hit model: kicks, snares and toms by the rules alone, not told again by the model learned from 51 kits"
   };
   /** The program's own values, shown as hints in empty fields. */
   public static final String[] HINTS = {
-    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on", "1 to turn on", "1 to turn the model off", "off; AVL Drumkits: 49=50,51=52,57=58; Pulsekit's choke tracks: at"
+    "1.0", "1.0", "1.0", "1.0", "1.0", "auto", "off", "1 to turn off", "1 for no hats, rides or crashes", "1 to leave toms out", "1 to turn on", "1 to turn on", "1 to turn the model off", "off; AVL Drumkits: 49=50,51=52,57=58; Pulsekit's choke tracks: at", "1 to turn the model off"
   };
   /**
-   * Suggested values, tested on a drum and bass guitar mix (Passing Ships): lower sensitivity
-   * keeps bass notes and cymbal wash out. Empty means the program's own default.
+   * Suggested values for drums with a bass or guitar playing, from a bench of kits rendered from known
+   * MIDI with a bass, a distorted and a clean guitar over them (tools/accomp_mix.py): sensitivities
+   * 0.4 to 1.2 tried, the program's own 1.0 as good as any for kick, snare and cymbals (0.4, the
+   * suggestion before, lost a third of the hits: F 51-60 against 59-70); toms found best at 1.3 (+1).
+   * Empty means the program's own default.
    */
   public static final String[] SUGGESTED = {
-    "0.4", "0.4", "0.4", "0.4", "0.4", "", "", "", "", "", "", "", "", ""
+    "", "", "1.3", "", "", "", "", "", "", "", "", "", "", "", ""
   };
-  public static final String NOTE = "Defaults: the program's own values (empty fields). Suggested: tested on a drum and bass guitar mix.";
+  public static final String NOTE = "Defaults: the program's own values (empty fields). Suggested: tested on drums with a bass or guitar playing (toms 1.3, the rest as the defaults).";
 
   /** The switches from field values, in FLAGS order. Empty fields are left out. */
   public static String build(String[] values) {
@@ -97,7 +101,7 @@ public final class DrumMidiArgs {
 
   /** A switch with no value: --no-hpss, --no-cymbals, --no-toms, --snare-leak, --faded-opens. */
   static boolean onOff(String flag) {
-    return "--no-hpss".equals(flag) || "--no-cymbals".equals(flag) || "--no-toms".equals(flag) || "--snare-leak".equals(flag) || "--faded-opens".equals(flag) || "--no-cymbal-model".equals(flag);
+    return "--no-hpss".equals(flag) || "--no-cymbals".equals(flag) || "--no-toms".equals(flag) || "--snare-leak".equals(flag) || "--faded-opens".equals(flag) || "--no-cymbal-model".equals(flag) || "--no-hit-model".equals(flag);
   }
 
   public static int index(String token) {

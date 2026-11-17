@@ -62,6 +62,11 @@ public final class ProgramFolder {
    */
   public static String label() {
     if (value == null) return "Downloads";
+    return labelOf(value);
+  }
+
+  /** A folder (an Android tree URI or a path) as people read it. */
+  public static String labelOf(String value) {
     if (!value.startsWith("content:")) return value;
     try {
       String v = java.net.URLDecoder.decode(value, "UTF-8");

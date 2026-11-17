@@ -1183,7 +1183,18 @@ public class BehaviorTest {
     out.append("editor has old copy=").append(editor.contains("old copy")).append('\n');
     out.append("editor has bundled program=").append(editor.contains("public final class CompareHits")).append('\n');
     out.append("args kept=").append(((TextView) get("pkPyArgs")).getText()).append('\n');
+    // A bundled jar too: DrumMidi_CRT.jar as the app ships it, not the bytes kept when it last ran.
+    PyJavRecent.remember(app.getFilesDir(), "DrumMidi_CRT.jar", "--dir x", null, new byte[] {'P', 'K', 3, 4, 'o', 'l', 'd'});
+    call("pkRefreshRecent", 0);
+    idle();
+    call("pkApplyRecent", 1);
+    idle();
+    byte[] now = (byte[]) get("pkPyBytes");
+    byte[] shipped = app.programMenus.read("Java", "DrumMidi_CRT.jar");
+    boolean jarFresh = java.util.Arrays.equals(now, shipped);
+    out.append("DrumMidi_CRT.jar from Recent is the shipped one=").append(jarFresh).append('\n');
     write("s35_recent_uses_bundled_program", out.toString());
+    if (!jarFresh) throw new AssertionError(out.toString());
   }
 
   /** Params: a .mid can come from a file set's source MIDI, copied into PyJav's input folder. */
@@ -5296,6 +5307,10 @@ public class BehaviorTest {
     // The download progress line shows on the running line.
     out.append("running line: ").append(JavaRun.news("Status: completed\nDownloading: 40% (12.3 of 30.1 MB)")).append('\n');
     if (!String.valueOf(JavaRun.news("Downloading: 40% (12.3 of 30.1 MB)")).contains("40%")) throw new AssertionError(out.toString());
+    // A batch: how many of its tracks are done, first on the line.
+    String batch = JavaRun.news("Tracks: 11 of 300 done (11 made)\nWorkflow: wf_2\nTracks: 12 of 300 done (11 made, 1 failed)\nStatus: running");
+    out.append("batch line: ").append(batch).append('\n');
+    if (!"12/300 \u00b7 Status: running".equals(batch)) throw new AssertionError(out.toString());
     write("s121_notes_batch", out.toString());
   }
 
@@ -10568,11 +10583,13 @@ public class BehaviorTest {
     root.findViewWithTag("imported-more").performClick();
     idle();
     int taller = importedScroll.getHeight();
+    boolean gridGone = app.gridScroll.getVisibility() == View.GONE && app.lenBar.getVisibility() == View.GONE && ((View) app.toolsRow.getParent()).getVisibility() == View.GONE;
     String moreText = String.valueOf(((TextView) root.findViewWithTag("imported-more")).getText());
     root.findViewWithTag("imported-more").performClick();
     idle();
-    boolean moreOk = taller > before && "Less".equals(moreText) && importedScroll.getHeight() == before && !StyleLibrary.importedTall;
-    out.append("More: ").append(before).append(" -> ").append(taller).append(" px, then Less: ").append(importedScroll.getHeight()).append('\n');
+    boolean gridBack = app.gridScroll.getVisibility() == View.VISIBLE && app.lenBar.getVisibility() == View.VISIBLE && ((View) app.toolsRow.getParent()).getVisibility() == View.VISIBLE;
+    boolean moreOk = taller > before && gridGone && gridBack && "Less".equals(moreText) && importedScroll.getHeight() == before && !StyleLibrary.importedTall;
+    out.append("More: ").append(before).append(" -> ").append(taller).append(" px, grid hidden ").append(gridGone).append(", then Less: ").append(importedScroll.getHeight()).append(", grid back ").append(gridBack).append('\n');
     app.importedHost.removeViews(1, 15);
     boolean drumOk = oneRow && noSliders && noBar && barOnSong && stillNoSliders && playing && paused && resumed && stopped;
     drumOk &= importedCapped && noBarAtStart && moreOk;
@@ -13128,8 +13145,19 @@ public class BehaviorTest {
     String year = new java.text.SimpleDateFormat("yyyy", java.util.Locale.ROOT).format(new java.util.Date());
     out.append("dated ").append(dated).append(", numbered ").append(numbered).append(", cleaned ").append(cleaned).append(", plain ").append(plain)
         .append(", MidiDrumGen ").append(other).append(", none ").append(none).append('\n');
+    // Browse: a folder in Download goes in as its path there; another folder as Android's address, kept as it is.
+    String picked = "content://com.android.externalstorage.documents/tree/primary%3AMusic%2FSogni";
+    String tree = sub.apply(picked);
+    String inDl = PyJavParams.underDownload(android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload%2FSogn"));
+    String dlItself = PyJavParams.underDownload(android.net.Uri.parse("content://com.android.externalstorage.documents/tree/primary%3ADownload"));
+    String elsewhere = PyJavParams.underDownload(android.net.Uri.parse(picked));
+    out.append("picked tree ").append(tree.equals(picked) ? "kept" : tree).append(" (").append(ProgramFolder.labelOf(picked)).append("), Download/Sogn picked: ").append(inDl)
+        .append(", Download picked: '").append(dlItself).append("', Music/Sogni picked: ").append(elsewhere).append('\n');
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(app.programMenus.bundledSource("SogniMusic.java"));
+    for (ProgramParams.Param p : ps) if (p.token.equals("--outdir")) out.append("--outdir row: browse ").append(p.dir).append(", typed ").append(p.typed).append('\n');
     write("s234_sogni_music_outdir", out.toString().replace(today, "<today>"));
-    boolean ok = ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
+    boolean ok = tree.equals(picked) && "Sogn".equals(inDl) && "".equals(dlItself) && elsewhere == null && out.toString().contains("--outdir row: browse true, typed true")
+        && ("music" + today).equals(dated) && "run2".equals(numbered) && ("songs/" + year).equals(cleaned) && "songs".equals(plain) && other == null && none == null;
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -13851,6 +13879,106 @@ public class BehaviorTest {
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
         && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
     if (!ok) throw new AssertionError(text);
+  }
+
+  /** Imported's Find: only the file sets (or their MIDI files) with the text in their names; Clear shows all. */
+  @Test
+  public void s245c_imported_find() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<Engine.Part> g = new ArrayList<>();
+    g.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 2));
+    g.add(Engine.groove("B", 120, Engine.styleCells(Engine.styles().get("funk")), 2));
+    for (String n : new String[] {"EDM-drums-turbo.mid", "Grime-drums-sft.mid"}) {
+      byte[] midi = Engine.encodeSongMidi(g);
+      Engine.stageSourceMidi(midi, n);
+      call("ingest", midi, n, null);
+      idle();
+    }
+    call("show", "pattern");
+    idle();
+    java.util.function.Supplier<String> packs = () -> {
+      StringBuilder b = new StringBuilder();
+      java.util.List<View> all = new ArrayList<>();
+      collect(app.importedHost, all);
+      for (View v : all) if ("pack".equals(v.getTag())) b.append(((TextView) v).getText().toString().replaceAll("^[\u25b8\u25be] ", "").replaceAll(" \u00b7.*", "")).append("; ");
+      return b.toString();
+    };
+    String before = packs.get();
+    View btn = root().findViewWithTag("imported-find");
+    btn.performClick();
+    idle();
+    ((android.widget.EditText) StyleLibrary.lastFind.findViewById(android.R.id.content).findViewWithTag("imported-find-text")).setText("edm");
+    StyleLibrary.lastFind.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    String found = packs.get();
+    String label = ((TextView) btn).getText().toString();
+    app.styleLibrary.setFind("");
+    idle();
+    String cleared = packs.get();
+    out.append("all: ").append(before).append("\nFind edm: ").append(found).append(" (button ").append(label).append(")\nClear: ").append(cleared).append('\n');
+    write("s245c_imported_find", out.toString());
+    boolean ok = before.contains("EDM") && before.contains("Grime") && found.contains("EDM") && !found.contains("Grime") && "Find: edm".equals(label)
+        && cleared.equals(before);
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * DrumMidi's Params: its folder row (--dir) and Add the result to the AudioMixer untick each other
+   * (a folder of zips makes many results); Zip folder has Browse; a zip folder picked outside
+   * Download is written into as picked (ArtJava.zipsHere).
+   */
+  @Test
+  public void s245b_drummidi_dir_mixer_zipdir() throws Exception {
+    StringBuilder out = new StringBuilder();
+    String src = app.programMenus.bundledSource("DrumMidi_CRT.java");
+    PyJavParams.store(app, "DrumMidi_CRT.jar", "");
+    PyJavParams.open(app, "DrumMidi_CRT.jar", "", src);
+    idle();
+    View root = PyJavParams.shown.getWindow().getDecorView();
+    android.widget.CheckBox dirUse = (android.widget.CheckBox) root.findViewWithTag("params-use:--dir");
+    android.widget.CheckBox mixer = null;
+    java.util.List<View> all = new ArrayList<>();
+    collect(root, all);
+    for (View v : all) if (v instanceof android.widget.CheckBox && String.valueOf(((android.widget.CheckBox) v).getText()).contains(MixerOut.FLAG)) mixer = (android.widget.CheckBox) v;
+    out.append("dir Use: ").append(dirUse != null).append(", mixer box: ").append(mixer != null).append('\n');
+    dirUse.setChecked(true);
+    mixer.setChecked(true);
+    boolean mixerUnticksDir = !dirUse.isChecked();
+    dirUse.setChecked(true);
+    boolean dirUnticksMixer = !mixer.isChecked();
+    out.append("mixer ticked: dir Use ").append(dirUse.isChecked() ? "" : "un").append("ticked first; dir ticked again: mixer ").append(mixer.isChecked()).append('\n');
+    boolean browse = root.findViewWithTag("params-dir:--zip_outdir") != null && root.findViewWithTag("params-dir-text:--zip_outdir") != null;
+    out.append("Zip folder Browse: ").append(browse).append('\n');
+    PyJavParams.shown.dismiss();
+    String picked = "content://com.android.externalstorage.documents/tree/primary%3AMusic%2FZips";
+    File work = new File(app.getCacheDir(), "zd-work");
+    work.mkdirs();
+    String[] args = ArtJava.zipsHere("DrumMidi_CRT", work, new String[] {"--dir", "/x", "--zip", "--zip_outdir", picked});
+    out.append("picked zip folder: ").append(ArtJava.zipSub == null ? "none" : ArtJava.zipSub.equals(picked) ? "kept" : ArtJava.zipSub)
+        .append(", DrumMidi writes into ").append(args[args.length - 1].replace(work.getAbsolutePath(), "<work>")).append('\n');
+    String said0 = null;
+    String said = MixerOut.around("DrumMidi_CRT.jar", java.util.Arrays.asList("--dir", "/x", MixerOut.FLAG),
+        a -> new JavaRun.Result("ran", new ArrayList<JavaRun.FileOut>(), 0)).log;
+    out.append("folder run with the mixer box: ").append(said.trim().replace("\n", " | ")).append('\n');
+    boolean ok = mixerUnticksDir && dirUnticksMixer && browse && picked.equals(ArtJava.zipSub) && args[args.length - 1].endsWith(ArtJava.ZIPS)
+        && said.contains("the run was on a folder");
+    // The folder run's MIDIs into file sets: a SogniMusic run's tracks a set a model and session, others one set.
+    File folder = new File(app.getCacheDir(), "dm-folder/SogniMusic");
+    File inZip = new File(folder, "sogni-random-1-part1of2");
+    inZip.mkdirs();
+    java.util.List<Engine.Part> g = new ArrayList<>();
+    g.add(Engine.groove("A", 120, Engine.styleCells(Engine.styles().get("rock")), 2));
+    byte[] groove = Engine.encodeSongMidi(g);
+    for (String n : new String[] {"sogni-Funk-1a2b3c4d-drums-sft-dm.mid", "sogni-Disco-5e6f7a8b-drums-sft-dm.mid", "sogni-Funk-9c8d7e6f-drums_bass-turbo-dm.mid"})
+      Files.write(new File(inZip, n).toPath(), groove);
+    Files.write(new File(folder, "my take-dm.mid").toPath(), groove);
+    java.util.List<Object[]> sets = MusicCompare.folderSets(folder, Engine.fileSetSources(app.learned, app.learnedFills));
+    StringBuilder setNames = new StringBuilder();
+    for (Object[] h : sets) setNames.append(h[0]).append(' ').append(h[3]).append("; ");
+    out.append("folder's file sets: ").append(setNames.toString().replaceAll("SogniMusic run \\d+", "SogniMusic run <n>")).append('\n');
+    write("s245b_drummidi_dir_mixer_zipdir", out.toString());
+    ok &= sets.size() == 3 && setNames.toString().matches("SogniMusic\\.mid \\[my take\\.mid\\]; SogniMusic run \\d+ sft drums\\.mid \\[Disco-drums-sft\\.mid, Funk-drums-sft\\.mid\\]; SogniMusic run \\d+ turbo drums_bass\\.mid \\[Funk-drums_bass-turbo\\.mid\\]; ");
+    if (!ok) throw new AssertionError(out.toString());
   }
 
   /**
@@ -16050,7 +16178,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
         && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }

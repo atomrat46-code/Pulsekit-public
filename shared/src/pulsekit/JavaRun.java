@@ -244,6 +244,25 @@ public final class JavaRun {
 
   /** The latest line that says how the run is going: a status, queued, reconnecting, progress. Null when none. */
   public static String news(String log) {
+    String n = newsOnly(log);
+    String count = trackCount(log);
+    if (count == null) return n;
+    return n == null ? count : count + " \u00b7 " + n;
+  }
+
+  /**
+   * A batch's count so far ("Tracks: 12 of 300 done" from SogniMusic's --random and its other runs of
+   * several tracks) as "12/300", or null.
+   */
+  static String trackCount(String log) {
+    if (log == null) return null;
+    int at = log.lastIndexOf("Tracks: ");
+    if (at < 0 || at > 0 && log.charAt(at - 1) != '\n' && log.charAt(at - 1) != ' ') return null;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("Tracks: (\\d+) of (\\d+)").matcher(log.substring(at));
+    return m.lookingAt() ? m.group(1) + "/" + m.group(2) : null;
+  }
+
+  private static String newsOnly(String log) {
     if (log == null || log.length() == 0) return null;
     String[] lines = log.split("\n");
     String status = null;

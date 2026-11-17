@@ -3111,7 +3111,9 @@ final class PyJav {
         // saved when it last ran, so fixes reach programs picked from Recent.
         String bundled = binary ? null : ProgramFiles.bundledSource(item.name);
         String source = bundled != null ? bundled : item.source;
-        byte[] data = binary ? item.bytes : (source == null ? new byte[0] : source.getBytes(StandardCharsets.UTF_8));
+        // A bundled binary (DrumMidi_CRT.jar) likewise: Pulsekit's own, not the copy kept with Recent.
+        byte[] shipped = binary ? ProgramFiles.bundledBytes(item.name) : null;
+        byte[] data = binary ? (shipped != null ? shipped : item.bytes) : (source == null ? new byte[0] : source.getBytes(StandardCharsets.UTF_8));
         this.rememberProgram(item.name, data, binary, false);
         app.pyInputPath = null;
         this.showPyHint(PyJavHints.status(item.name, source, item.bytes));
@@ -4065,14 +4067,20 @@ final class PyJav {
             }
         }
         // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
+        // (A folder row's Use box counts as its tick: Add to the AudioMixer and DrumMidi's folder untick each other.)
         for (int i = 0; i < checks.length; i++) {
-            if (checks[i] == null || ps.get(i).clears == null) continue;
+            final javax.swing.JCheckBox tick = checks[i] != null ? checks[i] : uses[i];
+            if (tick == null || ps.get(i).clears == null) continue;
             final int at = i;
-            checks[i].addActionListener(e -> {
-                if (!checks[at].isSelected()) return;
+            tick.addActionListener(e -> {
+                if (!tick.isSelected()) return;
                 boolean[] now = new boolean[checks.length];
-                for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null && checks[k].isSelected();
-                for (int k : ProgramParams.toClear(ps, at, now)) checks[k].setSelected(false);
+                for (int k = 0; k < checks.length; k++) now[k] = checks[k] != null ? checks[k].isSelected() : uses[k] != null && uses[k].isSelected();
+                for (int k : ProgramParams.toClear(ps, at, now)) {
+                    if (checks[k] != null) checks[k].setSelected(false);
+                    // (A click, so its own listener greys the row.)
+                    else if (uses[k] != null && uses[k].isSelected()) uses[k].doClick();
+                }
             });
         }
         int ans = JOptionPane.showConfirmDialog(app, box, "Parameters \u00b7 " + program, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);

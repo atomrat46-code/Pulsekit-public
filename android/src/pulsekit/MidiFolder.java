@@ -89,8 +89,11 @@ final class MidiFolder {
      * folder PyJav keeps for inputs, and its output in the run's work folder (a picked --outdir
      * cannot be written by the program).
      */
+    static final String[] AUDIO_ZIPS = {".wav", ".wave", ".mp3", ".zip"};
+
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
         argv = withPls(ctx, program, argv, work, note);
+        if (ProgramFolder.isDrumMidi(program)) return forDrumMidi(ctx, argv, work, note);
         boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program) || "Wav2Mp3.java".equals(program);
         if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);
@@ -120,6 +123,42 @@ final class MidiFolder {
         // "." is the run's own work folder (user.dir while it runs), whose new files PyJav saves.
         if (staged) {
             out.add("--outdir");
+            out.add(".");
+        }
+        return out;
+    }
+
+    /**
+     * DrumMidi_CRT --dir with a picked folder: its WAV, MP3 and zip files copied into the work folder
+     * (DrumMidi cannot read the picker's folder), and --zip's zips kept in Download (--zip_outdir ".":
+     * the run's pk-zips, ArtJava.zipsHere) unless a zip folder is given.
+     */
+    /** The folder DrumMidi --dir ran on last (a picked folder's copy, or the folder given). */
+    static volatile File lastDrumDir;
+
+    static List<String> forDrumMidi(Context ctx, List<String> argv, File work, StringBuilder note) {
+        if (argv == null) return null;
+        int at = argv.indexOf("--dir");
+        lastDrumDir = at >= 0 && at + 1 < argv.size() && new File(argv.get(at + 1)).isAbsolute() ? new File(argv.get(at + 1)) : null;
+        List<String> out = new ArrayList<String>(argv);
+        boolean recursive = out.contains("--recursive");
+        boolean dir = false;
+        for (int i = 0; i + 1 < out.size(); i++) {
+            if (!out.get(i).equals("--dir")) continue;
+            dir = true;
+            String v = out.get(i + 1);
+            if (!v.startsWith("content://")) continue;
+            // Named as the picked folder: DrumMidi's zip is <folder>-dm.zip.
+            String label = MediaDir.label(v);
+            File dest = new File(new File(work, "audio-folder"), safe(label.replaceAll(".*/", "")));
+            deleteAll(dest.getParentFile());
+            int n = copy(ctx, Uri.parse(v), dest, recursive, AUDIO_ZIPS);
+            note.append(n).append(" WAV, MP3 or zip file").append(n == 1 ? "" : "s").append(" from ").append(label);
+            out.set(i + 1, dest.getAbsolutePath());
+            lastDrumDir = dest;
+        }
+        if (dir && (out.contains("--zip") || out.contains("--zip_mb")) && !out.contains("--zip_outdir")) {
+            out.add("--zip_outdir");
             out.add(".");
         }
         return out;

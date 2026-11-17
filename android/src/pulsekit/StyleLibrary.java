@@ -26,8 +26,8 @@ final class StyleLibrary {
 
     /** How much of the screen's height Imported may take before it scrolls inside. */
     static final float IMPORTED_SHARE = 0.18f;
-    /** More (by the Imported heading): the list up to this share of the screen; Less back. Kept between starts. */
-    static final float IMPORTED_TALL = 0.45f;
+    /** More (by the Imported heading): the grid hidden and the list up to this share of the screen; Less back. Kept between starts. */
+    static final float IMPORTED_TALL = 0.62f;
     static boolean importedTall;
 
     static float importedShare() {
@@ -37,6 +37,37 @@ final class StyleLibrary {
     /** The Imported lists' scroll boxes (patterns, fills): measured again when More or Less is tapped. */
     final java.util.List<View> cappedScrolls = new java.util.ArrayList<View>();
     final java.util.List<TextView> moreButtons = new java.util.ArrayList<TextView>();
+
+    final java.util.List<TextView> findButtons = new java.util.ArrayList<TextView>();
+
+    /** Imported's Find: the text asked for; Find shows what matches, Clear all again. */
+    void askFind() {
+        final android.widget.EditText field = new android.widget.EditText(app);
+        field.setSingleLine(true);
+        field.setHint("part of a file set's or MIDI file's name");
+        field.setText(ImportLibrary.find);
+        field.setTag("imported-find-text");
+        field.setSelectAllOnFocus(true);
+        lastFind = new android.app.AlertDialog.Builder(app).setTitle("Find in Imported").setView(field)
+            .setPositiveButton("Find", (d, w) -> this.setFind(field.getText().toString().trim()))
+            .setNeutralButton("Clear", (d, w) -> this.setFind(""))
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    static android.app.AlertDialog lastFind;
+
+    void setFind(String text) {
+        ImportLibrary.find = text == null ? "" : text;
+        for (TextView b : this.findButtons) {
+            b.setText(ImportLibrary.find.isEmpty() ? "Find" : "Find: " + ImportLibrary.find);
+            b.setSelected(!ImportLibrary.find.isEmpty());
+        }
+        app.importLibrary.rebuildImported();
+        app.importLibrary.rebuildImportedFills();
+        app.importLibrary.refreshImportedFiles();
+        for (View sc : this.cappedScrolls) sc.requestLayout();
+        if (!ImportLibrary.find.isEmpty()) app.setNow("Imported: what has \"" + ImportLibrary.find + "\" in its name (Find, Clear for all)");
+    }
 
     /** The "Imported" heading with More / Less beside it. */
     View importedHeader() {
@@ -51,8 +82,16 @@ final class StyleLibrary {
             app.getSharedPreferences("pulsekit", 0).edit().putBoolean("importedTall", importedTall).apply();
             for (TextView b : this.moreButtons) b.setText(importedTall ? "Less" : "More");
             for (View sc : this.cappedScrolls) sc.requestLayout();
+            // The grid hidden (More) or back (Less).
+            app.show(app.view);
         });
         this.moreButtons.add(more);
+        // Find: a file set or MIDI file by part of its name (Imported shows what matches; Clear shows all again).
+        final TextView findBtn = app.outline(ImportLibrary.find.isEmpty() ? "Find" : "Find: " + ImportLibrary.find, !ImportLibrary.find.isEmpty(), null);
+        findBtn.setTag("imported-find");
+        findBtn.setOnClickListener(v -> this.askFind());
+        this.findButtons.add(findBtn);
+        row.addView(findBtn);
         row.addView(more);
         return row;
     }

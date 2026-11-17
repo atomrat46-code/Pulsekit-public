@@ -622,6 +622,7 @@ public final class SogniMusic {
     String[] shared = {null};
     int next = 0;
     int waited = 0;
+    int done = 0;
     if (jobs.size() > MAX_ACTIVE) say(jobs.size() + " runs, " + MAX_ACTIVE + " at a time (Sogni's limit): each starts when one before it is over");
     while (next < jobs.size() || !active.isEmpty()) {
       boolean full = false;
@@ -651,6 +652,7 @@ public final class SogniMusic {
             say(kindOf(oneName, j[0]) + j[0] + " did not start: " + ex.getMessage());
             failed[next] = true;
             next++;
+            done++;
           }
         }
       }
@@ -659,6 +661,9 @@ public final class SogniMusic {
       int i = active.remove(0);
       String file = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
       if (file != null) made.add(file);
+      // The count so far (PyJav shows it on the status line: 12/300).
+      done++;
+      if (jobs.size() > 1) say("Tracks: " + done + " of " + jobs.size() + " done (" + made.size() + " made" + (done - made.size() > 0 ? ", " + (done - made.size()) + " failed" : "") + ")");
     }
     if (made.isEmpty()) {
       say("Failed: no track was made");

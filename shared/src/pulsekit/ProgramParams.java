@@ -145,7 +145,8 @@ public final class ProgramParams {
     // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
-    boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
+    // (DrumMidi_CRT takes --kit and --recursive too: not this one.)
+    boolean midi2hydro = has(out, "--kit") && has(out, "--recursive") && !drumMidi;
     // vst_render.py: a MIDI (or WAV) played through a VST instrument (and an effect), as a WAV.
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     // VideoFrames: pictures from a video (first, last, at times, every N seconds).
@@ -189,7 +190,7 @@ public final class ProgramParams {
         p.hint = "the folder MidiDrumGen --count made; empty: the files above";
       }
       // The batch programs' folder (or list) can be a playlist (.pls) too: its files are the ones used.
-      if ((midi2wav || midi2hydro || vstRender || splitWav || cutWav || wav2mp3 || videoFrames || midiBatch || batchRun) && p.flag && p.takesValue && p.token.equals("--dir")) p.pls = true;
+      if ((midi2wav || midi2hydro || drumMidi || vstRender || splitWav || cutWav || wav2mp3 || videoFrames || midiBatch || batchRun) && p.flag && p.takesValue && p.token.equals("--dir")) p.pls = true;
       if ((midiBatch || batchRun || joinVideo) && p.flag && p.takesValue && p.token.equals("--list")) p.pls = true;
       if (p.pls) p.hint = (p.hint == null || p.hint.length() == 0 ? "" : p.hint + "; ") + "or a playlist (.pls): Playlist";
       if (pic) knownPedit(p);
@@ -380,7 +381,21 @@ public final class ProgramParams {
       p.label = "Drum sound library profile (kick and toms told apart by your library's sounds when no kit profile is given)";
       p.hint = "empty: Pulsekit's drum-library.kit when the library has a ready kick and tom; none: not used";
     }
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Folder of audio files (DrumMidi on each WAV and MP3, and on those in its zips)";
+      p.clears = new String[] {MixerOut.FLAG};
+      p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
+    }
+    if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--kit")) {
+      p.label = "Kit profile (the kit's own kick, toms and cymbals, as vst_render.py --test learns them)";
+      p.hint = "empty: none; a .kit file";
+    }
     if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
+      // Browse puts the picked folder in the field; % codes can be added to it.
+      p.dir = true;
+      p.typed = true;
       p.label = "Zip folder (made when missing)";
       p.hint = "empty: beside the MIDI (Download / the program files folder); % codes: dm%ddmmyy, zips%n";
     }
@@ -689,7 +704,10 @@ public final class ProgramParams {
 
   private static void knownSogniMusic(Param p) {
     if (p.flag && p.takesValue && p.token.equals("--outdir")) {
-      p.label = "Output folder: the tracks, WAVs and zip go here";
+      // Browse puts the picked folder in the field; a name typed (Sogni) is a folder under Download, made when missing.
+      p.dir = true;
+      p.typed = true;
+      p.label = "Output folder: the tracks, WAVs and zip go here (a name: a folder in Download, made when missing)";
       p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
     }
     if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy, Song-%g (its group, picked in its ready dialog; also %c, %t1)";
@@ -733,12 +751,15 @@ public final class ProgramParams {
   public static final String FILES = PluginFiles.TAB;
   /** vst_render's cymbal model bench (--model_compare, --leave_one_out): its own tab, after the others. */
   public static final String MODEL = "Cymbal model";
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL};
+  /** vst_render's hit model bench (--hit_bench: DrumMidi's kicks, snares and toms on the kits' tests). */
+  public static final String HITS = "Hit model";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL, HITS};
 
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
+    if (t.startsWith("--hit_")) return HITS;
     if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
@@ -978,6 +999,15 @@ public final class ProgramParams {
       p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
       p.hint = "Riot Default kit, Cardinal; empty: every kit found";
       p.importList = true;
+    } else if (p.token.equals("--hit_bench")) {
+      p.label = "Hit model bench: DrumMidi on the kits' tests (the Cymbal model tab's folder) with its rules alone and with its hit model: kicks, snares and toms; its zip into the output folder (no plugin played)";
+    } else if (p.token.equals("--hit_loo")) {
+      p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder)";
+      p.showWhen = "--hit_bench";
+    } else if (p.token.equals("--hit_model_file")) {
+      p.label = "Hit model file: DrumMidi uses it in place of its own hit model, in the tests and the bench (a hit-model-<date>.txt the bench learned)";
+      p.hint = "empty: DrumMidi's own hit model";
+      p.ext = "txt";
     } else if (p.token.equals("--cymbal_bench")) {
       p.label = "Cymbal model comparison: the Cymbal model tab's Compare and Leave one out (off: not run)";
     } else if (p.token.equals("--cymbal_bench_when")) {

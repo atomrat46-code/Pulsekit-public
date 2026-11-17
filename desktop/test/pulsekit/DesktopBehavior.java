@@ -9002,7 +9002,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
-    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
+    boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
@@ -10479,6 +10479,8 @@ public final class DesktopBehavior {
     StringBuilder rows = new StringBuilder();
     java.util.List<ProgramParams.Param> ps = ProgramParams.parse(src);
     for (ProgramParams.Param p : ps) if (ProgramParams.MODEL.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(' ');
+    rows.append("| hit tab: ");
+    for (ProgramParams.Param p : ps) if (ProgramParams.HITS.equals(p.tab)) rows.append(p.token).append(p.takesValue ? "=" : "").append(p.showWhen != null ? "(" + p.showWhen + ")" : "").append(' ');
     StringBuilder settings = new StringBuilder();
     for (ProgramParams.Param p : ps) if (p.token.startsWith("--cymbal_bench")) settings.append(p.token).append(" on ").append(p.tab).append(p.dropdown ? " (list: " + String.join(" / ", p.choices) + ")" : "").append("; ");
     this.out.append("model tab: ").append(rows).append("| tabs: ").append(ProgramParams.tabs(ps)).append('\n').append("settings: ").append(settings).append('\n');
@@ -10556,8 +10558,10 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= |")
-        && all.contains("Cymbal model]")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_bench --hit_loo(--hit_bench) --hit_model_file= |")
+        && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
+        && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
+        && all.contains("Cymbal model, Hit model]")
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
         && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True")
         && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Kits left out (1): Fake_Drums_Bright") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")

@@ -763,10 +763,14 @@ public class MainActivity extends UiKit {
         boolean bl7 = "import".equals(string);
         boolean bl8 = "export".equals(string);
         boolean bl10 = bl || bl2 || bl3 || bl7 || bl8;
-        this.gridScroll.setVisibility(bl10 ? 8 : 0);
+        // Imported's More: the list takes the grid's room (the grid, ACC to LEN, gone until Less).
+        boolean listOnly = StyleLibrary.importedTall && (bl6 || bl4);
+        this.gridScroll.setVisibility(bl10 || listOnly ? 8 : 0);
         if (this.lenBar != null) {
-            this.lenBar.setVisibility(bl10 ? 8 : 0);
+            this.lenBar.setVisibility(bl10 || listOnly ? 8 : 0);
         }
+        // (The steps / bars out / Variate / Silent row too: it works on the grid.)
+        if (this.toolsRow != null && this.toolsRow.getParent() instanceof View) ((View) this.toolsRow.getParent()).setVisibility(listOnly ? 8 : 0);
         this.padsPane.setVisibility(bl3 ? 0 : 8);
         this.songPane.setVisibility(bl ? 0 : 8);
         this.pyPane.setVisibility(bl2 ? 0 : 8);
