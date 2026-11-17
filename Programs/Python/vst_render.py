@@ -226,7 +226,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   The hit model bench (Params' Hit model tab): DrumMidi's kicks, snares and toms on the tests' zips
   (the Cymbal model tab's folders: --bench_dir, --bench_unzip, --bench_skip, --bench_work). Needs numpy.
   --hit_bench     runs it: each kit's songs through DrumMidi with its rules alone and with its hit model,
-                  kick, snare and toms F (hit-bench-<date>.zip). No plugin is played.
+                  kick, snare and toms F (hit-bench-<date>.zip). With plugins given, after the run (its
+                  renders, --test and --zip: the tests' zips the bench reads; --hit_dir not given: the
+                  run's --zip_outdir, else --outdir); else no plugin is played.
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
@@ -2316,11 +2318,24 @@ def load_plugin(engine, name, path):
 
 def collect(folder, recursive):
     """The MIDI files in the folder (and its subfolders), not DrumMidi's own (*-dm.mid) from a --test.
-    A subfolder with audio and no MIDI (renders of an earlier run) is named once and passed by."""
+    A subfolder with audio and no MIDI (renders of an earlier run) is named once and passed by. Zips of
+    MIDI files (SogniMusic's, DrumMidi's) are read by sogni_zips.
+    A *-dm.mid is DrumMidi's from a --test when renders are beside it or its song's MIDI is: then left out.
+    A folder of DrumMidi's MIDI alone (a SogniMusic run's, to render for training): played."""
     found = []
     for root, dirs, names in os.walk(folder):
         dirs.sort()
-        midis = [n for n in sorted(names) if n.lower().endswith((".mid", ".midi")) and not n.lower().endswith("-dm.mid")]
+        has_audio = any(n.lower().endswith(AUDIO_ENDS) for n in names)
+        low = set(n.lower() for n in names)
+
+        def played(n):
+            l = n.lower()
+            if not l.endswith((".mid", ".midi")):
+                return False
+            if not l.endswith("-dm.mid"):
+                return True
+            return not has_audio and (l[:-len("-dm.mid")] + ".mid") not in low
+        midis = [n for n in sorted(names) if played(n)]
         found.extend(os.path.join(root, n) for n in midis)
         audio = [n for n in names if n.lower().endswith(AUDIO_ENDS)]
         if root != folder and not midis and audio:
@@ -2341,7 +2356,11 @@ def sogni_zip(path):
             names = [os.path.basename(n) for n in z.namelist()]
     except (zipfile.BadZipFile, OSError):
         return False
-    return "SogniMusic log.txt" in names or any(re.match(r"SogniMusic run \d+ .+\.midi?$", n) for n in names)
+    if "SogniMusic log.txt" in names or any(re.match(r"SogniMusic run \d+ .+\.midi?$", n) for n in names):
+        return True
+    # DrumMidi's zip of a folder's MIDI (SogniMusic-dm.zip: <song>-dm.mid, its log): rendered as well (training data).
+    mids = [n for n in names if n.lower().endswith((".mid", ".midi"))]
+    return bool(mids) and all(n.lower().endswith("-dm.mid") for n in mids) and all(n.lower().endswith((".mid", ".midi", ".txt", ".log")) for n in names if n)
 
 
 def zip_base(path):
@@ -4082,7 +4101,9 @@ def bench_kit_info(folder):
     """The kit's report, name (as its report names it), kit profile, notes map (--map) and the DrumMidi
     switches its test ran with; None without a report."""
     import glob
-    reports = sorted(glob.glob(os.path.join(folder, "vst-test-*.txt")))
+    # (At the zip's top; under the output folder's name when the run gave --outdir as a relative path.)
+    reports = sorted(glob.glob(os.path.join(folder, "vst-test-*.txt"))) or sorted(r for r in glob.glob(os.path.join(folder, "*", "vst-test-*.txt"))
+                                                                                if os.path.basename(os.path.dirname(r)) != "check")
     if not reports:
         return None
     report = reports[0]
@@ -4108,8 +4129,11 @@ def bench_songs(folder):
     """[(audio, its MIDI)]: each render under mp3/ (or wav/) and the MIDI it was played from under midi/."""
     import glob
     out = []
-    for audio in sorted(glob.glob(os.path.join(folder, "mp3", "*", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*", "*.wav"))):
-        sub = os.path.basename(os.path.dirname(audio))
+    # mp3/<run>/ and midi/<run>/, or (a folder's files at its top) mp3/ and midi/ alone.
+    for audio in sorted(glob.glob(os.path.join(folder, "mp3", "*", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*", "*.wav"))
+                        + glob.glob(os.path.join(folder, "mp3", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*.wav"))):
+        top = os.path.basename(os.path.dirname(audio)) in ("mp3", "wav") and os.path.dirname(os.path.dirname(audio)) == folder.rstrip(os.sep)
+        sub = "" if top else os.path.basename(os.path.dirname(audio))
         base = os.path.splitext(os.path.basename(audio))[0]
         mid = None
         # "<stem>-<Plugin> (<kit>)": the longest MIDI name the render's name starts with.
@@ -4881,11 +4905,14 @@ def hit_bench(opts, switches):
     lines += ["", "%-*s %s" % (width, "All", " ".join(hit_pair(a, b) for a, b in zip(r, m)))]
     print(lines[-1])
     files = {"details.txt": "\n".join(details)}
-    if "--hit_loo" in switches:
+    loo = "--hit_loo" in switches
+    if loo and len(kits) < 2:
+        print("Leave one out left out: it needs two kits or more (found %d)" % len(kits))
+        lines += ["", "Leave one out: not run, one kit only."]
+        loo = False
+    if loo:
         plugins = sorted({k["plugin"] for k in kits})
         by = "plugin" if len(plugins) >= 2 else "name"
-        if len(kits) < 2:
-            fail("Leave one out (--hit_loo) needs two kits or more")
         print("Leave one out: %s (%d kits)…" % ("each plugin's kits scored with a model learned from the other plugins' kits" if by == "plugin"
                                                  else "each kit scored with a model learned from the other kits (one plugin's kits only)", len(kits)), flush=True)
         lines += ["", "Leave one out: the onsets DrumMidi considers (any that could be a kick, snare or tom), told by its rules and by a model",
@@ -4928,7 +4955,7 @@ def hit_bench(opts, switches):
     # Its own zip folder (the Hit model tab's), else the run's --zip_outdir.
     copy_to = opts["--hit_zip_outdir"] or opts["--zip_outdir"]
     if copy_to:
-        copy_zips([made] + ([saved] if "--hit_loo" in switches else []), expand_folder(copy_to, newest=True))
+        copy_zips([made] + ([saved] if loo else []), expand_folder(copy_to, newest=True))
     print("Succeeded: the hit model bench")
 
 
@@ -5007,6 +5034,23 @@ def main(argv):
         HIT_MODEL_FILE[0] = os.path.abspath(opts["--hit_model_file"])
     # The hit model bench (the Hit model tab): on its own, no plugin played (then the cymbal comparison, if on).
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
+        plays = any(opts[k] for k in ("--plugin", "--carla", "--clap", "--drumgizmo", "--parts", "--padset"))
+        if plays and "--cymbal_bench" not in switches:
+            # Plugins given: the run (its renders, tests and zips) first, then the bench on the tests' zips:
+            # the Hit model tab's input folder, else this run's zip folder (or its output folder).
+            code = 0
+            try:
+                main([a for a in argv if a != "--hit_bench"])
+            except SystemExit as e:
+                code = e.code or 0
+            if not opts["--hit_dir"]:
+                opts["--hit_dir"] = expand_folder(opts["--zip_outdir"], newest=True) if opts["--zip_outdir"] else (opts["--outdir"] or opts["--dir"])
+            print("")
+            print("== Hit model bench (after the run): the tests' zips in %s" % opts["--hit_dir"])
+            hit_bench(opts, switches)
+            if code:
+                sys.exit(code)
+            return
         hit_bench(opts, switches)
         if "--cymbal_bench" not in switches:
             return
@@ -5095,7 +5139,7 @@ def main(argv):
     one_zip = None
     if folder and folder.lower().endswith(".zip") and os.path.isfile(folder):
         if not sogni_zip(folder):
-            fail("%s is not a SogniMusic zip (--zip makes one)" % folder)
+            fail("%s is not a SogniMusic zip (--zip makes one) or DrumMidi's zip of MIDI files" % folder)
         one_zip = zip_base(folder)
         folder = os.path.dirname(os.path.abspath(folder))
     # A playlist (.pls) for the folder: its MIDI files (PlayList --midi makes one).
