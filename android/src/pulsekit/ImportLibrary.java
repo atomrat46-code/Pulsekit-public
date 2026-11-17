@@ -269,6 +269,27 @@ final class ImportLibrary {
      */
     boolean restoring;
 
+    /**
+     * Many file sets made at once (DrumMidi on a folder: PyJav.pkImportFolderSets): while set, a set's import
+     * does not redraw the Imported lists, save the learned grooves or open its pattern; endBulk does it once.
+     */
+    boolean bulk;
+    private boolean bulkDirty;
+
+    void beginBulk() {
+        this.bulk = true;
+        this.bulkDirty = false;
+    }
+
+    void endBulk() {
+        this.bulk = false;
+        if (!this.bulkDirty) return;
+        this.bulkDirty = false;
+        app.persistence.persistLearned();
+        this.rebuildImported();
+        this.rebuildImportedFills();
+    }
+
     void addLearnedChip(Engine.Learned learned) {
         if (this.restoring) return;
         this.rebuildImported();
@@ -379,6 +400,10 @@ final class ImportLibrary {
     }
 
     void rebuildImported() {
+        if (this.bulk) {
+            this.bulkDirty = true;
+            return;
+        }
         if (app.importedHost == null) {
             return;
         }
@@ -506,6 +531,10 @@ final class ImportLibrary {
     }
 
     void rebuildImportedFills() {
+        if (this.bulk) {
+            this.bulkDirty = true;
+            return;
+        }
         if (app.importedFillHost == null) {
             return;
         }
@@ -733,6 +762,12 @@ final class ImportLibrary {
             app.songEditor.addFileSetSong(string2, song);
         }
         if (!fileSet.songs.isEmpty()) app.fileSets.persistFsetInfo();
+        if (this.bulk) {
+            // (Many at once: saved, listed and shown once at the end, endBulk.)
+            this.bulkDirty = true;
+            this.afterLoadFset();
+            return;
+        }
         if (string3 != null) {
             app.styleLibrary.loadStyle(string3, false);
         } else if (!arrayList.isEmpty()) {

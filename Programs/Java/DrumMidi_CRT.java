@@ -526,6 +526,26 @@ public class DrumMidi_CRT{
     static boolean zip;
     /** Running on a folder's files (--dir). */
     static boolean inDir;
+
+    /**
+     * --drums-only: only songs of drums alone (for training data: a vst_render run of their MIDI). A song
+     * where another instrument is heard (DRUMS_ONLY_BASS, DRUMS_ONLY_TONE: stricter than the rules' bass and
+     * guitar, SogniMusic's drum sessions 77 of 99 kept) or named (drums_bass, drums_guitar) is skipped.
+     */
+    static boolean drumsOnly;
+    static final double DRUMS_ONLY_BASS = 0.15, DRUMS_ONLY_TONE = 0.5;
+
+    /** A song --drums-only leaves out, and why. */
+    static final class Skipped extends RuntimeException {
+        Skipped(String why) {
+            super(why);
+        }
+    }
+
+    /** Its name says another instrument plays with the drums ("...-drums_guitar-sft.mp3"). */
+    static boolean namedWithOthers(String name) {
+        return name.toLowerCase(java.util.Locale.ROOT).matches(".*drums_[a-z].*");
+    }
     static double zipMb;
     static String zipOutdir;
     static final List<File> made = new ArrayList<File>();
@@ -762,7 +782,7 @@ public class DrumMidi_CRT{
         }
         String keepLog = logPath;
         logPath = null;
-        int done = 0;
+        int done = 0, skipped = 0;
         inDir = true;
         for (int k = 0; k < wavs.size(); k++) {
             checkStop();
@@ -775,8 +795,16 @@ public class DrumMidi_CRT{
             System.out.println("== " + (k + 1) + "/" + wavs.size() + ": " + w.getName());
             long before = mid.isFile() ? mid.lastModified() : -1;
             mid.delete();
+            if (opts.contains("--drums-only") && namedWithOthers(w.getName())) {
+                System.out.println("Skipped " + w.getName() + ": its name says another instrument (--drums-only)");
+                skipped++;
+                continue;
+            }
             try {
                 run(one.toArray(new String[0]));
+            } catch (Skipped ex) {
+                System.out.println("Skipped " + w.getName() + ": " + ex.getMessage());
+                skipped++;
             } catch (IllegalStateException ex) {
                 if ("Aborted".equals(ex.getMessage())) throw ex;
                 System.out.println("Failed " + w.getName() + ": " + ex.getMessage());
@@ -790,7 +818,8 @@ public class DrumMidi_CRT{
         // --zip: the folder's MIDI files (and the log) as <folder>-dm.zip in the folder (or --zip_outdir).
         zipBase = dir.getName() + "-dm";
         zipDir = dir;
-        finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " audio files in " + dir.getName() + " (<name>-dm.mid beside each)");
+        finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " audio files in " + dir.getName() + " (<name>-dm.mid beside each)"
+                + (skipped > 0 ? "; " + skipped + " skipped (--drums-only: another instrument heard or named)" : ""));
     }
 
     static void wavsIn(File dir, boolean recursive, List<File> into) {
@@ -925,7 +954,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -941,6 +970,7 @@ public class DrumMidi_CRT{
         // No toms: they are still told apart from kicks and snares, but not written.
         boolean writeToms = true;
         boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
+        drumsOnly = false;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -968,6 +998,7 @@ public class DrumMidi_CRT{
             else if ("--no-cymbals".equals(opt)) cymbals = false;
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--no-hit-model".equals(opt)) hitModel = false;
+            else if ("--drums-only".equals(opt)) drumsOnly = true;
             // A hit model learned elsewhere (vst_render's Hit model tab: hit-model.txt) in place of the built-in one.
             else if ("--hit-model".equals(opt)) System.setProperty("dm.hitModelFile", new File(args[++i]).getAbsolutePath());
             else if ("--snare-leak".equals(opt)) snareLeak = true;
@@ -1024,6 +1055,7 @@ public class DrumMidi_CRT{
         double[] ringRaw = bandMean(mag, bin(RING_TOM_RING_LO, sr, maxBin), bin(RING_TOM_RING_HI, sr, maxBin));
         // Before HPSS, which takes a guitar's held notes away.
         boolean guitar = guitarLine(mag, sr, maxBin);
+        final boolean guitarLine0 = guitar;
         // 2-8 kHz before HPSS: how a snare's wires rise and die over a guitar (GuitarSnare).
         double[] upper = bandMean(mag, bin(2000, sr, maxBin), bin(8000, sr, maxBin));
         // 1-4 kHz and 150-600 Hz before HPSS: a guitar's chord against a hat (GuitarHat).
@@ -1203,6 +1235,27 @@ public class DrumMidi_CRT{
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
         boolean bassTones = bassNotes(kickLevel);
+        {
+            double[] ks = kickLevel.clone();
+            Arrays.sort(ks);
+            note("Heard: " + (bass ? "a bass line" : "no bass line") + " (kick band median " + String.format(java.util.Locale.ROOT, "%.2f", ks[ks.length / 2])
+                    + "), " + (guitar ? "guitar or keys" : "no guitar") + " (held tones " + (midTone < 0 ? "-" : String.format(java.util.Locale.ROOT, "%.2f", midTone))
+                    + ", 300-1000 Hz " + (guitarLine0 ? "up" : "down") + " between hits)");
+        }
+        if (drumsOnly) {
+            double[] ks = kickLevel.clone();
+            Arrays.sort(ks);
+            if (bass || guitar || guitarLine0 || ks[ks.length / 2] >= DRUMS_ONLY_BASS || midTone >= DRUMS_ONLY_TONE)
+                throw new Skipped("another instrument heard (--drums-only)");
+        }
+        // The hit model's toms held back only on a surer sign of a bass or guitar than the rules take (TOM_BASS,
+        // TOM_TONE): SogniMusic's drum sessions heard as with one (15 of 99) lost their model toms.
+        final boolean accSure;
+        {
+            double[] ks = kickLevel.clone();
+            Arrays.sort(ks);
+            accSure = ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0;
+        }
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
@@ -1395,7 +1448,7 @@ public class DrumMidi_CRT{
             if (dump != null) HitModel.dump(hits, cand, audio.samples, sr, bass, guitar, dump);
             // Not for a kit whose kick has no beater click (its profile says so: an 808's): the kits the model
             // learned from all click, and on an 808's long sine it took snares where there were none (+12 of 32).
-            if (hitModel && HitModel.ready() && writeToms && !clickless) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack);
+            if (hitModel && HitModel.ready() && writeToms && !clickless) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack, accSure);
             else if (hitModel && HitModel.ready() && writeToms) note("Hit model not used: the kit's kick has no beater click (the model learned from kits whose kicks click)");
         }
         if (kit != null) kit.sort(hits, audio.samples, sr);
@@ -3610,6 +3663,8 @@ public class DrumMidi_CRT{
      */
     static final class HitModel {
         static final double CAND_DELTA = 0.5;
+        static final double TOM_BASS = Double.parseDouble(System.getProperty("dm.hitTomBass", "0.2")), TOM_TONE = Double.parseDouble(System.getProperty("dm.hitTomTone", "0.6"));
+        static final double ACC_TOM_CUT = Double.parseDouble(System.getProperty("dm.hitAccTomCut", "0.95"));
         static final double[] EDGES = {30, 60, 100, 150, 250, 400, 700, 1200, 2000, 3500, 6000, 10000, 16000};
         static final double[] OFFS = {-0.03, 0.0, 0.02, 0.05, 0.1, 0.2};
         static final int B = EDGES.length - 1, F = 5 * B + 6;
@@ -3779,7 +3834,7 @@ public class DrumMidi_CRT{
         }
 
         /** The kicks, snares and toms as the model has them (a tom's note as the rules had it there, else by its band). */
-        static void apply(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, double[] floor, double[] mid, double[] rack) {
+        static void apply(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, double[] floor, double[] mid, double[] rack, boolean accSure) {
             List<Integer> frames = unique(cand);
             double[][] f = feats(hits, frames, x, sr, bass, guitar);
             List<Hit> keep = new ArrayList<Hit>();
@@ -3807,6 +3862,10 @@ public class DrumMidi_CRT{
                             note = floor[c] >= mid[c] && floor[c] >= rack[c] ? FLOOR_TOM : mid[c] >= rack[c] ? MID_TOM : RACK_TOM;
                         }
                     }
+                    // Over a bass or guitar a tom of its own only when it is sure (ACC_TOM_CUT): real songs' guitars
+                    // (SogniMusic's 50 styles) gave it 3x the toms of the same styles' drums alone (1093 against
+                    // ~400); at 0.95, 469. On the bench's mixes toms then P 97-98, R 58-70 (the rules: R 24-36).
+                    if (k == 2 && was == null && accSure && p < ACC_TOM_CUT) continue;
                     if (was == null) added++;
                     keep.add(was != null ? was : new Hit(time, note, p));
                 }

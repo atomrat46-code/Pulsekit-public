@@ -78,11 +78,25 @@ public final class MediaDir {
 
   /** PICTURE, VIDEO or SOUND by the name's ending; 0 for a file the browser leaves out. */
   public static int kind(String name) {
-    String low = name == null ? "" : name.toLowerCase();
-    if (low.matches(".+\\.(png|jpe?g|webp|gif|bmp|heic)")) return PICTURE;
-    if (low.matches(".+\\.(mp4|m4v|webm|mkv|3gp|mov)")) return VIDEO;
-    if (low.matches(".+\\.(wav|wave|mp3|ogg|m4a|aac|flac|mid|midi)")) return SOUND;
-    return 0;
+    // By the ending looked up, not a pattern matched: File > Downloads asks this of every file each second
+    // (String.matches compiled its pattern each time: the screen busy for seconds with a long list).
+    Integer k = KINDS.get(ending(name));
+    return k == null ? 0 : k.intValue();
+  }
+
+  private static final java.util.Map<String, Integer> KINDS = new java.util.HashMap<String, Integer>();
+  static {
+    for (String e : new String[] {"png", "jpg", "jpeg", "webp", "gif", "bmp", "heic"}) KINDS.put(e, PICTURE);
+    for (String e : new String[] {"mp4", "m4v", "webm", "mkv", "3gp", "mov"}) KINDS.put(e, VIDEO);
+    for (String e : new String[] {"wav", "wave", "mp3", "ogg", "m4a", "aac", "flac", "mid", "midi"}) KINDS.put(e, SOUND);
+  }
+
+  /** The name's ending after its last dot, lower case ("" without one, or with nothing before it). */
+  static String ending(String name) {
+    if (name == null) return "";
+    int dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length() - 1) return "";
+    return name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
   }
 
   public static boolean isMidi(String name) {
