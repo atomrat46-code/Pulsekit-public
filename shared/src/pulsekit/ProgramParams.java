@@ -145,7 +145,8 @@ public final class ProgramParams {
     // Midi2Wav: a drum MIDI played with a SoundFont, as a WAV.
     boolean midi2wav = has(out, "--sf2") && has(out, "--addtodb");
     // Midi2HydroPattern: MIDI patterns as Hydrogen patterns, one file or a folder of them.
-    boolean midi2hydro = has(out, "--kit") && has(out, "--recursive");
+    // (DrumMidi_CRT takes --kit and --recursive too: not this one.)
+    boolean midi2hydro = has(out, "--kit") && has(out, "--recursive") && !drumMidi;
     // vst_render.py: a MIDI (or WAV) played through a VST instrument (and an effect), as a WAV.
     boolean vstRender = has(out, "--plugin") && has(out, "--effect_state");
     // VideoFrames: pictures from a video (first, last, at times, every N seconds).
@@ -189,7 +190,7 @@ public final class ProgramParams {
         p.hint = "the folder MidiDrumGen --count made; empty: the files above";
       }
       // The batch programs' folder (or list) can be a playlist (.pls) too: its files are the ones used.
-      if ((midi2wav || midi2hydro || vstRender || splitWav || cutWav || wav2mp3 || videoFrames || midiBatch || batchRun) && p.flag && p.takesValue && p.token.equals("--dir")) p.pls = true;
+      if ((midi2wav || midi2hydro || drumMidi || vstRender || splitWav || cutWav || wav2mp3 || videoFrames || midiBatch || batchRun) && p.flag && p.takesValue && p.token.equals("--dir")) p.pls = true;
       if ((midiBatch || batchRun || joinVideo) && p.flag && p.takesValue && p.token.equals("--list")) p.pls = true;
       if (p.pls) p.hint = (p.hint == null || p.hint.length() == 0 ? "" : p.hint + "; ") + "or a playlist (.pls): Playlist";
       if (pic) knownPedit(p);
@@ -379,6 +380,16 @@ public final class ProgramParams {
     if (drumMidi && p.flag && p.token.equals("--library")) {
       p.label = "Drum sound library profile (kick and toms told apart by your library's sounds when no kit profile is given)";
       p.hint = "empty: Pulsekit's drum-library.kit when the library has a ready kick and tom; none: not used";
+    }
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--dir")) {
+      p.dir = true;
+      p.label = "Folder of audio files (DrumMidi on each WAV and MP3, and on those in its zips)";
+      p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
+    }
+    if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--kit")) {
+      p.label = "Kit profile (the kit's own kick, toms and cymbals, as vst_render.py --test learns them)";
+      p.hint = "empty: none; a .kit file";
     }
     if (drumMidi && p.flag && p.token.equals("--zip_outdir")) {
       p.label = "Zip folder (made when missing)";

@@ -507,6 +507,7 @@ public class DrumMidi_CRT{
     public static void main(String[] args) throws Exception {
         startDirs = new String[] {System.getProperty("pulsekit.work"), System.getProperty("user.dir"), System.getProperty("java.io.tmpdir")};
         zip = false;
+        inDir = false;
         zipMb = 0;
         zipOutdir = null;
         made.clear();
@@ -523,6 +524,8 @@ public class DrumMidi_CRT{
 
     /** --zip, --zip_mb, --zip_outdir; the files made (the MIDI, the log) and the zip's name and folder. */
     static boolean zip;
+    /** Running on a folder's files (--dir). */
+    static boolean inDir;
     static double zipMb;
     static String zipOutdir;
     static final List<File> made = new ArrayList<File>();
@@ -743,17 +746,28 @@ public class DrumMidi_CRT{
         boolean recursive = opts.remove("--recursive");
         List<File> wavs = new ArrayList<File>();
         wavsIn(dir, recursive, wavs);
+        // Zips in the folder (a SogniMusic run's, say): their WAV and MP3 files, unpacked into a folder
+        // of the zip's name beside it, are done too (their MIDI beside them there).
+        List<File> zips = new ArrayList<File>();
+        zipsIn(dir, recursive, zips);
+        for (File z : zips) {
+            checkStop();
+            File to = new File(z.getParentFile(), z.getName().replaceAll("(?i)\\.zip$", ""));
+            int n = unzipAudio(z, to, wavs);
+            System.out.println(z.getName() + ": " + n + " audio file" + (n == 1 ? "" : "s") + " unpacked into " + to.getName());
+        }
         if (wavs.isEmpty()) {
-            finish("Failed: no WAV files in " + dir.getName());
+            finish("Failed: no WAV or MP3 files (or zips of them) in " + dir.getName());
             return;
         }
         String keepLog = logPath;
         logPath = null;
         int done = 0;
+        inDir = true;
         for (int k = 0; k < wavs.size(); k++) {
             checkStop();
             File w = wavs.get(k);
-            File mid = new File(w.getParentFile(), w.getName().replaceAll("(?i)\\.wave?$", "") + "-dm.mid");
+            File mid = new File(w.getParentFile(), w.getName().replaceAll("(?i)\\.(wave?|mp3)$", "") + "-dm.mid");
             List<String> one = new ArrayList<String>();
             one.add(w.getPath());
             one.add(mid.getPath());
@@ -772,10 +786,11 @@ public class DrumMidi_CRT{
             if (mid.isFile() && mid.lastModified() != before) done++;
         }
         logPath = keepLog;
+        inDir = false;
         // --zip: the folder's MIDI files (and the log) as <folder>-dm.zip in the folder (or --zip_outdir).
         zipBase = dir.getName() + "-dm";
         zipDir = dir;
-        finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " WAV files in " + dir.getName() + " (<wav>-dm.mid beside each)");
+        finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " audio files in " + dir.getName() + " (<name>-dm.mid beside each)");
     }
 
     static void wavsIn(File dir, boolean recursive, List<File> into) {
@@ -784,9 +799,49 @@ public class DrumMidi_CRT{
         Arrays.sort(in);
         for (File f : in) {
             String low = f.getName().toLowerCase(java.util.Locale.ROOT);
-            if (f.isFile() && (low.endsWith(".wav") || low.endsWith(".wave"))) into.add(f);
+            if (f.isFile() && (low.endsWith(".wav") || low.endsWith(".wave") || low.endsWith(".mp3"))) into.add(f);
         }
         if (recursive) for (File f : in) if (f.isDirectory() && !f.getName().startsWith(".")) wavsIn(f, true, into);
+    }
+
+    static void zipsIn(File dir, boolean recursive, List<File> into) {
+        File[] in = dir.listFiles();
+        if (in == null) return;
+        Arrays.sort(in);
+        for (File f : in) if (f.isFile() && f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".zip") && !f.getName().endsWith("-dm.zip")) into.add(f);
+        if (recursive) for (File f : in) if (f.isDirectory() && !f.getName().startsWith(".")) zipsIn(f, true, into);
+    }
+
+    /** The zip's WAV and MP3 files into `to` (their folders inside the zip left out); each added to `into`. How many. */
+    static int unzipAudio(File zip, File to, List<File> into) {
+        int n = 0;
+        try {
+            java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zip));
+            try {
+                for (java.util.zip.ZipEntry e; (e = zis.getNextEntry()) != null; ) {
+                    if (e.isDirectory()) continue;
+                    String name = e.getName().replaceAll(".*[/\\\\]", "");
+                    String low = name.toLowerCase(java.util.Locale.ROOT);
+                    if (name.startsWith(".") || !(low.endsWith(".wav") || low.endsWith(".wave") || low.endsWith(".mp3"))) continue;
+                    to.mkdirs();
+                    File out = new File(to, name);
+                    FileOutputStream fos = new FileOutputStream(out);
+                    try {
+                        byte[] b = new byte[65536];
+                        for (int r; (r = zis.read(b)) > 0; ) fos.write(b, 0, r);
+                    } finally {
+                        fos.close();
+                    }
+                    if (!into.contains(out)) into.add(out);
+                    n++;
+                }
+            } finally {
+                zis.close();
+            }
+        } catch (Exception ex) {
+            System.out.println("Could not unpack " + zip.getName() + ": " + ex.getMessage());
+        }
+        return n;
     }
 
     static String num(double v) {
@@ -1417,7 +1472,8 @@ public class DrumMidi_CRT{
         made.add(written);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (chokesWritten > 0 ? ", " + chokesWritten + " chokes (aftertouch)" : "") + (writeToms ? "" : " (--no-toms: toms not written)"));
-        note("MIDI Extracted to: " + written.getAbsolutePath());
+        // (A folder's run zipped: "MIDI written", so PyJav on the phone does not keep each one beside the zip.)
+        note((zip && inDir ? "MIDI written: " : "MIDI Extracted to: ") + written.getAbsolutePath());
         finish("Succeeded: " + written.getName());
     }
 
