@@ -4845,7 +4845,8 @@ def hit_bench(opts, switches):
         import numpy as np
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
-    folder = opts["--hit_dir"] or opts["--bench_dir"] or opts["--dir"]
+    only = opts.get("_hit_zips")
+    folder = os.path.dirname(os.path.abspath(only[0])) if only else (opts["--hit_dir"] or opts["--bench_dir"] or opts["--dir"])
     if not folder or not os.path.isdir(folder):
         fail("The hit model bench reads the tests' zips (vst-render-*.zip) in its input folder (the Cymbal model tab's, --bench_dir), "
              "and in its subfolders: give the folder that holds the runs' folders (the Hit model tab's Input folder)%s" % (" (%s is not one)" % folder if folder else ""))
@@ -4857,7 +4858,14 @@ def hit_bench(opts, switches):
     os.makedirs(outdir, exist_ok=True)
     work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
     unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
-    found = render_kits(folder, True)
+    if only:
+        # (This run's zips: each from its own folder, nothing else there.)
+        mine = set(os.path.normcase(os.path.abspath(z)) for z in only)
+        found = []
+        for d in sorted(set(os.path.dirname(os.path.abspath(z)) for z in only)):
+            found += [k for k in render_kits(d, False) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
+    else:
+        found = render_kits(folder, True)
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
     if skip:
         plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
@@ -4992,12 +5000,15 @@ def bench_last(argv):
 
 # The hit model bench run last (--hit_bench_when last): None at the top; "render" while the run goes, "bench" after.
 HIT_STAGE = [None]
+# The tests' zips this run made (make_zip): what Run last's bench reads.
+RUN_TEST_ZIPS = []
 
 
 def hit_last(argv):
     """--hit_bench --hit_bench_when last: the run (its renders, tests, zips; the cymbal comparison too if it
     runs last), then the hit model bench on the tests' zips (also when the run failed: its exit code is kept)."""
     HIT_STAGE[0] = "render"
+    del RUN_TEST_ZIPS[:]
     code = 0
     try:
         main([a for a in argv if a != "--hit_bench"])
@@ -5068,14 +5079,19 @@ def main(argv):
         HIT_MODEL_FILE[0] = os.path.abspath(opts["--hit_model_file"])
     # The hit model bench (the Hit model tab): on its own, no plugin played (then the cymbal comparison, if on).
     if HIT_STAGE[0] == "bench":
-        # Run last: the run's own tests' zips (the Hit model tab's input folder when it has tests' zips).
-        run_zips = expand_folder(opts["--zip_outdir"], newest=True) if opts["--zip_outdir"] else (opts["--outdir"] or opts["--dir"])
+        # Run last: the Hit model tab's input folder when it has tests' zips; else the zips this run made
+        # (none made: the run failed, or Test or Zip is off; no older zips are taken in their place).
         given = opts["--hit_dir"]
-        if not given or not (os.path.isdir(given) and render_kits(given, True)):
+        if given and os.path.isdir(given) and render_kits(given, True):
+            print("Hit model bench: the tests' zips in %s (the Hit model tab's input folder)" % given)
+        else:
             if given:
-                print("Hit model bench: no tests' zips (vst-render-*.zip) in %s; this run's zip folder is read" % given)
-            opts["--hit_dir"] = run_zips
-        print("Hit model bench: the tests' zips in %s" % opts["--hit_dir"])
+                print("Hit model bench: no tests' zips (vst-render-*.zip) in %s (the Hit model tab's input folder); this run's are read" % given)
+            if not RUN_TEST_ZIPS:
+                fail("Hit model bench not run: this run made no tests' zips (it failed above, or Test or Zip is off)")
+            opts["--hit_dir"] = None
+            opts["_hit_zips"] = list(RUN_TEST_ZIPS)
+            print("Hit model bench: this run's %d tests' zip%s" % (len(RUN_TEST_ZIPS), "" if len(RUN_TEST_ZIPS) == 1 else "s"))
         hit_bench(opts, switches)
         return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
@@ -5844,6 +5860,7 @@ def main(argv):
                         [(m, played_as.get(m)) for m, _ in batch_done] if not opts["--wav"] else [(opts["--wav"], None)],
                         [o for _, o in batch_done], dms, rep, opts, None if by_name else bpm, limit_mb, "--zip_nowav" in switches,
                         rel if two else None, check_files + ([kit_file] if kit_file and os.path.isfile(kit_file) else []))
+        RUN_TEST_ZIPS.extend(made)
         for z in made:
             print("Zip: %s (%.1f MB)" % (z, os.path.getsize(z) / float(ZIP_MB)))
         ready = list(made)
