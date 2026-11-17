@@ -1024,6 +1024,7 @@ public class DrumMidi_CRT{
         double[] ringRaw = bandMean(mag, bin(RING_TOM_RING_LO, sr, maxBin), bin(RING_TOM_RING_HI, sr, maxBin));
         // Before HPSS, which takes a guitar's held notes away.
         boolean guitar = guitarLine(mag, sr, maxBin);
+        final boolean guitarLine0 = guitar;
         // 2-8 kHz before HPSS: how a snare's wires rise and die over a guitar (GuitarSnare).
         double[] upper = bandMean(mag, bin(2000, sr, maxBin), bin(8000, sr, maxBin));
         // 1-4 kHz and 150-600 Hz before HPSS: a guitar's chord against a hat (GuitarHat).
@@ -1203,6 +1204,21 @@ public class DrumMidi_CRT{
         List<Integer> kickFrames = new ArrayList<Integer>();
         boolean bass = bassLine(kickLevel);
         boolean bassTones = bassNotes(kickLevel);
+        {
+            double[] ks = kickLevel.clone();
+            Arrays.sort(ks);
+            note("Heard: " + (bass ? "a bass line" : "no bass line") + " (kick band median " + String.format(java.util.Locale.ROOT, "%.2f", ks[ks.length / 2])
+                    + "), " + (guitar ? "guitar or keys" : "no guitar") + " (held tones " + (midTone < 0 ? "-" : String.format(java.util.Locale.ROOT, "%.2f", midTone))
+                    + ", 300-1000 Hz " + (guitarLine0 ? "up" : "down") + " between hits)");
+        }
+        // The hit model's toms held back only on a surer sign of a bass or guitar than the rules take (TOM_BASS,
+        // TOM_TONE): SogniMusic's drum sessions heard as with one (15 of 99) lost their model toms.
+        final boolean accSure;
+        {
+            double[] ks = kickLevel.clone();
+            Arrays.sort(ks);
+            accSure = ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0;
+        }
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
         for (Integer p : pickPeaks(kickOnset, delta)) {
@@ -1395,7 +1411,7 @@ public class DrumMidi_CRT{
             if (dump != null) HitModel.dump(hits, cand, audio.samples, sr, bass, guitar, dump);
             // Not for a kit whose kick has no beater click (its profile says so: an 808's): the kits the model
             // learned from all click, and on an 808's long sine it took snares where there were none (+12 of 32).
-            if (hitModel && HitModel.ready() && writeToms && !clickless) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack);
+            if (hitModel && HitModel.ready() && writeToms && !clickless) HitModel.apply(hits, cand, audio.samples, sr, bass, guitar, floor, mid, rack, accSure);
             else if (hitModel && HitModel.ready() && writeToms) note("Hit model not used: the kit's kick has no beater click (the model learned from kits whose kicks click)");
         }
         if (kit != null) kit.sort(hits, audio.samples, sr);
@@ -3610,6 +3626,7 @@ public class DrumMidi_CRT{
      */
     static final class HitModel {
         static final double CAND_DELTA = 0.5;
+        static final double TOM_BASS = Double.parseDouble(System.getProperty("dm.hitTomBass", "0.2")), TOM_TONE = Double.parseDouble(System.getProperty("dm.hitTomTone", "0.6"));
         static final double ACC_TOM_CUT = Double.parseDouble(System.getProperty("dm.hitAccTomCut", "0.95"));
         static final double[] EDGES = {30, 60, 100, 150, 250, 400, 700, 1200, 2000, 3500, 6000, 10000, 16000};
         static final double[] OFFS = {-0.03, 0.0, 0.02, 0.05, 0.1, 0.2};
@@ -3780,7 +3797,7 @@ public class DrumMidi_CRT{
         }
 
         /** The kicks, snares and toms as the model has them (a tom's note as the rules had it there, else by its band). */
-        static void apply(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, double[] floor, double[] mid, double[] rack) {
+        static void apply(List<Hit> hits, List<Integer> cand, double[] x, double sr, boolean bass, boolean guitar, double[] floor, double[] mid, double[] rack, boolean accSure) {
             List<Integer> frames = unique(cand);
             double[][] f = feats(hits, frames, x, sr, bass, guitar);
             List<Hit> keep = new ArrayList<Hit>();
@@ -3811,7 +3828,7 @@ public class DrumMidi_CRT{
                     // Over a bass or guitar a tom of its own only when it is sure (ACC_TOM_CUT): real songs' guitars
                     // (SogniMusic's 50 styles) gave it 3x the toms of the same styles' drums alone (1093 against
                     // ~400); at 0.95, 469. On the bench's mixes toms then P 97-98, R 58-70 (the rules: R 24-36).
-                    if (k == 2 && was == null && (bass || guitar) && p < ACC_TOM_CUT) continue;
+                    if (k == 2 && was == null && accSure && p < ACC_TOM_CUT) continue;
                     if (was == null) added++;
                     keep.add(was != null ? was : new Hit(time, note, p));
                 }
