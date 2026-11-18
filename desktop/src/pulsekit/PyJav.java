@@ -1083,6 +1083,12 @@ final class PyJav {
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
                     RunZip z = RunZip.start(result.log, argv);
                     z.dir = this.runOutDir;
+                    // --zip_outdir: the zip in a folder of its own (% codes filled in, made when missing).
+                    String zipArg = ProgramFolder.zipOutdirArg(name, argv);
+                    if (zipArg != null) {
+                        z.dir = ProgramFolder.outdir(zipArg, this.programFolder());
+                        if (!z.dir.isDirectory()) z.dir.mkdirs();
+                    }
                     this.zipAdd(z, name, "", result);
                     // The tracks saved in Downloads are the zip's: --zip_delete deletes them too.
                     for (File copy : savedAudio.values()) z.addCopy(copy.getPath());

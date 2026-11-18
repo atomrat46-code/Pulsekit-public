@@ -1872,6 +1872,9 @@ final class PyJav {
             pulsekit.RunZip z = pulsekit.RunZip.start(madeLog, argv);
             // --outdir: the zip goes into the run's folder under Download too.
             z.sub = ArtJava.runSub(program, argv) != null ? ArtJava.lastSub : null;
+            // --zip_outdir: the zip in a folder of its own under Download (or the folder picked).
+            String zipArg = pulsekit.ProgramFolder.zipOutdirArg(program, argv);
+            if (zipArg != null) z.sub = ArtJava.subOf(zipArg);
             this.pkZipAdd(z, program, "", made, madeLog);
         }
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.

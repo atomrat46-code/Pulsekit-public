@@ -1412,7 +1412,8 @@ public final class DesktopBehavior {
       call("showView", "py");
       call("selectListedProgram", "Java", "SogniMusic.java");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n"}) {
+      // 18112026: --zip_outdir, the zip in a folder of its own (% codes), the track in --outdir's.
+      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n", "run%n --zip_outdir zips%ddmmyy"}) {
         edt(() -> log.setText(""));
         answers.add("Close");
         answers.add("Close");
@@ -1433,8 +1434,10 @@ public final class DesktopBehavior {
     boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
     boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
     boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
-    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append('\n');
-    if (!dated || !one || !two) throw new AssertionError(out.toString());
+    boolean zipped = new File(kept, "run3/sogni-House-wf7.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7.zip").isFile()
+        && new File(kept, "zips" + today + "/sogni-House-wf7.zip").isFile();
+    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append(", run3 + zips<today>: ").append(zipped).append('\n');
+    if (!dated || !one || !two || !zipped) throw new AssertionError(out.toString());
   }
 
   /** The Style database / genre list search: "rock" lists every rock style. */

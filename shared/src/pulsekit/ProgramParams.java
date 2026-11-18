@@ -715,12 +715,19 @@ public final class ProgramParams {
       p.label = "Output folder: the tracks, WAVs and zip go here (a name: a folder in Download, made when missing)";
       p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
     }
+    if (p.flag && p.takesValue && p.token.equals("--zip_outdir")) {
+      // The zip's own folder: Browse puts the picked folder in the field; % codes can be added to it.
+      p.dir = true;
+      p.typed = true;
+      p.label = "Zip folder: the zip (Zip ticked) goes here, the tracks stay in the output folder (a name: a folder in Download, made when missing)";
+      p.hint = "empty: the output folder; % codes: zips%ddmmyy, run%n";
+    }
     if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy, Song-%g (its group, picked in its ready dialog; also %c, %t1)";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
       if (!p.flag || p.takesValue || !p.token.equals(sessions[i][0])) continue;
-      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only"}[i] + " (instrument session)";
+      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only", "Drums & piano only", "Drums & synth only"}[i] + " (instrument session)";
       List<String> others = new ArrayList<String>();
       for (String[] o : sessions) if (!o[0].equals(p.token)) others.add(o[0]);
       p.clears = others.toArray(new String[0]);

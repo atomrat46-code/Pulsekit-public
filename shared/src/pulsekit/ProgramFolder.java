@@ -96,6 +96,15 @@ public final class ProgramFolder {
     return v.length() == 0 || v.startsWith("--") ? null : v;
   }
 
+  /** SogniMusic --zip_outdir: the folder its zip goes into (else --outdir's), or null. */
+  public static String zipOutdirArg(String program, java.util.List<String> argv) {
+    if (!"SogniMusic.java".equals(program) || argv == null) return null;
+    int at = argv.indexOf("--zip_outdir");
+    if (at < 0 || at + 1 >= argv.size()) return null;
+    String v = argv.get(at + 1) == null ? "" : argv.get(at + 1).trim();
+    return v.length() == 0 || v.startsWith("--") ? null : v;
+  }
+
   /**
    * --outdir's folder with its % codes filled in for today (as Downloads' subfolders: %ddmmyy,
    * %n the first number whose folder is not there yet), under `base` unless it is a whole path.

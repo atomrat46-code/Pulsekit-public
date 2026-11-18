@@ -38,8 +38,9 @@ import java.util.Map;
  * drum kit alone, percussion only..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  *
- * Instrument sessions: --drums_only, --drums_bass, --drums_guitar and --drums_bass_guitar each ask
- * for those instruments alone, in a prompt written for them (a rhythm-section duo, a power trio).
+ * Instrument sessions: --drums_only, --drums_bass, --drums_guitar, --drums_bass_guitar, --drums_piano and
+ * --drums_synth each ask for those instruments alone, in a prompt written for them (a rhythm-section duo, a
+ * power trio, drums with a piano, drums with a synthesizer).
  * One is picked, unless --multi_session: then each one given is a track of its own in the same
  * run (named with it: sogni-Funk-6f1262f1-drums_bass.mp3), measured and ranked as a comparison is.
  * With --random each drawn style is made in each session (and with each model in --model).
@@ -234,7 +235,7 @@ public final class SogniMusic {
       else if (a.equals("--drums_only")) {
         drumsOnly = true;
         if (!sessions.contains("drums")) sessions.add("drums");
-      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar")) {
+      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar") || a.equals("--drums_piano") || a.equals("--drums_synth")) {
         if (!sessions.contains(a.substring(2))) sessions.add(a.substring(2));
       } else if (a.equals("--multi_session")) multiSession = true;
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
@@ -248,6 +249,8 @@ public final class SogniMusic {
       else if (a.equals("--batchdir") && i + 1 < args.length) i++;
       // PyJav's: the folder the run's tracks, WAVs and zip are kept in (% codes filled in).
       else if (a.equals("--outdir") && i + 1 < args.length) i++;
+      // PyJav's: the folder the zip (--zip) is saved in (% codes filled in); empty: --outdir's.
+      else if (a.equals("--zip_outdir") && i + 1 < args.length) i++;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -258,9 +261,9 @@ public final class SogniMusic {
         return 2;
       }
     }
-    // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar).
+    // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar, drums_piano, drums_synth).
     List<String> ordered = new ArrayList<String>();
-    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar"}) if (sessions.contains(t)) ordered.add(t);
+    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth"}) if (sessions.contains(t)) ordered.add(t);
     sessions = ordered;
     if (sessions.size() > 1 && !multiSession) {
       say("Failed: pick one instrument session (" + sessionSwitches(sessions) + "), or add --multi_session to make each a track of its own");
@@ -727,8 +730,8 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>]");
+    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--instruments list] [--bpm N] [--duration seconds] "
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
   /**
@@ -938,6 +941,8 @@ public final class SogniMusic {
     StringBuilder sb = new StringBuilder();
     if (session.equals("drums_bass")) sb.append("Rhythm section duo, drum kit and bass guitar only");
     else if (session.equals("drums_guitar")) sb.append("Duo, drum kit and electric guitar only");
+    else if (session.equals("drums_piano")) sb.append("Duo, drum kit and acoustic piano only");
+    else if (session.equals("drums_synth")) sb.append("Duo, drum kit and synthesizer only");
     else sb.append("Power trio, drum kit, bass guitar and electric guitar only");
     if (g.length() > 0) sb.append(", ").append(g).append(" groove");
     if (style.length() > 0) sb.append(", ").append(style);
@@ -946,6 +951,12 @@ public final class SogniMusic {
           + "dry studio recording, instrumental.");
     } else if (session.equals("drums_guitar")) {
       sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one electric guitar playing riffs and chords. Just drums and guitar playing together, "
+          + "dry studio recording, instrumental.");
+    } else if (session.equals("drums_piano")) {
+      sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one acoustic piano playing chords and a melody. Just drums and piano playing together, "
+          + "dry studio recording, instrumental.");
+    } else if (session.equals("drums_synth")) {
+      sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one synthesizer playing chords and a lead line. Just drums and synthesizer playing together, "
           + "dry studio recording, instrumental.");
     } else {
       sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals, a bass guitar line and one electric guitar. Just the three of them playing together, "

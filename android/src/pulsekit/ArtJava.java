@@ -839,7 +839,11 @@ public final class ArtJava {
 
   /** A run's --outdir under Download (SogniMusic's), its % codes filled in; null when it has none. */
   static String runSub(String program, List<String> argv) {
-    String pattern = ProgramFolder.outdirArg(program, argv);
+    return subOf(ProgramFolder.outdirArg(program, argv));
+  }
+
+  /** A folder given in Params (--outdir, --zip_outdir) as Download's subfolder (% codes filled in), or a picked folder's address. */
+  static String subOf(String pattern) {
     if (pattern == null) return null;
     // A folder picked with Browse outside Download: the folder itself (Android's address for it).
     if (pattern.startsWith("content:")) return pattern;

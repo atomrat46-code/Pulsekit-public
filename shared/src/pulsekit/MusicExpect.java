@@ -36,6 +36,8 @@ public final class MusicExpect {
     {"--drums_bass", "drums_bass", "drums, bass"},
     {"--drums_guitar", "drums_guitar", "drums, guitar"},
     {"--drums_bass_guitar", "drums_bass_guitar", "drums, bass, guitar"},
+    {"--drums_piano", "drums_piano", "drums, piano"},
+    {"--drums_synth", "drums_synth", "drums, synth"},
   };
 
   /** The sessions asked for (their tags), in SESSIONS' order. */
