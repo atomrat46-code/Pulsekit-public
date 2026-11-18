@@ -103,6 +103,66 @@ public class BehaviorTest {
     org.junit.Assert.assertEquals(View.GONE, stop.getVisibility());
   }
 
+  /** 18112026: the instrument sessions ticked in Params stay as they were when SogniMusic is picked again. */
+  @Test
+  public void s264_sessions_kept_on_reselect() throws Exception {
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    String[] all = {"--multi_session", "--drums_only", "--drums_bass", "--drums_guitar", "--drums_bass_guitar", "--drums_piano", "--drums_synth", "--piano_only", "--synth_only"};
+    java.util.function.Function<View, String> ticks = dv -> {
+      StringBuilder b = new StringBuilder();
+      for (String f : all) {
+        android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + f);
+        if (c != null && c.isChecked()) b.append(f).append(' ');
+      }
+      return b.toString().trim();
+    };
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String f : new String[] {"--multi_session", "--piano_only", "--synth_only"}) ((android.widget.CheckBox) dv.findViewWithTag("params-check:" + f)).setChecked(true);
+    d.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    TextView args = (TextView) get("pkPyArgs");
+    String afterOk = args.getText().toString();
+    // The last run had six sessions; Select program → SogniMusic puts the saved Params back, not those.
+    PyJavRecent.remember(app.getFilesDir(), "SogniMusic.java", "--multi_session --drums_only --drums_bass --drums_guitar --drums_bass_guitar --drums_piano --drums_synth --duration 45", null, null);
+    call("pkRefreshRecent", 0);
+    idle();
+    View pane = app.pyPane;
+    pane.findViewWithTag("pk-recent-toggle").performClick();
+    pane.findViewWithTag("pk-recent-item:SogniMusic.java").performClick();
+    idle();
+    String afterPick = args.getText().toString();
+    call("pkOpenParams");
+    idle();
+    String again = ticks.apply(((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView());
+    org.junit.Assert.assertEquals("args after OK '" + afterOk + "', after pick '" + afterPick + "'", "--multi_session --piano_only --synth_only", again);
+  }
+
+  /** 18112026: --zip_by_session: each instrument session's files in a zip of its own, the shared ones in each. */
+  @Test
+  public void zipBySession() {
+    RunZip z = RunZip.start("Wrote sogni-Funk-wf1-drums_bass.mp3 (0 KB)\nSucceeded: sogni-Funk-wf1-drums_bass.mp3", java.util.Arrays.asList("--multi_session", "--drums_bass", "--drums_bass_guitar", "--piano_only", RunZip.BY_SESSION));
+    for (String f : new String[] {"sogni-Funk-wf1-drums_bass.mp3", "sogni-Funk-wf1-drums_bass.mid", "sogni-Funk-wf1-drums_bass_guitar.mp3",
+        "DrumMidi_CRT sogni-Funk-wf1-drums_bass_guitar log.txt", "sogni-Funk-wf1-piano.mp3", "sogni-Funk-wf1-ranking.txt", "SogniMusic log.txt"})
+      z.add(f, new byte[] {1});
+    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < parts.size(); i++) {
+      out.append(z.partName(i, parts.size())).append(':');
+      for (ZipPack.Source f : parts.get(i)) out.append(' ').append(f.path);
+      out.append('\n');
+    }
+    RunZip.finish();
+    org.junit.Assert.assertEquals(
+        "sogni-Funk-wf1-drums_bass.zip: sogni-Funk-wf1-drums_bass.mp3 sogni-Funk-wf1-drums_bass.mid sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n"
+      + "sogni-Funk-wf1-drums_bass_guitar.zip: sogni-Funk-wf1-drums_bass_guitar.mp3 DrumMidi_CRT sogni-Funk-wf1-drums_bass_guitar log.txt sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n"
+      + "sogni-Funk-wf1-piano.zip: sogni-Funk-wf1-piano.mp3 sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n", out.toString());
+  }
+
   /** 18112026: a folder picked with Browse and % codes written after it (SogniMusic's Zip folder): the picked folder and a folder in it. */
   @Test
   public void pickedFolderWithCodes() {

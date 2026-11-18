@@ -63,6 +63,8 @@ import java.util.Map;
  *
  * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
  * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
+ * --zip_by_session (with or without --zip): with --multi_session, each session's files (its tracks,
+ * WAVs, MIDI, logs) in a zip of its own (sogni-Funk-wf1-piano.zip); the ranking and the run's logs in each.
  * --zip_delete (with or without --zip): those files are deleted once the zip is saved; the zip
  * and the file sets made in Pulsekit stay.
  *
@@ -225,6 +227,8 @@ public final class SogniMusic {
       else if (a.equals("--zip")) continue;
       // PyJav's: with --zip, the files zipped deleted once the zip is saved.
       else if (a.equals("--zip_delete")) continue;
+      // PyJav's: each instrument session's files in a zip of its own.
+      else if (a.equals("--zip_by_session")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--variations") && i + 1 < args.length) {
@@ -767,7 +771,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--piano_only] [--synth_only] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--zip_by_session] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
   /**

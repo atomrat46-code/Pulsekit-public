@@ -3103,7 +3103,10 @@ final class PyJav {
             final PyJavRecent.Item run = runs.get(i);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));
             item.setName("pyjav-recent-run:" + i);
-            item.addActionListener(e -> this.loadRecent(run));
+            item.addActionListener(e -> {
+                this.recentAsRun = true;
+                this.loadRecent(run);
+            });
             menu.add(item);
         }
         // The star, last: bright when the program is starred; a click stars it or takes the star off.
@@ -3124,6 +3127,9 @@ final class PyJav {
         this.applyPyRecent(item);
     }
 
+    /** The next applyPyRecent is one of the program's runs, chosen from its list: its arguments as they were. */
+    boolean recentAsRun;
+
     void applyPyRecent(PyJavRecent.Item item) {
         if (item == null) return;
         app.pyInputPath = null;
@@ -3138,8 +3144,13 @@ final class PyJav {
         this.rememberProgram(item.name, data, binary, false);
         app.pyInputPath = null;
         this.showPyHint(PyJavHints.status(item.name, source, item.bytes));
-        // The hint fills args from the program's usage; the recent item's own args win.
-        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
+        // The hint fills args from the program's usage; the recent item's own args win. Picked again
+        // (not one of its runs chosen): the saved Params' switches, not the last run's.
+        String args = item.extra == null ? "" : item.extra;
+        String saved = this.recentAsRun ? null : this.loadParams(item.name);
+        this.recentAsRun = false;
+        if (saved != null) args = ProgramParams.withSaved(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, saved);
+        if (this.pyExtra != null) this.pyExtra.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.showRunning(item.name);
     }

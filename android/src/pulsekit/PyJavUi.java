@@ -234,6 +234,7 @@ public final class PyJavUi implements JavaRun.Listener {
                 .setItems(labels, (d, which) -> {
                   list.setVisibility(View.GONE);
                   toggle.setText("Select program \u25be");
+                  host.pyJav.pkRecentAsRun = true;
                   host.pyJav.pkLoadRecent(runs.indexOf(mine.get(which)) + 1);
                 })
                 // The star: bright when the program is starred; a tap stars it or takes the star off.

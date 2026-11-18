@@ -362,6 +362,9 @@ final class PyJav {
         pulsekit.PyJavUi.fillRecent(app, this.pkPyRecent, this.pkPyRecentItems);
     }
 
+    /** The next pkApplyRecent is one of the program's runs, chosen by a long press: its arguments as they were. */
+    boolean pkRecentAsRun;
+
     public void pkApplyRecent(int index) {
         if (this.pkPyRecentMute || this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
         pulsekit.PyJavRecent.Item item = (pulsekit.PyJavRecent.Item) this.pkPyRecentItems.get(index - 1);
@@ -376,7 +379,14 @@ final class PyJav {
         byte[] shipped = binary ? app.programMenus.bundledBytes(item.name) : null;
         if (binary) app.pkPyBytes = shipped != null ? shipped : item.bytes;
         else app.pkPyBytes = null;
-        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        String args = item.extra == null ? "" : item.extra;
+        // Picked again (not one of its runs chosen by a long press): the saved Params' switches, not the last run's.
+        if (!this.pkRecentAsRun) {
+            String saved = pulsekit.PyJavParams.load(app, item.name);
+            if (saved != null) args = pulsekit.ProgramParams.withSaved(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, saved);
+        }
+        this.pkRecentAsRun = false;
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
         if (app.pyEditor != null) {
             if (binary) app.pyEditor.setText("// " + item.name + "\n// Binary. Run uses this file.\n");
             else {
@@ -397,7 +407,7 @@ final class PyJav {
         String hint = pulsekit.PyJavHints.status(item.name, source, item.bytes);
         this.pkApplyHint(hint);
         // The hint fills args from the program's usage; the recent item's own args win.
-        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.pkShowRunning(item.name);
     }

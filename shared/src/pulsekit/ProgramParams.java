@@ -431,6 +431,7 @@ public final class ProgramParams {
       p.hint = "empty: the models Model lists (turbo,sft), or one";
     }
     if (p.flag && p.token.equals("--zip")) p.label = "Zip it all: tracks, WAVs, MIDI, results and logs into one zip in Download";
+    if (p.flag && p.token.equals("--zip_by_session")) p.label = "A zip for each instrument session (Multi-instrument session): its tracks, MIDI and logs";
     if (p.flag && p.token.equals("--zip_delete")) p.label = "Then delete the zipped files (the zip and Pulsekit's file sets stay)";
     if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
     if (p.flag && p.token.equals("--no_compare")) p.label = "No comparison: the tracks not measured or ranked (faster for hundreds of tracks; Tracks into file sets still makes their file sets)";
@@ -1701,6 +1702,18 @@ public final class ProgramParams {
     String[] out = new String[values.length];
     for (int i = 0; i < ps.size(); i++) out[i] = off.contains(ps.get(i).token) && canTurnOff(ps.get(i)) ? values[i] : "";
     return out;
+  }
+
+  /**
+   * A remembered run's arguments put back in the field (a program picked again from Recent): with
+   * Params saved, its own switches give way to them (the files kept), so a switch the Params have
+   * unticked since (an instrument session) is not ticked again, nor run.
+   */
+  public static String withSaved(List<Param> ps, String args, String saved) {
+    if (args == null) args = "";
+    if (saved == null || ps == null || ps.isEmpty()) return args;
+    String files = strip(ps, args);
+    return line(ps, values(ps, saved, files), files);
   }
 
   /** Field values from saved switches and the current arguments (saved switches win). */
