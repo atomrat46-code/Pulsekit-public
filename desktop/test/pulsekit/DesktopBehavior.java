@@ -1412,7 +1412,8 @@ public final class DesktopBehavior {
       call("showView", "py");
       call("selectListedProgram", "Java", "SogniMusic.java");
       javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
-      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n"}) {
+      // 18112026: --zip_outdir, the zip in a folder of its own (% codes), the track in --outdir's.
+      for (String dir : new String[] {"music%ddmmyy", "run%n", "run%n", "run%n --zip_outdir zips%ddmmyy"}) {
         edt(() -> log.setText(""));
         answers.add("Close");
         answers.add("Close");
@@ -1433,8 +1434,64 @@ public final class DesktopBehavior {
     boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
     boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
     boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
-    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append('\n');
-    if (!dated || !one || !two) throw new AssertionError(out.toString());
+    boolean zipped = new File(kept, "run3/sogni-House-wf7.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7.zip").isFile()
+        && new File(kept, "zips" + today + "/sogni-House-wf7.zip").isFile();
+    out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append(", run3 + zips<today>: ").append(zipped).append('\n');
+    if (!dated || !one || !two || !zipped) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 18112026: Stop for a Java program: SogniMusic on a fake Sogni that never finishes; Stop shown while it
+   * runs, pressed: the run ends at once (Aborted), Stop hidden, Run ready again.
+   */
+  void s262_java_program_stop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      readAll(ex.getRequestBody());
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    final int port = server.getAddress().getPort();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      final String extra = "--prompt \"funk groove\" --drums_only --duration 10 --no_wav --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      final java.awt.Component stop = component(frame, "pyjav-script-stop");
+      boolean shown = false;
+      for (int i = 0; i < 200 && !(shown = stop.isVisible()); i++) Thread.sleep(50);
+      Thread.sleep(1500);
+      final String label = ((javax.swing.AbstractButton) stop).getText();
+      edt(() -> ((javax.swing.AbstractButton) stop).doClick());
+      long t0 = System.currentTimeMillis();
+      String text = "";
+      for (int i = 0; i < 300 && !(text = log.getText()).contains("Aborted"); i++) Thread.sleep(50);
+      long took = System.currentTimeMillis() - t0;
+      idle();
+      out.append("stop shown while running: ").append(shown).append(", label ").append(label).append(", aborted: ").append(text.contains("Aborted")).append(" (")
+          .append(took < 10000 ? "under 10 s" : took + " ms").append("), stop hidden after: ").append(!stop.isVisible()).append('\n');
+      if (!shown || !"Stop".equals(label) || !text.contains("Aborted") || took >= 10000 || stop.isVisible()) throw new AssertionError(out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
   }
 
   /** The Style database / genre list search: "rock" lists every rock style. */
@@ -8995,6 +9052,17 @@ public final class DesktopBehavior {
       }
     });
     idle();
+    // 17112026: a plugin dragged onto plugin 4's Kit loaded field: plugin 4, not its path typed in the field.
+    final java.io.File anarchy = new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3");
+    anarchy.createNewFile();
+    final javax.swing.JTextField kit4 = (javax.swing.JTextField) component(d, "params-field:--kit_name4");
+    final String[] dropped = new String[1];
+    edt(() -> {
+      boolean took = kit4.getTransferHandler().importData(new javax.swing.TransferHandler.TransferSupport(kit4, new java.awt.datatransfer.StringSelection(anarchy.getAbsolutePath())));
+      dropped[0] = took + " field '" + kit4.getText() + "'";
+    });
+    idle();
+    this.out.append("dropped on Kit loaded 4: ").append(dropped[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9003,7 +9071,8 @@ public final class DesktopBehavior {
     this.out.append("tabs: ").append(titles).append("| --plugin on Plugins ").append(pluginOnTab).append(" | --map Clear hidden, shown, cleared: ").append(clearSeen[0]).append(clearSeen[1]).append(clearSeen[2])
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
     boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
-        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3");
+        && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
+        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");
@@ -10558,7 +10627,7 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_bench --hit_loo(--hit_bench) --hit_model_file= |")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_model_file= --hit_dir= --hit_zip_outdir= |")
         && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
         && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
         && all.contains("Cymbal model, Hit model]")
@@ -13945,6 +14014,108 @@ public final class DesktopBehavior {
           && text.contains("(2 tracks)") && inZip.stream().noneMatch(n -> n.endsWith(".wav")) && trackNames.equals(java.util.Arrays.asList("Funk-turbo.mid", "Metal-turbo.mid")) && trackRows >= 2 && trackRows % 2 == 0
           && trackClock.matches("00:00 / 00:\\d\\d") && !trackClock.equals("00:00 / 00:00")
           && songMade[0].matches("(Funk|Metal)-turbo [1-9]\\d* SogniMusic run 1 turbo") && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && inZip.contains("SogniMusic run 1 Metal-sft.mid") && inZip.contains("sogni-random-7-ranking.txt");
+      if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+  /** 18112026: as s173 with --no_compare: the tracks not measured or ranked, still into their file sets and the zip. */
+  void s173b_sogni_music_random_no_compare() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final byte[] track = Files.readAllBytes(new File(System.getProperty("pulsekit.test.dir"), "funk.mp3").toPath());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    final java.util.concurrent.atomic.AtomicInteger started = new java.util.concurrent.atomic.AtomicInteger();
+    final List<String> prompts = Collections.synchronizedList(new ArrayList<String>());
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.startsWith("/files/")) {
+        type = "audio/mpeg";
+        reply = track;
+      } else if (path.matches("/v1/creative-agent/workflows/wf_rnd\\d")) {
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"" + id + "\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/" + id + ".mp3\",\"mimeType\":\"audio/mpeg\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else {
+        if (ex.getRequestMethod().equals("POST")) prompts.add(body.replaceAll(".*\"prompt\":\"([^\"]*)\".*", "$1"));
+        reply = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_rnd" + started.incrementAndGet() + "\",\"status\":\"queued\"}}}").getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("--drums_only --bpm 120 --duration 10 --random 2 --styles \"Funk|Metal\" --model turbo,sft --seed 7 --compare_to_file_sets --no_compare --zip --key_file \""
+          + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port));
+      edt(() -> call("runPython"));
+      String text = "";
+      for (int i = 0; i < 2400 && !((text = log.getText()).contains("File sets made:") && text.contains("Zipped ")) && !text.contains("File sets stopped")
+          && !text.contains("Could not zip") && !text.contains("Failed:"); i++) Thread.sleep(100);
+      idle();
+      List<String> sets = new ArrayList<String>();
+      for (String src : Engine.fileSetSources(((Pulsekit) frame).learned, ((Pulsekit) frame).learnedFills)) if (src.startsWith("SogniMusic run")) sets.add(src);
+      Collections.sort(sets);
+      File zip = new File(home, "Downloads/sogni-random-7.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-random-7.zip");
+      List<String> inZip = new ArrayList<String>();
+      if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
+      Collections.sort(inZip);
+      boolean styled = prompts.size() == 4 && prompts.stream().anyMatch(p -> p.contains("Funk drum pattern")) && prompts.stream().anyMatch(p -> p.contains("Metal drum pattern"));
+      out.append("prompts: ").append(prompts.size()).append(", styles in them: ").append(styled).append('\n');
+      out.append("file sets: ").append(sets).append('\n');
+      out.append("zip: ").append(inZip.toString().replaceAll("rnd\\d", "rnd<n>")).append('\n');
+      // The turbo set keeps its two MIDI files; opened, it lists them (with their lengths), each with its patterns.
+      List<String> trackNames = new ArrayList<String>();
+      for (Engine.FileSetTrack tr : Engine.fileSetTracks("SogniMusic run 1 turbo")) trackNames.add(tr.name);
+      Collections.sort(trackNames);
+      final int[] rowsSeen = {0};
+      final String[] clockSeen = {""};
+      edt(() -> {
+        ((Pulsekit) frame).openPacks.put("f:SogniMusic run 1 turbo", true);
+        call("refreshLearnedChips");
+        java.util.ArrayDeque<java.awt.Component> todo = new java.util.ArrayDeque<java.awt.Component>();
+        todo.add((java.awt.Component) get("importedBar"));
+        while (!todo.isEmpty()) {
+          java.awt.Component c = todo.poll();
+          boolean shownNow = true;  // the row and all its parents (a closed set hides its panel, not its rows)
+          for (java.awt.Component up = c; up != null; up = up.getParent()) if (!up.isVisible()) shownNow = false;
+          if ("trackmidi".equals(c.getName()) && shownNow) {
+            rowsSeen[0]++;
+            for (java.awt.Component k : ((java.awt.Container) c).getComponents()) if ("midiclock".equals(k.getName())) clockSeen[0] = ((javax.swing.JLabel) k).getText();
+          }
+          if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) todo.add(k);
+        }
+      });
+      // Each MIDI file's row in each panel shown (Patterns, and Fills when the set has fills).
+      int trackRows = rowsSeen[0];
+      String trackClock = clockSeen[0];
+      // Make song from one MIDI file (its row's right click): a song named for the file, of the set.
+      final String[] songMade = {""};
+      edt(() -> {
+        Pulsekit app = (Pulsekit) frame;
+        if (app.fileSets.makeTrackSong("SogniMusic run 1 turbo", "SogniMusic run 1 turbo", 0, false)) {
+          Engine.ImportedSong so = app.songEditor.importedSong();
+          songMade[0] = so == null ? "" : so.name + " " + so.parts.size() + " " + so.fileSet;
+        }
+      });
+      out.append("song from a MIDI file: ").append(songMade[0]).append('\n');
+      out.append("turbo set's MIDI files: ").append(trackNames).append(", rows shown ").append(trackRows).append(", clock ").append(trackClock).append('\n');
+      boolean ok = styled && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && text.matches("(?s).*File sets made: SogniMusic run 1 (turbo|sft), SogniMusic run 1 (turbo|sft)\n.*")
+          && inZip.contains("SogniMusic run 1 Funk-turbo.mid") && !inZip.contains("sogni-random-7-ranking.txt");
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
     } finally {
       server.stop(0);

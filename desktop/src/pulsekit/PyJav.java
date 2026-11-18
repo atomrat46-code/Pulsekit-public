@@ -169,7 +169,7 @@ final class PyJav {
         this.pyBatchStop.setVisible(BatchQueue.current() != null);
         controls.add(this.pyBatchStop);
         // Stop script: a Python script running now (vst_render.py ends after the file in progress, then tests and zips).
-        this.pyScriptStop = app.action("Stop script", ELEV, FG, () -> this.stopScript());
+        this.pyScriptStop = app.action("Stop", ELEV, FG, () -> this.stopScript());
         this.pyScriptStop.setName("pyjav-script-stop");
         this.pyScriptStop.setVisible(PythonRun.current != null);
         controls.add(this.pyScriptStop);
@@ -816,6 +816,8 @@ final class PyJav {
         if (download != 0) SogniDownloads.args(download, filled);
         // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
         final JavaRun.Live live = new JavaRun.Live();
+        // Stop's run (JavaRun.live() is the program thread's own).
+        this.runLive = live;
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
@@ -878,7 +880,8 @@ final class PyJav {
                 runArgv.add(this.promptRunMode);
                 if (this.promptOutputInvented && outPath.length() > 0 && !runArgv.contains(outPath)) runArgv.add(outPath);
             }
-            if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
+            // Stop: Python scripts, and Java programs too (SogniMusic started with the wrong Params).
+            if (this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final long runStarted = System.currentTimeMillis();
             // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
             String outdirArg = ProgramFolder.outdirArg(name, argv);
@@ -1083,6 +1086,12 @@ final class PyJav {
                 if (result.code == 0 && RunZip.wanted(name, argv)) {
                     RunZip z = RunZip.start(result.log, argv);
                     z.dir = this.runOutDir;
+                    // --zip_outdir: the zip in a folder of its own (% codes filled in, made when missing).
+                    String zipArg = ProgramFolder.zipOutdirArg(name, argv);
+                    if (zipArg != null) {
+                        z.dir = ProgramFolder.outdir(zipArg, this.programFolder());
+                        if (!z.dir.isDirectory()) z.dir.mkdirs();
+                    }
                     this.zipAdd(z, name, "", result);
                     // The tracks saved in Downloads are the zip's: --zip_delete deletes them too.
                     for (File copy : savedAudio.values()) z.addCopy(copy.getPath());
@@ -2180,12 +2189,13 @@ final class PyJav {
 
     /** SogniMusic --compare_models: each model's track (as saved) measured in the background, then the ranking under the log. */
     void compareModels(final java.util.List<String> argv, final java.util.Map<String, File> saved, final String log) {
-        this.testNote("Measuring the models' tracks…");
+        final boolean measure = !argv.contains(MusicCompare.NO_COMPARE);
+        this.testNote(measure ? "Measuring the models' tracks…" : "Not compared (--no_compare)" + (argv.contains(MusicCompare.TO_FILE_SETS) ? ": the tracks into file sets" : ""));
         final java.util.Map<String, File> files = new java.util.HashMap<String, File>(saved);
         new Thread(() -> {
             String report;
             try {
-                report = MusicCompare.of(argv, log, name -> {
+                report = !measure ? null : MusicCompare.of(argv, log, name -> {
                     File f = files.get(name);
                     try {
                         byte[] data = f == null ? null : Files.readAllBytes(f.toPath());
@@ -2197,7 +2207,7 @@ final class PyJav {
             } catch (Throwable ex) {
                 report = "Could not compare the models' tracks: " + ex;
             }
-            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            final String shown = !measure ? "" : report == null ? "Fewer than two tracks to compare" : report;
             // Kept beside the tracks (Downloads): the log under the run is gone after the next run.
             final File kept = report == null ? null : this.saveProgramFile(MusicCompare.reportName(log), report.getBytes(StandardCharsets.UTF_8));
             // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
@@ -2213,7 +2223,7 @@ final class PyJav {
                 }
             }
             SwingUtilities.invokeLater(() -> {
-                for (String line : shown.split("\n")) this.testNote(line);
+                if (shown.length() > 0) for (String line : shown.split("\n")) this.testNote(line);
                 if (kept != null) this.testNote("Saved " + kept.getPath());
                 if (kept != null && RunZip.current() != null) RunZip.current().add(kept.getName(), kept);
                 if (!argv.contains(MusicCompare.TO_FILE_SETS)) {
@@ -2222,7 +2232,7 @@ final class PyJav {
                 }
                 MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"), log);
                 if (c == null) {
-                    this.testNote("No WAVs for DrumMidi: no file sets made");
+                    this.testNote("No tracks with drums for DrumMidi (Piano only, Synth only have none): no file sets made");
                     this.zipFinish();
                 } else {
                     c.report = shown;
@@ -2443,9 +2453,20 @@ final class PyJav {
     }
 
     javax.swing.JComponent pyScriptStop;
+    /** The program run in progress (its Live: Stop aborts it). */
+    volatile JavaRun.Live runLive;
 
     /** Stop script: asks the script to stop; pressed again, it is ended at once. */
     void stopScript() {
+        // A Java program (SogniMusic, DrumMidi...): stopped at once (its process ended).
+        JavaRun.Live live = this.runLive;
+        if (PythonRun.current == null && live != null && !live.done && !live.aborted()) {
+            live.abort();
+            this.testNote("Stopped by Stop.");
+            app.setNow("Stopping " + app.pyName + "\u2026");
+            if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
+            return;
+        }
         if (PythonRun.stop()) {
             this.testNote("Stopping: the step in progress ends after its file (vst_render.py then tests and zips what it made; Stop script again skips the next step too; pressed twice quickly, it ends the script now).");
             app.setNow("Stopping the script…");
@@ -3082,7 +3103,10 @@ final class PyJav {
             final PyJavRecent.Item run = runs.get(i);
             javax.swing.JMenuItem item = new javax.swing.JMenuItem(PyJavRecent.argsLabel(run));
             item.setName("pyjav-recent-run:" + i);
-            item.addActionListener(e -> this.loadRecent(run));
+            item.addActionListener(e -> {
+                this.recentAsRun = true;
+                this.loadRecent(run);
+            });
             menu.add(item);
         }
         // The star, last: bright when the program is starred; a click stars it or takes the star off.
@@ -3103,6 +3127,9 @@ final class PyJav {
         this.applyPyRecent(item);
     }
 
+    /** The next applyPyRecent is one of the program's runs, chosen from its list: its arguments as they were. */
+    boolean recentAsRun;
+
     void applyPyRecent(PyJavRecent.Item item) {
         if (item == null) return;
         app.pyInputPath = null;
@@ -3117,8 +3144,13 @@ final class PyJav {
         this.rememberProgram(item.name, data, binary, false);
         app.pyInputPath = null;
         this.showPyHint(PyJavHints.status(item.name, source, item.bytes));
-        // The hint fills args from the program's usage; the recent item's own args win.
-        if (this.pyExtra != null) this.pyExtra.setText(item.extra);
+        // The hint fills args from the program's usage; the recent item's own args win. Picked again
+        // (not one of its runs chosen): the saved Params' switches, not the last run's.
+        String args = item.extra == null ? "" : item.extra;
+        String saved = this.recentAsRun ? null : this.loadParams(item.name);
+        this.recentAsRun = false;
+        if (saved != null) args = ProgramParams.withSaved(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, saved);
+        if (this.pyExtra != null) this.pyExtra.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.showRunning(item.name);
     }
@@ -3940,6 +3972,8 @@ final class PyJav {
                         for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) return values[k];
                         return "";
                     });
+                    // A plugin dragged from Favourites or Recently used onto Kit loaded: the row's plugin, not its path typed in.
+                    field.setTransferHandler(this.kitFieldDrop(field.getTransferHandler(), this.pluginDrop(ps, values, fileLabels, uses, plugToken)));
                 }
                 if (p.token.startsWith("--map")) {
                     // vst_render's map: one of its files above, or another text file.
@@ -5270,6 +5304,60 @@ final class PyJav {
         };
     }
 
+    /**
+     * Kit loaded's field: a plugin dropped on it (a plugin file's path, from Favourites, Recently used or the
+     * desktop) goes to its row's plugin (pluginDrop); other text is typed in as before (`text`).
+     */
+    javax.swing.TransferHandler kitFieldDrop(final javax.swing.TransferHandler text, final javax.swing.TransferHandler plugin) {
+        return new javax.swing.TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport s) {
+                return plugin.canImport(s) || text != null && text.canImport(s);
+            }
+
+            @Override
+            public boolean importData(TransferSupport s) {
+                if (isPluginPath(s) && plugin.importData(s)) return true;
+                return text != null && text.importData(s);
+            }
+
+            @Override
+            public int getSourceActions(javax.swing.JComponent c) {
+                return text == null ? NONE : text.getSourceActions(c);
+            }
+
+            @Override
+            protected java.awt.datatransfer.Transferable createTransferable(javax.swing.JComponent c) {
+                // (The field's own copy and drag of its text, as before.)
+                if (!(c instanceof javax.swing.text.JTextComponent)) return null;
+                String sel = ((javax.swing.text.JTextComponent) c).getSelectedText();
+                return sel == null ? null : new java.awt.datatransfer.StringSelection(sel);
+            }
+
+            @Override
+            public void exportToClipboard(javax.swing.JComponent c, java.awt.datatransfer.Clipboard clip, int action) {
+                if (text != null) text.exportToClipboard(c, clip, action);
+            }
+
+            @Override
+            public boolean importData(javax.swing.JComponent c, java.awt.datatransfer.Transferable t) {
+                return text != null && text.importData(c, t);
+            }
+        };
+    }
+
+    /** What is dropped is a plugin: a file list, or one line of text naming a plugin file (.vst3, .dll, .clap...). */
+    static boolean isPluginPath(javax.swing.TransferHandler.TransferSupport s) {
+        try {
+            if (s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) return true;
+            if (!s.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) return false;
+            String v = String.valueOf(s.getTransferable().getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor)).trim();
+            return !v.contains("\n") && v.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(vst3|dll|clap|lv2|so|vst|component|sf2|sfz)$");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     /** The menu a listed plugin shows: Use as plugin 1 to 4 (the page's plugin rows). */
     javax.swing.JPopupMenu useMenu(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses, final String path) {
         javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
@@ -5327,7 +5415,15 @@ final class PyJav {
         for (int i = 0; i < ps.size(); i++) {
             if (!ps.get(i).token.equals(token)) continue;
             values[i] = path;
-            if (fileLabels[i] != null) fileLabels[i].setText(plugName(path));
+            if (fileLabels[i] != null) {
+                fileLabels[i].setText(plugName(path));
+                // The row brought into view: the lists are below the plugin rows, plugin 4 may be scrolled away.
+                final JLabel shown = fileLabels[i];
+                SwingUtilities.invokeLater(() -> {
+                    java.awt.Container row = shown.getParent();
+                    if (row instanceof javax.swing.JComponent) ((javax.swing.JComponent) row).scrollRectToVisible(new java.awt.Rectangle(0, 0, row.getWidth(), row.getHeight()));
+                });
+            }
             if (uses[i] != null) uses[i].setSelected(true);
             app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7));
             this.kitForPlugin(fileLabels[i], token, path);

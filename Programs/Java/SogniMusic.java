@@ -38,8 +38,11 @@ import java.util.Map;
  * drum kit alone, percussion only..."). Sogni has no stem or negative-prompt control, so this steers the model rather
  * than guaranteeing it; DrumMidi_CRT can still pull the drum hits out of a fuller mix.
  *
- * Instrument sessions: --drums_only, --drums_bass, --drums_guitar and --drums_bass_guitar each ask
- * for those instruments alone, in a prompt written for them (a rhythm-section duo, a power trio).
+ * Instrument sessions: --drums_only, --drums_bass, --drums_guitar, --drums_bass_guitar, --drums_piano and
+ * --drums_synth each ask for those instruments alone, in a prompt written for them (a rhythm-section duo, a
+ * power trio, drums with a piano, drums with a synthesizer). --piano_only, --synth_only, --bass_only and
+ * --guitar_only ask for that instrument with no drums at all: clean piano and synth sound to lay over drums whose MIDI is known
+ * (tools/accomp_mix.py layers:<folder>), to test DrumMidi under a real instrument.
  * One is picked, unless --multi_session: then each one given is a track of its own in the same
  * run (named with it: sogni-Funk-6f1262f1-drums_bass.mp3), measured and ranked as a comparison is.
  * With --random each drawn style is made in each session (and with each model in --model).
@@ -60,6 +63,8 @@ import java.util.Map;
  *
  * --zip: PyJav zips everything the run makes (the tracks, their WAVs, DrumMidi's MIDI and
  * results.txt, the models' ranking, each run's log) into one zip in Download, to send in one go.
+ * --zip_by_session (with or without --zip): with --multi_session, each session's files (its tracks,
+ * WAVs, MIDI, logs) in a zip of its own (sogni-Funk-wf1-piano.zip); the ranking and the run's logs in each.
  * --zip_delete (with or without --zip): those files are deleted once the zip is saved; the zip
  * and the file sets made in Pulsekit stay.
  *
@@ -222,6 +227,8 @@ public final class SogniMusic {
       else if (a.equals("--zip")) continue;
       // PyJav's: with --zip, the files zipped deleted once the zip is saved.
       else if (a.equals("--zip_delete")) continue;
+      // PyJav's: each instrument session's files in a zip of its own.
+      else if (a.equals("--zip_by_session")) continue;
       else if (a.equals("--lyrics") && i + 1 < args.length) lyrics = args[++i];
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
       else if (a.equals("--variations") && i + 1 < args.length) {
@@ -234,8 +241,11 @@ public final class SogniMusic {
       else if (a.equals("--drums_only")) {
         drumsOnly = true;
         if (!sessions.contains("drums")) sessions.add("drums");
-      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar")) {
+      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar") || a.equals("--drums_piano") || a.equals("--drums_synth")) {
         if (!sessions.contains(a.substring(2))) sessions.add(a.substring(2));
+      } else if (a.equals("--piano_only") || a.equals("--synth_only") || a.equals("--bass_only") || a.equals("--guitar_only")) {
+        String t = a.substring(2, a.length() - "_only".length());
+        if (!sessions.contains(t)) sessions.add(t);
       } else if (a.equals("--multi_session")) multiSession = true;
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
       else if (a.equals("--genre") && i + 1 < args.length) genre = args[++i];
@@ -248,6 +258,10 @@ public final class SogniMusic {
       else if (a.equals("--batchdir") && i + 1 < args.length) i++;
       // PyJav's: the folder the run's tracks, WAVs and zip are kept in (% codes filled in).
       else if (a.equals("--outdir") && i + 1 < args.length) i++;
+      // PyJav's: the folder the zip (--zip) is saved in (% codes filled in); empty: --outdir's.
+      else if (a.equals("--zip_outdir") && i + 1 < args.length) i++;
+      // PyJav's: the tracks not measured or ranked after the run (--compare_to_file_sets still makes file sets).
+      else if (a.equals("--no_compare")) continue;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -258,9 +272,9 @@ public final class SogniMusic {
         return 2;
       }
     }
-    // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar).
+    // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar, drums_piano, drums_synth).
     List<String> ordered = new ArrayList<String>();
-    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar"}) if (sessions.contains(t)) ordered.add(t);
+    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth", "piano", "synth", "bass", "guitar"}) if (sessions.contains(t)) ordered.add(t);
     sessions = ordered;
     if (sessions.size() > 1 && !multiSession) {
       say("Failed: pick one instrument session (" + sessionSwitches(sessions) + "), or add --multi_session to make each a track of its own");
@@ -623,11 +637,16 @@ public final class SogniMusic {
     int next = 0;
     int waited = 0;
     int done = 0;
+    // Sogni's start rate limit (429): the waits in a row for one run, and when the next start may be tried.
+    int rateWaits = 0;
+    long rateUntil = 0;
     if (jobs.size() > MAX_ACTIVE) say(jobs.size() + " runs, " + MAX_ACTIVE + " at a time (Sogni's limit): each starts when one before it is over");
     while (next < jobs.size() || !active.isEmpty()) {
       boolean full = false;
       while (next < jobs.size() && active.size() < MAX_ACTIVE && !full) {
         String[] j = jobs.get(next);
+        // Waiting out the start rate limit: the runs going on are finished first.
+        if (System.currentTimeMillis() < rateUntil && !active.isEmpty()) break;
         try {
           // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
           String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
@@ -639,8 +658,19 @@ public final class SogniMusic {
           if (shared[0] == null) shared[0] = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], id);
           next++;
           waited = 0;
+          rateWaits = 0;
         } catch (Exception ex) {
-          if (tooManyActive(ex) && (!active.isEmpty() || waited < 20)) {
+          if (startLimited(ex) && rateWaits < RATE_PATIENCE) {
+            // Sogni's start rate limit (429: "Creative workflow start rate limit exceeded", met after some 320
+            // starts in a row): the same run tried again after a wait, not given up (each later run failed at once).
+            full = true;
+            int wait = Math.max(RATE_WAIT_S, retryAfter(ex));
+            if (rateWaits == 0 || rateWaits % 10 == 0) say("Sogni's start rate limit reached: waiting " + wait + " s before starting " + j[0] + " (" + (next + 1) + " of " + jobs.size() + ")");
+            rateWaits++;
+            // The runs going on finish meanwhile; with none, only the wait.
+            if (active.isEmpty()) Thread.sleep(wait * 1000L);
+            else rateUntil = System.currentTimeMillis() + wait * 1000L;
+          } else if (tooManyActive(ex) && (!active.isEmpty() || waited < 20)) {
             // Others of the account's runs are going on: wait for one of these (or a while) and try again.
             full = true;
             if (active.isEmpty()) {
@@ -684,6 +714,19 @@ public final class SogniMusic {
   static final int MAX_ACTIVE = 10;
 
   /** Whether Sogni turned a start away for the account's runs going on ("409 Too many active creative workflows"). */
+  /** A start refused for Sogni's start rate limit (429), waited out (RATE_WAIT_S at least, Retry-After when longer) up to RATE_PATIENCE times in a row. */
+  static final int RATE_WAIT_S = Integer.getInteger("sogni.rateWait", 60), RATE_PATIENCE = 60;
+
+  static boolean startLimited(Exception ex) {
+    if (ex instanceof SogniApi.ApiException && ((SogniApi.ApiException) ex).status == 429) return true;
+    String m = ex.getMessage() == null ? "" : ex.getMessage();
+    return m.contains("(429)") || m.toLowerCase(java.util.Locale.ROOT).contains("rate limit");
+  }
+
+  static int retryAfter(Exception ex) {
+    return ex instanceof SogniApi.ApiException ? Math.max(0, ((SogniApi.ApiException) ex).retryAfter) : 0;
+  }
+
   static boolean tooManyActive(Exception ex) {
     String m = ex.getMessage() == null ? "" : ex.getMessage();
     return m.contains("Too many active") || m.contains("409") && m.toLowerCase(java.util.Locale.ROOT).contains("active");
@@ -727,8 +770,8 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>]");
+    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--piano_only] [--synth_only] [--bass_only] [--guitar_only] [--instruments list] [--bpm N] [--duration seconds] "
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--zip_by_session] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
   /**
@@ -904,7 +947,7 @@ public final class SogniMusic {
   /** The switches of the sessions given ("--drums_only and --drums_bass"). */
   static String sessionSwitches(List<String> sessions) {
     List<String> out = new ArrayList<String>();
-    for (String s : sessions) out.add(s.equals("drums") ? "--drums_only" : "--" + s);
+    for (String s : sessions) out.add(s.equals("drums") ? "--drums_only" : solo(s) ? "--" + s + "_only" : "--" + s);
     return String.join(", ", out);
   }
 
@@ -933,11 +976,14 @@ public final class SogniMusic {
    */
   static String sessionPrompt(String prompt, String genre, String session) {
     if (session.equals("drums")) return musicPrompt(prompt, genre, true, null, false);
+    if (solo(session)) return soloPrompt(prompt, genre, session);
     String g = genre == null ? "" : genre.trim();
     String style = prompt == null ? "" : prompt.trim();
     StringBuilder sb = new StringBuilder();
     if (session.equals("drums_bass")) sb.append("Rhythm section duo, drum kit and bass guitar only");
     else if (session.equals("drums_guitar")) sb.append("Duo, drum kit and electric guitar only");
+    else if (session.equals("drums_piano")) sb.append("Duo, drum kit and acoustic piano only");
+    else if (session.equals("drums_synth")) sb.append("Duo, drum kit and synthesizer only");
     else sb.append("Power trio, drum kit, bass guitar and electric guitar only");
     if (g.length() > 0) sb.append(", ").append(g).append(" groove");
     if (style.length() > 0) sb.append(", ").append(style);
@@ -947,10 +993,43 @@ public final class SogniMusic {
     } else if (session.equals("drums_guitar")) {
       sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one electric guitar playing riffs and chords. Just drums and guitar playing together, "
           + "dry studio recording, instrumental.");
+    } else if (session.equals("drums_piano")) {
+      sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one acoustic piano playing chords and a melody. Just drums and piano playing together, "
+          + "dry studio recording, instrumental.");
+    } else if (session.equals("drums_synth")) {
+      sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals with one synthesizer playing chords and a lead line. Just drums and synthesizer playing together, "
+          + "dry studio recording, instrumental.");
     } else {
       sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals, a bass guitar line and one electric guitar. Just the three of them playing together, "
           + "dry studio recording, instrumental.");
     }
+    return sb.toString();
+  }
+
+  /** A session of one instrument with no drums (--piano_only, --synth_only, --bass_only, --guitar_only). */
+  static boolean solo(String session) {
+    return session.equals("piano") || session.equals("synth") || session.equals("bass") || session.equals("guitar");
+  }
+
+  /**
+   * --piano_only, --synth_only, --bass_only, --guitar_only: the instrument alone, unaccompanied. Only it is
+   * named (a music model hears "no drums" as "drums"): a solo performer in the style's groove.
+   */
+  static String soloPrompt(String prompt, String genre, String session) {
+    String g = genre == null ? "" : genre.trim();
+    String style = prompt == null ? "" : prompt.trim();
+    String[] w = session.equals("piano") ? new String[] {"Solo acoustic piano, unaccompanied pianist", " piano piece",
+        ". Chords and a melody on one acoustic piano, left hand and right hand, the piano alone, dry studio recording, instrumental."}
+      : session.equals("synth") ? new String[] {"Solo synthesizer, one synth player alone", " synth part",
+        ". A synth pad, a synth bass line and an arpeggiated lead on one synthesizer, the synthesizer alone, dry studio recording, instrumental."}
+      : session.equals("bass") ? new String[] {"Solo electric bass guitar, one bassist alone", " bass line",
+        ". A groove on one electric bass guitar, fingered and picked notes, the bass alone, dry studio recording, instrumental."}
+      : new String[] {"Solo electric guitar, one guitarist alone", " guitar part",
+        ". Rhythm guitar chords and riffs on one electric guitar, the guitar alone, dry studio recording, instrumental."};
+    StringBuilder sb = new StringBuilder(w[0]);
+    if (g.length() > 0) sb.append(", ").append(g).append(w[1]);
+    if (style.length() > 0) sb.append(", ").append(style);
+    sb.append(w[2]);
     return sb.toString();
   }
 

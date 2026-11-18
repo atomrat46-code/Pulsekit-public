@@ -26,8 +26,20 @@ public final class RunKeeper extends Service {
   /** A run started: the notification shows it. */
   public static void start(Context context, String program) {
     stopWanted = false;
+    LATER.removeCallbacks(STOPPER);
     String text = "Pulsekit · " + (program == null || program.isEmpty() ? "a program" : program) + " running";
     mark(context, program);
+    // Already shown (a chain's next run: SogniMusic's tracks through DrumMidi): only its text changed. Android
+    // does not let an app in the background start it again; between runs it is kept (stop waits), so
+    // DrumMidi in the background is not closed as a cached app using a whole core.
+    if (foreground && service != null) {
+      try {
+        service.show(text);
+        return;
+      } catch (Throwable ignored) {
+        // shown again below
+      }
+    }
     try {
       Intent intent = new Intent(context, RunKeeper.class).putExtra(TEXT, text);
       if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent);
@@ -37,8 +49,44 @@ public final class RunKeeper extends Service {
     }
   }
 
-  /** Every run is over: the notification goes. */
+  /** How long the notification stays after the last run, for a chain's next one (and again while one is coming). */
+  static final long GRACE_MS = 60000L, MAX_IDLE_MS = 30 * 60000L;
+  static volatile long stopAsked;
+  static final android.os.Handler LATER = new android.os.Handler(android.os.Looper.getMainLooper());
+  static Context stopContext;
+  static final Runnable STOPPER = new Runnable() {
+    @Override
+    public void run() {
+      // A chain's next step is coming (SogniMusic's tracks made WAVs, DrumMidi on each, a folder's file sets): kept.
+      // (A chain's step between runs: at most MAX_IDLE_MS with no run, in case its state was left over.)
+      if (PyJav.RUNS.get() > 0 || busy() && System.currentTimeMillis() - stopAsked < MAX_IDLE_MS) {
+        LATER.postDelayed(this, GRACE_MS);
+        return;
+      }
+      stopNow(stopContext);
+    }
+  };
+
+  /** A chain of runs is not over (SogniMusic's comparison or file sets, a batch, a folder's file sets). */
+  static boolean busy() {
+    try {
+      MusicCompare.Chain c = MusicCompare.chain();
+      return c != null || MusicCompare.heldImport || BatchQueue.current() != null;
+    } catch (Throwable ex) {
+      return false;
+    }
+  }
+
+  /** Every run is over: the notification goes (after GRACE_MS, so the next run of a chain keeps it). */
   public static void stop(Context context) {
+    stopContext = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+    stopAsked = System.currentTimeMillis();
+    LATER.removeCallbacks(STOPPER);
+    LATER.postDelayed(STOPPER, GRACE_MS);
+  }
+
+  static void stopNow(Context context) {
+    if (context == null) return;
     unmark(context);
     // Stopped before it showed its notification (a run over at once, the app in the background):
     // Android ends the app when a service started that way never calls startForeground. It stops
@@ -87,10 +135,32 @@ public final class RunKeeper extends Service {
     new File(context.getFilesDir(), MARK).delete();
   }
 
+  /** The service while it runs (show: its notification's text changed). */
+  static volatile RunKeeper service;
+
   @Override
   public int onStartCommand(Intent intent, int flags, int startId) {
     String text = intent == null ? null : intent.getStringExtra(TEXT);
     if (text == null) text = "Pulsekit · running";
+    service = this;
+    startForeground(1, notification(text));
+    foreground = true;
+    if (stopWanted) {
+      stopWanted = false;
+      foreground = false;
+      stopForeground(true);
+      stopSelf();
+    }
+    return START_NOT_STICKY;
+  }
+
+  /** The notification now says `text`. */
+  void show(String text) {
+    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+    if (nm != null) nm.notify(1, notification(text));
+  }
+
+  Notification notification(String text) {
     Notification.Builder b;
     if (Build.VERSION.SDK_INT >= 26) {
       NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -106,20 +176,13 @@ public final class RunKeeper extends Service {
     if (open != null) {
       b.setContentIntent(android.app.PendingIntent.getActivity(this, 0, open, Build.VERSION.SDK_INT >= 23 ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
     }
-    startForeground(1, b.build());
-    foreground = true;
-    if (stopWanted) {
-      stopWanted = false;
-      foreground = false;
-      stopForeground(true);
-      stopSelf();
-    }
-    return START_NOT_STICKY;
+    return b.build();
   }
 
   @Override
   public void onDestroy() {
     foreground = false;
+    service = null;
     super.onDestroy();
   }
 

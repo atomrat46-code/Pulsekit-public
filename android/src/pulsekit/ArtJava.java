@@ -832,6 +832,26 @@ public final class ArtJava {
   /** SogniMusic --outdir of the run that went last: its folder under Download (% codes filled in), or null. */
   static volatile String lastSub;
 
+  /** Between a picked folder's address and a folder inside it in a run's `sub` (subOf). */
+  static final String TREE_SUB = "|";
+
+  /** The folder `path` (a/b) is in the picked folder `tree` already. */
+  static boolean treeHas(String tree, String path) {
+    try {
+      Context ctx = context();
+      android.net.Uri treeUri = android.net.Uri.parse(tree);
+      android.net.Uri dir = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, android.provider.DocumentsContract.getTreeDocumentId(treeUri));
+      for (String part : path.split("/")) {
+        if (part.isEmpty()) continue;
+        dir = childDir(ctx, treeUri, dir, part);
+        if (dir == null) return false;
+      }
+      return true;
+    } catch (Throwable ex) {
+      return false;
+    }
+  }
+
   /** The public Download folder. */
   static File downloads() {
     return android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
@@ -839,10 +859,26 @@ public final class ArtJava {
 
   /** A run's --outdir under Download (SogniMusic's), its % codes filled in; null when it has none. */
   static String runSub(String program, List<String> argv) {
-    String pattern = ProgramFolder.outdirArg(program, argv);
+    return subOf(ProgramFolder.outdirArg(program, argv));
+  }
+
+  /** A folder given in Params (--outdir, --zip_outdir) as Download's subfolder (% codes filled in), or a picked folder's address. */
+  static String subOf(String pattern) {
     if (pattern == null) return null;
-    // A folder picked with Browse outside Download: the folder itself (Android's address for it).
-    if (pattern.startsWith("content:")) return pattern;
+    // A folder picked with Browse outside Download: the folder itself (Android's address for it); a
+    // folder written after it (content://.../tree/primary%3Amidi/%n, run%ddmmyy) its folder inside, %
+    // codes filled in (%n: the first number whose folder is not there yet), kept as "<tree>|<folder>".
+    if (pattern.startsWith("content:")) {
+      int t = pattern.indexOf("/tree/");
+      int end = t < 0 ? -1 : pattern.indexOf('/', t + "/tree/".length());
+      if (end < 0) return pattern;
+      final String tree = pattern.substring(0, end);
+      String inside = pattern.substring(end + 1).replaceAll("^/+|/+$", "");
+      if (inside.isEmpty()) return tree;
+      String filled = DownloadMove.expand(inside, java.util.Calendar.getInstance(), head -> treeHas(tree, head)).replaceAll("(^|/)\\.\\.?(?=/|$)", "")
+          .replaceAll("/+", "/").replaceAll("^/|/$", "");
+      return filled.isEmpty() ? tree : tree + TREE_SUB + filled;
+    }
     String sub = ProgramFolder.subdir(pattern, downloads()).replaceAll("(^|/)\\.\\.?(?=/|$)", "").replaceAll("/+", "/").replaceAll("^/|/$", "");
     return sub.length() == 0 ? null : sub;
   }
@@ -854,7 +890,10 @@ public final class ArtJava {
   static String publish(Context ctx, String name, byte[] data, String sub) {
     if (sub == null || sub.length() == 0) return publish(ctx, name, data);
     if (sub.startsWith("content:")) {
-      String picked = toTree(ctx, sub, ProgramFolder.labelOf(sub), name.replace('\\', '_').replace('/', '_'), data);
+      // "<tree>|<folder>": into that folder in the picked one (made when missing).
+      int bar = sub.indexOf(TREE_SUB);
+      String tree = bar < 0 ? sub : sub.substring(0, bar), inside = bar < 0 ? null : sub.substring(bar + TREE_SUB.length());
+      String picked = toTree(ctx, tree, ProgramFolder.labelOf(tree), inside, name.replace('\\', '_').replace('/', '_'), data);
       return picked != null ? picked : publish(ctx, name, data);
     }
     String chosen = ProgramFolder.get() != null ? toTree(ctx, ProgramFolder.get(), ProgramFolder.label(), sub, name.replace('\\', '_').replace('/', '_'), data) : null;

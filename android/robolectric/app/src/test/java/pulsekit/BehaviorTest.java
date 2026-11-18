@@ -85,6 +85,121 @@ public class BehaviorTest {
 
   // ---------------------------------------------------------------- scenarios
 
+  /** 18112026: Stop for a program run: shown while it runs, it aborts the run and hides. */
+  @Test
+  public void s263_stop_running_program() throws Exception {
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    View stop = app.pyPane.findViewWithTag("pyjav-stop");
+    boolean hiddenIdle = stop != null && stop.getVisibility() == View.GONE;
+    JavaRun.Live live = new JavaRun.Live();
+    app.pyJav.pkLive = live;
+    stop.setVisibility(View.VISIBLE);
+    stop.performClick();
+    idle();
+    org.junit.Assert.assertTrue("Stop hidden when idle: " + hiddenIdle, hiddenIdle);
+    org.junit.Assert.assertTrue("run aborted", live.aborted());
+    org.junit.Assert.assertEquals(View.GONE, stop.getVisibility());
+  }
+
+  /** 18112026: the instrument sessions ticked in Params stay as they were when SogniMusic is picked again. */
+  @Test
+  public void s264_sessions_kept_on_reselect() throws Exception {
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    String[] all = {"--multi_session", "--drums_only", "--drums_bass", "--drums_guitar", "--drums_bass_guitar", "--drums_piano", "--drums_synth", "--piano_only", "--synth_only"};
+    java.util.function.Function<View, String> ticks = dv -> {
+      StringBuilder b = new StringBuilder();
+      for (String f : all) {
+        android.widget.CheckBox c = (android.widget.CheckBox) dv.findViewWithTag("params-check:" + f);
+        if (c != null && c.isChecked()) b.append(f).append(' ');
+      }
+      return b.toString().trim();
+    };
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    for (String f : new String[] {"--multi_session", "--piano_only", "--synth_only"}) ((android.widget.CheckBox) dv.findViewWithTag("params-check:" + f)).setChecked(true);
+    d.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    TextView args = (TextView) get("pkPyArgs");
+    String afterOk = args.getText().toString();
+    // The last run had six sessions; Select program → SogniMusic puts the saved Params back, not those.
+    PyJavRecent.remember(app.getFilesDir(), "SogniMusic.java", "--multi_session --drums_only --drums_bass --drums_guitar --drums_bass_guitar --drums_piano --drums_synth --duration 45", null, null);
+    call("pkRefreshRecent", 0);
+    idle();
+    View pane = app.pyPane;
+    pane.findViewWithTag("pk-recent-toggle").performClick();
+    pane.findViewWithTag("pk-recent-item:SogniMusic.java").performClick();
+    idle();
+    String afterPick = args.getText().toString();
+    call("pkOpenParams");
+    idle();
+    String again = ticks.apply(((AlertDialog) ShadowDialog.getLatestDialog()).getWindow().getDecorView());
+    org.junit.Assert.assertEquals("args after OK '" + afterOk + "', after pick '" + afterPick + "'", "--multi_session --piano_only --synth_only", again);
+  }
+
+  /** 18112026: SogniMusic's DrumMidi step: DrumMidi's saved folder of zips is not its input; Piano only and Synth only tracks have no step. */
+  @Test
+  public void chainLeavesDrumMidiFolderAndDrumlessTracks() {
+    String saved = "--dir content://tree/primary%3ASamples --recursive --zip --zip_mb 25 --zip_outdir /x/zips --faded-opens --drums-only --sens 1";
+    java.util.List<String> args = MusicExpect.of(java.util.Arrays.asList("--drums_only")).drumMidiArgs("a.wav", "a.mid", saved);
+    org.junit.Assert.assertEquals("[a.wav, a.mid, --faded-opens, --drums-only, --sens, 1]", args.toString());
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_bass", "--piano_only", "--synth_only", "--bass_only", "--guitar_only");
+    java.util.List<String[]> wavs = new java.util.ArrayList<>();
+    wavs.add(new String[] {"Funk-drums_bass-sft", "/t/a.wav"});
+    wavs.add(new String[] {"Funk-piano-sft", "/t/b.wav"});
+    wavs.add(new String[] {"Funk-synth-turbo", "/t/c.wav"});
+    MusicCompare.Chain c = MusicCompare.startChain(argv, new java.util.ArrayList<>(), wavs, saved);
+    int n = c.tracks.size();
+    MusicCompare.stopChain();
+    org.junit.Assert.assertEquals(1, n);
+    java.util.List<String[]> drumless = new java.util.ArrayList<>(wavs.subList(1, 3));
+    // Bass only and Guitar only too (and their tags are not drums_bass's or drums_guitar's).
+    drumless.add(new String[] {"Funk-bass-sft", "/t/d.wav"});
+    drumless.add(new String[] {"Funk-guitar-turbo", "/t/e.wav"});
+    org.junit.Assert.assertEquals("bass", MusicExpect.sessionOf("Funk-bass-sft"));
+    org.junit.Assert.assertEquals("drums_bass", MusicExpect.sessionOf("Funk-drums_bass-sft"));
+    org.junit.Assert.assertEquals("drums_guitar", MusicExpect.sessionOf("Funk-drums_guitar"));
+    org.junit.Assert.assertNull(MusicCompare.startChain(argv, new java.util.ArrayList<>(), drumless, saved));
+  }
+
+  /** 18112026: --zip_by_session: each instrument session's files in a zip of its own, the shared ones in each. */
+  @Test
+  public void zipBySession() {
+    RunZip z = RunZip.start("Wrote sogni-Funk-wf1-drums_bass.mp3 (0 KB)\nSucceeded: sogni-Funk-wf1-drums_bass.mp3", java.util.Arrays.asList("--multi_session", "--drums_bass", "--drums_bass_guitar", "--piano_only", RunZip.BY_SESSION));
+    for (String f : new String[] {"sogni-Funk-wf1-drums_bass.mp3", "sogni-Funk-wf1-drums_bass.mid", "sogni-Funk-wf1-drums_bass_guitar.mp3",
+        "DrumMidi_CRT sogni-Funk-wf1-drums_bass_guitar log.txt", "sogni-Funk-wf1-piano.mp3", "sogni-Funk-wf1-ranking.txt", "SogniMusic log.txt"})
+      z.add(f, new byte[] {1});
+    java.util.List<java.util.List<ZipPack.Source>> parts = z.parts(RunZip.PART);
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < parts.size(); i++) {
+      out.append(z.partName(i, parts.size())).append(':');
+      for (ZipPack.Source f : parts.get(i)) out.append(' ').append(f.path);
+      out.append('\n');
+    }
+    RunZip.finish();
+    org.junit.Assert.assertEquals(
+        "sogni-Funk-wf1-drums_bass.zip: sogni-Funk-wf1-drums_bass.mp3 sogni-Funk-wf1-drums_bass.mid sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n"
+      + "sogni-Funk-wf1-drums_bass_guitar.zip: sogni-Funk-wf1-drums_bass_guitar.mp3 DrumMidi_CRT sogni-Funk-wf1-drums_bass_guitar log.txt sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n"
+      + "sogni-Funk-wf1-piano.zip: sogni-Funk-wf1-piano.mp3 sogni-Funk-wf1-ranking.txt SogniMusic log.txt\n", out.toString());
+  }
+
+  /** 18112026: a folder picked with Browse and % codes written after it (SogniMusic's Zip folder): the picked folder and a folder in it. */
+  @Test
+  public void pickedFolderWithCodes() {
+    String tree = "content://com.android.externalstorage.documents/tree/primary%3Amidi%2FSogniMusic";
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    org.junit.Assert.assertEquals(tree, ArtJava.subOf(tree));
+    org.junit.Assert.assertEquals(tree, ArtJava.subOf(tree + "/"));
+    org.junit.Assert.assertEquals(tree + "|1", ArtJava.subOf(tree + "/%n"));
+    org.junit.Assert.assertEquals(tree + "|zips" + today, ArtJava.subOf(tree + "/zips%ddmmyy"));
+    org.junit.Assert.assertEquals("Sogni", ArtJava.subOf("Sogni"));
+  }
+
   @Test
   public void s01_boot() throws Exception {
     snap("s01_boot");
@@ -3517,10 +3632,18 @@ public class BehaviorTest {
     android.content.Intent started = org.robolectric.Shadows.shadowOf(app).getNextStartedService();
     out.append("run kept going: ").append(started != null && started.getComponent().getClassName().equals(RunKeeper.class.getName()))
         .append(", ").append(started == null ? "" : started.getStringExtra(RunKeeper.TEXT)).append(", noted ").append(new File(dir, RunKeeper.MARK).isFile()).append('\n');
+    // (No run or chain left over from another test.)
+    PyJav.RUNS.set(0);
+    MusicCompare.heldImport = false;
+    MusicCompare.stopChain();
     RunKeeper.stop(app);
-    out.append("over: note gone ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    // 18112026: kept a while after the last run (a chain's next run, the app in the background, keeps it).
+    boolean keptAfter = new File(dir, RunKeeper.MARK).exists();
+    org.robolectric.shadows.ShadowLooper.idleMainLooper(61, java.util.concurrent.TimeUnit.SECONDS);
+    boolean goneLater = !new File(dir, RunKeeper.MARK).exists();
+    out.append("over: kept for the next run ").append(keptAfter).append(", note gone a minute later ").append(goneLater).append('\n');
     RunKeeper.markedHere = false;
-    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null) throw new AssertionError(out.toString());
+    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null || !keptAfter || !goneLater) throw new AssertionError(out.toString());
     write("s136_crash_log_and_run_keeper", out.toString());
   }
 

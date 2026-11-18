@@ -1,13 +1,21 @@
 """hit_model.py: DrumMidi's hit model (DrumMidi_CRT.HitModel): kicks, snares and toms, learned from kits
 rendered from known MIDI. A small network (one hidden layer of 32) told each onset DrumMidi considers a kick,
 snare or tom from its bands' energies around it and the rules' own say. The built-in one: 51 kits (5
-DrumGizmo kits, also under a bass and guitars; 46 VST kits), 487,000 onsets. Each plugin family held out
+DrumGizmo kits, also under a bass, guitars, a piano and a synthesizer (tools/accomp_mix.py); 46 VST kits),
+548,000 onsets, and (18.11.2026) 15% of the onsets of the same 5 DrumGizmo kits under real piano and synth
+recordings (SogniMusic's Piano only / Synth only tracks, accomp_mix.py layers:<folder>). Each kit held out: real
+synth kick F 80.1 -> 80.6, snare 77.9 -> 79.5, tom 75.0 -> 76.0; real piano snare 83.9 -> 85.0; the other mixes
+and kits as before (all of them at full weight: synth better still, but toms 1-2 down on most VST kits).
+Since 18.11.2026 without the electronic kits (Beat DRMR, Drumatic): acoustic kits only. Each held out, against
+the model with them: Ugritone kick +0.5, snare +0.2, tom +1.6; KVLT and Anarchy toms +2; DRSKit kick -2.4. With the piano and synth mixes (each kit held out): piano snare P86 R77 -> P89 R82, synth
+kick P80 -> P90, snare R70 -> R77, tom P81 -> P89; the other mixes as before. Each plugin family held out
 in turn (check): kick F 83 -> 93, snare 84 -> 94, tom 45 -> 85; all of DrumMidi on held-out songs: kick
 P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
 
   python tools/hit_model.py data   <kits.txt> <work> [jar]   the training data, a .npz a kit
   python tools/hit_model.py check  <work>                    leave one kit family out: how it does on kits it never saw
-  python tools/hit_model.py export <work> [--write] [--file <model.txt>]  the model from every kit; --write puts
+  python tools/hit_model.py export <work> [--write] [--file <model.txt>] [--hidden N] [--epochs N] [--variant ugritone]
+                                                             the model from every kit (hidden units, default 32); --write puts
                                                              it in DrumMidi_CRT.java, --file writes a model file
                                                              (DrumMidi -Ddm.hitModelFile=<file>)
   python tools/hit_model.py bench  <kits.txt> <work> [jar]   DrumMidi itself, each kit with a model learned without
@@ -213,9 +221,17 @@ def f1(pred, y):
     return 100.0 * 2 * tp / max(1, 2 * tp + fp + fn), int(tp), int(fp), int(fn)
 
 
+# Kit families of one maker held out together, so a test is of a maker DrumMidi has never heard: Ugritone's
+# plugins and packs (Ugritone Drums, its KVLT packs, Northern Artillery, Riot, Anarchy) and AVL's drumkits
+# (avldrums and its LV2 kits: Black Pearl, Blonde Bop, Red Zeppelin, Buskman's Holiday).
+FAMILY_OF = {"KVLT": "Ugritone", "Artillery": "Ugritone", "Riot": "Ugritone", "Anarchy": "Ugritone", "LV2": "avldrums"}
+
+
 def family(name):
-    """A kit's family: the part of its name before "~" (kits of one plugin share samples: held out together)."""
-    return name.split("~")[0]
+    """A kit's family: the part of its name before "~" (kits of one plugin share samples: held out together),
+    with FAMILY_OF's makers' plugins as one."""
+    f = name.split("~")[0]
+    return FAMILY_OF.get(f, f)
 
 
 def check(work):
@@ -245,11 +261,11 @@ def check(work):
         print("All %-5s rules F %5.1f -> model F %5.1f (the onsets DrumMidi considers)" % (dr, 200 * r[0] / max(1, 2 * r[0] + r[1] + r[2]), 200 * m[0] / max(1, 2 * m[0] + m[1] + m[2])))
 
 
-def export(work, write, file):
+def export(work, write, file, hidden=32, epochs=6, variant=None):
     d = load(work)
     X = np.vstack([v["X"] for v in d.values()])
     Y = np.vstack([v["Y"] for v in d.values()])
-    m = fit(X, Y)
+    m = fit(X, Y, hidden=hidden, epochs=epochs)
     th = thresholds(predict(m, X), Y)
     mu, sd, W1, b1, W2, b2 = m
     if file:
@@ -260,6 +276,17 @@ def export(work, write, file):
     java = ("        static double[] HM_MU = %s, HM_SD = %s;\n        static double[][] HM_W = null;\n        static double[] HM_B = null, HM_T = %s;\n"
             "        static double[][] HM_W1 = {%s}, HM_W2 = {%s};\n        static double[] HM_B1 = %s, HM_B2 = %s;\n"
             % (arr(mu), arr(sd), arr(th), ", ".join(arr(r) for r in W1), ", ".join(arr(r) for r in W2), arr(b1), arr(b2)))
+    if variant:
+        # A second model DrumMidi has built in (--hit-model <variant>): its text as one string constant.
+        p = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
+        s = open(p, encoding="utf-8").read()
+        begin, end = "        // hit model %s: begin\n" % variant, "        // hit model %s: end\n" % variant
+        a = s.index(begin) + len(begin)
+        e = s.index(end)
+        text = model_text(m, th).replace("\n", "\\n")
+        open(p, "w", encoding="utf-8").write(s[:a] + '        static final String %s = "%s";\n' % (variant.upper(), text) + s[e:])
+        print("Wrote the %s model into %s (rebuild the jar: python tools/make_drummidi_jar.py)" % (variant, p))
+        return
     if write:
         p = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
         s = open(p, encoding="utf-8").read()
@@ -327,7 +354,9 @@ if __name__ == "__main__":
     elif len(a) >= 2 and a[0] == "check":
         check(a[1])
     elif len(a) >= 2 and a[0] == "export":
-        export(a[1], "--write" in a, a[a.index("--file") + 1] if "--file" in a else None)
+        export(a[1], "--write" in a, a[a.index("--file") + 1] if "--file" in a else None,
+               int(a[a.index("--hidden") + 1]) if "--hidden" in a else 32, int(a[a.index("--epochs") + 1]) if "--epochs" in a else 6,
+               a[a.index("--variant") + 1] if "--variant" in a else None)
     elif len(a) >= 3 and a[0] == "bench":
         bench(a[1], a[2], a[3] if len(a) > 3 else JAR)
     else:

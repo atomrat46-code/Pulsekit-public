@@ -209,6 +209,11 @@ public final class ProgramParams {
         p.choices = StyleDb.names();
       }
     }
+    // vst_render's --edit (the plugin's window before the run, one plugin only) is not a row: each plugin row's
+    // Edit settings does it, for one plugin or four; a box ticked by mistake stopped runs of several plugins.
+    if (vstRender) {
+      for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) if (it.next().token.equals("--edit")) it.remove();
+    }
     // The Sogni programs that download pictures, videos and music: Destination subfolder (PyJav takes it off
     // and keeps it with the run; Downloads' Move puts the run's files there).
     if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.SUB_PARAM)) {
@@ -388,6 +393,17 @@ public final class ProgramParams {
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
+    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone (computer only: python tools/setup_demucs.py once)";
+    // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
+      p.label = "Hit model (kicks, snares and toms)";
+      p.dropdown = true;
+      p.choices = new String[] {"General: recordings from anywhere (other makers' kits, real songs)",
+          "Ugritone-tuned: Ugritone kits' renders (Ugritone Drums, KVLT, Riot, Anarchy); worse on other kits"};
+      p.choiceValues = new String[] {"", "ugritone"};
+    }
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--kit")) {
       p.label = "Kit profile (the kit's own kick, toms and cymbals, as vst_render.py --test learns them)";
       p.hint = "empty: none; a .kit file";
@@ -426,8 +442,10 @@ public final class ProgramParams {
       p.hint = "empty: the models Model lists (turbo,sft), or one";
     }
     if (p.flag && p.token.equals("--zip")) p.label = "Zip it all: tracks, WAVs, MIDI, results and logs into one zip in Download";
+    if (p.flag && p.token.equals("--zip_by_session")) p.label = "A zip for each instrument session (Multi-instrument session): its tracks, MIDI and logs";
     if (p.flag && p.token.equals("--zip_delete")) p.label = "Then delete the zipped files (the zip and Pulsekit's file sets stay)";
-    if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Compared tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
+    if (p.flag && p.token.equals("--compare_to_file_sets")) p.label = "Tracks into file sets: DrumMidi on each (SogniMusic run N <model>)";
+    if (p.flag && p.token.equals("--no_compare")) p.label = "No comparison: the tracks not measured or ranked (faster for hundreds of tracks; Tracks into file sets still makes their file sets)";
     if (p.flag && p.token.equals("--vst")) p.label = "VST: DrumMidi's MIDI of the track through vst_render.py's saved plugin (computer only)";
     if (p.flag && p.takesValue && p.token.equals("--batchdir")) {
       p.dir = true;
@@ -710,12 +728,19 @@ public final class ProgramParams {
       p.label = "Output folder: the tracks, WAVs and zip go here (a name: a folder in Download, made when missing)";
       p.hint = "empty: Download / the program files folder; % codes: music%ddmmyy, run%n";
     }
+    if (p.flag && p.takesValue && p.token.equals("--zip_outdir")) {
+      // The zip's own folder: Browse puts the picked folder in the field; % codes can be added to it.
+      p.dir = true;
+      p.typed = true;
+      p.label = "Zip folder: the zip (Zip ticked) goes here, the tracks stay in the output folder (a name: a folder in Download, made when missing)";
+      p.hint = "empty: the output folder; % codes: zips%ddmmyy, run%n";
+    }
     if (!p.flag && p.output) p.hint = "optional; sogni-<genre>-<run>.mp3; % codes: Song%n, Song%ddmmyy, Song-%g (its group, picked in its ready dialog; also %c, %t1)";
     // Instrument sessions: one at a time, or several (each a track) with Multi-instrument session.
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
       if (!p.flag || p.takesValue || !p.token.equals(sessions[i][0])) continue;
-      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only"}[i] + " (instrument session)";
+      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only", "Drums & piano only", "Drums & synth only", "Piano only, no drums", "Synth only, no drums", "Bass only, no drums", "Guitar only, no drums"}[i] + " (instrument session)";
       List<String> others = new ArrayList<String>();
       for (String[] o : sessions) if (!o[0].equals(p.token)) others.add(o[0]);
       p.clears = others.toArray(new String[0]);
@@ -759,6 +784,7 @@ public final class ProgramParams {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
     if (t.equals("--note_map")) return FILES;
+    if (t.equals("--hit_bench") || t.equals("--hit_bench_when")) return SETTINGS;
     if (t.startsWith("--hit_")) return HITS;
     if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
@@ -999,11 +1025,26 @@ public final class ProgramParams {
       p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
       p.hint = "Riot Default kit, Cardinal; empty: every kit found";
       p.importList = true;
+    } else if (p.token.equals("--hit_dir")) {
+      p.dir = true;
+      p.label = "Input folder: Run separately, the tests' zips (vst-render-*.zip); Render first, the MIDI files to render or a zip of them (the Input and Output tabs' folders are not used)";
+      p.hint = "a folder";
+    } else if (p.token.equals("--hit_zip_outdir")) {
+      p.dir = true;
+      p.typed = true;
+      p.label = "Zip folder: the bench's zip and the hit-model file (Render first: the run's tests' zips too) copied into this folder";
+      p.hint = "empty: they stay in the input folder; % codes: %ddmmyyyy, run-%n (the next free number)";
     } else if (p.token.equals("--hit_bench")) {
-      p.label = "Hit model bench: DrumMidi on the kits' tests (the Cymbal model tab's folder) with its rules alone and with its hit model: kicks, snares and toms; its zip into the output folder (no plugin played)";
-    } else if (p.token.equals("--hit_loo")) {
-      p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder)";
+      p.label = "Hit model bench: DrumMidi on the kits' tests (vst-render zips) with its rules alone and with its hit model, kicks, snares and toms; the Hit model tab's parts (off: not run)";
+    } else if (p.token.equals("--hit_bench_when")) {
+      p.label = "Hit model bench: when";
+      p.dropdown = true;
       p.showWhen = "--hit_bench";
+      p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
+          "Render first: the MIDI in the Hit model tab's input folder (or its zip) through the plugins, tested, then the bench"};
+      p.choiceValues = new String[] {"", "last"};
+    } else if (p.token.equals("--hit_loo")) {
+      p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
     } else if (p.token.equals("--hit_model_file")) {
       p.label = "Hit model file: DrumMidi uses it in place of its own hit model, in the tests and the bench (a hit-model-<date>.txt the bench learned)";
       p.hint = "empty: DrumMidi's own hit model";
@@ -1672,6 +1713,18 @@ public final class ProgramParams {
     String[] out = new String[values.length];
     for (int i = 0; i < ps.size(); i++) out[i] = off.contains(ps.get(i).token) && canTurnOff(ps.get(i)) ? values[i] : "";
     return out;
+  }
+
+  /**
+   * A remembered run's arguments put back in the field (a program picked again from Recent): with
+   * Params saved, its own switches give way to them (the files kept), so a switch the Params have
+   * unticked since (an instrument session) is not ticked again, nor run.
+   */
+  public static String withSaved(List<Param> ps, String args, String saved) {
+    if (args == null) args = "";
+    if (saved == null || ps == null || ps.isEmpty()) return args;
+    String files = strip(ps, args);
+    return line(ps, values(ps, saved, files), files);
   }
 
   /** Field values from saved switches and the current arguments (saved switches win). */

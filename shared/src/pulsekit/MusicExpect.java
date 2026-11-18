@@ -36,6 +36,13 @@ public final class MusicExpect {
     {"--drums_bass", "drums_bass", "drums, bass"},
     {"--drums_guitar", "drums_guitar", "drums, guitar"},
     {"--drums_bass_guitar", "drums_bass_guitar", "drums, bass, guitar"},
+    {"--drums_piano", "drums_piano", "drums, piano"},
+    {"--drums_synth", "drums_synth", "drums, synth"},
+    // No drums: the instrument alone (its sound laid over drums whose MIDI is known, to test DrumMidi under it).
+    {"--piano_only", "piano", "piano"},
+    {"--synth_only", "synth", "synth"},
+    {"--bass_only", "bass", "bass"},
+    {"--guitar_only", "guitar", "guitar"},
   };
 
   /** The sessions asked for (their tags), in SESSIONS' order. */
@@ -85,7 +92,7 @@ public final class MusicExpect {
       if (!x[1].equals(s)) continue;
       for (String i : x[2].split(", ")) e.instruments.add(i);
     }
-    e.drumsOnly = e.instruments.size() == 1;
+    e.drumsOnly = e.instruments.size() == 1 && e.instruments.get(0).equals("drums");
     return e;
   }
 
@@ -174,6 +181,14 @@ public final class MusicExpect {
    * have to find it), and the user's saved DrumMidi switches; without any saved, the switches
    * suggested for a mix when instruments besides drums are expected.
    */
+  /** DrumMidi's switches a SogniMusic chain leaves out of its saved Params: its folder input, its zips, its log file. */
+  static final java.util.Set<String> CHAIN_DROPS = new java.util.HashSet<String>(java.util.Arrays.asList("--dir", "--recursive", "--zip", "--zip_mb", "--zip_outdir", "--log"));
+
+  /** Whether a session's tracks have drums (Piano only and Synth only have none: no DrumMidi on them). */
+  public boolean hasDrums() {
+    return !listed || instruments.contains("drums");
+  }
+
   public List<String> drumMidiArgs(String wav, String midiName, String saved) {
     List<String> out = new ArrayList<String>();
     out.add(wav);
@@ -186,6 +201,12 @@ public final class MusicExpect {
       // The tempo is the one asked for.
       if (a.equals("--bpm")) {
         i++;
+        continue;
+      }
+      // DrumMidi's own input folder and zips (a folder of old zips it was last run on): the chain gives it this
+      // track alone; its MIDI goes into SogniMusic's file sets and zip.
+      if (CHAIN_DROPS.contains(a)) {
+        if (!DrumMidiArgs.onOff(a) && !a.equals("--recursive") && !a.equals("--zip") && i + 1 < mine.size() && !mine.get(i + 1).startsWith("--")) i++;
         continue;
       }
       out.add(a);

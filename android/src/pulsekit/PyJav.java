@@ -362,6 +362,9 @@ final class PyJav {
         pulsekit.PyJavUi.fillRecent(app, this.pkPyRecent, this.pkPyRecentItems);
     }
 
+    /** The next pkApplyRecent is one of the program's runs, chosen by a long press: its arguments as they were. */
+    boolean pkRecentAsRun;
+
     public void pkApplyRecent(int index) {
         if (this.pkPyRecentMute || this.pkPyRecentItems == null || index <= 0 || index > this.pkPyRecentItems.size()) return;
         pulsekit.PyJavRecent.Item item = (pulsekit.PyJavRecent.Item) this.pkPyRecentItems.get(index - 1);
@@ -376,7 +379,14 @@ final class PyJav {
         byte[] shipped = binary ? app.programMenus.bundledBytes(item.name) : null;
         if (binary) app.pkPyBytes = shipped != null ? shipped : item.bytes;
         else app.pkPyBytes = null;
-        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        String args = item.extra == null ? "" : item.extra;
+        // Picked again (not one of its runs chosen by a long press): the saved Params' switches, not the last run's.
+        if (!this.pkRecentAsRun) {
+            String saved = pulsekit.PyJavParams.load(app, item.name);
+            if (saved != null) args = pulsekit.ProgramParams.withSaved(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, saved);
+        }
+        this.pkRecentAsRun = false;
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
         if (app.pyEditor != null) {
             if (binary) app.pyEditor.setText("// " + item.name + "\n// Binary. Run uses this file.\n");
             else {
@@ -397,7 +407,7 @@ final class PyJav {
         String hint = pulsekit.PyJavHints.status(item.name, source, item.bytes);
         this.pkApplyHint(hint);
         // The hint fills args from the program's usage; the recent item's own args win.
-        if (this.pkPyArgs != null) this.pkPyArgs.setText(item.extra == null ? "" : item.extra);
+        if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.pkShowRunning(item.name);
     }
@@ -514,6 +524,12 @@ final class PyJav {
         android.widget.LinearLayout.LayoutParams runAt = new android.widget.LinearLayout.LayoutParams(-1, -2);
         runAt.topMargin = app.dp(28);
         app.pyPane.addView(runBtn, slot, runAt);
+        slot = slot + 1;
+        // Stop: shown while a program runs (SogniMusic started with the wrong Params): it is stopped.
+        this.pkStopBtn = app.action("Stop", ELEV, FG, v -> this.pkStopRun());
+        this.pkStopBtn.setTag("pyjav-stop");
+        this.pkStopBtn.setVisibility(this.pkLive != null && !this.pkLive.done && !this.pkLive.aborted() ? 0 : 8);
+        app.pyPane.addView(this.pkStopBtn, slot);
         slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
@@ -776,11 +792,12 @@ final class PyJav {
 
     /** SogniMusic --compare_models: each model's track measured in the background, then the ranking under the log. */
     void pkCompareModels(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final String log) {
-        this.pkAddLogLine("Measuring the models' tracks…");
+        final boolean measure = !argv.contains(pulsekit.MusicCompare.NO_COMPARE);
+        this.pkAddLogLine(measure ? "Measuring the models' tracks…" : "Not compared (--no_compare)" + (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS) ? ": the tracks into file sets" : ""));
         new Thread(() -> {
             String report;
             try {
-                report = pulsekit.MusicCompare.of(argv, log, name -> {
+                report = !measure ? null : pulsekit.MusicCompare.of(argv, log, name -> {
                     if (result == null || result.files == null) return null;
                     for (int i = 0; i < result.files.size(); i++) {
                         pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
@@ -791,13 +808,13 @@ final class PyJav {
             } catch (Throwable ex) {
                 report = "Could not compare the models' tracks: " + ex;
             }
-            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            final String shown = !measure ? "" : report == null ? "Fewer than two tracks to compare" : report;
             final boolean ranked = report != null;
             // Kept beside the tracks (Download): the log under the run is gone after the next run.
             final String kept = report == null ? null : ArtJava.publish(app, pulsekit.MusicCompare.reportName(log), report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             app.runOnUiThread(() -> {
                 if (kept != null) this.pkAddLogLine("saved " + kept);
-                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+                if (shown.length() > 0) for (String line : shown.split("\n")) this.pkAddLogLine(line);
                 if (ranked && pulsekit.RunZip.current() != null) {
                     pulsekit.RunZip.current().add(pulsekit.MusicCompare.reportName(log), shown.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     // Its copy in Download is the zip's: --zip_delete deletes it too.
@@ -896,7 +913,7 @@ final class PyJav {
         if (i >= tracks.size()) {
             pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"), result == null ? null : result.log);
             if (c == null) {
-                this.pkAddLogLine("No WAVs for DrumMidi: no file sets made");
+                this.pkAddLogLine("No tracks with drums for DrumMidi (Piano only, Synth only have none): no file sets made");
                 this.pkZipFinish();
             } else {
                 c.report = this.pkCompareReport == null ? "" : this.pkCompareReport;
@@ -962,6 +979,22 @@ final class PyJav {
 
     /** The dialog at a chain's end (what it made), for the tests. */
     android.app.AlertDialog pkChainDone;
+
+    /** The Stop button (shown while a program runs). */
+    android.widget.TextView pkStopBtn;
+
+    /** Stop: the program running is stopped (its thread interrupted; a Sogni job already sent goes on there, Downloads keeps it). */
+    void pkStopRun() {
+        pulsekit.JavaRun.Live live = this.pkLive;
+        if (live == null || live.done || live.aborted()) {
+            if (this.pkStopBtn != null) this.pkStopBtn.setVisibility(8);
+            return;
+        }
+        live.abort();
+        app.setNow("Stopping " + app.pyName + "\u2026");
+        this.pkAddLogLine("Stopped by Stop.");
+        if (this.pkStopBtn != null) this.pkStopBtn.setVisibility(8);
+    }
 
     android.app.AlertDialog pkChainDoneDialog() {
         return this.pkChainDone;
@@ -1152,8 +1185,10 @@ final class PyJav {
             public void run() {
                 if (pkLive != live || pkPyLog == null || live.done || live.aborted()) {
                     if (pkTicking == live) pkTicking = null;
+                    if (pkStopBtn != null && (pkLive == live || pkLive == null)) pkStopBtn.setVisibility(8);
                     return;
                 }
+                if (pkStopBtn != null && pkStopBtn.getVisibility() != 0) pkStopBtn.setVisibility(0);
                 // Its workflow id, once printed: Copy workflow id.
                 String wf = pulsekit.SogniDownloads.workflowIn(live.text());
                 if (wf != null && !wf.equals(pkWorkflowId)) pkShowWorkflow(wf);
@@ -1872,6 +1907,9 @@ final class PyJav {
             pulsekit.RunZip z = pulsekit.RunZip.start(madeLog, argv);
             // --outdir: the zip goes into the run's folder under Download too.
             z.sub = ArtJava.runSub(program, argv) != null ? ArtJava.lastSub : null;
+            // --zip_outdir: the zip in a folder of its own under Download (or the folder picked).
+            String zipArg = pulsekit.ProgramFolder.zipOutdirArg(program, argv);
+            if (zipArg != null) z.sub = ArtJava.subOf(zipArg);
             this.pkZipAdd(z, program, "", made, madeLog);
         }
         // Midi2Wav's test goes on (DrumMidi, CompareHits) instead of offering the WAV.

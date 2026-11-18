@@ -16,6 +16,16 @@ public final class RunZip {
   public static final String FLAG = "--zip";
   /** --zip_delete: the files the zip holds deleted once every part of it is saved (the zip stays). */
   public static final String DELETE = "--zip_delete";
+  /**
+   * --zip_by_session: each instrument session's files (a file name with its tag: sogni-Funk-wf1-piano.mp3,
+   * its MIDI, its DrumMidi log) in a zip of its own (sogni-Funk-wf1-piano.zip); the files of no one
+   * session (the ranking, the run's log) go into each.
+   */
+  public static final String BY_SESSION = "--zip_by_session";
+  /** The run gave --zip_by_session. */
+  public boolean bySession;
+  /** The names parts() gave its zips, in order (a session's, or the run's with -partNofM). */
+  final List<String> partNames = new ArrayList<String>();
 
   public final String name;
   /** SogniMusic --outdir: the folder the zip is saved in (the desktop's), or under Download (the phone's); null: the usual place. */
@@ -48,13 +58,14 @@ public final class RunZip {
 
   /** A SogniMusic run asked to zip what it makes. */
   public static boolean wanted(String program, List<String> argv) {
-    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(DELETE));
+    return "SogniMusic.java".equals(program) && argv != null && (argv.contains(FLAG) || argv.contains(DELETE) || argv.contains(BY_SESSION));
   }
 
   /** Starts gathering for a run (its log, its arguments: --zip_delete). */
   public static synchronized RunZip start(String log, List<String> argv) {
     RunZip z = start(log);
     z.deleteAfter = argv != null && argv.contains(DELETE);
+    z.bySession = argv != null && argv.contains(BY_SESSION);
     return z;
   }
 
@@ -153,10 +164,67 @@ public final class RunZip {
    * MP3s barely shrink), in their order; a file bigger than that alone goes in a part of its own.
    */
   public synchronized List<List<ZipPack.Source>> parts(long limit) {
+    this.partNames.clear();
+    java.util.Map<String, List<ZipPack.Source>> groups = this.bySession ? sessionGroups(this.zipped()) : null;
+    if (groups == null || groups.size() < 2) {
+      List<List<ZipPack.Source>> out = split(this.zipped(), limit);
+      for (int i = 0; i < out.size(); i++) this.partNames.add(numbered(this.name, i, out.size()));
+      return out;
+    }
+    String base = runBase(this.name);
+    List<List<ZipPack.Source>> out = new ArrayList<List<ZipPack.Source>>();
+    for (java.util.Map.Entry<String, List<ZipPack.Source>> g : groups.entrySet()) {
+      List<List<ZipPack.Source>> mine = split(g.getValue(), limit);
+      for (int i = 0; i < mine.size(); i++) {
+        out.add(mine.get(i));
+        this.partNames.add(numbered(base + "-" + g.getKey() + ".zip", i, mine.size()));
+      }
+    }
+    return out;
+  }
+
+  /** The session a zipped file's name has (its tag after a "-", before "-", "." or the end), the longest one; null: none. */
+  static String sessionIn(String path) {
+    String best = null;
+    for (String[] s : MusicExpect.SESSIONS) {
+      if (java.util.regex.Pattern.compile("-" + s[1] + "(?=[-. (]|$)").matcher(path).find() && (best == null || s[1].length() > best.length())) best = s[1];
+    }
+    return best;
+  }
+
+  /** The files by session, in SESSIONS' order; the files of none put into each. Null when no file has a session. */
+  static java.util.Map<String, List<ZipPack.Source>> sessionGroups(List<ZipPack.Source> files) {
+    java.util.Map<String, List<ZipPack.Source>> out = new java.util.LinkedHashMap<String, List<ZipPack.Source>>();
+    for (String[] s : MusicExpect.SESSIONS) out.put(s[1], new ArrayList<ZipPack.Source>());
+    List<ZipPack.Source> shared = new ArrayList<ZipPack.Source>();
+    for (ZipPack.Source f : files) {
+      String s = sessionIn(f.path);
+      if (s == null) shared.add(f);
+      else out.get(s).add(f);
+    }
+    out.values().removeIf(List::isEmpty);
+    if (out.isEmpty()) return null;
+    for (List<ZipPack.Source> g : out.values()) g.addAll(shared);
+    return out;
+  }
+
+  /** The run's zip name without its session ("sogni-Funk-wf1-drums.zip" is "sogni-Funk-wf1"). */
+  static String runBase(String name) {
+    String base = name.replaceAll("\\.zip$", "");
+    String s = sessionIn(base);
+    if (s != null) base = base.replaceFirst("-" + s + "(?=[-. (]|$)", "");
+    return base;
+  }
+
+  static String numbered(String name, int i, int of) {
+    return of <= 1 ? name : name.replaceAll("\\.zip$", "") + "-part" + (i + 1) + "of" + of + ".zip";
+  }
+
+  static List<List<ZipPack.Source>> split(List<ZipPack.Source> files, long limit) {
     List<List<ZipPack.Source>> out = new ArrayList<List<ZipPack.Source>>();
     List<ZipPack.Source> part = new ArrayList<ZipPack.Source>();
     long used = 0;
-    for (ZipPack.Source s : this.zipped()) {
+    for (ZipPack.Source s : files) {
       long size = s.data != null ? s.data.length : s.file != null ? s.file.length() : 0;
       if (!part.isEmpty() && used + size > limit) {
         out.add(part);
@@ -170,9 +238,13 @@ public final class RunZip {
     return out;
   }
 
-  /** A part's file name: the run's name alone when it is one zip, else "<name>-part1of2.zip". */
-  public String partName(int i, int of) {
-    return of <= 1 ? this.name : this.name.replaceAll("\\.zip$", "") + "-part" + (i + 1) + "of" + of + ".zip";
+  /**
+   * A part's file name: the run's name alone when it is one zip, else "<name>-part1of2.zip"; with
+   * --zip_by_session the session's ("<run>-piano.zip"), as parts() named them.
+   */
+  public synchronized String partName(int i, int of) {
+    if (i < this.partNames.size() && this.partNames.size() == of) return this.partNames.get(i);
+    return numbered(this.name, i, of);
   }
 
   public synchronized int size() {
