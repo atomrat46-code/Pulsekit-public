@@ -85,6 +85,18 @@ public class BehaviorTest {
 
   // ---------------------------------------------------------------- scenarios
 
+  /** 18112026: a folder picked with Browse and % codes written after it (SogniMusic's Zip folder): the picked folder and a folder in it. */
+  @Test
+  public void pickedFolderWithCodes() {
+    String tree = "content://com.android.externalstorage.documents/tree/primary%3Amidi%2FSogniMusic";
+    String today = new java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ROOT).format(new java.util.Date());
+    org.junit.Assert.assertEquals(tree, ArtJava.subOf(tree));
+    org.junit.Assert.assertEquals(tree, ArtJava.subOf(tree + "/"));
+    org.junit.Assert.assertEquals(tree + "|1", ArtJava.subOf(tree + "/%n"));
+    org.junit.Assert.assertEquals(tree + "|zips" + today, ArtJava.subOf(tree + "/zips%ddmmyy"));
+    org.junit.Assert.assertEquals("Sogni", ArtJava.subOf("Sogni"));
+  }
+
   @Test
   public void s01_boot() throws Exception {
     snap("s01_boot");

@@ -32,6 +32,11 @@ public final class MusicCompare {
 
   /** With --compare_models: each model's track also goes through DrumMidi_CRT into a file set of its own. */
   public static final String TO_FILE_SETS = "--compare_to_file_sets";
+  /**
+   * --no_compare: the tracks not measured or ranked (each one decoded and measured took long in a run of
+   * hundreds); with --compare_to_file_sets they still go through DrumMidi_CRT into file sets.
+   */
+  public static final String NO_COMPARE = "--no_compare";
 
   /** The file sets' name: "SogniMusic run N" (N one more than the highest run among the file sets). */
   public static String runName(List<String> fileSets) {

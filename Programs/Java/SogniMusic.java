@@ -251,6 +251,8 @@ public final class SogniMusic {
       else if (a.equals("--outdir") && i + 1 < args.length) i++;
       // PyJav's: the folder the zip (--zip) is saved in (% codes filled in); empty: --outdir's.
       else if (a.equals("--zip_outdir") && i + 1 < args.length) i++;
+      // PyJav's: the tracks not measured or ranked after the run (--compare_to_file_sets still makes file sets).
+      else if (a.equals("--no_compare")) continue;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -731,7 +733,7 @@ public final class SogniMusic {
 
   static void usage() {
     say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--instruments list] [--bpm N] [--duration seconds] "
-        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
+        + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
   /**

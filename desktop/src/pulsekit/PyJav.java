@@ -2186,12 +2186,13 @@ final class PyJav {
 
     /** SogniMusic --compare_models: each model's track (as saved) measured in the background, then the ranking under the log. */
     void compareModels(final java.util.List<String> argv, final java.util.Map<String, File> saved, final String log) {
-        this.testNote("Measuring the models' tracks…");
+        final boolean measure = !argv.contains(MusicCompare.NO_COMPARE);
+        this.testNote(measure ? "Measuring the models' tracks…" : "Not compared (--no_compare)" + (argv.contains(MusicCompare.TO_FILE_SETS) ? ": the tracks into file sets" : ""));
         final java.util.Map<String, File> files = new java.util.HashMap<String, File>(saved);
         new Thread(() -> {
             String report;
             try {
-                report = MusicCompare.of(argv, log, name -> {
+                report = !measure ? null : MusicCompare.of(argv, log, name -> {
                     File f = files.get(name);
                     try {
                         byte[] data = f == null ? null : Files.readAllBytes(f.toPath());
@@ -2203,7 +2204,7 @@ final class PyJav {
             } catch (Throwable ex) {
                 report = "Could not compare the models' tracks: " + ex;
             }
-            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            final String shown = !measure ? "" : report == null ? "Fewer than two tracks to compare" : report;
             // Kept beside the tracks (Downloads): the log under the run is gone after the next run.
             final File kept = report == null ? null : this.saveProgramFile(MusicCompare.reportName(log), report.getBytes(StandardCharsets.UTF_8));
             // --compare_to_file_sets: each track as a WAV, then DrumMidi_CRT on each into a file set of its own.
@@ -2219,7 +2220,7 @@ final class PyJav {
                 }
             }
             SwingUtilities.invokeLater(() -> {
-                for (String line : shown.split("\n")) this.testNote(line);
+                if (shown.length() > 0) for (String line : shown.split("\n")) this.testNote(line);
                 if (kept != null) this.testNote("Saved " + kept.getPath());
                 if (kept != null && RunZip.current() != null) RunZip.current().add(kept.getName(), kept);
                 if (!argv.contains(MusicCompare.TO_FILE_SETS)) {

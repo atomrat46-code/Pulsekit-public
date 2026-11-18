@@ -776,11 +776,12 @@ final class PyJav {
 
     /** SogniMusic --compare_models: each model's track measured in the background, then the ranking under the log. */
     void pkCompareModels(final java.util.List<String> argv, final pulsekit.JavaRun.Result result, final String log) {
-        this.pkAddLogLine("Measuring the models' tracks…");
+        final boolean measure = !argv.contains(pulsekit.MusicCompare.NO_COMPARE);
+        this.pkAddLogLine(measure ? "Measuring the models' tracks…" : "Not compared (--no_compare)" + (argv.contains(pulsekit.MusicCompare.TO_FILE_SETS) ? ": the tracks into file sets" : ""));
         new Thread(() -> {
             String report;
             try {
-                report = pulsekit.MusicCompare.of(argv, log, name -> {
+                report = !measure ? null : pulsekit.MusicCompare.of(argv, log, name -> {
                     if (result == null || result.files == null) return null;
                     for (int i = 0; i < result.files.size(); i++) {
                         pulsekit.JavaRun.FileOut f = (pulsekit.JavaRun.FileOut) result.files.get(i);
@@ -791,13 +792,13 @@ final class PyJav {
             } catch (Throwable ex) {
                 report = "Could not compare the models' tracks: " + ex;
             }
-            final String shown = report == null ? "Fewer than two tracks to compare" : report;
+            final String shown = !measure ? "" : report == null ? "Fewer than two tracks to compare" : report;
             final boolean ranked = report != null;
             // Kept beside the tracks (Download): the log under the run is gone after the next run.
             final String kept = report == null ? null : ArtJava.publish(app, pulsekit.MusicCompare.reportName(log), report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             app.runOnUiThread(() -> {
                 if (kept != null) this.pkAddLogLine("saved " + kept);
-                for (String line : shown.split("\n")) this.pkAddLogLine(line);
+                if (shown.length() > 0) for (String line : shown.split("\n")) this.pkAddLogLine(line);
                 if (ranked && pulsekit.RunZip.current() != null) {
                     pulsekit.RunZip.current().add(pulsekit.MusicCompare.reportName(log), shown.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     // Its copy in Download is the zip's: --zip_delete deletes it too.
