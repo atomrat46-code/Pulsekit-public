@@ -14,7 +14,8 @@ P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
 
   python tools/hit_model.py data   <kits.txt> <work> [jar]   the training data, a .npz a kit
   python tools/hit_model.py check  <work>                    leave one kit family out: how it does on kits it never saw
-  python tools/hit_model.py export <work> [--write] [--file <model.txt>]  the model from every kit; --write puts
+  python tools/hit_model.py export <work> [--write] [--file <model.txt>] [--hidden N] [--epochs N]
+                                                             the model from every kit (hidden units, default 32); --write puts
                                                              it in DrumMidi_CRT.java, --file writes a model file
                                                              (DrumMidi -Ddm.hitModelFile=<file>)
   python tools/hit_model.py bench  <kits.txt> <work> [jar]   DrumMidi itself, each kit with a model learned without
@@ -252,11 +253,11 @@ def check(work):
         print("All %-5s rules F %5.1f -> model F %5.1f (the onsets DrumMidi considers)" % (dr, 200 * r[0] / max(1, 2 * r[0] + r[1] + r[2]), 200 * m[0] / max(1, 2 * m[0] + m[1] + m[2])))
 
 
-def export(work, write, file):
+def export(work, write, file, hidden=32, epochs=6):
     d = load(work)
     X = np.vstack([v["X"] for v in d.values()])
     Y = np.vstack([v["Y"] for v in d.values()])
-    m = fit(X, Y)
+    m = fit(X, Y, hidden=hidden, epochs=epochs)
     th = thresholds(predict(m, X), Y)
     mu, sd, W1, b1, W2, b2 = m
     if file:
@@ -334,7 +335,8 @@ if __name__ == "__main__":
     elif len(a) >= 2 and a[0] == "check":
         check(a[1])
     elif len(a) >= 2 and a[0] == "export":
-        export(a[1], "--write" in a, a[a.index("--file") + 1] if "--file" in a else None)
+        export(a[1], "--write" in a, a[a.index("--file") + 1] if "--file" in a else None,
+               int(a[a.index("--hidden") + 1]) if "--hidden" in a else 32, int(a[a.index("--epochs") + 1]) if "--epochs" in a else 6)
     elif len(a) >= 3 and a[0] == "bench":
         bench(a[1], a[2], a[3] if len(a) > 3 else JAR)
     else:
