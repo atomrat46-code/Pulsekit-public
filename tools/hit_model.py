@@ -221,9 +221,17 @@ def f1(pred, y):
     return 100.0 * 2 * tp / max(1, 2 * tp + fp + fn), int(tp), int(fp), int(fn)
 
 
+# Kit families of one maker held out together: KVLT is a drum pack for Ugritone Drums, Northern Artillery
+# an Ugritone plugin too (their sounds and production are close; a test of either while the others are
+# learned would be too kind).
+FAMILY_OF = {"KVLT": "Ugritone", "Artillery": "Ugritone"}
+
+
 def family(name):
-    """A kit's family: the part of its name before "~" (kits of one plugin share samples: held out together)."""
-    return name.split("~")[0]
+    """A kit's family: the part of its name before "~" (kits of one plugin share samples: held out together),
+    with FAMILY_OF's makers' plugins as one."""
+    f = name.split("~")[0]
+    return FAMILY_OF.get(f, f)
 
 
 def check(work):
