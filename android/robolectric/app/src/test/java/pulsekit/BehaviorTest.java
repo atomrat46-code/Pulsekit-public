@@ -3548,9 +3548,13 @@ public class BehaviorTest {
     out.append("run kept going: ").append(started != null && started.getComponent().getClassName().equals(RunKeeper.class.getName()))
         .append(", ").append(started == null ? "" : started.getStringExtra(RunKeeper.TEXT)).append(", noted ").append(new File(dir, RunKeeper.MARK).isFile()).append('\n');
     RunKeeper.stop(app);
-    out.append("over: note gone ").append(!new File(dir, RunKeeper.MARK).exists()).append('\n');
+    // 18112026: kept a while after the last run (a chain's next run, the app in the background, keeps it).
+    boolean keptAfter = new File(dir, RunKeeper.MARK).exists();
+    org.robolectric.shadows.ShadowLooper.idleMainLooper(61, java.util.concurrent.TimeUnit.SECONDS);
+    boolean goneLater = !new File(dir, RunKeeper.MARK).exists();
+    out.append("over: kept for the next run ").append(keptAfter).append(", note gone a minute later ").append(goneLater).append('\n');
     RunKeeper.markedHere = false;
-    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null) throw new AssertionError(out.toString());
+    if (again.lastStop == null || third.lastStop == null || fourth.lastStop != null || started == null || !keptAfter || !goneLater) throw new AssertionError(out.toString());
     write("s136_crash_log_and_run_keeper", out.toString());
   }
 
