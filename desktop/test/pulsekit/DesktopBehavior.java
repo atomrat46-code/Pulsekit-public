@@ -1440,6 +1440,60 @@ public final class DesktopBehavior {
     if (!dated || !one || !two || !zipped) throw new AssertionError(out.toString());
   }
 
+  /**
+   * 18112026: Stop for a Java program: SogniMusic on a fake Sogni that never finishes; Stop shown while it
+   * runs, pressed: the run ends at once (Aborted), Stop hidden, Run ready again.
+   */
+  void s262_java_program_stop() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      readAll(ex.getRequestBody());
+      byte[] reply;
+      String type = "application/json";
+      if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        reply = "data: {\"status\":\"running\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else {
+        reply = "{\"data\":{\"workflow\":{\"workflowId\":\"wf9\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, reply.length);
+      ex.getResponseBody().write(reply);
+      ex.close();
+    });
+    server.start();
+    final int port = server.getAddress().getPort();
+    try {
+      File key = new File(home, "sogni key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniMusic.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      edt(() -> log.setText(""));
+      final String extra = "--prompt \"funk groove\" --drums_only --duration 10 --no_wav --key_file \"" + key.getAbsolutePath() + "\" --api_base http://127.0.0.1:" + port;
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(extra));
+      edt(() -> call("runPython"));
+      final java.awt.Component stop = component(frame, "pyjav-script-stop");
+      boolean shown = false;
+      for (int i = 0; i < 200 && !(shown = stop.isVisible()); i++) Thread.sleep(50);
+      Thread.sleep(1500);
+      final String label = ((javax.swing.AbstractButton) stop).getText();
+      edt(() -> ((javax.swing.AbstractButton) stop).doClick());
+      long t0 = System.currentTimeMillis();
+      String text = "";
+      for (int i = 0; i < 300 && !(text = log.getText()).contains("Aborted"); i++) Thread.sleep(50);
+      long took = System.currentTimeMillis() - t0;
+      idle();
+      out.append("stop shown while running: ").append(shown).append(", label ").append(label).append(", aborted: ").append(text.contains("Aborted")).append(" (")
+          .append(took < 10000 ? "under 10 s" : took + " ms").append("), stop hidden after: ").append(!stop.isVisible()).append('\n');
+      if (!shown || !"Stop".equals(label) || !text.contains("Aborted") || took >= 10000 || stop.isVisible()) throw new AssertionError(out.toString() + "\n" + text);
+    } finally {
+      server.stop(0);
+    }
+  }
+
   /** The Style database / genre list search: "rock" lists every rock style. */
   void s32_style_search() throws Exception {
     final String[] names = StyleDb.names();

@@ -85,6 +85,24 @@ public class BehaviorTest {
 
   // ---------------------------------------------------------------- scenarios
 
+  /** 18112026: Stop for a program run: shown while it runs, it aborts the run and hides. */
+  @Test
+  public void s263_stop_running_program() throws Exception {
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniMusic.java");
+    View stop = app.pyPane.findViewWithTag("pyjav-stop");
+    boolean hiddenIdle = stop != null && stop.getVisibility() == View.GONE;
+    JavaRun.Live live = new JavaRun.Live();
+    app.pyJav.pkLive = live;
+    stop.setVisibility(View.VISIBLE);
+    stop.performClick();
+    idle();
+    org.junit.Assert.assertTrue("Stop hidden when idle: " + hiddenIdle, hiddenIdle);
+    org.junit.Assert.assertTrue("run aborted", live.aborted());
+    org.junit.Assert.assertEquals(View.GONE, stop.getVisibility());
+  }
+
   /** 18112026: a folder picked with Browse and % codes written after it (SogniMusic's Zip folder): the picked folder and a folder in it. */
   @Test
   public void pickedFolderWithCodes() {

@@ -169,7 +169,7 @@ final class PyJav {
         this.pyBatchStop.setVisible(BatchQueue.current() != null);
         controls.add(this.pyBatchStop);
         // Stop script: a Python script running now (vst_render.py ends after the file in progress, then tests and zips).
-        this.pyScriptStop = app.action("Stop script", ELEV, FG, () -> this.stopScript());
+        this.pyScriptStop = app.action("Stop", ELEV, FG, () -> this.stopScript());
         this.pyScriptStop.setName("pyjav-script-stop");
         this.pyScriptStop.setVisible(PythonRun.current != null);
         controls.add(this.pyScriptStop);
@@ -816,6 +816,8 @@ final class PyJav {
         if (download != 0) SogniDownloads.args(download, filled);
         // The "Running…" line: the time it has run, and its latest news (queued, reconnecting, progress).
         final JavaRun.Live live = new JavaRun.Live();
+        // Stop's run (JavaRun.live() is the program thread's own).
+        this.runLive = live;
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
@@ -878,7 +880,8 @@ final class PyJav {
                 runArgv.add(this.promptRunMode);
                 if (this.promptOutputInvented && outPath.length() > 0 && !runArgv.contains(outPath)) runArgv.add(outPath);
             }
-            if (!promptProg && !javaProg && this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
+            // Stop: Python scripts, and Java programs too (SogniMusic started with the wrong Params).
+            if (this.pyScriptStop != null) SwingUtilities.invokeLater(() -> this.pyScriptStop.setVisible(true));
             final long runStarted = System.currentTimeMillis();
             // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
             String outdirArg = ProgramFolder.outdirArg(name, argv);
@@ -2450,9 +2453,20 @@ final class PyJav {
     }
 
     javax.swing.JComponent pyScriptStop;
+    /** The program run in progress (its Live: Stop aborts it). */
+    volatile JavaRun.Live runLive;
 
     /** Stop script: asks the script to stop; pressed again, it is ended at once. */
     void stopScript() {
+        // A Java program (SogniMusic, DrumMidi...): stopped at once (its process ended).
+        JavaRun.Live live = this.runLive;
+        if (PythonRun.current == null && live != null && !live.done && !live.aborted()) {
+            live.abort();
+            this.testNote("Stopped by Stop.");
+            app.setNow("Stopping " + app.pyName + "\u2026");
+            if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
+            return;
+        }
         if (PythonRun.stop()) {
             this.testNote("Stopping: the step in progress ends after its file (vst_render.py then tests and zips what it made; Stop script again skips the next step too; pressed twice quickly, it ends the script now).");
             app.setNow("Stopping the script…");

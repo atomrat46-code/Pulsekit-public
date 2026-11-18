@@ -515,6 +515,12 @@ final class PyJav {
         runAt.topMargin = app.dp(28);
         app.pyPane.addView(runBtn, slot, runAt);
         slot = slot + 1;
+        // Stop: shown while a program runs (SogniMusic started with the wrong Params): it is stopped.
+        this.pkStopBtn = app.action("Stop", ELEV, FG, v -> this.pkStopRun());
+        this.pkStopBtn.setTag("pyjav-stop");
+        this.pkStopBtn.setVisibility(this.pkLive != null && !this.pkLive.done && !this.pkLive.aborted() ? 0 : 8);
+        app.pyPane.addView(this.pkStopBtn, slot);
+        slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
         this.pkReturnBtn.setTag("pyjav-return");
@@ -964,6 +970,22 @@ final class PyJav {
     /** The dialog at a chain's end (what it made), for the tests. */
     android.app.AlertDialog pkChainDone;
 
+    /** The Stop button (shown while a program runs). */
+    android.widget.TextView pkStopBtn;
+
+    /** Stop: the program running is stopped (its thread interrupted; a Sogni job already sent goes on there, Downloads keeps it). */
+    void pkStopRun() {
+        pulsekit.JavaRun.Live live = this.pkLive;
+        if (live == null || live.done || live.aborted()) {
+            if (this.pkStopBtn != null) this.pkStopBtn.setVisibility(8);
+            return;
+        }
+        live.abort();
+        app.setNow("Stopping " + app.pyName + "\u2026");
+        this.pkAddLogLine("Stopped by Stop.");
+        if (this.pkStopBtn != null) this.pkStopBtn.setVisibility(8);
+    }
+
     android.app.AlertDialog pkChainDoneDialog() {
         return this.pkChainDone;
     }
@@ -1153,8 +1175,10 @@ final class PyJav {
             public void run() {
                 if (pkLive != live || pkPyLog == null || live.done || live.aborted()) {
                     if (pkTicking == live) pkTicking = null;
+                    if (pkStopBtn != null && (pkLive == live || pkLive == null)) pkStopBtn.setVisibility(8);
                     return;
                 }
+                if (pkStopBtn != null && pkStopBtn.getVisibility() != 0) pkStopBtn.setVisibility(0);
                 // Its workflow id, once printed: Copy workflow id.
                 String wf = pulsekit.SogniDownloads.workflowIn(live.text());
                 if (wf != null && !wf.equals(pkWorkflowId)) pkShowWorkflow(wf);
