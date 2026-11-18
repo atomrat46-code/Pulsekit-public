@@ -9,6 +9,9 @@ silence. DrumMidi finds it there by itself. About 1-3 GB; a song then takes abou
   python tools/setup_demucs.py          PyTorch for the processor
   python tools/setup_demucs.py --gpu    PyTorch for an NVIDIA graphics card (CUDA)
 
+In Pulsekit: PyJav, Browse file: setup_demucs.py, --gpu in the Arguments (for an NVIDIA card), Run. Its steps
+show in Output as they go; the PyTorch download takes a few minutes (most with --gpu).
+
 Needs Python 3.9 or later and the internet. Run again to repair or update.
 """
 import os
@@ -16,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import venv
 
 HOME = os.path.join(os.path.expanduser("~"), ".pulsekit", "demucs")
@@ -24,8 +28,19 @@ PY = os.path.join(HOME, "Scripts", "python.exe") if WIN else os.path.join(HOME, 
 
 
 def run(*cmd):
+    """Runs a step, saying every 30 s that it is still going: pip prints nothing while it downloads PyTorch
+    (2.5 GB with --gpu) when not in a terminal, and Pulsekit's PyJav stops a script silent for 10 minutes."""
     print("> " + " ".join(cmd), flush=True)
-    subprocess.check_call(list(cmd))
+    p = subprocess.Popen(list(cmd))
+    start = time.time()
+    while True:
+        try:
+            code = p.wait(timeout=30)
+            break
+        except subprocess.TimeoutExpired:
+            print("  ... still working (%d min)" % ((time.time() - start) // 60), flush=True)
+    if code:
+        raise subprocess.CalledProcessError(code, list(cmd))
 
 
 def silence(path, seconds=1.0, sr=44100):
