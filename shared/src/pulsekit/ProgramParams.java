@@ -393,6 +393,9 @@ public final class ProgramParams {
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
+    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone (computer only: python tools/setup_demucs.py once)";
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";
