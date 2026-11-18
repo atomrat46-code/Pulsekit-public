@@ -221,10 +221,10 @@ def f1(pred, y):
     return 100.0 * 2 * tp / max(1, 2 * tp + fp + fn), int(tp), int(fp), int(fn)
 
 
-# Kit families of one maker held out together: KVLT is a drum pack for Ugritone Drums, Northern Artillery
-# an Ugritone plugin too (their sounds and production are close; a test of either while the others are
-# learned would be too kind).
-FAMILY_OF = {"KVLT": "Ugritone", "Artillery": "Ugritone"}
+# Kit families of one maker held out together, so a test is of a maker DrumMidi has never heard: Ugritone's
+# plugins and packs (Ugritone Drums, its KVLT packs, Northern Artillery, Riot, Anarchy) and AVL's drumkits
+# (avldrums and its LV2 kits: Black Pearl, Blonde Bop, Red Zeppelin, Buskman's Holiday).
+FAMILY_OF = {"KVLT": "Ugritone", "Artillery": "Ugritone", "Riot": "Ugritone", "Anarchy": "Ugritone", "LV2": "avldrums"}
 
 
 def family(name):
