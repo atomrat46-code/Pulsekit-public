@@ -2232,7 +2232,7 @@ final class PyJav {
                 }
                 MusicCompare.Chain c = MusicCompare.startChain(argv, Engine.fileSetSources(app.learned, app.learnedFills), wavs, this.loadParams("DrumMidi_CRT.jar"), log);
                 if (c == null) {
-                    this.testNote("No WAVs for DrumMidi: no file sets made");
+                    this.testNote("No tracks with drums for DrumMidi (Piano only, Synth only have none): no file sets made");
                     this.zipFinish();
                 } else {
                     c.report = shown;

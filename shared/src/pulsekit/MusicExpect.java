@@ -179,6 +179,14 @@ public final class MusicExpect {
    * have to find it), and the user's saved DrumMidi switches; without any saved, the switches
    * suggested for a mix when instruments besides drums are expected.
    */
+  /** DrumMidi's switches a SogniMusic chain leaves out of its saved Params: its folder input, its zips, its log file. */
+  static final java.util.Set<String> CHAIN_DROPS = new java.util.HashSet<String>(java.util.Arrays.asList("--dir", "--recursive", "--zip", "--zip_mb", "--zip_outdir", "--log"));
+
+  /** Whether a session's tracks have drums (Piano only and Synth only have none: no DrumMidi on them). */
+  public boolean hasDrums() {
+    return !listed || instruments.contains("drums");
+  }
+
   public List<String> drumMidiArgs(String wav, String midiName, String saved) {
     List<String> out = new ArrayList<String>();
     out.add(wav);
@@ -191,6 +199,12 @@ public final class MusicExpect {
       // The tempo is the one asked for.
       if (a.equals("--bpm")) {
         i++;
+        continue;
+      }
+      // DrumMidi's own input folder and zips (a folder of old zips it was last run on): the chain gives it this
+      // track alone; its MIDI goes into SogniMusic's file sets and zip.
+      if (CHAIN_DROPS.contains(a)) {
+        if (!DrumMidiArgs.onOff(a) && !a.equals("--recursive") && !a.equals("--zip") && i + 1 < mine.size() && !mine.get(i + 1).startsWith("--")) i++;
         continue;
       }
       out.add(a);

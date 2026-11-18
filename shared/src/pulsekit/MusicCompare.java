@@ -275,8 +275,13 @@ public final class MusicCompare {
   /** As above; `log` is SogniMusic's: a --random run's tempo asked for each style goes to its DrumMidi run (--bpm). */
   public static synchronized Chain startChain(List<String> argv, List<String> fileSets, List<String[]> wavs, String saved, String log) {
     if (wavs == null || wavs.isEmpty()) return null;
-    Chain c = new Chain(runName(fileSets), MusicExpect.of(argv), saved);
-    c.tracks.addAll(wavs);
+    MusicExpect expect = MusicExpect.of(argv);
+    // Piano only and Synth only tracks have no drums: no DrumMidi run, no file set (the tracks are kept and zipped).
+    List<String[]> drummed = new ArrayList<String[]>();
+    for (String[] w : wavs) if (expect.forTrack(w[0]).hasDrums()) drummed.add(w);
+    if (drummed.isEmpty()) return null;
+    Chain c = new Chain(runName(fileSets), expect, saved);
+    c.tracks.addAll(drummed);
     c.random = argv != null && argv.contains("--random");
     if (c.random) c.tempos.putAll(askedTempos(log));
     int mi = argv == null ? -1 : argv.indexOf("--model");

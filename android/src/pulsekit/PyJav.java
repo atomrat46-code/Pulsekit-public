@@ -913,7 +913,7 @@ final class PyJav {
         if (i >= tracks.size()) {
             pulsekit.MusicCompare.Chain c = pulsekit.MusicCompare.startChain(argv, pulsekit.Engine.fileSetSources(app.learned, app.learnedFills), wavs, pulsekit.PyJavParams.load(app, "DrumMidi_CRT.jar"), result == null ? null : result.log);
             if (c == null) {
-                this.pkAddLogLine("No WAVs for DrumMidi: no file sets made");
+                this.pkAddLogLine("No tracks with drums for DrumMidi (Piano only, Synth only have none): no file sets made");
                 this.pkZipFinish();
             } else {
                 c.report = this.pkCompareReport == null ? "" : this.pkCompareReport;

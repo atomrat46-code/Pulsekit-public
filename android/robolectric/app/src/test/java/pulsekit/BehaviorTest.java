@@ -142,6 +142,25 @@ public class BehaviorTest {
     org.junit.Assert.assertEquals("args after OK '" + afterOk + "', after pick '" + afterPick + "'", "--multi_session --piano_only --synth_only", again);
   }
 
+  /** 18112026: SogniMusic's DrumMidi step: DrumMidi's saved folder of zips is not its input; Piano only and Synth only tracks have no step. */
+  @Test
+  public void chainLeavesDrumMidiFolderAndDrumlessTracks() {
+    String saved = "--dir content://tree/primary%3ASamples --recursive --zip --zip_mb 25 --zip_outdir /x/zips --faded-opens --drums-only --sens 1";
+    java.util.List<String> args = MusicExpect.of(java.util.Arrays.asList("--drums_only")).drumMidiArgs("a.wav", "a.mid", saved);
+    org.junit.Assert.assertEquals("[a.wav, a.mid, --faded-opens, --drums-only, --sens, 1]", args.toString());
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_bass", "--piano_only", "--synth_only");
+    java.util.List<String[]> wavs = new java.util.ArrayList<>();
+    wavs.add(new String[] {"Funk-drums_bass-sft", "/t/a.wav"});
+    wavs.add(new String[] {"Funk-piano-sft", "/t/b.wav"});
+    wavs.add(new String[] {"Funk-synth-turbo", "/t/c.wav"});
+    MusicCompare.Chain c = MusicCompare.startChain(argv, new java.util.ArrayList<>(), wavs, saved);
+    int n = c.tracks.size();
+    MusicCompare.stopChain();
+    org.junit.Assert.assertEquals(1, n);
+    java.util.List<String[]> drumless = new java.util.ArrayList<>(wavs.subList(1, 3));
+    org.junit.Assert.assertNull(MusicCompare.startChain(argv, new java.util.ArrayList<>(), drumless, saved));
+  }
+
   /** 18112026: --zip_by_session: each instrument session's files in a zip of its own, the shared ones in each. */
   @Test
   public void zipBySession() {
