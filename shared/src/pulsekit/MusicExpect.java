@@ -41,6 +41,8 @@ public final class MusicExpect {
     // No drums: the instrument alone (its sound laid over drums whose MIDI is known, to test DrumMidi under it).
     {"--piano_only", "piano", "piano"},
     {"--synth_only", "synth", "synth"},
+    {"--bass_only", "bass", "bass"},
+    {"--guitar_only", "guitar", "guitar"},
   };
 
   /** The sessions asked for (their tags), in SESSIONS' order. */

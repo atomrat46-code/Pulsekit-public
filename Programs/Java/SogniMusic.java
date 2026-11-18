@@ -40,8 +40,8 @@ import java.util.Map;
  *
  * Instrument sessions: --drums_only, --drums_bass, --drums_guitar, --drums_bass_guitar, --drums_piano and
  * --drums_synth each ask for those instruments alone, in a prompt written for them (a rhythm-section duo, a
- * power trio, drums with a piano, drums with a synthesizer). --piano_only and --synth_only ask for that
- * instrument with no drums at all: clean piano and synth sound to lay over drums whose MIDI is known
+ * power trio, drums with a piano, drums with a synthesizer). --piano_only, --synth_only, --bass_only and
+ * --guitar_only ask for that instrument with no drums at all: clean piano and synth sound to lay over drums whose MIDI is known
  * (tools/accomp_mix.py layers:<folder>), to test DrumMidi under a real instrument.
  * One is picked, unless --multi_session: then each one given is a track of its own in the same
  * run (named with it: sogni-Funk-6f1262f1-drums_bass.mp3), measured and ranked as a comparison is.
@@ -243,8 +243,8 @@ public final class SogniMusic {
         if (!sessions.contains("drums")) sessions.add("drums");
       } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar") || a.equals("--drums_piano") || a.equals("--drums_synth")) {
         if (!sessions.contains(a.substring(2))) sessions.add(a.substring(2));
-      } else if (a.equals("--piano_only") || a.equals("--synth_only")) {
-        String t = a.equals("--piano_only") ? "piano" : "synth";
+      } else if (a.equals("--piano_only") || a.equals("--synth_only") || a.equals("--bass_only") || a.equals("--guitar_only")) {
+        String t = a.substring(2, a.length() - "_only".length());
         if (!sessions.contains(t)) sessions.add(t);
       } else if (a.equals("--multi_session")) multiSession = true;
       else if (a.equals("--instruments") && i + 1 < args.length) instruments = args[++i];
@@ -274,7 +274,7 @@ public final class SogniMusic {
     }
     // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar, drums_piano, drums_synth).
     List<String> ordered = new ArrayList<String>();
-    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth", "piano", "synth"}) if (sessions.contains(t)) ordered.add(t);
+    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth", "piano", "synth", "bass", "guitar"}) if (sessions.contains(t)) ordered.add(t);
     sessions = ordered;
     if (sessions.size() > 1 && !multiSession) {
       say("Failed: pick one instrument session (" + sessionSwitches(sessions) + "), or add --multi_session to make each a track of its own");
@@ -770,7 +770,7 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--piano_only] [--synth_only] [--instruments list] [--bpm N] [--duration seconds] "
+    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--piano_only] [--synth_only] [--bass_only] [--guitar_only] [--instruments list] [--bpm N] [--duration seconds] "
         + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--zip_by_session] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
@@ -947,7 +947,7 @@ public final class SogniMusic {
   /** The switches of the sessions given ("--drums_only and --drums_bass"). */
   static String sessionSwitches(List<String> sessions) {
     List<String> out = new ArrayList<String>();
-    for (String s : sessions) out.add(s.equals("drums") ? "--drums_only" : s.equals("piano") || s.equals("synth") ? "--" + s + "_only" : "--" + s);
+    for (String s : sessions) out.add(s.equals("drums") ? "--drums_only" : solo(s) ? "--" + s + "_only" : "--" + s);
     return String.join(", ", out);
   }
 
@@ -976,7 +976,7 @@ public final class SogniMusic {
    */
   static String sessionPrompt(String prompt, String genre, String session) {
     if (session.equals("drums")) return musicPrompt(prompt, genre, true, null, false);
-    if (session.equals("piano") || session.equals("synth")) return soloPrompt(prompt, genre, session);
+    if (solo(session)) return soloPrompt(prompt, genre, session);
     String g = genre == null ? "" : genre.trim();
     String style = prompt == null ? "" : prompt.trim();
     StringBuilder sb = new StringBuilder();
@@ -1006,19 +1006,30 @@ public final class SogniMusic {
     return sb.toString();
   }
 
+  /** A session of one instrument with no drums (--piano_only, --synth_only, --bass_only, --guitar_only). */
+  static boolean solo(String session) {
+    return session.equals("piano") || session.equals("synth") || session.equals("bass") || session.equals("guitar");
+  }
+
   /**
-   * --piano_only, --synth_only: the instrument alone, unaccompanied. Only it is named (a music model
-   * hears "no drums" as "drums"): a solo performer, chords and a melody, in the style's groove.
+   * --piano_only, --synth_only, --bass_only, --guitar_only: the instrument alone, unaccompanied. Only it is
+   * named (a music model hears "no drums" as "drums"): a solo performer in the style's groove.
    */
   static String soloPrompt(String prompt, String genre, String session) {
     String g = genre == null ? "" : genre.trim();
     String style = prompt == null ? "" : prompt.trim();
-    boolean piano = session.equals("piano");
-    StringBuilder sb = new StringBuilder(piano ? "Solo acoustic piano, unaccompanied pianist" : "Solo synthesizer, one synth player alone");
-    if (g.length() > 0) sb.append(", ").append(g).append(piano ? " piano piece" : " synth part");
+    String[] w = session.equals("piano") ? new String[] {"Solo acoustic piano, unaccompanied pianist", " piano piece",
+        ". Chords and a melody on one acoustic piano, left hand and right hand, the piano alone, dry studio recording, instrumental."}
+      : session.equals("synth") ? new String[] {"Solo synthesizer, one synth player alone", " synth part",
+        ". A synth pad, a synth bass line and an arpeggiated lead on one synthesizer, the synthesizer alone, dry studio recording, instrumental."}
+      : session.equals("bass") ? new String[] {"Solo electric bass guitar, one bassist alone", " bass line",
+        ". A groove on one electric bass guitar, fingered and picked notes, the bass alone, dry studio recording, instrumental."}
+      : new String[] {"Solo electric guitar, one guitarist alone", " guitar part",
+        ". Rhythm guitar chords and riffs on one electric guitar, the guitar alone, dry studio recording, instrumental."};
+    StringBuilder sb = new StringBuilder(w[0]);
+    if (g.length() > 0) sb.append(", ").append(g).append(w[1]);
     if (style.length() > 0) sb.append(", ").append(style);
-    sb.append(piano ? ". Chords and a melody on one acoustic piano, left hand and right hand, the piano alone, dry studio recording, instrumental."
-        : ". A synth pad, a synth bass line and an arpeggiated lead on one synthesizer, the synthesizer alone, dry studio recording, instrumental.");
+    sb.append(w[2]);
     return sb.toString();
   }
 

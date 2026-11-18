@@ -729,7 +729,7 @@ public final class ProgramParams {
     String[][] sessions = MusicExpect.SESSIONS;
     for (int i = 0; i < sessions.length; i++) {
       if (!p.flag || p.takesValue || !p.token.equals(sessions[i][0])) continue;
-      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only", "Drums & piano only", "Drums & synth only", "Piano only, no drums", "Synth only, no drums"}[i] + " (instrument session)";
+      p.label = new String[] {"Drums only", "Drums & bass only", "Drums & guitar only", "Drums, bass & guitar only", "Drums & piano only", "Drums & synth only", "Piano only, no drums", "Synth only, no drums", "Bass only, no drums", "Guitar only, no drums"}[i] + " (instrument session)";
       List<String> others = new ArrayList<String>();
       for (String[] o : sessions) if (!o[0].equals(p.token)) others.add(o[0]);
       p.clears = others.toArray(new String[0]);

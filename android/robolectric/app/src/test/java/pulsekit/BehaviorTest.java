@@ -148,7 +148,7 @@ public class BehaviorTest {
     String saved = "--dir content://tree/primary%3ASamples --recursive --zip --zip_mb 25 --zip_outdir /x/zips --faded-opens --drums-only --sens 1";
     java.util.List<String> args = MusicExpect.of(java.util.Arrays.asList("--drums_only")).drumMidiArgs("a.wav", "a.mid", saved);
     org.junit.Assert.assertEquals("[a.wav, a.mid, --faded-opens, --drums-only, --sens, 1]", args.toString());
-    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_bass", "--piano_only", "--synth_only");
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_bass", "--piano_only", "--synth_only", "--bass_only", "--guitar_only");
     java.util.List<String[]> wavs = new java.util.ArrayList<>();
     wavs.add(new String[] {"Funk-drums_bass-sft", "/t/a.wav"});
     wavs.add(new String[] {"Funk-piano-sft", "/t/b.wav"});
@@ -158,6 +158,12 @@ public class BehaviorTest {
     MusicCompare.stopChain();
     org.junit.Assert.assertEquals(1, n);
     java.util.List<String[]> drumless = new java.util.ArrayList<>(wavs.subList(1, 3));
+    // Bass only and Guitar only too (and their tags are not drums_bass's or drums_guitar's).
+    drumless.add(new String[] {"Funk-bass-sft", "/t/d.wav"});
+    drumless.add(new String[] {"Funk-guitar-turbo", "/t/e.wav"});
+    org.junit.Assert.assertEquals("bass", MusicExpect.sessionOf("Funk-bass-sft"));
+    org.junit.Assert.assertEquals("drums_bass", MusicExpect.sessionOf("Funk-drums_bass-sft"));
+    org.junit.Assert.assertEquals("drums_guitar", MusicExpect.sessionOf("Funk-drums_guitar"));
     org.junit.Assert.assertNull(MusicCompare.startChain(argv, new java.util.ArrayList<>(), drumless, saved));
   }
 
