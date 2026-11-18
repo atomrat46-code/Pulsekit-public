@@ -38,6 +38,9 @@ public final class MusicExpect {
     {"--drums_bass_guitar", "drums_bass_guitar", "drums, bass, guitar"},
     {"--drums_piano", "drums_piano", "drums, piano"},
     {"--drums_synth", "drums_synth", "drums, synth"},
+    // No drums: the instrument alone (its sound laid over drums whose MIDI is known, to test DrumMidi under it).
+    {"--piano_only", "piano", "piano"},
+    {"--synth_only", "synth", "synth"},
   };
 
   /** The sessions asked for (their tags), in SESSIONS' order. */
@@ -87,7 +90,7 @@ public final class MusicExpect {
       if (!x[1].equals(s)) continue;
       for (String i : x[2].split(", ")) e.instruments.add(i);
     }
-    e.drumsOnly = e.instruments.size() == 1;
+    e.drumsOnly = e.instruments.size() == 1 && e.instruments.get(0).equals("drums");
     return e;
   }
 

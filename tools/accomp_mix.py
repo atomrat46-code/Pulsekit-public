@@ -1,7 +1,9 @@
-"""accomp_mix.py <bench out> <dest> <bass|guitar|clean|both|piano|synth> [level]: kit_bench.py renders with a synthetic bass /
+"""accomp_mix.py <bench out> <dest> <bass|guitar|clean|both|piano|synth|layers:<folder>> [level]: kit_bench.py renders with a synthetic bass /
 distorted guitar / clean strummed guitar / acoustic piano (chords and a melody, a left-hand bass note) / synthesizer (a held
 pad, a plucked arpeggio, a synth bass in half the songs) over them (as loud as the drums, x level), for scoring DrumMidi on
-drums in a band (kit_bench.py score <dest>)."""
+drums in a band (kit_bench.py score <dest>).
+layers:<folder>: real recordings instead (SogniMusic's Piano only / Synth only tracks, MP3 or WAV): for each song one
+drawn at random, from a random point, looped to the song's length (needs ffmpeg for MP3s)."""
 import glob, os, re, shutil, sys, wave
 import numpy as np
 src, dest, kind = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -86,6 +88,25 @@ def part(kind, n, sr, bpm, rng):
     return out
 
 rng = np.random.default_rng(7)
+LAYERS = None
+if kind.startswith('layers:'):
+    import subprocess
+    LAYERS = sorted(glob.glob(os.path.join(kind[7:], '*.mp3')) + glob.glob(os.path.join(kind[7:], '*.wav')))
+    if not LAYERS: sys.exit('no MP3 or WAV files in ' + kind[7:])
+    CACHE = {}
+
+def layer(n, sr):
+    """A real recording, drawn at random, from a random point, looped to n samples."""
+    f = LAYERS[rng.integers(len(LAYERS))]
+    key = (f, sr)
+    if key not in CACHE:
+        raw = subprocess.run(['ffmpeg', '-v', 'quiet', '-i', f, '-ac', '1', '-ar', str(sr), '-f', 's16le', '-'], stdout=subprocess.PIPE, check=True).stdout
+        CACHE[key] = np.frombuffer(raw, dtype='<i2').astype(np.float64) / 32768.0
+    x = CACHE[key]
+    if len(x) < sr: return np.zeros(n)
+    start = int(rng.integers(len(x)))
+    reps = int(np.ceil((n + start) / len(x))) + 1
+    return np.tile(x, reps)[start:start + n]
 for kitdir in sorted(d for d in glob.glob(os.path.join(src, '*')) if os.path.isdir(d)):
     to = os.path.join(dest, os.path.basename(kitdir)); os.makedirs(to, exist_ok=True)
     for f in glob.glob(os.path.join(kitdir, '*')):
@@ -96,7 +117,7 @@ for kitdir in sorted(d for d in glob.glob(os.path.join(src, '*')) if os.path.isd
         m = re.search(r'-(\d+)bpm', b); bpm = float(m.group(1)) if m else 120.0
         a, sr = read(f)
         kinds = ['bass', 'guitar'] if kind == 'both' else [kind]
-        acc = sum(part(k, len(a), sr, bpm, rng) for k in kinds)
+        acc = layer(len(a), sr) if LAYERS else sum(part(k, len(a), sr, bpm, rng) for k in kinds)
         drms = np.sqrt(np.mean(a ** 2)) + 1e-9; arms = np.sqrt(np.mean(acc ** 2)) + 1e-9
         acc *= drms / arms * level  # as loud as the drums (x level)
         mix = a + acc[:, None]

@@ -50,14 +50,16 @@ public final class RunKeeper extends Service {
   }
 
   /** How long the notification stays after the last run, for a chain's next one (and again while one is coming). */
-  static final long GRACE_MS = 60000L;
+  static final long GRACE_MS = 60000L, MAX_IDLE_MS = 30 * 60000L;
+  static volatile long stopAsked;
   static final android.os.Handler LATER = new android.os.Handler(android.os.Looper.getMainLooper());
   static Context stopContext;
   static final Runnable STOPPER = new Runnable() {
     @Override
     public void run() {
       // A chain's next step is coming (SogniMusic's tracks made WAVs, DrumMidi on each, a folder's file sets): kept.
-      if (PyJav.RUNS.get() > 0 || busy()) {
+      // (A chain's step between runs: at most MAX_IDLE_MS with no run, in case its state was left over.)
+      if (PyJav.RUNS.get() > 0 || busy() && System.currentTimeMillis() - stopAsked < MAX_IDLE_MS) {
         LATER.postDelayed(this, GRACE_MS);
         return;
       }
@@ -78,6 +80,7 @@ public final class RunKeeper extends Service {
   /** Every run is over: the notification goes (after GRACE_MS, so the next run of a chain keeps it). */
   public static void stop(Context context) {
     stopContext = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+    stopAsked = System.currentTimeMillis();
     LATER.removeCallbacks(STOPPER);
     LATER.postDelayed(STOPPER, GRACE_MS);
   }

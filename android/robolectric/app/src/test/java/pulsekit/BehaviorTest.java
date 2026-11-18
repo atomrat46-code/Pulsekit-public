@@ -3547,6 +3547,10 @@ public class BehaviorTest {
     android.content.Intent started = org.robolectric.Shadows.shadowOf(app).getNextStartedService();
     out.append("run kept going: ").append(started != null && started.getComponent().getClassName().equals(RunKeeper.class.getName()))
         .append(", ").append(started == null ? "" : started.getStringExtra(RunKeeper.TEXT)).append(", noted ").append(new File(dir, RunKeeper.MARK).isFile()).append('\n');
+    // (No run or chain left over from another test.)
+    PyJav.RUNS.set(0);
+    MusicCompare.heldImport = false;
+    MusicCompare.stopChain();
     RunKeeper.stop(app);
     // 18112026: kept a while after the last run (a chain's next run, the app in the background, keeps it).
     boolean keptAfter = new File(dir, RunKeeper.MARK).exists();
