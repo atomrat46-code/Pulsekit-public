@@ -1701,8 +1701,9 @@ public class DrumMidi_CRT{
     static boolean separate;
 
     /**
-     * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up
-     * (~/.pulsekit/demucs), else the one -Ddm.demucsPython or PULSEKIT_DEMUCS names, else python3 or python
+     * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up (the one
+     * ~/.pulsekit/demucs.txt names: its --dir; else ~/.pulsekit/demucs), else the one -Ddm.demucsPython or
+     * PULSEKIT_DEMUCS names, else python3 or python
      * with demucs installed. On 80 human-played grooves under real piano and synth (Ugritone and Riot kits):
      * kick P63 R41 -> P83 R80 and snare P69 -> P84 under synth; under piano as with the drums alone.
      */
@@ -1710,7 +1711,17 @@ public class DrumMidi_CRT{
         static File python() {
             String given = System.getProperty("dm.demucsPython", System.getenv("PULSEKIT_DEMUCS"));
             if (given != null && given.length() > 0 && new File(given).isFile()) return new File(given);
-            File home = new File(System.getProperty("user.home", "."), ".pulsekit" + File.separator + "demucs");
+            File pulsekit = new File(System.getProperty("user.home", "."), ".pulsekit");
+            try {
+                File named = new File(pulsekit, "demucs.txt");
+                if (named.isFile()) {
+                    File f = new File(new String(java.nio.file.Files.readAllBytes(named.toPath()), "UTF-8").trim());
+                    if (f.isFile()) return f;
+                }
+            } catch (Exception ignored) {
+                // the usual place below
+            }
+            File home = new File(pulsekit, "demucs");
             for (String p : new String[] {"bin/python", "Scripts/python.exe"}) {
                 File f = new File(home, p);
                 if (f.isFile()) return f;
@@ -1739,6 +1750,12 @@ public class DrumMidi_CRT{
                     out = java.nio.file.Files.createTempDirectory("dm-demucs").toFile();
                     ProcessBuilder pb = new ProcessBuilder(cmd, "-m", "demucs", "--two-stems=drums", "-n", "htdemucs", "-o", out.getAbsolutePath(), song.getAbsolutePath());
                     pb.redirectErrorStream(true);
+                    // Its model where setup_demucs.py put it (in its own folder, not on the system drive).
+                    File root = py == null ? null : py.getAbsoluteFile().getParentFile().getParentFile();
+                    if (root != null && new File(root, "torch-cache").isDirectory()) {
+                        pb.environment().put("TORCH_HOME", new File(root, "torch-cache").getAbsolutePath());
+                        pb.environment().put("HF_HOME", new File(root, "hf-cache").getAbsolutePath());
+                    }
                     Process p = pb.start();
                     StringBuilder log = new StringBuilder();
                     try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), "UTF-8"))) {
