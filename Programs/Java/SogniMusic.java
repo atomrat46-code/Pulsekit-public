@@ -628,11 +628,16 @@ public final class SogniMusic {
     int next = 0;
     int waited = 0;
     int done = 0;
+    // Sogni's start rate limit (429): the waits in a row for one run, and when the next start may be tried.
+    int rateWaits = 0;
+    long rateUntil = 0;
     if (jobs.size() > MAX_ACTIVE) say(jobs.size() + " runs, " + MAX_ACTIVE + " at a time (Sogni's limit): each starts when one before it is over");
     while (next < jobs.size() || !active.isEmpty()) {
       boolean full = false;
       while (next < jobs.size() && active.size() < MAX_ACTIVE && !full) {
         String[] j = jobs.get(next);
+        // Waiting out the start rate limit: the runs going on are finished first.
+        if (System.currentTimeMillis() < rateUntil && !active.isEmpty()) break;
         try {
           // A random track's own settings ({..., bpm, key, timesig, duration, model}), else the run's.
           String id = j.length > 7 ? api.start(musicInput(j[2], Double.parseDouble(j[7]), Double.parseDouble(j[4]), j[5].isEmpty() ? null : j[5],
@@ -644,8 +649,19 @@ public final class SogniMusic {
           if (shared[0] == null) shared[0] = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], id);
           next++;
           waited = 0;
+          rateWaits = 0;
         } catch (Exception ex) {
-          if (tooManyActive(ex) && (!active.isEmpty() || waited < 20)) {
+          if (startLimited(ex) && rateWaits < RATE_PATIENCE) {
+            // Sogni's start rate limit (429: "Creative workflow start rate limit exceeded", met after some 320
+            // starts in a row): the same run tried again after a wait, not given up (each later run failed at once).
+            full = true;
+            int wait = Math.max(RATE_WAIT_S, retryAfter(ex));
+            if (rateWaits == 0 || rateWaits % 10 == 0) say("Sogni's start rate limit reached: waiting " + wait + " s before starting " + j[0] + " (" + (next + 1) + " of " + jobs.size() + ")");
+            rateWaits++;
+            // The runs going on finish meanwhile; with none, only the wait.
+            if (active.isEmpty()) Thread.sleep(wait * 1000L);
+            else rateUntil = System.currentTimeMillis() + wait * 1000L;
+          } else if (tooManyActive(ex) && (!active.isEmpty() || waited < 20)) {
             // Others of the account's runs are going on: wait for one of these (or a while) and try again.
             full = true;
             if (active.isEmpty()) {
@@ -689,6 +705,19 @@ public final class SogniMusic {
   static final int MAX_ACTIVE = 10;
 
   /** Whether Sogni turned a start away for the account's runs going on ("409 Too many active creative workflows"). */
+  /** A start refused for Sogni's start rate limit (429), waited out (RATE_WAIT_S at least, Retry-After when longer) up to RATE_PATIENCE times in a row. */
+  static final int RATE_WAIT_S = Integer.getInteger("sogni.rateWait", 60), RATE_PATIENCE = 60;
+
+  static boolean startLimited(Exception ex) {
+    if (ex instanceof SogniApi.ApiException && ((SogniApi.ApiException) ex).status == 429) return true;
+    String m = ex.getMessage() == null ? "" : ex.getMessage();
+    return m.contains("(429)") || m.toLowerCase(java.util.Locale.ROOT).contains("rate limit");
+  }
+
+  static int retryAfter(Exception ex) {
+    return ex instanceof SogniApi.ApiException ? Math.max(0, ((SogniApi.ApiException) ex).retryAfter) : 0;
+  }
+
   static boolean tooManyActive(Exception ex) {
     String m = ex.getMessage() == null ? "" : ex.getMessage();
     return m.contains("Too many active") || m.contains("409") && m.toLowerCase(java.util.Locale.ROOT).contains("active");
