@@ -1,7 +1,9 @@
 """hit_model.py: DrumMidi's hit model (DrumMidi_CRT.HitModel): kicks, snares and toms, learned from kits
 rendered from known MIDI. A small network (one hidden layer of 32) told each onset DrumMidi considers a kick,
 snare or tom from its bands' energies around it and the rules' own say. The built-in one: 51 kits (5
-DrumGizmo kits, also under a bass and guitars; 46 VST kits), 487,000 onsets. Each plugin family held out
+DrumGizmo kits, also under a bass, guitars, a piano and a synthesizer (tools/accomp_mix.py); 46 VST kits),
+548,000 onsets. With the piano and synth mixes (each kit held out): piano snare P86 R77 -> P89 R82, synth
+kick P80 -> P90, snare R70 -> R77, tom P81 -> P89; the other mixes as before. Each plugin family held out
 in turn (check): kick F 83 -> 93, snare 84 -> 94, tom 45 -> 85; all of DrumMidi on held-out songs: kick
 P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
 
