@@ -2,7 +2,10 @@
 rendered from known MIDI. A small network (one hidden layer of 32) told each onset DrumMidi considers a kick,
 snare or tom from its bands' energies around it and the rules' own say. The built-in one: 51 kits (5
 DrumGizmo kits, also under a bass, guitars, a piano and a synthesizer (tools/accomp_mix.py); 46 VST kits),
-548,000 onsets. With the piano and synth mixes (each kit held out): piano snare P86 R77 -> P89 R82, synth
+548,000 onsets, and (18.11.2026) 15% of the onsets of the same 5 DrumGizmo kits under real piano and synth
+recordings (SogniMusic's Piano only / Synth only tracks, accomp_mix.py layers:<folder>). Each kit held out: real
+synth kick F 80.1 -> 80.6, snare 77.9 -> 79.5, tom 75.0 -> 76.0; real piano snare 83.9 -> 85.0; the other mixes
+and kits as before (all of them at full weight: synth better still, but toms 1-2 down on most VST kits). With the piano and synth mixes (each kit held out): piano snare P86 R77 -> P89 R82, synth
 kick P80 -> P90, snare R70 -> R77, tom P81 -> P89; the other mixes as before. Each plugin family held out
 in turn (check): kick F 83 -> 93, snare 84 -> 94, tom 45 -> 85; all of DrumMidi on held-out songs: kick
 P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
