@@ -14,7 +14,7 @@ P90 R80 -> P95 R93, snare P83 R83 -> P94 R89, toms P57 R36 -> P90 R74.
 
   python tools/hit_model.py data   <kits.txt> <work> [jar]   the training data, a .npz a kit
   python tools/hit_model.py check  <work>                    leave one kit family out: how it does on kits it never saw
-  python tools/hit_model.py export <work> [--write] [--file <model.txt>] [--hidden N] [--epochs N]
+  python tools/hit_model.py export <work> [--write] [--file <model.txt>] [--hidden N] [--epochs N] [--variant ugritone]
                                                              the model from every kit (hidden units, default 32); --write puts
                                                              it in DrumMidi_CRT.java, --file writes a model file
                                                              (DrumMidi -Ddm.hitModelFile=<file>)
@@ -261,7 +261,7 @@ def check(work):
         print("All %-5s rules F %5.1f -> model F %5.1f (the onsets DrumMidi considers)" % (dr, 200 * r[0] / max(1, 2 * r[0] + r[1] + r[2]), 200 * m[0] / max(1, 2 * m[0] + m[1] + m[2])))
 
 
-def export(work, write, file, hidden=32, epochs=6):
+def export(work, write, file, hidden=32, epochs=6, variant=None):
     d = load(work)
     X = np.vstack([v["X"] for v in d.values()])
     Y = np.vstack([v["Y"] for v in d.values()])
@@ -276,6 +276,17 @@ def export(work, write, file, hidden=32, epochs=6):
     java = ("        static double[] HM_MU = %s, HM_SD = %s;\n        static double[][] HM_W = null;\n        static double[] HM_B = null, HM_T = %s;\n"
             "        static double[][] HM_W1 = {%s}, HM_W2 = {%s};\n        static double[] HM_B1 = %s, HM_B2 = %s;\n"
             % (arr(mu), arr(sd), arr(th), ", ".join(arr(r) for r in W1), ", ".join(arr(r) for r in W2), arr(b1), arr(b2)))
+    if variant:
+        # A second model DrumMidi has built in (--hit-model <variant>): its text as one string constant.
+        p = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
+        s = open(p, encoding="utf-8").read()
+        begin, end = "        // hit model %s: begin\n" % variant, "        // hit model %s: end\n" % variant
+        a = s.index(begin) + len(begin)
+        e = s.index(end)
+        text = model_text(m, th).replace("\n", "\\n")
+        open(p, "w", encoding="utf-8").write(s[:a] + '        static final String %s = "%s";\n' % (variant.upper(), text) + s[e:])
+        print("Wrote the %s model into %s (rebuild the jar: python tools/make_drummidi_jar.py)" % (variant, p))
+        return
     if write:
         p = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.java")
         s = open(p, encoding="utf-8").read()
@@ -344,7 +355,8 @@ if __name__ == "__main__":
         check(a[1])
     elif len(a) >= 2 and a[0] == "export":
         export(a[1], "--write" in a, a[a.index("--file") + 1] if "--file" in a else None,
-               int(a[a.index("--hidden") + 1]) if "--hidden" in a else 32, int(a[a.index("--epochs") + 1]) if "--epochs" in a else 6)
+               int(a[a.index("--hidden") + 1]) if "--hidden" in a else 32, int(a[a.index("--epochs") + 1]) if "--epochs" in a else 6,
+               a[a.index("--variant") + 1] if "--variant" in a else None)
     elif len(a) >= 3 and a[0] == "bench":
         bench(a[1], a[2], a[3] if len(a) > 3 else JAR)
     else:

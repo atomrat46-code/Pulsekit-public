@@ -393,6 +393,14 @@ public final class ProgramParams {
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
+    // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
+      p.label = "Hit model (kicks, snares and toms)";
+      p.dropdown = true;
+      p.choices = new String[] {"General: recordings from anywhere (other makers' kits, real songs)",
+          "Ugritone-tuned: Ugritone kits' renders (Ugritone Drums, KVLT, Riot, Anarchy); worse on other kits"};
+      p.choiceValues = new String[] {"", "ugritone"};
+    }
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--kit")) {
       p.label = "Kit profile (the kit's own kick, toms and cymbals, as vst_render.py --test learns them)";
       p.hint = "empty: none; a .kit file";
