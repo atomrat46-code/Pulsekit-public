@@ -743,9 +743,16 @@ public final class ProgramParams {
       p.label = "Busy: how much the drummer plays, 1 (simple, steady) to 10 (ghost notes, sixteenths, long fills)";
       p.hint = "empty: as busy as the track";
     }
-    if (p.flag && p.takesValue && p.token.equals("--bpm")) p.hint = "empty: heard from the track";
-    if (p.flag && p.takesValue && p.token.equals("--timesig")) p.hint = "empty: heard from the track (4/4 or 3/4); 6/8 for a compound feel";
+    if (p.flag && p.takesValue && p.token.equals("--bpm")) {
+      p.label = "Tempo (BPM)";
+      p.hint = "empty: heard from the track";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--timesig")) {
+      p.label = "Meter";
+      p.hint = "empty: heard from the track (4/4 or 3/4); 6/8 for a compound feel";
+    }
     if (p.flag && p.token.equals("--half-time")) p.label = "Half time: the snare on three only";
+    if (p.flag && p.token.equals("--shift")) p.label = "Snare on the other beats: the bar a beat later (when the snare falls on 1 and 3)";
     if (p.flag && p.token.equals("--no-fills")) p.label = "No fills (at the ends of phrases and before sections)";
     if (p.flag && p.token.equals("--no-crashes")) p.label = "No crashes (where sections and phrases start)";
     if (p.flag && p.token.equals("--no-ghosts")) p.label = "No ghost notes (soft snares between the beats when busy)";

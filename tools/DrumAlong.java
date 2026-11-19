@@ -27,7 +27,7 @@ import java.util.Locale;
  */
 public final class DrumAlong {
     static final String USAGE = "Usage: java DrumAlong <input.wav> [output.mid] [--style name] [--busy 1-10] [--bpm N] [--timesig 4/4|3/4|6/8] "
-            + "[--half-time] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
+            + "[--half-time] [--shift] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
 
     static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
     static final int CRASH = 49, RIDE = 51, FLOOR_TOM = 41, LOW_TOM = 45, MID_TOM = 47, HIGH_TOM = 50;
@@ -101,7 +101,7 @@ public final class DrumAlong {
     static String input, output, styleName;
     static int busy = 0, tsNum = 0, tsDen = 4;
     static double bpmGiven = 0;
-    static boolean halfTimeGiven, fills = true, crashes = true, ghosts = true, onGrid;
+    static boolean halfTimeGiven, fills = true, crashes = true, ghosts = true, onGrid, shift;
 
     public static void main(String[] args) {
         try {
@@ -121,6 +121,7 @@ public final class DrumAlong {
         halfTimeGiven = false;
         fills = crashes = ghosts = true;
         onGrid = false;
+        shift = false;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (a.equals("--style") && i + 1 < args.length) styleName = args[++i];
@@ -135,6 +136,9 @@ public final class DrumAlong {
             else if (a.equals("--no-crashes")) crashes = false;
             else if (a.equals("--no-ghosts")) ghosts = false;
             else if (a.equals("--grid")) onGrid = true;
+            // The bar a beat later: the snare on the other beats (where the bar starts is the hardest to hear
+            // from a guitar or bass alone: right on some 60% of SogniMusic's band tracks).
+            else if (a.equals("--shift")) shift = true;
             else if (a.startsWith("--")) {
                 // Pulsekit passes its own (--swing, --saveprompt...): not DrumAlong's.
                 if (i + 1 < args.length && !args[i + 1].startsWith("--") && !args[i + 1].contains(".")) i++;
@@ -245,15 +249,20 @@ public final class DrumAlong {
         double bpm;
         if (bpmGiven > 0) bpm = bpmGiven;
         else {
-            double coarse = DrumMidi_CRT.estimateBpm(env, fps);
-            while (coarse > 170) coarse /= 2;
-            while (coarse < 70) coarse *= 2;
+            double coarse = tempo(env, fps);
             double[] g = DrumMidi_CRT.fitBeatGrid(env, fps, coarse * 0.97, coarse * 1.03);
             bpm = g[0];
         }
         double[] grid = DrumMidi_CRT.fitBeatGrid(env, fps, bpm, bpm);
         an.bpm = bpm;
         double period = 60.0 / bpm, phase = grid[1];
+        // On the beat or between: strummed chords on the "and" pull the grid there; the bass plays on the beat.
+        double onB = 0, offB = 0;
+        for (double t = phase; t < x.length / sr; t += period) {
+            onB += (an.hasBass ? 2 * peak(low, t, fps, 0.03) : 0) + peak(mid, t, fps, 0.03);
+            offB += (an.hasBass ? 2 * peak(low, t + period / 2, fps, 0.03) : 0) + peak(mid, t + period / 2, fps, 0.03);
+        }
+        if (offB > 1.1 * onB) phase += period / 2;
         double dur = x.length / sr;
         // The beats, each pulled a little toward the strongest onset near where it is due (a player drifts).
         double[] smooth = new double[env.length];
@@ -298,17 +307,34 @@ public final class DrumAlong {
             double c3 = lagCorr(beatLow, 3), c4 = lagCorr(beatLow, 4);
             bpb = beatLow.length >= 24 && c3 > 0 && c3 > 1.5 * Math.max(0, c4) ? 3 : 4;
         }
-        // The bar's first beat: the beat in the bar where the bass (or the chords) start most strongly.
+        // The bar's first beat: where the harmony changes most (chords change on the bar), and the bass starts.
+        // On SogniMusic's band tracks (the drummer's snares telling where beat 1 is) each of these points to
+        // it on 63-66% of tracks: the chords' and the bass's notes changing over a beat, the bass held after it.
+        double[] chord = new double[beats.size()], bassNote = new double[beats.size()], bassHeld = new double[beats.size()];
+        int c1 = DrumMidi_CRT.bin(120, sr, maxBin), c2 = DrumMidi_CRT.bin(1500, sr, maxBin);
+        int b1 = DrumMidi_CRT.bin(40, sr, maxBin), b2 = DrumMidi_CRT.bin(300, sr, maxBin), b3 = DrumMidi_CRT.bin(250, sr, maxBin);
+        for (int b = 0; b < beats.size(); b++) {
+            chord[b] = spectrumChange(mag, beats.get(b), period, fps, c1, c2);
+            bassNote[b] = spectrumChange(mag, beats.get(b), period, fps, b1, b2);
+            bassHeld[b] = levelAfter(mag, beats.get(b), period / 2, fps, b1, b3);
+        }
+        double[] zc = zscore(chord), zb = zscore(bassNote), zh = zscore(bassHeld);
         int best = 0;
-        double bestS = -1;
+        double bestS = -Double.MAX_VALUE;
         for (int o = 0; o < bpb; o++) {
             double s = 0;
-            for (int b = o; b < beatLow.length; b += bpb) s += beatLow[b];
+            int n = 0;
+            for (int b = o; b < beatLow.length; b += bpb) {
+                s += zc[b] + zb[b] + zh[b];
+                n++;
+            }
+            s /= Math.max(1, n);
             if (s > bestS) {
                 bestS = s;
                 best = o;
             }
         }
+        if (shift) best = (best + 1) % bpb;
         List<Double> barBeats = new ArrayList<Double>();
         // Beats before the first downbeat: a pickup bar from the beat before (filled out below).
         int first = best;
@@ -387,7 +413,7 @@ public final class DrumAlong {
         if (fam == null) {
             if (an.swing && !compound) fam = "shuffle";
             else if (bpm >= 165 && an.density < 0.6) fam = "punk";
-            else if (an.density >= 0.45 && bpm >= 80 && bpm <= 125) fam = "funk";
+            else if (an.density >= 0.8 && bpm >= 80 && bpm <= 125) fam = "funk";
             else if (an.density < 0.2 && bpm < 95) fam = "ballad";
             else fam = "rock";
         }
@@ -401,6 +427,107 @@ public final class DrumAlong {
         System.out.println("Style: " + an.style.name + (styleName != null && familyOf(styleName) != null ? " (" + styleName + ")" : " (from the track)")
                 + ", busy " + an.busy + (an.halfTime ? ", half time" : ""));
         return an;
+    }
+
+    /**
+     * The tempo from how the onsets repeat: each beat's lag scored with its double and half (a bar's
+     * eighths and its half notes repeat too), under a mild preference for 75-150 BPM.
+     */
+    static double tempo(double[] env, double fps) {
+        int n = env.length;
+        double mean = 0;
+        for (double v : env) mean += v;
+        mean /= n;
+        int maxLag = (int) Math.ceil(fps * 60 / 30.0);
+        double[] ac = new double[Math.min(n, maxLag + 2)];
+        for (int lag = 1; lag < ac.length; lag++) {
+            double s = 0;
+            for (int i = 0; i + lag < n; i++) s += (env[i] - mean) * (env[i + lag] - mean);
+            ac[lag] = s / (n - lag);
+        }
+        double best = 120, bestS = -Double.MAX_VALUE;
+        for (double bpm = 60; bpm <= 180; bpm += 0.25) {
+            double lag = 60 * fps / bpm;
+            double s = acAt(ac, lag) + 0.5 * acAt(ac, 2 * lag) + 0.5 * acAt(ac, lag / 2) + 0.25 * acAt(ac, 4 * lag);
+            double oct = Math.log(bpm / 108.0) / Math.log(2);
+            s *= Math.exp(-0.5 * oct * oct / (0.7 * 0.7));
+            if (s > bestS) {
+                bestS = s;
+                best = bpm;
+            }
+        }
+        return best;
+    }
+
+    static double acAt(double[] ac, double lag) {
+        int i = (int) lag;
+        if (i < 1 || i + 1 >= ac.length) return 0;
+        double f = lag - i;
+        return ac[i] * (1 - f) + ac[i + 1] * f;
+    }
+
+    /**
+     * How unlike the spectrum (lo-hi bins, log) is in the `span` before t and the `span` after: 1 minus
+     * their correlation (a chord or bass note changing there).
+     */
+    static double spectrumChange(float[][] mag, double t, double span, double fps, int lo, int hi) {
+        int c = (int) Math.round(t * fps), w = Math.max(2, (int) Math.round(span * fps));
+        if (c - w < 0 || c + w >= mag.length || hi <= lo) return 0;
+        int n = hi - lo + 1;
+        double[] a = new double[n], b = new double[n];
+        for (int k = 0; k < n; k++) {
+            for (int f = c - w; f < c - 1; f++) a[k] += Math.log1p(100 * mag[f][lo + k]);
+            for (int f = c + 1; f < c + w; f++) b[k] += Math.log1p(100 * mag[f][lo + k]);
+        }
+        double ma = 0, mb = 0;
+        for (int k = 0; k < n; k++) {
+            ma += a[k] / n;
+            mb += b[k] / n;
+        }
+        double ab = 0, aa = 0, bb = 0;
+        for (int k = 0; k < n; k++) {
+            ab += (a[k] - ma) * (b[k] - mb);
+            aa += (a[k] - ma) * (a[k] - ma);
+            bb += (b[k] - mb) * (b[k] - mb);
+        }
+        return 1 - ab / (Math.sqrt(aa * bb) + 1e-12);
+    }
+
+    /** The mean log level of bins lo-hi in the `span` after t. */
+    static double levelAfter(float[][] mag, double t, double span, double fps, int lo, int hi) {
+        int c = (int) Math.round(t * fps), w = Math.max(1, (int) Math.round(span * fps));
+        double s = 0;
+        int n = 0;
+        for (int f = c; f < Math.min(mag.length, c + w); f++) {
+            for (int k = lo; k <= hi; k++) s += Math.log1p(100 * mag[f][k]);
+            n += hi - lo + 1;
+        }
+        return n == 0 ? 0 : s / n;
+    }
+
+    /** How much the spectrum (lo-hi bins, log) differs between the half beat before t and the half beat after. */
+    static double harmonyChange(float[][] mag, double t, double half, double fps, int lo, int hi) {
+        int c = (int) Math.round(t * fps), w = Math.max(2, (int) Math.round(half * fps));
+        if (c - w < 0 || c + w >= mag.length) return 0;
+        double d = 0;
+        for (int k = lo; k <= hi; k++) {
+            double a = 0, b = 0;
+            for (int f = c - w; f < c - 1; f++) a += mag[f][k];
+            for (int f = c + 1; f < c + w; f++) b += mag[f][k];
+            d += Math.abs(Math.log1p(a) - Math.log1p(b));
+        }
+        return d / (hi - lo + 1);
+    }
+
+    static double[] zscore(double[] v) {
+        double m = 0, s = 0;
+        for (double x : v) m += x;
+        m /= Math.max(1, v.length);
+        for (double x : v) s += (x - m) * (x - m);
+        s = Math.sqrt(s / Math.max(1, v.length));
+        double[] out = new double[v.length];
+        for (int i = 0; i < v.length; i++) out[i] = s < 1e-12 ? 0 : (v[i] - m) / s;
+        return out;
     }
 
     /** How far each frame is over the median of the frames around it (0 when under). */
