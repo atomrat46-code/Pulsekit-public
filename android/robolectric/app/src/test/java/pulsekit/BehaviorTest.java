@@ -167,6 +167,21 @@ public class BehaviorTest {
     org.junit.Assert.assertNull(MusicCompare.startChain(argv, new java.util.ArrayList<>(), drumless, saved));
   }
 
+  /** 19112026: Drum tracks only (--drums-only) only for a drums-only session's track; --no_compare's "Track:" lines read. */
+  @Test
+  public void chainDrumsOnlyAndTrackLines() {
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_piano");
+    MusicExpect e = MusicExpect.of(argv);
+    String saved = "--faded-opens --drums-only";
+    org.junit.Assert.assertTrue(e.forTrack("Waltz-drums-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    org.junit.Assert.assertFalse(e.forTrack("Waltz-drums_piano-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    java.util.List<String[]> t = MusicCompare.tracks("Wrote x.mp3\nTrack: Waltz-drums_piano-turbo sogni-Waltz-cb38898d-drums_piano-turbo.mp3\nCompared: Funk-sft sogni-Funk-1.mp3\n");
+    org.junit.Assert.assertEquals(2, t.size());
+    org.junit.Assert.assertEquals("Waltz-drums_piano-turbo", t.get(0)[0]);
+    org.junit.Assert.assertEquals("sogni-Waltz-cb38898d-drums_piano-turbo.mp3", t.get(0)[1]);
+    org.junit.Assert.assertEquals("Funk-sft", t.get(1)[0]);
+  }
+
   /** 18112026: --zip_by_session: each instrument session's files in a zip of its own, the shared ones in each. */
   @Test
   public void zipBySession() {
@@ -15489,6 +15504,55 @@ public class BehaviorTest {
         && saidDb.equals("sky.png added to Holiday \u203a Beach") && kept && row.startsWith("Holiday\n2 links \u00b7 1 container") && shown && missing.endsWith("missing")
         && entryMenu.contains(CollectionsScreen.RELOCATE_ITEM) && found == 1 && after.isEmpty() && "deleted".equals(deleted) && playlistItem && "Holiday".equals(named);
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 19112026: Browse sections' header: Search (a magnifying glass), Contains / Doesn't contain and the term
+   * (* and ? wildcards); Search lists the sections that match, each on its own row under its group.
+   */
+  @Test
+  public void s267_section_search() throws Exception {
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Stormy sky.\n");
+    vault.groupSogniSection(storm.id, "Weather");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.searchTerm = "";
+    PyJavParams.searchContains = true;
+    PyJavParams.browseSections(app, "SogniPadd", none, noFields);
+    idle();
+    View head = PyJavParams.lastSections.getWindow().getDecorView();
+    String all = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    String parts = (head.findViewWithTag("sections-search") != null) + " " + (head.findViewWithTag("sections-search-how") != null) + " " + (head.findViewWithTag("sections-search-term") != null);
+    ((android.widget.EditText) head.findViewWithTag("sections-search-term")).setText("kite*sky");
+    head.findViewWithTag("sections-search").performClick();
+    idle();
+    String kite = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    head = PyJavParams.lastSections.getWindow().getDecorView();
+    String found = String.valueOf(((TextView) head.findViewWithTag("sections-search-found")).getText());
+    ((android.widget.Spinner) head.findViewWithTag("sections-search-how")).setSelection(1);
+    ((android.widget.EditText) head.findViewWithTag("sections-search-term")).setText("st?rmy");
+    head.findViewWithTag("sections-search").performClick();
+    idle();
+    String not = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    // A matched section held: its menu (Add to group… there).
+    android.widget.ListView lv = PyJavParams.lastSections.getListView();
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    idle();
+    String menu = listItems(PyJavParams.lastSectionMenu);
+    PyJavParams.lastSectionMenu.dismiss();
+    PyJavParams.searchTerm = "";
+    PyJavParams.searchContains = true;
+    String out = "parts " + parts + " | all " + all + " | kite*sky " + kite + " (" + found + ") | not st?rmy " + not + " | menu " + menu;
+    boolean ok = parts.equals("true true true") && all.equals("\u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>")
+        && kite.equals("Weather \u203a A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 <when>") && found.equals("2 of 3 sections contain \"kite*sky\"")
+        && not.equals("A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>") && menu.endsWith("Add to group\u2026");
+    if (!ok) throw new AssertionError(out);
   }
 
   /**

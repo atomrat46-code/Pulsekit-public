@@ -954,7 +954,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -972,6 +972,7 @@ public class DrumMidi_CRT{
         boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
         drumsOnly = false;
         separate = false;
+        drumStem = false;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -1002,6 +1003,8 @@ public class DrumMidi_CRT{
             else if ("--drums-only".equals(opt)) drumsOnly = true;
             // The drums separated from the song first (Demucs, on a computer: tools/setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
+            // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
+            else if ("--drum-stem".equals(opt)) drumStem = true;
             // A hit model learned elsewhere (vst_render's Hit model tab: hit-model.txt) in place of the built-in one;
             // "ugritone": the built-in one tuned on Ugritone kits' renders (HitModel.UGRITONE).
             else if ("--hit-model".equals(opt)) {
@@ -1036,8 +1039,12 @@ public class DrumMidi_CRT{
         File heard = inFile;
         if (separate) {
             File stem = Demucs.drums(inFile);
-            if (stem != null) heard = stem;
+            if (stem != null) {
+                heard = stem;
+                drumStem = true;
+            } else note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
         }
+        if (drumStem) note("Drum-stem mode: the drums alone (no bass, guitar or keys guards)");
         Audio audio = readAudio(heard);
         if (heard != inFile) heard.delete();
         double sr = audio.sampleRate;
@@ -1098,6 +1105,7 @@ public class DrumMidi_CRT{
         // tones (SogniMusic's guitar sessions: 0.71 median, nine in ten over 0.47; its drum sessions 0.36,
         // three in four under 0.47; a bench of kits alone 0.30). guitarLine alone heard 16% of the guitar sessions.
         if (midTone >= GUITAR_TONE) guitar = true;
+        if (drumStem) guitar = false;
 
         double[] kick = clickless ? kickBeforeHpss : flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
@@ -1269,7 +1277,7 @@ public class DrumMidi_CRT{
         {
             double[] ks = kickLevel.clone();
             Arrays.sort(ks);
-            accSure = ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0;
+            accSure = !drumStem && (ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0);
         }
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
@@ -1701,6 +1709,13 @@ public class DrumMidi_CRT{
     static boolean separate;
 
     /**
+     * Drum-stem mode (--separate's drums, or --drum-stem): only drums are there, so nothing is taken for a bass
+     * line, a guitar or keys (their guards, which leave out hits a band could have made, are off), as on a
+     * kit's render alone. Without it, a song with its band is told apart as well as can be, less completely.
+     */
+    static boolean drumStem;
+
+    /**
      * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up (the one
      * ~/.pulsekit/demucs.txt names: its --dir; else ~/.pulsekit/demucs), else the one -Ddm.demucsPython or
      * PULSEKIT_DEMUCS names, else python3 or python
@@ -1731,6 +1746,18 @@ public class DrumMidi_CRT{
 
         /** The drums stem as a WAV in a temporary folder (the caller deletes it), or null (a note says why). */
         static File drums(File song) {
+            java.util.Map<String, File> st = stems(song, true, "Separate drums", "the drums");
+            if (st == null) return null;
+            note("Separated the drums with Demucs: DrumMidi listens to them alone");
+            return st.get("drums");
+        }
+
+        /**
+         * Demucs's stems of a song as WAVs in temporary files (the caller deletes them): drums and no_drums
+         * (`twoStems`), or drums, bass, other (guitars, keys...) and vocals. Null when Demucs is not there or
+         * failed: a note says why (`what` names the step, `parts` what it separates).
+         */
+        static java.util.Map<String, File> stems(File song, boolean twoStems, String what, String parts) {
             List<String> cmds = new ArrayList<String>();
             File py = python();
             if (py != null) cmds.add(py.getAbsolutePath());
@@ -1740,15 +1767,18 @@ public class DrumMidi_CRT{
             }
             if (System.getProperty("java.vendor", "").toLowerCase(java.util.Locale.ROOT).contains("android")
                     || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) {
-                note("Separate drums: Demucs runs on a computer only; the whole song is used");
+                note(what + ": Demucs runs on a computer only; the whole song is used");
                 return null;
             }
-            note("Separating the drums with Demucs (a minute or more on a long song)...");
+            note("Separating " + parts + " with Demucs (a minute or more on a long song)...");
             for (String cmd : cmds) {
                 File out = null;
                 try {
                     out = java.nio.file.Files.createTempDirectory("dm-demucs").toFile();
-                    ProcessBuilder pb = new ProcessBuilder(cmd, "-m", "demucs", "--two-stems=drums", "-n", "htdemucs", "-o", out.getAbsolutePath(), song.getAbsolutePath());
+                    List<String> c = new ArrayList<String>(java.util.Arrays.asList(cmd, "-m", "demucs"));
+                    if (twoStems) c.add("--two-stems=drums");
+                    c.addAll(java.util.Arrays.asList("-n", "htdemucs", "-o", out.getAbsolutePath(), song.getAbsolutePath()));
+                    ProcessBuilder pb = new ProcessBuilder(c);
                     pb.redirectErrorStream(true);
                     // Its model where setup_demucs.py put it (in its own folder, not on the system drive).
                     File root = py == null ? null : py.getAbsoluteFile().getParentFile().getParentFile();
@@ -1763,28 +1793,97 @@ public class DrumMidi_CRT{
                     }
                     int code = p.waitFor();
                     String stem = song.getName().replaceAll("\\.[^.]+$", "");
-                    File drums = new File(out, "htdemucs" + File.separator + stem + File.separator + "drums.wav");
-                    if (code == 0 && drums.isFile()) {
-                        File keep = File.createTempFile("dm-drums", ".wav");
-                        java.nio.file.Files.move(drums.toPath(), keep.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                        note("Separated the drums with Demucs: DrumMidi listens to them alone");
-                        return keep;
+                    File dir = new File(out, "htdemucs" + File.separator + stem);
+                    String[] names = twoStems ? new String[] {"drums", "no_drums"} : new String[] {"drums", "bass", "other", "vocals"};
+                    java.util.Map<String, File> got = new java.util.LinkedHashMap<String, File>();
+                    for (String n : names) {
+                        File f = new File(dir, n + ".wav");
+                        if (!f.isFile()) continue;
+                        File keep = File.createTempFile("dm-" + n, ".wav");
+                        java.nio.file.Files.move(f.toPath(), keep.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        got.put(n, keep);
                     }
+                    if (code == 0 && got.size() == names.length) return got;
+                    for (File f : got.values()) f.delete();
                     String tail = log.toString().trim();
                     if (tail.contains("No module named demucs")) continue;
-                    note("Separate drums: Demucs failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); the whole song is used");
+                    note(what + ": Demucs failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); the whole song is used");
                     return null;
                 } catch (java.io.IOException ex) {
                     // That Python is not there: the next one.
                 } catch (Exception ex) {
-                    note("Separate drums: " + ex.getMessage() + "; the whole song is used");
+                    note(what + ": " + ex.getMessage() + "; the whole song is used");
                     return null;
                 } finally {
                     if (out != null) deleteTree(out);
                 }
             }
-            note("Separate drums: Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
+            note(what + ": Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
             return null;
+        }
+
+        /**
+         * Beat This! (the beat tracker of Foscarin, Schlüter and Widmer, 2024, in the Python setup_demucs.py
+         * made) on mono samples: {beats, downbeats} in seconds, or null when it is not there or failed (a note
+         * says why). It hears whole songs as well as instruments alone; the first run fetches its model (77 MB).
+         */
+        static double[][] beatThis(double[] x, double sr) {
+            if (System.getProperty("java.vendor", "").toLowerCase(java.util.Locale.ROOT).contains("android")
+                    || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) return null;
+            File py = python();
+            if (py == null) {
+                note("Beats: Beat This! is not set up (on a computer: python tools/setup_demucs.py); DrumAlong's own beat finder is used");
+                return null;
+            }
+            File wav = null;
+            try {
+                wav = File.createTempFile("dm-beats", ".wav");
+                Sounds.writeWav16(wav, x, (int) Math.round(sr));
+                String script = "import sys, torch\n"
+                        + "from beat_this.inference import File2Beats\n"
+                        + "dev = 'cuda' if torch.cuda.is_available() else 'cpu'\n"
+                        + "b, d = File2Beats(checkpoint_path='final0', device=dev, dbn=False)(sys.argv[1])\n"
+                        + "print('BEATS ' + ' '.join('%.4f' % v for v in b))\n"
+                        + "print('DOWNBEATS ' + ' '.join('%.4f' % v for v in d))\n";
+                ProcessBuilder pb = new ProcessBuilder(py.getAbsolutePath(), "-c", script, wav.getAbsolutePath());
+                pb.redirectErrorStream(true);
+                File root = py.getAbsoluteFile().getParentFile().getParentFile();
+                if (root != null && new File(root, "torch-cache").isDirectory()) {
+                    pb.environment().put("TORCH_HOME", new File(root, "torch-cache").getAbsolutePath());
+                    pb.environment().put("HF_HOME", new File(root, "hf-cache").getAbsolutePath());
+                }
+                note("Beats: listening with Beat This!...");
+                Process p = pb.start();
+                double[] beats = null, downs = null;
+                StringBuilder log = new StringBuilder();
+                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), "UTF-8"))) {
+                    for (String line; (line = r.readLine()) != null; ) {
+                        if (line.startsWith("BEATS")) beats = numbers(line.substring(5));
+                        else if (line.startsWith("DOWNBEATS")) downs = numbers(line.substring(9));
+                        else if (log.length() < 4000) log.append(line).append('\n');
+                    }
+                }
+                int code = p.waitFor();
+                if (code == 0 && beats != null && downs != null && beats.length >= 4) return new double[][] {beats, downs};
+                String tail = log.toString().trim();
+                if (tail.contains("No module named 'beat_this'") || tail.contains("No module named beat_this"))
+                    note("Beats: Beat This! is not installed (python tools/setup_demucs.py adds it); DrumAlong's own beat finder is used");
+                else note("Beats: Beat This! failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); DrumAlong's own beat finder is used");
+                return null;
+            } catch (Exception ex) {
+                note("Beats: Beat This! " + ex.getMessage() + "; DrumAlong's own beat finder is used");
+                return null;
+            } finally {
+                if (wav != null) wav.delete();
+            }
+        }
+
+        static double[] numbers(String s) {
+            String[] w = s.trim().split("\\s+");
+            if (w.length == 1 && w[0].isEmpty()) return new double[0];
+            double[] v = new double[w.length];
+            for (int i = 0; i < w.length; i++) v[i] = Double.parseDouble(w[i]);
+            return v;
         }
 
         static void deleteTree(File f) {
@@ -4592,6 +4691,7 @@ public class DrumMidi_CRT{
      * at GUITAR_FLOOR of its loud level (95th percentile); drums alone, a ride too, leave it far lower.
      */
     static boolean guitarLine(float[][] mag, double sr, int maxBin) {
+        if (drumStem) return false;
         double[] g = bandMean(mag, bin(300, sr, maxBin), bin(1000, sr, maxBin));
         Arrays.sort(g);
         double loud = g[(int) (g.length * 0.95)];
@@ -4600,6 +4700,7 @@ public class DrumMidi_CRT{
 
     /** Something keeps the kick band up half the time: a bass line (drums alone leave it quiet between hits). */
     static boolean bassLine(double[] kickLevel) {
+        if (drumStem) return false;
         double[] s = kickLevel.clone();
         Arrays.sort(s);
         return s[s.length / 2] >= BASS_LINE;

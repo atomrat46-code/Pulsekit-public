@@ -2,6 +2,8 @@
 """Builds Programs/Java/DrumMidi_CRT.jar: DrumMidi_CRT with JLayer's MP3 decoder, for PyJav.
 Wav2Mp3 goes in too: vst_render.py --mp3 turns its WAVs into MP3s with it (java -cp the jar Wav2Mp3).
 Midi2Wav too: vst_render.py plays a SoundFont (.sf2, .sfz) given as its plugin with it (java -cp the jar Midi2Wav).
+Programs/Java/DrumAlong.jar too: tools/DrumAlong.java (a drum beat played along with an instrument track) with
+the same classes, as DrumAlong reads audio and finds the beat with DrumMidi_CRT's code (Main-Class DrumAlong).
 
 PyJav on Android turns a jar's classes into DEX and loads only those, so files inside the jar
 cannot be read as resources. JLayer's tables (sfd.ser, l3reorder.ser) therefore go into a
@@ -25,6 +27,8 @@ WAV2MP3 = os.path.join(ROOT, "Programs", "Java", "Wav2Mp3.java")
 MIDI2WAV = os.path.join(ROOT, "Programs", "Java", "Midi2Wav.java")
 JLAYER = os.path.join(ROOT, "shared", "libs", "jlayer-1_0_1.jar")
 OUT = os.path.join(ROOT, "Programs", "Java", "DrumMidi_CRT.jar")
+DRUMALONG = os.path.join(ROOT, "tools", "DrumAlong.java")
+ALONG_OUT = os.path.join(ROOT, "Programs", "Java", "DrumAlong.jar")
 TABLES = ("javazoom/jl/decoder/sfd.ser", "javazoom/jl/decoder/l3reorder.ser")
 STAMP = (2026, 1, 1, 0, 0, 0)
 
@@ -83,7 +87,7 @@ def main():
         with open(os.path.join(src, "JlTables.java"), "w") as f:
             f.write(tables_source(lib))
         cmd = ["javac", "-nowarn", "-encoding", "UTF-8", "--release", "8", "-d", classes,
-               SOURCE, WAV2MP3, MIDI2WAV, os.path.join(src, "JlTables.java")]
+               SOURCE, WAV2MP3, MIDI2WAV, DRUMALONG, os.path.join(src, "JlTables.java")]
         done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if done.returncode != 0:
             sys.stderr.write(done.stdout)
@@ -97,19 +101,27 @@ def main():
         for name in lib.namelist():
             if name.startswith("javazoom/jl/decoder/") and name.endswith(".class"):
                 entries[name] = lib.read(name)
-        manifest = b"Manifest-Version: 1.0\r\nMain-Class: DrumMidi_CRT\r\nCreated-By: tools/make_drummidi_jar.py\r\n\r\n"
-        tmp_out = OUT + ".tmp"
-        with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as jar:
-            for name, data in [("META-INF/MANIFEST.MF", manifest)] + sorted(entries.items()):
-                info = zipfile.ZipInfo(name, STAMP)
-                info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = 0o644 << 16
-                jar.writestr(info, data)
-    if os.path.isfile(OUT) and open(OUT, "rb").read() == open(tmp_out, "rb").read():
+        along = {k: v for k, v in entries.items() if k.startswith("DrumAlong")}
+        crt = {k: v for k, v in entries.items() if not k.startswith("DrumAlong")}
+        write(OUT, "DrumMidi_CRT", crt)
+        write(ALONG_OUT, "DrumAlong", dict(crt, **along))
+
+
+def write(out, main_class, entries):
+    """A jar with a fixed order and timestamps, written only when it changed."""
+    manifest = ("Manifest-Version: 1.0\r\nMain-Class: %s\r\nCreated-By: tools/make_drummidi_jar.py\r\n\r\n" % main_class).encode("ascii")
+    tmp_out = out + ".tmp"
+    with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as jar:
+        for name, data in [("META-INF/MANIFEST.MF", manifest)] + sorted(entries.items()):
+            info = zipfile.ZipInfo(name, STAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            jar.writestr(info, data)
+    if os.path.isfile(out) and open(out, "rb").read() == open(tmp_out, "rb").read():
         os.remove(tmp_out)
         return
-    os.replace(tmp_out, OUT)
-    print("Wrote " + os.path.relpath(OUT, ROOT))
+    os.replace(tmp_out, out)
+    print("Wrote " + os.path.relpath(out, ROOT))
 
 
 if __name__ == "__main__":

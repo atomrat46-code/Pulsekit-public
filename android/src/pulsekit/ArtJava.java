@@ -238,12 +238,20 @@ public final class ArtJava {
     List<JavaRun.FileOut> files = new ArrayList<JavaRun.FileOut>();
     File[] kids = work.listFiles();
     if (kids != null) {
+      // Many files (a SogniMusic run of 96 tracks): saving them takes a while after the program's last line, so
+      // the Running line says so as it goes.
+      JavaRun.Live live = JavaRun.live();
+      int toSave = 0, savedCount = 0;
+      for (File f : kids) if (f.isFile() && !before.contains(f.getName()) && !f.getName().endsWith(".class") && !f.getName().endsWith(".dex")) toSave++;
+      if (live != null && toSave > 5) live.add("Saving " + toSave + " files into Download, please wait\u2026\n");
       for (File f : kids) {
         if (!f.isFile()) continue;
         String fn = f.getName();
         if (before.contains(fn)) continue;
         if (fn.equals(skip) || fn.endsWith(".class") || fn.endsWith(".dex") || fn.endsWith(".java")) continue;
         if (f.length() > JavaRun.maxFileBytes(fn)) continue;
+        savedCount++;
+        if (live != null && toSave > 5 && savedCount % 10 == 0) live.add("Saved " + savedCount + " of " + toSave + " files\u2026\n");
         byte[] body = read(f);
         JavaRun.FileOut out = new JavaRun.FileOut(fn, body);
         files.add(out);

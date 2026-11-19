@@ -1916,12 +1916,17 @@ final class PyJav {
         final boolean testing = this.pkTestStep(program, argv, status, made, madeLog);
         // One track kept as no WAV (--no_wav): its zip now.
         if (ok && pulsekit.RunZip.wanted(program, argv) && !pulsekit.MusicCompare.wanted(program, argv) && !pulsekit.Midi2WavTest.musicToWav(program, argv)) this.pkZipFinish();
-        // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
+        // A comparison's DrumMidi run ended: the next track's (one that failed is said and passed over), or the
+        // chain stops when it was stopped (Stop).
         if (pulsekit.MusicCompare.chainStep(program)) {
             pulsekit.MusicCompare.Chain chain = pulsekit.MusicCompare.chain();
             if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.setName(chain.model()), made, madeLog);
+            boolean stopped = made != null && made.code == 130;
             if (ok) this.pkChainNext();
-            else {
+            else if (!stopped) {
+                this.pkAddLogLine("No file set for " + (chain == null ? "this track" : chain.model()) + ": " + status);
+                this.pkChainNext();
+            } else {
                 pulsekit.MusicCompare.stopChain();
                 this.pkImportHeld(chain);
                 this.pkAddLogLine("File sets stopped: DrumMidi_CRT did not succeed");

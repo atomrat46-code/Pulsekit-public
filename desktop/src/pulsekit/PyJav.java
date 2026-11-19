@@ -1105,7 +1105,11 @@ final class PyJav {
                     MusicCompare.Chain chain = MusicCompare.chain();
                     if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
-                    else {
+                    else if (result.code != 130) {
+                        // One track that failed is said and passed over; Stop stops the chain.
+                        this.testNote("No file set for " + (chain == null ? "this track" : chain.model()) + ": " + verdict);
+                        this.chainNext();
+                    } else {
                         MusicCompare.stopChain();
                         this.importHeld(chain);
                         this.testNote("File sets stopped: DrumMidi_CRT did not succeed");
@@ -1652,6 +1656,78 @@ final class PyJav {
         return row;
     }
 
+    /** The section quick menu shown last, for the tests. */
+    javax.swing.JPopupMenu lastSectionMenu;
+
+    /**
+     * A section's quick menu (Browse sections: its right click or hold): Add to group, the program's groups
+     * to pick (its own ticked), New group… and Take out of the group; the list made again after.
+     */
+    javax.swing.JPopupMenu sectionMenu(java.awt.Component at, final PromptVault.SogniSection sec, final Runnable after) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("section-menu");
+        javax.swing.JMenu add = new javax.swing.JMenu(SogniSections.ADD_GROUP.replace("\u2026", ""));
+        add.setName("section-menu-group");
+        java.util.List<String> names;
+        try {
+            names = SogniSections.groupNames(PromptDb.vault().sogniSections(sec.app));
+        } catch (Exception ex) {
+            names = new java.util.ArrayList<String>();
+        }
+        String now = sec.group == null ? "" : sec.group.trim();
+        for (final String g : names) {
+            javax.swing.JCheckBoxMenuItem it = new javax.swing.JCheckBoxMenuItem(g, g.equalsIgnoreCase(now));
+            it.setName("section-menu-group:" + g);
+            it.addActionListener(e -> {
+                if (this.groupSection(sec, g)) after.run();
+            });
+            add.add(it);
+        }
+        if (!names.isEmpty()) add.addSeparator();
+        javax.swing.JMenuItem fresh = new javax.swing.JMenuItem(SogniSections.NEW_GROUP);
+        fresh.setName("section-menu-new-group");
+        fresh.addActionListener(e -> {
+            String name = this.askGroup(at, sec);
+            if (name != null && this.groupSection(sec, name)) after.run();
+        });
+        add.add(fresh);
+        m.add(add);
+        if (now.length() > 0) {
+            javax.swing.JMenuItem out = new javax.swing.JMenuItem(SogniSections.UNGROUP + " (" + now + ")");
+            out.setName("section-menu-ungroup");
+            out.addActionListener(e -> {
+                if (this.groupSection(sec, "")) after.run();
+            });
+            m.add(out);
+        }
+        this.lastSectionMenu = m;
+        return m;
+    }
+
+    /** Search's magnifying glass: a ring and its handle, in the button's text colour. */
+    static javax.swing.Icon searchIcon() {
+        return new javax.swing.Icon() {
+            public void paintIcon(java.awt.Component c, java.awt.Graphics g0, int x, int y) {
+                java.awt.Graphics2D g = (java.awt.Graphics2D) g0.create();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(c.getForeground());
+                g.setStroke(new java.awt.BasicStroke(1.8f));
+                g.drawOval(x + 1, y + 1, 9, 9);
+                g.setStroke(new java.awt.BasicStroke(2.4f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+                g.drawLine(x + 9, y + 9, x + 13, y + 13);
+                g.dispose();
+            }
+
+            public int getIconWidth() {
+                return 15;
+            }
+
+            public int getIconHeight() {
+                return 15;
+            }
+        };
+    }
+
     /** Add to group…'s answer for the tests (null: asked). */
     static String groupAnswer;
 
@@ -1712,7 +1788,9 @@ final class PyJav {
         } else {
             // Grouped by the prompt's first sentences, A to Z: a group's right click (or hold) lists its
             // sections under it; a double click shows a section fully (Load, Edit, Remove there too).
-            final java.util.List<SogniSections.Group> groups = SogniSections.groups(all);
+            // The sections shown: all, or those the search above the list kept.
+            final java.util.List<PromptVault.SogniSection> shownSecs = new java.util.ArrayList<PromptVault.SogniSection>(all);
+            final java.util.List<SogniSections.Group> groups = SogniSections.groups(shownSecs);
             // The groups open (by their name: Add to group… makes the groups again).
             final java.util.Set<String> open = new java.util.HashSet<String>();
             final java.util.function.Function<SogniSections.Group, String> key = g -> (g.named ? "g:" : "p:") + g.lead.toLowerCase(java.util.Locale.ROOT);
@@ -1756,7 +1834,7 @@ final class PyJav {
                 // The groups made again (a section may be in another one now), its group opened, it selected.
                 PromptVault.SogniSection was = sectionAt.apply(list.getSelectedIndex());
                 groups.clear();
-                groups.addAll(SogniSections.groups(all));
+                groups.addAll(SogniSections.groups(shownSecs));
                 for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was) && SogniSections.opens(g)) open.add(key.apply(g));
                 fill.run();
                 int pos = rows.indexOf(was);
@@ -1772,11 +1850,22 @@ final class PyJav {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     final int i = list.locationToIndex(e.getPoint());
+                    // A section's right click (or hold): its quick menu (Add to group); a group's opens or closes it.
+                    final PromptVault.SogniSection one = sectionAt.apply(i);
                     if (SwingUtilities.isRightMouseButton(e) || e.isPopupTrigger()) {
-                        toggle.accept(i);
+                        if (one != null) {
+                            list.setSelectedIndex(i);
+                            PyJav.this.sectionMenu(list, one, regroup).show(list, e.getX(), e.getY());
+                        } else toggle.accept(i);
                         return;
                     }
-                    this.hold = new javax.swing.Timer(600, ev -> toggle.accept(i));
+                    this.hold = new javax.swing.Timer(600, ev -> {
+                        if (one == null) toggle.accept(i);
+                        else {
+                            list.setSelectedIndex(i);
+                            PyJav.this.sectionMenu(list, one, regroup).show(list, e.getX(), e.getY());
+                        }
+                    });
                     this.hold.setRepeats(false);
                     this.hold.start();
                 }
@@ -1811,6 +1900,42 @@ final class PyJav {
             final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), regroup);
             list.addListSelectionListener(e -> ((Runnable) marks.getClientProperty("refresh")).run());
             javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+            // Search (above the list): the sections that contain the term, or don't; * and ? as wildcards.
+            final javax.swing.JComboBox<String> how = new javax.swing.JComboBox<String>(new String[] {SogniSections.CONTAINS, SogniSections.NOT_CONTAINS});
+            how.setName("sections-search-how");
+            final JTextField term = new JTextField(22);
+            term.setName("sections-search-term");
+            term.setToolTipText(SogniSections.SEARCH_HINT);
+            final JButton search = new JButton(SogniSections.SEARCH, searchIcon());
+            search.setName("sections-search");
+            search.setToolTipText("Show the sections that match (an empty term shows them all)");
+            final JLabel found = new JLabel(SogniSections.searchSaid(all.size(), all.size(), "", true));
+            found.setName("sections-search-found");
+            Runnable doSearch = () -> {
+                boolean contains = how.getSelectedIndex() == 0;
+                shownSecs.clear();
+                shownSecs.addAll(SogniSections.search(all, term.getText(), contains));
+                groups.clear();
+                groups.addAll(SogniSections.groups(shownSecs));
+                // A search opens the groups it found sections in: every match is on show.
+                open.clear();
+                if (SogniSections.searchPattern(term.getText()) != null) for (SogniSections.Group g : groups) if (SogniSections.opens(g)) open.add(key.apply(g));
+                fill.run();
+                if (!rows.isEmpty()) list.setSelectedIndex(0);
+                found.setText(SogniSections.searchSaid(shownSecs.size(), all.size(), term.getText(), contains));
+            };
+            search.addActionListener(e -> doSearch.run());
+            term.addActionListener(e -> doSearch.run());
+            javax.swing.JPanel searchRow = new javax.swing.JPanel(new java.awt.BorderLayout(6, 0));
+            javax.swing.JPanel searchLeft = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+            searchLeft.add(search);
+            searchLeft.add(how);
+            searchRow.add(searchLeft, java.awt.BorderLayout.WEST);
+            searchRow.add(term, java.awt.BorderLayout.CENTER);
+            javax.swing.JPanel north = new javax.swing.JPanel(new java.awt.BorderLayout(0, 2));
+            north.add(searchRow, java.awt.BorderLayout.NORTH);
+            north.add(found, java.awt.BorderLayout.SOUTH);
+            box.add(north, java.awt.BorderLayout.NORTH);
             box.add(new javax.swing.JScrollPane(list), java.awt.BorderLayout.CENTER);
             box.add(marks, java.awt.BorderLayout.SOUTH);
             this.lastSectionMarks = marks;
@@ -3449,6 +3574,11 @@ final class PyJav {
             off.add(ps.get(i).token);
         }
         final javax.swing.JCheckBox[] uses = new javax.swing.JCheckBox[ps.size()];
+        // vst_render: its folder rows pick from every folder used before (the ones set now among them), and
+        // a session (Save session, the sessions list) sets its rows through these setters.
+        final boolean vst = "vst_render.py".equals(program);
+        final java.util.Map<Integer, java.util.function.Consumer<String>> setters = new java.util.HashMap<Integer, java.util.function.Consumer<String>>();
+        if (vst) for (int i = 0; i < ps.size(); i++) VstSessions.rememberFolder(ps.get(i).token, values[i]);
         final String[] before = values.clone();
         // The file rows' labels: a video picked for a picture row fills it (and an empty second picture row) with its frames.
         final JLabel[] fileLabels = new JLabel[ps.size()];
@@ -3497,7 +3627,16 @@ final class PyJav {
                 // A folder as a path to write on (vst_render's --zip_outdir): Browse puts the picked
                 // folder's full path in the field; % codes and the like can then be added to it.
                 JPanel row = new JPanel(new BorderLayout(6, 0));
-                final javax.swing.JTextField path = new javax.swing.JTextField(values[i], 30);
+                // vst_render: an editable list of the folders used before (% codes can still be typed).
+                final javax.swing.JComboBox<String> used = vst && VstSessions.folderKey(p.token) != null
+                    ? new javax.swing.JComboBox<String>(VstSessions.folders(p.token).toArray(new String[0])) : null;
+                if (used != null) {
+                    used.setEditable(true);
+                    used.setName("params-folders:" + p.token);
+                    used.setSelectedItem(values[i]);
+                }
+                final javax.swing.JTextField path = used != null ? (javax.swing.JTextField) used.getEditor().getEditorComponent() : new javax.swing.JTextField(values[i], 30);
+                if (used != null) path.setText(values[i]);
                 path.setName("params-dir-text:" + p.token);
                 path.setToolTipText(p.hint);
                 path.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -3526,13 +3665,18 @@ final class PyJav {
                     chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                     chooser.setDialogTitle("Directory");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    if (used != null) used.setSelectedItem(chooser.getSelectedFile().getAbsolutePath());
                     path.setText(chooser.getSelectedFile().getAbsolutePath());
                 });
                 row.add(browse, BorderLayout.WEST);
-                row.add(path, BorderLayout.CENTER);
+                row.add(used != null ? used : path, BorderLayout.CENTER);
                 JButton clear = new JButton("Clear");
                 clear.setName("params-clear:" + p.token);
                 clear.addActionListener(e -> path.setText(""));
+                setters.put(i, v -> {
+                    if (used != null) used.setSelectedItem(v);
+                    path.setText(v);
+                });
                 row.add(clear, BorderLayout.EAST);
                 form.add(this.withUse(p, i, row, path, uses, off));
                 continue;
@@ -3548,6 +3692,46 @@ final class PyJav {
                 }
                 final JLabel chosen = new JLabel(MediaDir.label(values[i]));
                 chosen.setName("params-chosen:" + p.token);
+                // vst_render: the folder picked from a list of every folder used before (full paths, the
+                // last used first; "None" for none); Browse adds one. The label is then not shown, but
+                // what sets it (Browse, Clear, a playlist) moves the list too.
+                final javax.swing.JComboBox<String> used = vst && p.flag && VstSessions.folderKey(p.token) != null ? new javax.swing.JComboBox<String>() : null;
+                if (used != null) {
+                    used.setName("params-folders:" + p.token);
+                    used.addItem("");
+                    for (String f : VstSessions.folders(p.token)) used.addItem(f);
+                    used.setRenderer(new javax.swing.DefaultListCellRenderer() {
+                        @Override
+                        public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int at, boolean sel, boolean focus) {
+                            String v = value == null ? "" : value.toString();
+                            return super.getListCellRendererComponent(list, v.isEmpty() ? "None" : v, at, sel, focus);
+                        }
+                    });
+                    final boolean[] syncing = {false};
+                    Runnable follow = () -> {
+                        if (syncing[0]) return;
+                        syncing[0] = true;
+                        String v = values[index];
+                        if (v.length() > 0 && ((javax.swing.DefaultComboBoxModel<String>) used.getModel()).getIndexOf(v) < 0) used.insertItemAt(v, 1);
+                        used.setSelectedItem(v);
+                        syncing[0] = false;
+                    };
+                    follow.run();
+                    chosen.addPropertyChangeListener("text", e -> follow.run());
+                    used.addActionListener(e -> {
+                        if (syncing[0]) return;
+                        Object v = used.getSelectedItem();
+                        values[index] = v == null ? "" : v.toString();
+                        syncing[0] = true;
+                        chosen.setText(MediaDir.label(values[index]));
+                        syncing[0] = false;
+                    });
+                    setters.put(i, v -> {
+                        values[index] = v;
+                        chosen.setText(MediaDir.label(v));
+                        follow.run();
+                    });
+                }
                 JButton browse = new JButton("Browse");
                 browse.setName("params-dir:" + p.token);
                 browse.addActionListener(e -> {
@@ -3567,7 +3751,7 @@ final class PyJav {
                     picks.add(playlistButton(p, values, index, chosen));
                     row.add(picks, BorderLayout.WEST);
                 } else row.add(browse, BorderLayout.WEST);
-                row.add(chosen, BorderLayout.CENTER);
+                row.add(used != null ? used : chosen, BorderLayout.CENTER);
                 if (p.flag) {
                     // Clear: a folder switch (CutWav's and SplitWav's --dir) goes back to unset, so one file is processed.
                     JButton clear = new JButton("Clear");
@@ -3578,7 +3762,7 @@ final class PyJav {
                     });
                     row.add(clear, BorderLayout.EAST);
                 }
-                form.add(this.withUse(p, i, row, chosen, uses, off));
+                form.add(this.withUse(p, i, row, used != null ? used : chosen, uses, off));
                 continue;
             }
             if (p.isFile()) {
@@ -4047,8 +4231,17 @@ final class PyJav {
         JPanel box = new JPanel(new BorderLayout(0, 8));
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        resets.setAlignmentX(0.0f);
-        top.add(resets);
+        if (vst) {
+            // vst_render: Save session and the saved sessions at the left, the resets at the right.
+            JPanel bar = new JPanel(new BorderLayout(12, 0));
+            bar.add(this.sessionBar(ps, values, fields, checks, uses, fileLabels, setters), BorderLayout.WEST);
+            bar.add(resets, BorderLayout.EAST);
+            bar.setAlignmentX(0.0f);
+            top.add(bar);
+        } else {
+            resets.setAlignmentX(0.0f);
+            top.add(resets);
+        }
         JLabel note = new JLabel("<html><body style='width:380px'>" + ProgramParams.note(ps) + " Empty fields use the default shown when you point at them.</body></html>");
         note.setAlignmentX(0.0f);
         top.add(note);
@@ -4130,6 +4323,7 @@ final class PyJav {
         // The rows left out: kept beside the Params, not in them (a run takes the Params' switches).
         off.clear();
         for (int i = 0; i < uses.length; i++) if (uses[i] != null && !uses[i].isSelected()) off.add(ps.get(i).token);
+        if (vst) for (int i = 0; i < ps.size(); i++) VstSessions.rememberFolder(ps.get(i).token, values[i]);
         this.saveParams(program + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         this.saveParams(program, ProgramParams.build(ps, values));
@@ -4163,6 +4357,130 @@ final class PyJav {
      * A file or folder switch's row with its Use box in front (ticked: the file is in the run;
      * unticked: it stays chosen, greyed, and the run leaves it out). Other rows as they are.
      */
+    /**
+     * vst_render's Save session, its sessions list and Delete (the Params' top left). Save session asks a
+     * name (the current session's offered: the same name replaces it) and a description, and keeps the
+     * session's rows (VstSessions.TOKENS) as they are now, with the date; picking a session in the list puts
+     * its rows into the Params (the others stay).
+     */
+    JPanel sessionBar(final java.util.List<ProgramParams.Param> ps, final String[] values, final JTextField[] fields, final javax.swing.JCheckBox[] checks,
+            final javax.swing.JCheckBox[] uses, final JLabel[] fileLabels, final java.util.Map<Integer, java.util.function.Consumer<String>> setters) {
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JButton save = new JButton("Save session");
+        save.setName("params-save-session");
+        final javax.swing.JComboBox<String> list = new javax.swing.JComboBox<String>();
+        list.setName("params-sessions");
+        JButton delete = new JButton("Delete");
+        delete.setName("params-delete-session");
+        delete.setToolTipText("Delete the session picked in the list (the Params stay as they are)");
+        final java.util.List<VstSessions.Session> shown = new java.util.ArrayList<VstSessions.Session>();
+        final boolean[] filling = {false};
+        final Runnable fill = () -> {
+            filling[0] = true;
+            list.removeAllItems();
+            shown.clear();
+            shown.addAll(VstSessions.load());
+            list.addItem(shown.isEmpty() ? "No sessions saved" : "Sessions\u2026");
+            int at = 0;
+            for (int k = 0; k < shown.size(); k++) {
+                list.addItem(shown.get(k).label());
+                if (shown.get(k).name.equalsIgnoreCase(VstSessions.current())) at = k + 1;
+            }
+            list.setSelectedIndex(at);
+            list.setToolTipText(at > 0 && !shown.get(at - 1).description.isEmpty() ? shown.get(at - 1).description : "Saved sessions: pick one to load its folders, plugins and settings");
+            delete.setEnabled(at > 0);
+            filling[0] = false;
+        };
+        fill.run();
+        list.addActionListener(e -> {
+            if (filling[0]) return;
+            int at = list.getSelectedIndex();
+            delete.setEnabled(at > 0);
+            if (at <= 0 || at > shown.size()) return;
+            VstSessions.Session s = shown.get(at - 1);
+            this.loadSession(s, ps, values, fields, checks, uses, fileLabels, setters);
+            VstSessions.setCurrent(s.name);
+            list.setToolTipText(s.description.isEmpty() ? s.label() : s.description);
+            app.setNow("Session loaded: " + s.name);
+        });
+        save.addActionListener(e -> {
+            VstSessions.Session now = VstSessions.find(VstSessions.current());
+            JTextField name = new JTextField(now == null ? "" : now.name, 28);
+            name.setName("session-name");
+            JTextField about = new JTextField(now == null ? "" : now.description, 28);
+            about.setName("session-description");
+            JPanel ask = new JPanel(new GridLayout(0, 1, 0, 4));
+            ask.add(new JLabel("Session name"));
+            ask.add(name);
+            ask.add(new JLabel("Description (optional)"));
+            ask.add(about);
+            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins and kit names, Test, the cymbal model comparison and the hit model bench (on or off, and when), the benches' folders. The date is added.</body></html>"));
+            java.awt.Window w = SwingUtilities.getWindowAncestor(save);
+            if (JOptionPane.showConfirmDialog(w, ask, "Save session", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
+            String n = VstSessions.clean(name.getText());
+            if (n.isEmpty()) return;
+            VstSessions.Session old = VstSessions.find(n);
+            if (old != null && (now == null || !old.name.equalsIgnoreCase(now.name))
+                && JOptionPane.showConfirmDialog(w, "Replace the session \"" + old.name + "\" (" + old.date + ")?", "Save session", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                VstSessions.put(new VstSessions.Session(n, about.getText(), VstSessions.now(), this.sessionArgs(ps, values, fields, checks, uses)));
+                fill.run();
+                app.setNow("Session saved: " + n);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(w, "Could not save the session: " + ex.getMessage(), "Save session", JOptionPane.WARNING_MESSAGE);
+            }
+        });
+        delete.addActionListener(e -> {
+            int at = list.getSelectedIndex();
+            if (at <= 0 || at > shown.size()) return;
+            VstSessions.Session s = shown.get(at - 1);
+            java.awt.Window w = SwingUtilities.getWindowAncestor(delete);
+            if (JOptionPane.showConfirmDialog(w, "Delete the session \"" + s.name + "\"?", "Delete session", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            try {
+                VstSessions.remove(s.name);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(w, "Could not delete the session: " + ex.getMessage(), "Delete session", JOptionPane.WARNING_MESSAGE);
+            }
+            fill.run();
+        });
+        left.add(save);
+        left.add(list);
+        left.add(delete);
+        return left;
+    }
+
+    /** The session's rows as they are now in the Params, as arguments (a row whose Use box is off: empty). */
+    String sessionArgs(java.util.List<ProgramParams.Param> ps, String[] values, JTextField[] fields, javax.swing.JCheckBox[] checks, javax.swing.JCheckBox[] uses) {
+        String[] now = new String[ps.size()];
+        for (int i = 0; i < ps.size(); i++) {
+            now[i] = "";
+            if (!VstSessions.TOKENS.contains(ps.get(i).token) || uses[i] != null && !uses[i].isSelected()) continue;
+            now[i] = checks[i] != null ? (checks[i].isSelected() ? "1" : "") : fields[i] != null ? fields[i].getText().trim() : values[i];
+        }
+        return ProgramParams.build(ps, now);
+    }
+
+    /** Puts a session's rows into the open Params (a switch clicked, so the rows it shows or hides follow). */
+    void loadSession(VstSessions.Session s, java.util.List<ProgramParams.Param> ps, String[] values, JTextField[] fields, javax.swing.JCheckBox[] checks,
+            javax.swing.JCheckBox[] uses, JLabel[] fileLabels, java.util.Map<Integer, java.util.function.Consumer<String>> setters) {
+        java.util.Set<String> switches = new java.util.HashSet<String>();
+        for (ProgramParams.Param p : ps) if (p.flag && !p.takesValue) switches.add(p.token);
+        java.util.Map<String, String> rows = VstSessions.rows(s.args, switches);
+        for (int i = 0; i < ps.size(); i++) {
+            String v = rows.get(ps.get(i).token);
+            if (v == null) continue;
+            if (uses[i] != null && !uses[i].isSelected() && v.length() > 0) uses[i].doClick();
+            if (checks[i] != null) {
+                if (checks[i].isSelected() != DrumMidiArgs.on(v)) checks[i].doClick();
+            } else if (setters.containsKey(i)) setters.get(i).accept(v);
+            else if (fields[i] != null) fields[i].setText(v);
+            else {
+                values[i] = v;
+                if (fileLabels[i] != null) fileLabels[i].setText(v.isEmpty() ? "None" : new File(v).getName());
+            }
+        }
+    }
+
     java.awt.Component withUse(ProgramParams.Param p, int i, JPanel row, javax.swing.JComponent chosen, javax.swing.JCheckBox[] uses, java.util.Set<String> off) {
         if (!ProgramParams.canTurnOff(p)) return row;
         final javax.swing.JCheckBox use = new javax.swing.JCheckBox("Use", !off.contains(p.token));

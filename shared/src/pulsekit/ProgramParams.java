@@ -120,6 +120,8 @@ public final class ProgramParams {
     boolean chat = has(out, "--prompt") && has(out, "--system");
     // MidiDrumGen: --style takes Pulsekit's style names.
     boolean drumGen = has(out, "--style") && has(out, "--intensity");
+    // DrumAlong: a drum beat played along with an instrument track (--busy, --half-time).
+    boolean drumAlong = has(out, "--busy") && has(out, "--half-time");
     // SplitWav: one WAV split in two (--output_file1, --output_file2).
     boolean splitWav = has(out, "--output_file1") && has(out, "--output_file2");
     // CutWav: one WAV cut at a time or size (--split_time).
@@ -179,6 +181,7 @@ public final class ProgramParams {
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
       if (drumGen && p.token.equals("--vst")) p.label = "Play it through a VST instead (vst_render.py's saved plugin; computer only)";
       if (drumGen) knownDrumGenBatch(p);
+      if (drumAlong) knownDrumAlong(p);
       if (videoFrames) knownVideoFrames(p);
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
@@ -237,7 +240,7 @@ public final class ProgramParams {
       out.add(save);
     }
     // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
-    if ((drumMidi || drumGen || sogniMusic) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
+    if ((drumMidi || drumGen || sogniMusic || drumAlong) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
     return out;
   }
 
@@ -395,7 +398,10 @@ public final class ProgramParams {
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
     // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
-      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone (computer only: python tools/setup_demucs.py once)";
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: python tools/setup_demucs.py once); without it, the whole song with fewer, less sure hits";
+    // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
+      p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";
@@ -720,6 +726,44 @@ public final class ProgramParams {
     return out;
   }
 
+  /** DrumAlong's rows: the track (WAV or MP3, from the library too), the style, how busy, the switches. */
+  private static void knownDrumAlong(Param p) {
+    if (!p.flag && p.isFile() && isAudio(p)) {
+      p.refs = true;
+      p.label = "Instrument track: guitar, bass or keys without drums (WAV or MP3)";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--style")) {
+      p.label = "Style (empty: picked from the track)";
+      p.hint = "empty: from the track; rock, punk, metal, funk, shuffle, ballad, hip-hop, reggae, country, house, or a Pulsekit style";
+      String[] own = {"rock", "punk", "metal", "funk", "shuffle", "ballad", "hip-hop", "reggae", "country", "house"};
+      String[] all = StyleDb.names();
+      String[] both = new String[own.length + all.length];
+      System.arraycopy(own, 0, both, 0, own.length);
+      System.arraycopy(all, 0, both, own.length, all.length);
+      p.choices = both;
+    }
+    if (p.flag && p.takesValue && p.token.equals("--busy")) {
+      p.label = "Busy: how much the drummer plays, 1 (simple, steady) to 10 (ghost notes, sixteenths, long fills)";
+      p.hint = "empty: as busy as the track";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--bpm")) {
+      p.label = "Tempo (BPM)";
+      p.hint = "empty: heard from the track";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--timesig")) {
+      p.label = "Meter";
+      p.hint = "empty: heard from the track (4/4 or 3/4); 6/8 for a compound feel";
+    }
+    if (p.flag && p.token.equals("--half-time")) p.label = "Half time: the snare on three only";
+    if (p.flag && p.token.equals("--separate") && !p.takesValue) p.label = "Separate the song first (Demucs, computer only): a whole song with drums and vocals; the beat follows its bass and its guitars and keys";
+    if (p.flag && p.token.equals("--own-beats") && !p.takesValue) p.label = "DrumAlong's own beat finder (not Beat This!, which setup_demucs.py installs on a computer; phones always use their own)";
+    if (p.flag && p.token.equals("--shift")) p.label = "Snare on the other beats: the bar a beat later (when the snare falls on 1 and 3)";
+    if (p.flag && p.token.equals("--no-fills")) p.label = "No fills (at the ends of phrases and before sections)";
+    if (p.flag && p.token.equals("--no-crashes")) p.label = "No crashes (where sections and phrases start)";
+    if (p.flag && p.token.equals("--no-ghosts")) p.label = "No ghost notes (soft snares between the beats when busy)";
+    if (p.flag && p.token.equals("--grid")) p.label = "On a steady grid (for editing): not following the player's small tempo drifts";
+  }
+
   private static void knownSogniMusic(Param p) {
     if (p.flag && p.takesValue && p.token.equals("--outdir")) {
       // Browse puts the picked folder in the field; a name typed (Sogni) is a folder under Download, made when missing.
@@ -1027,13 +1071,17 @@ public final class ProgramParams {
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;
-      p.label = "Input folder: Run separately, the tests' zips (vst-render-*.zip); Render first, the MIDI files to render or a zip of them (the Input and Output tabs' folders are not used)";
+      p.label = "Input folder (Run separately): the tests' zips (vst-render-*.zip), its subfolders too (Run last reads the zips the run makes)";
       p.hint = "a folder";
+    } else if (p.token.equals("--hit_unzip")) {
+      p.dir = true;
+      p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive)";
+      p.hint = "empty: hit-bench/kits in the output folder";
     } else if (p.token.equals("--hit_zip_outdir")) {
       p.dir = true;
       p.typed = true;
-      p.label = "Zip folder: the bench's zip and the hit-model file (Render first: the run's tests' zips too) copied into this folder";
-      p.hint = "empty: they stay in the input folder; % codes: %ddmmyyyy, run-%n (the next free number)";
+      p.label = "Zip folder: the bench's zip and the hit-model file copied into this folder";
+      p.hint = "empty: they stay in the output folder (Run last: the run's zip folder); % codes: %ddmmyyyy, run-%n (the next free number)";
     } else if (p.token.equals("--hit_bench")) {
       p.label = "Hit model bench: DrumMidi on the kits' tests (vst-render zips) with its rules alone and with its hit model, kicks, snares and toms; the Hit model tab's parts (off: not run)";
     } else if (p.token.equals("--hit_bench_when")) {
@@ -1041,7 +1089,7 @@ public final class ProgramParams {
       p.dropdown = true;
       p.showWhen = "--hit_bench";
       p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
-          "Render first: the MIDI in the Hit model tab's input folder (or its zip) through the plugins, tested, then the bench"};
+          "Run last: after the run's renders and tests (and the cymbal model comparison, when it runs last too), on the tests' zips the run made"};
       p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";

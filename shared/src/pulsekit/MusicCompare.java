@@ -369,14 +369,14 @@ public final class MusicCompare {
     return m.matches(".*[,; ].*") || m.equalsIgnoreCase("all");
   }
 
-  /** The tracks a comparison wrote, as "model<TAB>file" pairs, from its "Compared: model file" lines. */
+  /** The tracks a run wrote, as "model<TAB>file" pairs, from its "Compared: model file" lines ("Track:" with --no_compare). */
   public static List<String[]> tracks(String log) {
     List<String[]> out = new ArrayList<String[]>();
     if (log == null) return out;
     for (String line : log.split("\n")) {
       String t = line.trim();
-      if (!t.startsWith("Compared: ")) continue;
-      String[] p = t.substring(10).trim().split(" ", 2);
+      if (!t.startsWith("Compared: ") && !t.startsWith("Track: ")) continue;
+      String[] p = t.substring(t.indexOf(' ') + 1).trim().split(" ", 2);
       if (p.length == 2) out.add(new String[] {p[0], p[1].trim()});
     }
     return out;

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""setup_demucs.py: Demucs for DrumMidi's "Separate drums first" (--separate), on a computer.
+"""setup_demucs.py: Demucs for DrumMidi's "Separate drums first" (--separate), and Beat This! for DrumAlong's
+beats, on a computer.
 
 Makes a Python of its own in ~/.pulsekit/demucs, or the folder --dir names (nothing else on the computer
 changes; the downloads, Demucs's model and pip's temporary files stay in that folder too), installs PyTorch,
-Demucs and soundfile into it, and fetches Demucs's htdemucs model (about 80 MB) by separating a second of
-silence. DrumMidi finds it there by itself. About 1-3 GB; a song then takes about half its length on a
+Demucs, soundfile and Beat This! (beat-this) into it, and fetches Demucs's htdemucs model (about 80 MB) by
+separating a second of silence and Beat This!'s model (77 MB). DrumMidi finds it there by itself. About 1-3 GB; a song then takes about half its length on a
 4-core processor, seconds with an NVIDIA graphics card (--gpu).
 
   python tools/setup_demucs.py          PyTorch for the processor
@@ -75,7 +76,7 @@ def main():
     run(PY, "-m", "pip", "install", "--no-cache-dir", "--upgrade", "pip")
     index = "https://download.pytorch.org/whl/cu126" if gpu else "https://download.pytorch.org/whl/cpu"
     run(PY, "-m", "pip", "install", "--no-cache-dir", "--upgrade", "--index-url", index, "torch", "torchaudio")
-    run(PY, "-m", "pip", "install", "--no-cache-dir", "--upgrade", "demucs", "soundfile")
+    run(PY, "-m", "pip", "install", "--no-cache-dir", "--upgrade", "demucs", "soundfile", "beat-this")
     with tempfile.TemporaryDirectory(dir=os.path.join(HOME, "tmp")) as tmp:
         wav = os.path.join(tmp, "silence.wav")
         silence(wav)
@@ -83,13 +84,15 @@ def main():
         run(PY, "-m", "demucs", "--two-stems=drums", "-n", "htdemucs", "-o", tmp, wav)
         if not os.path.isfile(os.path.join(tmp, "htdemucs", "silence", "drums.wav")):
             sys.exit("Demucs ran but made no drums stem")
+        print("Fetching Beat This!'s model...", flush=True)
+        run(PY, "-c", "import sys; from beat_this.inference import File2Beats; File2Beats(checkpoint_path='final0', device='cpu', dbn=False)(sys.argv[1])", wav)
     dev = subprocess.run([PY, "-c", "import torch; print('NVIDIA graphics card' if torch.cuda.is_available() else 'processor')"],
                          capture_output=True, text=True, env=ENV).stdout.strip()
     # Where DrumMidi finds it.
     os.makedirs(PULSEKIT, exist_ok=True)
     with open(os.path.join(PULSEKIT, "demucs.txt"), "w", encoding="utf-8") as f:
         f.write(PY + "\n")
-    print("Ready: DrumMidi's Separate drums first (--separate) uses " + PY + " (on the " + dev + ")")
+    print("Ready: DrumMidi's Separate drums first (--separate) and DrumAlong's beats use " + PY + " (on the " + dev + ")")
 
 
 if __name__ == "__main__":

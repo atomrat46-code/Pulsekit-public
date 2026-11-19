@@ -9637,6 +9637,89 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * 19112026: Browse sections' Search (a magnifying glass, Contains / Doesn't contain, the term with * and ?
+   * wildcards) lists the sections that match, their groups open; a section's right click is its quick menu
+   * (Add to group: the program's groups, New group…; Take out of the group), the list ordered by group after.
+   */
+  void s267_section_search_menu() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Stormy sky.\n");
+    vault.groupSogniSection(storm.id, "Weather");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      JTextField term = (JTextField) component(d, "sections-search-term");
+      javax.swing.JComboBox<?> how = (javax.swing.JComboBox<?>) component(d, "sections-search-how");
+      javax.swing.JButton search = (javax.swing.JButton) component(d, "sections-search");
+      JLabel found = (JLabel) component(d, "sections-search-found");
+      seen.append("search row: ").append(search.getText()).append(", icon ").append(search.getIcon() != null).append(", ways ").append(how.getItemAt(0)).append(" / ").append(how.getItemAt(1))
+          .append(" | ").append(found.getText()).append('\n');
+      seen.append("all: ").append(rows.apply(list)).append('\n');
+      term.setText("kite*sky");
+      search.doClick();
+      if (System.getProperty("pulsekit.shot") != null) {
+        try {
+          javax.imageio.ImageIO.write(new java.awt.Robot().createScreenCapture(d.getBounds()), "png", new File(System.getProperty("pulsekit.shot")));
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+      }
+      seen.append("kite*sky: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      how.setSelectedIndex(1);
+      term.setText("st?rmy");
+      search.doClick();
+      seen.append("not st?rmy: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      how.setSelectedIndex(0);
+      term.setText("");
+      search.doClick();
+      seen.append("empty: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      // The zebra's right click: its quick menu, Add to group's Weather ticked off, then picked.
+      int zebra = -1;
+      for (int i = 0; i < list.getModel().getSize(); i++) if (String.valueOf(list.getModel().getElementAt(i)).contains("Zebra")) zebra = i;
+      java.awt.Rectangle r = list.getCellBounds(zebra, zebra);
+      java.awt.event.MouseEvent right = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, r.x + 5, r.y + 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
+      javax.swing.JPopupMenu m = py.lastSectionMenu;
+      javax.swing.JMenu add = (javax.swing.JMenu) component(m, "section-menu-group");
+      StringBuilder items = new StringBuilder();
+      for (java.awt.Component c : add.getMenuComponents()) if (c instanceof javax.swing.JMenuItem) items.append(items.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      seen.append("quick menu: ").append(add.getText()).append(" > ").append(items).append(", take out shown ").append(component(m, "section-menu-ungroup") != null).append('\n');
+      m.setVisible(false);
+      ((javax.swing.JMenuItem) add.getMenuComponent(0)).doClick();
+      seen.append("grouped: ").append(rows.apply(list)).append('\n');
+      SwingUtilities.invokeLater(() -> find(d.getContentPane(), "Cancel").doClick());
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    String t = seen.toString();
+    boolean ok = done[0] && t.contains("search row: Search, icon true, ways Contains / Doesn't contain | 3 sections")
+        && t.contains("kite*sky: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | 2 of 3 sections contain \"kite*sky\"")
+        && t.contains("not st?rmy: A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 2 of 3 sections don't contain \"st?rmy\"")
+        && t.contains("empty: \u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 3 sections")
+        && t.contains("quick menu: Add to group > Weather, New group\u2026, take out shown false")
+        && t.contains("grouped: \u25be Weather (2) | A red kite. Over hills. Stormy sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when>");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   void s206_sections_grouped() throws Exception {
     final PyJav py = (PyJav) get("pyJav");
     PromptVault vault = PromptDb.vault();
@@ -10534,6 +10617,93 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 19112026: vst_render's sessions. The Input and Output tabs' folder rows are lists of every folder used
+   * (the ones set when the Params open among them, full paths, no duplicates; the two input folders share a
+   * list); Save session (top left, Reset to defaults now at the right) keeps the folders, the plugins and kit
+   * names, Test and the benches' switches and lists, with a name, a description and the date; picking it in
+   * the sessions list puts them back.
+   */
+  void s266_vst_sessions() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File kompit = new File(home, "Music/Midikompit"), fillit = new File(home, "Music/Midifillit"), sogni = new File(home, "Music/SogniMusic"), other = new File(home, "Music/Other");
+    for (File f : new File[] {kompit, fillit, sogni, other}) f.mkdirs();
+    File plugin = new File(home, "vst/Ugritone.dll");
+    plugin.getParentFile().mkdirs();
+    Files.write(plugin.toPath(), new byte[] {0});
+    call("showView", "py");
+    call("selectListedProgram", "Python", "vst_render.py");
+    edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
+    call("saveParams", "vst_render.py", "--dir " + q(kompit) + " --dir2 " + q(fillit) + " --outdir " + q(sogni) + " --zip_outdir " + q(new File(home, "Claude/Samples/%n"))
+        + " --test --cymbal_bench --cymbal_bench_when last --plugin " + q(plugin) + " --kit_name KVLT");
+    PyJav.paramsTab = ProgramParams.INPUT;
+    final JDialog[] params = new JDialog[1];
+    inspectNext = d -> params[0] = d;
+    answers.add("(keep)");
+    SwingUtilities.invokeLater(() -> {
+      try {
+        call("openParams");
+      } catch (Exception ex) {
+        errors.add(ex);
+      }
+    });
+    for (int i = 0; i < 100 && (params[0] == null || !params[0].isShowing()); i++) Thread.sleep(100);
+    Thread.sleep(300);
+    final JDialog d = params[0];
+    final String h = home.getAbsolutePath();
+    edt(() -> {
+      StringBuilder b = new StringBuilder();
+      for (String t : new String[] {"--dir", "--dir2", "--outdir", "--zip_outdir"}) {
+        @SuppressWarnings("unchecked")
+        javax.swing.JComboBox<String> c = (javax.swing.JComboBox<String>) component(d, "params-folders:" + t);
+        b.append(t).append(": ").append(String.valueOf(c.getSelectedItem()).replace(h, "~")).append(" of [");
+        for (int k = 0; k < c.getItemCount(); k++) b.append(k > 0 ? ", " : "").append(c.getItemAt(k).replace(h, "~"));
+        b.append("]").append(c.isEditable() ? " (typed too)" : "").append('\n');
+      }
+      java.awt.Component save = component(d, "params-save-session"), reset = find(d.getContentPane(), "Reset to defaults");
+      b.append("Save session left of Reset to defaults: ").append(save.getLocationOnScreen().x < reset.getLocationOnScreen().x)
+          .append(", sessions list: ").append(((javax.swing.JComboBox<?>) component(d, "params-sessions")).getSelectedItem()).append('\n');
+      out.append(b);
+    });
+    if (System.getProperty("pulsekit.shot") != null) javax.imageio.ImageIO.write(new java.awt.Robot().createScreenCapture(d.getBounds()), "png", new File(System.getProperty("pulsekit.shot")));
+    // Save session: a name and a description.
+    inspectNext = s -> {
+      ((JTextField) component(s, "session-name")).setText("Kompit tests");
+      ((JTextField) component(s, "session-description")).setText("Midikompit and Midifillit through Ugritone");
+    };
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(d, "params-save-session")).doClick());
+    idle();
+    Thread.sleep(300);
+    String saved = new String(Files.readAllBytes(new File(home, ".pulsekit/vst-sessions.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("saved: ").append(saved.replace(h, "~").replaceAll("\\d\\d\\.\\d\\d\\.\\d{4} \\d\\d:\\d\\d", "<date>").trim()).append('\n');
+    // Another folder, Test off, another plugin and kit: then the session picked puts them back.
+    edt(() -> {
+      @SuppressWarnings("unchecked")
+      javax.swing.JComboBox<String> dir = (javax.swing.JComboBox<String>) component(d, "params-folders:--dir");
+      dir.insertItemAt(other.getAbsolutePath(), 1);
+      dir.setSelectedIndex(1);
+      ((javax.swing.JCheckBox) component(d, "params-check:--test")).doClick();
+      ((JTextField) component(d, "params-field:--kit_name")).setText("Riot");
+      javax.swing.JComboBox<?> list = (javax.swing.JComboBox<?>) component(d, "params-sessions");
+      StringBuilder b = new StringBuilder("changed: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected());
+      b.append(" | sessions: ");
+      for (int k = 0; k < list.getItemCount(); k++) b.append(k > 0 ? " / " : "").append(String.valueOf(list.getItemAt(k)).replaceAll("\\d\\d\\.\\d\\d\\.\\d{4} \\d\\d:\\d\\d", "<date>"));
+      list.setSelectedIndex(0);
+      list.setSelectedIndex(1);
+      b.append(" | loaded: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected())
+          .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText());
+      out.append(b).append('\n');
+      find(d.getContentPane(), "OK").doClick();
+    });
+    idle();
+    out.append("kept: ").append(String.valueOf(call("loadParams", "vst_render.py")).replace(h, "~")).append('\n');
+    PyJav.paramsTab = null;
+  }
+
+  private static String q(File f) {
+    return "\"" + f.getAbsolutePath() + "\"";
+  }
+
+  /**
    * 12112026_2: vst_render's cymbal model bench. Params' Cymbal model tab has --model_compare, --leave_one_out,
    * --new_kits and --bench_work; Pulsekit hands its DrumMidi_CRT.jar to a bench run as to a test. Two
    * synthesized kits' test zips (the second a newer run's): the comparison (built-in vs learned from both)
@@ -10627,7 +10797,7 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_model_file= --hit_dir= --hit_zip_outdir= |")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_model_file= --hit_dir= --hit_unzip= --hit_zip_outdir= |")
         && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
         && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
         && all.contains("Cymbal model, Hit model]")

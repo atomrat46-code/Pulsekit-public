@@ -205,6 +205,9 @@ public final class MusicExpect {
       }
       // DrumMidi's own input folder and zips (a folder of old zips it was last run on): the chain gives it this
       // track alone; its MIDI goes into SogniMusic's file sets and zip.
+      // --drums-only (DrumMidi's Drum tracks only: a song with another instrument skipped) only for a drums-only
+      // session's track: a drums & piano track would stop the chain.
+      if (a.equals("--drums-only") && listed && !drumsOnly) continue;
       if (CHAIN_DROPS.contains(a)) {
         if (!DrumMidiArgs.onOff(a) && !a.equals("--recursive") && !a.equals("--zip") && i + 1 < mine.size() && !mine.get(i + 1).startsWith("--")) i++;
         continue;
