@@ -937,27 +937,111 @@ public final class PyJavParams {
       sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
       return;
     }
+    // Search (the header): the sections that contain the term, or don't (* and ? wildcards), listed by
+    // their groups, each on its own row; no term, the groups as before.
+    final boolean searching = SogniSections.searchPattern(searchTerm) != null;
+    final List<PromptVault.SogniSection> kept = SogniSections.search(all, searchTerm, searchContains);
     // Grouped by the prompt's first sentences, A to Z: a group's long press (or tap) lists its sections.
-    final List<SogniSections.Group> groups = SogniSections.groups(all);
-    String[] rows = new String[groups.size()];
-    for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.groupLabel(groups.get(i));
-    lastSections = new AlertDialog.Builder(activity).setTitle(SogniSections.BROWSE + " \u00b7 " + program)
+    final List<SogniSections.Group> groups = SogniSections.groups(kept);
+    final List<Object> items = new ArrayList<Object>();
+    List<String> labels = new ArrayList<String>();
+    for (SogniSections.Group g : groups) {
+      if (!searching || !SogniSections.opens(g)) {
+        items.add(g);
+        labels.add(SogniSections.groupLabel(g));
+        continue;
+      }
+      for (PromptVault.SogniSection sec : g.sections) {
+        items.add(sec);
+        labels.add((g.named ? g.lead : SogniSections.lead(sec).length() > 30 ? SogniSections.lead(sec).substring(0, 30) + "\u2026" : SogniSections.lead(sec)) + " \u203a " + SogniSections.label(sec));
+      }
+    }
+    String[] rows = labels.toArray(new String[0]);
+    lastSections = new AlertDialog.Builder(activity).setCustomTitle(searchHeader(activity, program, ps, fields, kept.size(), all.size()))
         .setItems(rows, (d, w) -> {
-          SogniSections.Group g = groups.get(w);
+          Object r = items.get(w);
+          if (r instanceof PromptVault.SogniSection) {
+            showSection(activity, program, ps, fields, (PromptVault.SogniSection) r);
+            return;
+          }
+          SogniSections.Group g = (SogniSections.Group) r;
           if (!SogniSections.opens(g)) showSection(activity, program, ps, fields, g.sections.get(0));
           else groupSections(activity, program, ps, fields, g);
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
-    // Held: a group's sections; a section of its own, Load, Edit section, Remove section.
+    // Held: a group's sections; a section of its own, Load, Edit section, Remove section, Add to group….
     final AlertDialog list = lastSections;
     list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
       list.dismiss();
-      SogniSections.Group g = groups.get(position);
+      Object r = items.get(position);
+      if (r instanceof PromptVault.SogniSection) {
+        sectionMenu(activity, program, ps, fields, (PromptVault.SogniSection) r);
+        return true;
+      }
+      SogniSections.Group g = (SogniSections.Group) r;
       if (!SogniSections.opens(g)) sectionMenu(activity, program, ps, fields, g.sections.get(0));
       else groupSections(activity, program, ps, fields, g);
       return true;
     });
+  }
+
+  /** Browse sections' search: its term and way (Contains or Doesn't contain), kept while the app runs. */
+  static String searchTerm = "";
+  static boolean searchContains = true;
+
+  /**
+   * Browse sections' header: its title, then Search (a magnifying glass), Contains / Doesn't contain and
+   * the term; Search (or the keyboard's Search) lists the sections again with them.
+   */
+  static View searchHeader(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, int found, int all) {
+    LinearLayout box = new LinearLayout(activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(dp(activity, 20), dp(activity, 16), dp(activity, 16), dp(activity, 4));
+    TextView title = new TextView(activity);
+    title.setText(SogniSections.BROWSE + " \u00b7 " + program);
+    title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
+    box.addView(title);
+    LinearLayout row = new LinearLayout(activity);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    android.widget.ImageButton go = new android.widget.ImageButton(activity);
+    go.setTag("sections-search");
+    go.setImageResource(android.R.drawable.ic_menu_search);
+    go.setContentDescription(SogniSections.SEARCH);
+    final android.widget.Spinner how = new android.widget.Spinner(activity);
+    how.setTag("sections-search-how");
+    android.widget.ArrayAdapter<String> ways = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item,
+        new String[] {SogniSections.CONTAINS, SogniSections.NOT_CONTAINS});
+    ways.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    how.setAdapter(ways);
+    how.setSelection(searchContains ? 0 : 1);
+    final EditText term = new EditText(activity);
+    term.setTag("sections-search-term");
+    term.setSingleLine(true);
+    term.setHint("Search term (* ?)");
+    term.setText(searchTerm);
+    term.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+    final Runnable run = () -> {
+      searchTerm = term.getText().toString().trim();
+      searchContains = how.getSelectedItemPosition() == 0;
+      if (lastSections != null) lastSections.dismiss();
+      browseSections(activity, program, ps, fields);
+    };
+    go.setOnClickListener(v -> run.run());
+    term.setOnEditorActionListener((v, action, ev) -> {
+      run.run();
+      return true;
+    });
+    row.addView(go, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    row.addView(how, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    row.addView(term, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    box.addView(row);
+    TextView said = new TextView(activity);
+    said.setTag("sections-search-found");
+    said.setText(SogniSections.searchSaid(found, all, searchTerm, searchContains));
+    box.addView(said);
+    return box;
   }
 
   /** A group's sections listed (for the tests). */

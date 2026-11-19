@@ -9637,6 +9637,89 @@ public final class DesktopBehavior {
     if (!ok) throw new AssertionError(out.toString());
   }
 
+  /**
+   * 19112026: Browse sections' Search (a magnifying glass, Contains / Doesn't contain, the term with * and ?
+   * wildcards) lists the sections that match, their groups open; a section's right click is its quick menu
+   * (Add to group: the program's groups, New group…; Take out of the group), the list ordered by group after.
+   */
+  void s267_section_search_menu() throws Exception {
+    final PyJav py = (PyJav) get("pyJav");
+    PromptVault vault = PromptDb.vault();
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon. Wide shot.\n");
+    Thread.sleep(5);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\nLoras: kite 0.5\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Stormy sky.\n");
+    vault.groupSogniSection(storm.id, "Weather");
+    final StringBuilder seen = new StringBuilder();
+    final java.util.function.Function<javax.swing.JList<?>, String> rows = l -> {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>"));
+      return sb.toString();
+    };
+    PyJav.pickSection = null;
+    answers.add("(keep)");
+    inspectNext = d -> {
+      final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
+      JTextField term = (JTextField) component(d, "sections-search-term");
+      javax.swing.JComboBox<?> how = (javax.swing.JComboBox<?>) component(d, "sections-search-how");
+      javax.swing.JButton search = (javax.swing.JButton) component(d, "sections-search");
+      JLabel found = (JLabel) component(d, "sections-search-found");
+      seen.append("search row: ").append(search.getText()).append(", icon ").append(search.getIcon() != null).append(", ways ").append(how.getItemAt(0)).append(" / ").append(how.getItemAt(1))
+          .append(" | ").append(found.getText()).append('\n');
+      seen.append("all: ").append(rows.apply(list)).append('\n');
+      term.setText("kite*sky");
+      search.doClick();
+      if (System.getProperty("pulsekit.shot") != null) {
+        try {
+          javax.imageio.ImageIO.write(new java.awt.Robot().createScreenCapture(d.getBounds()), "png", new File(System.getProperty("pulsekit.shot")));
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+      }
+      seen.append("kite*sky: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      how.setSelectedIndex(1);
+      term.setText("st?rmy");
+      search.doClick();
+      seen.append("not st?rmy: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      how.setSelectedIndex(0);
+      term.setText("");
+      search.doClick();
+      seen.append("empty: ").append(rows.apply(list)).append(" | ").append(found.getText()).append('\n');
+      // The zebra's right click: its quick menu, Add to group's Weather ticked off, then picked.
+      int zebra = -1;
+      for (int i = 0; i < list.getModel().getSize(); i++) if (String.valueOf(list.getModel().getElementAt(i)).contains("Zebra")) zebra = i;
+      java.awt.Rectangle r = list.getCellBounds(zebra, zebra);
+      java.awt.event.MouseEvent right = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, r.x + 5, r.y + 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
+      javax.swing.JPopupMenu m = py.lastSectionMenu;
+      javax.swing.JMenu add = (javax.swing.JMenu) component(m, "section-menu-group");
+      StringBuilder items = new StringBuilder();
+      for (java.awt.Component c : add.getMenuComponents()) if (c instanceof javax.swing.JMenuItem) items.append(items.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+      seen.append("quick menu: ").append(add.getText()).append(" > ").append(items).append(", take out shown ").append(component(m, "section-menu-ungroup") != null).append('\n');
+      m.setVisible(false);
+      ((javax.swing.JMenuItem) add.getMenuComponent(0)).doClick();
+      seen.append("grouped: ").append(rows.apply(list)).append('\n');
+      SwingUtilities.invokeLater(() -> find(d.getContentPane(), "Cancel").doClick());
+    };
+    final boolean[] done = new boolean[1];
+    SwingUtilities.invokeLater(() -> {
+      py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]);
+      done[0] = true;
+    });
+    for (int i = 0; i < 100 && !done[0]; i++) Thread.sleep(100);
+    idle();
+    out.append(seen);
+    String t = seen.toString();
+    boolean ok = done[0] && t.contains("search row: Search, icon true, ways Contains / Doesn't contain | 3 sections")
+        && t.contains("kite*sky: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | 2 of 3 sections contain \"kite*sky\"")
+        && t.contains("not st?rmy: A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 2 of 3 sections don't contain \"st?rmy\"")
+        && t.contains("empty: \u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 3 sections")
+        && t.contains("quick menu: Add to group > Weather, New group\u2026, take out shown false")
+        && t.contains("grouped: \u25be Weather (2) | A red kite. Over hills. Stormy sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when>");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
   void s206_sections_grouped() throws Exception {
     final PyJav py = (PyJav) get("pyJav");
     PromptVault vault = PromptDb.vault();

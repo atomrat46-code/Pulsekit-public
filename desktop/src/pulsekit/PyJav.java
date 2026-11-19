@@ -1656,6 +1656,78 @@ final class PyJav {
         return row;
     }
 
+    /** The section quick menu shown last, for the tests. */
+    javax.swing.JPopupMenu lastSectionMenu;
+
+    /**
+     * A section's quick menu (Browse sections: its right click or hold): Add to group, the program's groups
+     * to pick (its own ticked), New group… and Take out of the group; the list made again after.
+     */
+    javax.swing.JPopupMenu sectionMenu(java.awt.Component at, final PromptVault.SogniSection sec, final Runnable after) {
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.setName("section-menu");
+        javax.swing.JMenu add = new javax.swing.JMenu(SogniSections.ADD_GROUP.replace("\u2026", ""));
+        add.setName("section-menu-group");
+        java.util.List<String> names;
+        try {
+            names = SogniSections.groupNames(PromptDb.vault().sogniSections(sec.app));
+        } catch (Exception ex) {
+            names = new java.util.ArrayList<String>();
+        }
+        String now = sec.group == null ? "" : sec.group.trim();
+        for (final String g : names) {
+            javax.swing.JCheckBoxMenuItem it = new javax.swing.JCheckBoxMenuItem(g, g.equalsIgnoreCase(now));
+            it.setName("section-menu-group:" + g);
+            it.addActionListener(e -> {
+                if (this.groupSection(sec, g)) after.run();
+            });
+            add.add(it);
+        }
+        if (!names.isEmpty()) add.addSeparator();
+        javax.swing.JMenuItem fresh = new javax.swing.JMenuItem(SogniSections.NEW_GROUP);
+        fresh.setName("section-menu-new-group");
+        fresh.addActionListener(e -> {
+            String name = this.askGroup(at, sec);
+            if (name != null && this.groupSection(sec, name)) after.run();
+        });
+        add.add(fresh);
+        m.add(add);
+        if (now.length() > 0) {
+            javax.swing.JMenuItem out = new javax.swing.JMenuItem(SogniSections.UNGROUP + " (" + now + ")");
+            out.setName("section-menu-ungroup");
+            out.addActionListener(e -> {
+                if (this.groupSection(sec, "")) after.run();
+            });
+            m.add(out);
+        }
+        this.lastSectionMenu = m;
+        return m;
+    }
+
+    /** Search's magnifying glass: a ring and its handle, in the button's text colour. */
+    static javax.swing.Icon searchIcon() {
+        return new javax.swing.Icon() {
+            public void paintIcon(java.awt.Component c, java.awt.Graphics g0, int x, int y) {
+                java.awt.Graphics2D g = (java.awt.Graphics2D) g0.create();
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(c.getForeground());
+                g.setStroke(new java.awt.BasicStroke(1.8f));
+                g.drawOval(x + 1, y + 1, 9, 9);
+                g.setStroke(new java.awt.BasicStroke(2.4f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+                g.drawLine(x + 9, y + 9, x + 13, y + 13);
+                g.dispose();
+            }
+
+            public int getIconWidth() {
+                return 15;
+            }
+
+            public int getIconHeight() {
+                return 15;
+            }
+        };
+    }
+
     /** Add to group…'s answer for the tests (null: asked). */
     static String groupAnswer;
 
@@ -1716,7 +1788,9 @@ final class PyJav {
         } else {
             // Grouped by the prompt's first sentences, A to Z: a group's right click (or hold) lists its
             // sections under it; a double click shows a section fully (Load, Edit, Remove there too).
-            final java.util.List<SogniSections.Group> groups = SogniSections.groups(all);
+            // The sections shown: all, or those the search above the list kept.
+            final java.util.List<PromptVault.SogniSection> shownSecs = new java.util.ArrayList<PromptVault.SogniSection>(all);
+            final java.util.List<SogniSections.Group> groups = SogniSections.groups(shownSecs);
             // The groups open (by their name: Add to group… makes the groups again).
             final java.util.Set<String> open = new java.util.HashSet<String>();
             final java.util.function.Function<SogniSections.Group, String> key = g -> (g.named ? "g:" : "p:") + g.lead.toLowerCase(java.util.Locale.ROOT);
@@ -1760,7 +1834,7 @@ final class PyJav {
                 // The groups made again (a section may be in another one now), its group opened, it selected.
                 PromptVault.SogniSection was = sectionAt.apply(list.getSelectedIndex());
                 groups.clear();
-                groups.addAll(SogniSections.groups(all));
+                groups.addAll(SogniSections.groups(shownSecs));
                 for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was) && SogniSections.opens(g)) open.add(key.apply(g));
                 fill.run();
                 int pos = rows.indexOf(was);
@@ -1776,11 +1850,22 @@ final class PyJav {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     final int i = list.locationToIndex(e.getPoint());
+                    // A section's right click (or hold): its quick menu (Add to group); a group's opens or closes it.
+                    final PromptVault.SogniSection one = sectionAt.apply(i);
                     if (SwingUtilities.isRightMouseButton(e) || e.isPopupTrigger()) {
-                        toggle.accept(i);
+                        if (one != null) {
+                            list.setSelectedIndex(i);
+                            PyJav.this.sectionMenu(list, one, regroup).show(list, e.getX(), e.getY());
+                        } else toggle.accept(i);
                         return;
                     }
-                    this.hold = new javax.swing.Timer(600, ev -> toggle.accept(i));
+                    this.hold = new javax.swing.Timer(600, ev -> {
+                        if (one == null) toggle.accept(i);
+                        else {
+                            list.setSelectedIndex(i);
+                            PyJav.this.sectionMenu(list, one, regroup).show(list, e.getX(), e.getY());
+                        }
+                    });
                     this.hold.setRepeats(false);
                     this.hold.start();
                 }
@@ -1815,6 +1900,42 @@ final class PyJav {
             final javax.swing.JPanel marks = this.markButtons(null, () -> sectionAt.apply(list.getSelectedIndex()), regroup);
             list.addListSelectionListener(e -> ((Runnable) marks.getClientProperty("refresh")).run());
             javax.swing.JPanel box = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+            // Search (above the list): the sections that contain the term, or don't; * and ? as wildcards.
+            final javax.swing.JComboBox<String> how = new javax.swing.JComboBox<String>(new String[] {SogniSections.CONTAINS, SogniSections.NOT_CONTAINS});
+            how.setName("sections-search-how");
+            final JTextField term = new JTextField(22);
+            term.setName("sections-search-term");
+            term.setToolTipText(SogniSections.SEARCH_HINT);
+            final JButton search = new JButton(SogniSections.SEARCH, searchIcon());
+            search.setName("sections-search");
+            search.setToolTipText("Show the sections that match (an empty term shows them all)");
+            final JLabel found = new JLabel(SogniSections.searchSaid(all.size(), all.size(), "", true));
+            found.setName("sections-search-found");
+            Runnable doSearch = () -> {
+                boolean contains = how.getSelectedIndex() == 0;
+                shownSecs.clear();
+                shownSecs.addAll(SogniSections.search(all, term.getText(), contains));
+                groups.clear();
+                groups.addAll(SogniSections.groups(shownSecs));
+                // A search opens the groups it found sections in: every match is on show.
+                open.clear();
+                if (SogniSections.searchPattern(term.getText()) != null) for (SogniSections.Group g : groups) if (SogniSections.opens(g)) open.add(key.apply(g));
+                fill.run();
+                if (!rows.isEmpty()) list.setSelectedIndex(0);
+                found.setText(SogniSections.searchSaid(shownSecs.size(), all.size(), term.getText(), contains));
+            };
+            search.addActionListener(e -> doSearch.run());
+            term.addActionListener(e -> doSearch.run());
+            javax.swing.JPanel searchRow = new javax.swing.JPanel(new java.awt.BorderLayout(6, 0));
+            javax.swing.JPanel searchLeft = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+            searchLeft.add(search);
+            searchLeft.add(how);
+            searchRow.add(searchLeft, java.awt.BorderLayout.WEST);
+            searchRow.add(term, java.awt.BorderLayout.CENTER);
+            javax.swing.JPanel north = new javax.swing.JPanel(new java.awt.BorderLayout(0, 2));
+            north.add(searchRow, java.awt.BorderLayout.NORTH);
+            north.add(found, java.awt.BorderLayout.SOUTH);
+            box.add(north, java.awt.BorderLayout.NORTH);
             box.add(new javax.swing.JScrollPane(list), java.awt.BorderLayout.CENTER);
             box.add(marks, java.awt.BorderLayout.SOUTH);
             this.lastSectionMarks = marks;

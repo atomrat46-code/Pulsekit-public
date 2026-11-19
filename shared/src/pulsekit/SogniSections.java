@@ -27,6 +27,51 @@ public final class SogniSections {
   public static final String ADD_GROUP = "Add to group\u2026", NEW_GROUP = "New group\u2026", UNGROUP = "Take out of the group";
   public static final String GROUP_NAME = "The group's name";
 
+  /** Browse sections' search: the button, its two ways and the term's hint. */
+  public static final String SEARCH = "Search", CONTAINS = "Contains", NOT_CONTAINS = "Doesn't contain";
+  public static final String SEARCH_HINT = "Search term: * any characters, ? one (kite*sky)";
+
+  /**
+   * A search term as a pattern: * any characters (none too), ? any one, the rest as it is; case
+   * aside. Null for an empty term (everything matches).
+   */
+  public static java.util.regex.Pattern searchPattern(String term) {
+    String t = term == null ? "" : term.trim();
+    if (t.isEmpty()) return null;
+    StringBuilder re = new StringBuilder();
+    StringBuilder plain = new StringBuilder();
+    for (char c : t.toCharArray()) {
+      if (c == '*' || c == '?') {
+        if (plain.length() > 0) re.append(java.util.regex.Pattern.quote(plain.toString()));
+        plain.setLength(0);
+        re.append(c == '*' ? ".*?" : ".");
+      } else plain.append(c);
+    }
+    if (plain.length() > 0) re.append(java.util.regex.Pattern.quote(plain.toString()));
+    return java.util.regex.Pattern.compile(re.toString(), java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CASE | java.util.regex.Pattern.DOTALL);
+  }
+
+  /** Whether a section has the term (anywhere in its entries or its group's name): `contains` false turns it round. */
+  public static boolean matches(PromptVault.SogniSection s, String term, boolean contains) {
+    java.util.regex.Pattern p = searchPattern(term);
+    if (p == null) return true;
+    boolean hit = p.matcher((s.text == null ? "" : s.text) + "\n" + (s.group == null ? "" : s.group)).find();
+    return contains ? hit : !hit;
+  }
+
+  /** The sections the search keeps (all of them for an empty term), in their order. */
+  public static java.util.List<PromptVault.SogniSection> search(java.util.List<PromptVault.SogniSection> all, String term, boolean contains) {
+    java.util.List<PromptVault.SogniSection> out = new java.util.ArrayList<PromptVault.SogniSection>();
+    for (PromptVault.SogniSection s : all) if (matches(s, term, contains)) out.add(s);
+    return out;
+  }
+
+  /** What the search found, for the line under it. */
+  public static String searchSaid(int found, int all, String term, boolean contains) {
+    if (searchPattern(term) == null) return all + " section" + (all == 1 ? "" : "s");
+    return found + " of " + all + " section" + (all == 1 ? "" : "s") + (contains ? " contain " : " don't contain ") + "\"" + term.trim() + "\"";
+  }
+
   /** The groups sections were added to (Add to group…), A to Z. */
   public static java.util.List<String> groupNames(java.util.List<PromptVault.SogniSection> all) {
     java.util.TreeMap<String, String> names = new java.util.TreeMap<String, String>();
