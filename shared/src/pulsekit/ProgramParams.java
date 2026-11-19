@@ -398,7 +398,10 @@ public final class ProgramParams {
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
     // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
-      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone (computer only: python tools/setup_demucs.py once)";
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: python tools/setup_demucs.py once); without it, the whole song with fewer, less sure hits";
+    // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
+      p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";
