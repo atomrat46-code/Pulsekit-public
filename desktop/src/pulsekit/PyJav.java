@@ -1105,7 +1105,11 @@ final class PyJav {
                     MusicCompare.Chain chain = MusicCompare.chain();
                     if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
-                    else {
+                    else if (result.code != 130) {
+                        // One track that failed is said and passed over; Stop stops the chain.
+                        this.testNote("No file set for " + (chain == null ? "this track" : chain.model()) + ": " + verdict);
+                        this.chainNext();
+                    } else {
                         MusicCompare.stopChain();
                         this.importHeld(chain);
                         this.testNote("File sets stopped: DrumMidi_CRT did not succeed");

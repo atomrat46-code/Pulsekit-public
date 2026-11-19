@@ -167,6 +167,21 @@ public class BehaviorTest {
     org.junit.Assert.assertNull(MusicCompare.startChain(argv, new java.util.ArrayList<>(), drumless, saved));
   }
 
+  /** 19112026: Drum tracks only (--drums-only) only for a drums-only session's track; --no_compare's "Track:" lines read. */
+  @Test
+  public void chainDrumsOnlyAndTrackLines() {
+    java.util.List<String> argv = java.util.Arrays.asList("--multi_session", "--drums_only", "--drums_piano");
+    MusicExpect e = MusicExpect.of(argv);
+    String saved = "--faded-opens --drums-only";
+    org.junit.Assert.assertTrue(e.forTrack("Waltz-drums-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    org.junit.Assert.assertFalse(e.forTrack("Waltz-drums_piano-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    java.util.List<String[]> t = MusicCompare.tracks("Wrote x.mp3\nTrack: Waltz-drums_piano-turbo sogni-Waltz-cb38898d-drums_piano-turbo.mp3\nCompared: Funk-sft sogni-Funk-1.mp3\n");
+    org.junit.Assert.assertEquals(2, t.size());
+    org.junit.Assert.assertEquals("Waltz-drums_piano-turbo", t.get(0)[0]);
+    org.junit.Assert.assertEquals("sogni-Waltz-cb38898d-drums_piano-turbo.mp3", t.get(0)[1]);
+    org.junit.Assert.assertEquals("Funk-sft", t.get(1)[0]);
+  }
+
   /** 18112026: --zip_by_session: each instrument session's files in a zip of its own, the shared ones in each. */
   @Test
   public void zipBySession() {

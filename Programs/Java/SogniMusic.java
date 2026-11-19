@@ -113,6 +113,7 @@ public final class SogniMusic {
 
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
+    noCompare = false;
     work = System.getProperty("pulsekit.work");
     promptSheet = null;
     promptText = null;
@@ -261,7 +262,7 @@ public final class SogniMusic {
       // PyJav's: the folder the zip (--zip) is saved in (% codes filled in); empty: --outdir's.
       else if (a.equals("--zip_outdir") && i + 1 < args.length) i++;
       // PyJav's: the tracks not measured or ranked after the run (--compare_to_file_sets still makes file sets).
-      else if (a.equals("--no_compare")) continue;
+      else if (a.equals("--no_compare")) noCompare = true;
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
@@ -717,6 +718,9 @@ public final class SogniMusic {
   /** A start refused for Sogni's start rate limit (429), waited out (RATE_WAIT_S at least, Retry-After when longer) up to RATE_PATIENCE times in a row. */
   static final int RATE_WAIT_S = Integer.getInteger("sogni.rateWait", 60), RATE_PATIENCE = 60;
 
+  /** --no_compare: the tracks are named "Track:", not "Compared:" (PyJav reads both). */
+  static boolean noCompare;
+
   static boolean startLimited(Exception ex) {
     if (ex instanceof SogniApi.ApiException && ((SogniApi.ApiException) ex).status == 429) return true;
     String m = ex.getMessage() == null ? "" : ex.getMessage();
@@ -760,7 +764,8 @@ public final class SogniMusic {
         fos.close();
       }
       say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      say("Compared: " + label + " " + file.getName());
+      // PyJav's line for each track (its file sets, the comparison): "Track:" when nothing is compared.
+      say((noCompare ? "Track: " : "Compared: ") + label + " " + file.getName());
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
       return file.getName();
     } catch (Exception ex) {
