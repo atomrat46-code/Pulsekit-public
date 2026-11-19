@@ -1822,6 +1822,70 @@ public class DrumMidi_CRT{
             return null;
         }
 
+        /**
+         * Beat This! (the beat tracker of Foscarin, Schlüter and Widmer, 2024, in the Python setup_demucs.py
+         * made) on mono samples: {beats, downbeats} in seconds, or null when it is not there or failed (a note
+         * says why). It hears whole songs as well as instruments alone; the first run fetches its model (77 MB).
+         */
+        static double[][] beatThis(double[] x, double sr) {
+            if (System.getProperty("java.vendor", "").toLowerCase(java.util.Locale.ROOT).contains("android")
+                    || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) return null;
+            File py = python();
+            if (py == null) {
+                note("Beats: Beat This! is not set up (on a computer: python tools/setup_demucs.py); DrumAlong's own beat finder is used");
+                return null;
+            }
+            File wav = null;
+            try {
+                wav = File.createTempFile("dm-beats", ".wav");
+                Sounds.writeWav16(wav, x, (int) Math.round(sr));
+                String script = "import sys, torch\n"
+                        + "from beat_this.inference import File2Beats\n"
+                        + "dev = 'cuda' if torch.cuda.is_available() else 'cpu'\n"
+                        + "b, d = File2Beats(checkpoint_path='final0', device=dev, dbn=False)(sys.argv[1])\n"
+                        + "print('BEATS ' + ' '.join('%.4f' % v for v in b))\n"
+                        + "print('DOWNBEATS ' + ' '.join('%.4f' % v for v in d))\n";
+                ProcessBuilder pb = new ProcessBuilder(py.getAbsolutePath(), "-c", script, wav.getAbsolutePath());
+                pb.redirectErrorStream(true);
+                File root = py.getAbsoluteFile().getParentFile().getParentFile();
+                if (root != null && new File(root, "torch-cache").isDirectory()) {
+                    pb.environment().put("TORCH_HOME", new File(root, "torch-cache").getAbsolutePath());
+                    pb.environment().put("HF_HOME", new File(root, "hf-cache").getAbsolutePath());
+                }
+                note("Beats: listening with Beat This!...");
+                Process p = pb.start();
+                double[] beats = null, downs = null;
+                StringBuilder log = new StringBuilder();
+                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), "UTF-8"))) {
+                    for (String line; (line = r.readLine()) != null; ) {
+                        if (line.startsWith("BEATS")) beats = numbers(line.substring(5));
+                        else if (line.startsWith("DOWNBEATS")) downs = numbers(line.substring(9));
+                        else if (log.length() < 4000) log.append(line).append('\n');
+                    }
+                }
+                int code = p.waitFor();
+                if (code == 0 && beats != null && downs != null && beats.length >= 4) return new double[][] {beats, downs};
+                String tail = log.toString().trim();
+                if (tail.contains("No module named 'beat_this'") || tail.contains("No module named beat_this"))
+                    note("Beats: Beat This! is not installed (python tools/setup_demucs.py adds it); DrumAlong's own beat finder is used");
+                else note("Beats: Beat This! failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); DrumAlong's own beat finder is used");
+                return null;
+            } catch (Exception ex) {
+                note("Beats: Beat This! " + ex.getMessage() + "; DrumAlong's own beat finder is used");
+                return null;
+            } finally {
+                if (wav != null) wav.delete();
+            }
+        }
+
+        static double[] numbers(String s) {
+            String[] w = s.trim().split("\\s+");
+            if (w.length == 1 && w[0].isEmpty()) return new double[0];
+            double[] v = new double[w.length];
+            for (int i = 0; i < w.length; i++) v[i] = Double.parseDouble(w[i]);
+            return v;
+        }
+
         static void deleteTree(File f) {
             File[] in = f.listFiles();
             if (in != null) for (File c : in) deleteTree(c);

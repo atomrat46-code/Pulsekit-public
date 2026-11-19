@@ -27,7 +27,7 @@ import java.util.Locale;
  */
 public final class DrumAlong {
     static final String USAGE = "Usage: java DrumAlong <input.wav> [output.mid] [--style name] [--busy 1-10] [--bpm N] [--timesig 4/4|3/4|6/8] "
-            + "[--half-time] [--shift] [--separate] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
+            + "[--half-time] [--shift] [--separate] [--own-beats] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
 
     static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
     static final int CRASH = 49, RIDE = 51, FLOOR_TOM = 41, LOW_TOM = 45, MID_TOM = 47, HIGH_TOM = 50;
@@ -104,6 +104,9 @@ public final class DrumAlong {
     static boolean halfTimeGiven, fills = true, crashes = true, ghosts = true, onGrid, shift, separate;
     /** --separate's parts (Demucs): the bass alone and the other instruments (guitars, keys) alone; null without. */
     static double[] bassPart, otherPart;
+    /** Beat This!'s beats and downbeats (seconds) on the input, or null (not set up, --own-beats, a phone). */
+    static double[][] heard;
+    static boolean ownBeats;
 
     public static void main(String[] args) {
         try {
@@ -126,6 +129,8 @@ public final class DrumAlong {
         shift = false;
         separate = false;
         bassPart = otherPart = null;
+        heard = null;
+        ownBeats = false;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (a.equals("--style") && i + 1 < args.length) styleName = args[++i];
@@ -145,6 +150,8 @@ public final class DrumAlong {
             else if (a.equals("--shift")) shift = true;
             // A whole song (with drums, vocals): Demucs's bass and other parts heard instead (on a computer).
             else if (a.equals("--separate")) separate = true;
+            // DrumAlong's own beat finder instead of Beat This! (which setup_demucs.py installs on a computer).
+            else if (a.equals("--own-beats")) ownBeats = true;
             else if (a.startsWith("--")) {
                 // Pulsekit passes its own (--swing, --saveprompt...): not DrumAlong's.
                 if (i + 1 < args.length && !args[i + 1].startsWith("--") && !args[i + 1].contains(".")) i++;
@@ -172,6 +179,10 @@ public final class DrumAlong {
         DrumMidi_CRT.Audio audio = DrumMidi_CRT.readAudio(in);
         double sr = audio.sampleRate;
         double[] x = audio.samples;
+        // The beats and the bars' first beats from Beat This! on the input as it is (a whole song or an
+        // instrument alone): on SogniMusic's songs its beats are on the drummer's on 78% of whole songs and 70% of
+        // band tracks (DrumAlong's own 59%), the bar's first beat right on 59% and 44% of tracks (own 38-40%).
+        if (!ownBeats && x.length >= sr * 4) heard = DrumMidi_CRT.Demucs.beatThis(x, sr);
         if (separate) {
             java.util.Map<String, File> st = DrumMidi_CRT.Demucs.stems(in, false, "Separate the song", "the song's drums, bass, other instruments and vocals");
             if (st != null) {
@@ -291,45 +302,53 @@ public final class DrumAlong {
             double[] g = DrumMidi_CRT.fitBeatGrid(env, fps, coarse * 0.97, coarse * 1.03);
             bpm = g[0];
         }
-        double[] grid = DrumMidi_CRT.fitBeatGrid(env, fps, bpm, bpm);
-        an.bpm = bpm;
-        double period = 60.0 / bpm, phase = grid[1];
-        // On the beat or between: strummed chords on the "and" pull the grid there; the bass plays on the beat.
-        double onB = 0, offB = 0;
-        for (double t = phase; t < x.length / sr; t += period) {
-            onB += (an.hasBass ? 2 * peak(low, t, fps, 0.03) : 0) + peak(mid, t, fps, 0.03);
-            offB += (an.hasBass ? 2 * peak(low, t + period / 2, fps, 0.03) : 0) + peak(mid, t + period / 2, fps, 0.03);
-        }
-        if (offB > 1.1 * onB) phase += period / 2;
         double dur = x.length / sr;
-        // The beats, each pulled a little toward the strongest onset near where it is due (a player drifts).
-        double[] smooth = new double[env.length];
-        for (int t = 0; t < env.length; t++) {
-            double s = 0;
-            for (int k = -1; k <= 1; k++) s += env[Math.max(0, Math.min(env.length - 1, t + k))];
-            smooth[t] = s / 3;
-        }
-        List<Double> beats = new ArrayList<Double>();
-        double tBeat = phase;
-        while (tBeat - period > 0) tBeat -= period;
-        double step = period;
-        while (tBeat < dur + period) {
-            double best = tBeat;
-            int c = (int) Math.round(tBeat * fps), w = (int) Math.round(0.07 * period * fps);
-            double bestV = 0;
-            for (int f = c - w; f <= c + w; f++) {
-                if (f < 0 || f >= smooth.length) continue;
-                double v = smooth[f] * (1 - 0.5 * Math.abs(f - c) / Math.max(1, w));
-                if (v > bestV) {
-                    bestV = v;
-                    best = f / fps;
-                }
+        List<Double> beats = heardBeats(bpm, dur);
+        double[] downs = beats == null ? null : heardDowns;
+        if (beats != null) {
+            bpm = 60.0 / medianStep(beats);
+            System.out.println(String.format(Locale.ROOT, "Beats: from Beat This! at %.1f BPM", bpm));
+        } else {
+            beats = new ArrayList<Double>();
+            double[] grid = DrumMidi_CRT.fitBeatGrid(env, fps, bpm, bpm);
+            double period = 60.0 / bpm, phase = grid[1];
+            // On the beat or between: strummed chords on the "and" pull the grid there; the bass plays on the beat.
+            double onB = 0, offB = 0;
+            for (double t = phase; t < x.length / sr; t += period) {
+                onB += (an.hasBass ? 2 * peak(low, t, fps, 0.03) : 0) + peak(mid, t, fps, 0.03);
+                offB += (an.hasBass ? 2 * peak(low, t + period / 2, fps, 0.03) : 0) + peak(mid, t + period / 2, fps, 0.03);
             }
-            double t = bestV > 0.6 ? 0.6 * tBeat + 0.4 * best : tBeat;
-            if (!beats.isEmpty()) step = 0.9 * step + 0.1 * (t - beats.get(beats.size() - 1));
-            beats.add(t);
-            tBeat = t + Math.max(0.8 * period, Math.min(1.2 * period, step));
+            if (offB > 1.1 * onB) phase += period / 2;
+            // The beats, each pulled a little toward the strongest onset near where it is due (a player drifts).
+            double[] smooth = new double[env.length];
+            for (int t = 0; t < env.length; t++) {
+                double s = 0;
+                for (int k = -1; k <= 1; k++) s += env[Math.max(0, Math.min(env.length - 1, t + k))];
+                smooth[t] = s / 3;
+            }
+            double tBeat = phase;
+            while (tBeat - period > 0) tBeat -= period;
+            double step = period;
+            while (tBeat < dur + period) {
+                double best = tBeat;
+                int c = (int) Math.round(tBeat * fps), w = (int) Math.round(0.07 * period * fps);
+                double bestV = 0;
+                for (int f = c - w; f <= c + w; f++) {
+                    if (f < 0 || f >= smooth.length) continue;
+                    double v = smooth[f] * (1 - 0.5 * Math.abs(f - c) / Math.max(1, w));
+                    if (v > bestV) {
+                        bestV = v;
+                        best = f / fps;
+                    }
+                }
+                double t = bestV > 0.6 ? 0.6 * tBeat + 0.4 * best : tBeat;
+                if (!beats.isEmpty()) step = 0.9 * step + 0.1 * (t - beats.get(beats.size() - 1));
+                beats.add(t);
+                tBeat = t + Math.max(0.8 * period, Math.min(1.2 * period, step));
+            }
         }
+        an.bpm = bpm;
+        double period = 60.0 / bpm;
 
         // Meter: 3 or 4 beats a bar from how the bass's accents repeat (or as --timesig says); 6/8 as two
         // dotted-quarter beats of three eighths.
@@ -367,6 +386,13 @@ public final class DrumAlong {
                 n++;
             }
             s /= Math.max(1, n);
+            // Beat This!'s bars' first beats decide (DrumAlong's cues only between offsets it hears equally).
+            if (downs != null) {
+                int on = 0;
+                for (int b = o; b < beats.size(); b += bpb)
+                    for (double d : downs) if (Math.abs(d - beats.get(b)) < 0.07) on++;
+                s += 1000 * on;
+            }
             if (s > bestS) {
                 bestS = s;
                 best = o;
@@ -471,6 +497,66 @@ public final class DrumAlong {
      * The tempo from how the onsets repeat: each beat's lag scored with its double and half (a bar's
      * eighths and its half notes repeat too), under a mild preference for 75-150 BPM.
      */
+    /** Beat This!'s bars' first beats, as heardBeats left them. */
+    static double[] heardDowns;
+
+    /**
+     * Beat This!'s beats over the whole track (one beat a period before its first and after its last, as
+     * DrumAlong's own), or null without them. At twice or half DrumAlong's tempo they are thinned to every
+     * other (the bars' first beats kept) or a beat added between each two: its tempo is twice or half the
+     * drummer's on 16-18% of SogniMusic's tracks, and DrumAlong's tempo then right more often (76% against 71%).
+     * With --bpm, only when they agree with it.
+     */
+    static List<Double> heardBeats(double bpm, double dur) {
+        heardDowns = null;
+        if (heard == null) return null;
+        List<Double> b = new ArrayList<Double>();
+        for (double t : heard[0]) b.add(t);
+        double[] d = heard[1];
+        if (b.size() < 4) return null;
+        double q = 60.0 / medianStep(b) / bpm;
+        if (Math.abs(q - 2) < 0.1) {
+            int p = 0;
+            if (d.length > 0) p = nearest(b, d[0]) % 2;
+            List<Double> kept = new ArrayList<Double>();
+            for (int i = p; i < b.size(); i += 2) kept.add(b.get(i));
+            b = kept;
+            List<Double> kd = new ArrayList<Double>();
+            for (double t : d) if (Math.abs(b.get(nearest(b, t)) - t) < 0.001) kd.add(t);
+            if (!kd.isEmpty()) {
+                d = new double[kd.size()];
+                for (int i = 0; i < d.length; i++) d[i] = kd.get(i);
+            }
+        } else if (Math.abs(q - 0.5) < 0.05) {
+            List<Double> both = new ArrayList<Double>();
+            for (int i = 0; i + 1 < b.size(); i++) {
+                both.add(b.get(i));
+                both.add((b.get(i) + b.get(i + 1)) / 2);
+            }
+            both.add(b.get(b.size() - 1));
+            b = both;
+        }
+        double period = medianStep(b);
+        if (bpmGiven > 0 && Math.abs(60.0 / period / bpmGiven - 1) > 0.04) return null;
+        while (b.get(0) - period > 0) b.add(0, b.get(0) - period);
+        while (b.get(b.size() - 1) < dur + period) b.add(b.get(b.size() - 1) + period);
+        heardDowns = d;
+        return b;
+    }
+
+    static int nearest(List<Double> b, double t) {
+        int best = 0;
+        for (int i = 1; i < b.size(); i++) if (Math.abs(b.get(i) - t) < Math.abs(b.get(best) - t)) best = i;
+        return best;
+    }
+
+    static double medianStep(List<Double> b) {
+        double[] s = new double[b.size() - 1];
+        for (int i = 0; i + 1 < b.size(); i++) s[i] = b.get(i + 1) - b.get(i);
+        java.util.Arrays.sort(s);
+        return s[s.length / 2];
+    }
+
     static double tempo(double[] env, double fps) {
         int n = env.length;
         double mean = 0;

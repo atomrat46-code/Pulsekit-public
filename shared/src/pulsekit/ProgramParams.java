@@ -756,6 +756,7 @@ public final class ProgramParams {
     }
     if (p.flag && p.token.equals("--half-time")) p.label = "Half time: the snare on three only";
     if (p.flag && p.token.equals("--separate") && !p.takesValue) p.label = "Separate the song first (Demucs, computer only): a whole song with drums and vocals; the beat follows its bass and its guitars and keys";
+    if (p.flag && p.token.equals("--own-beats") && !p.takesValue) p.label = "DrumAlong's own beat finder (not Beat This!, which setup_demucs.py installs on a computer; phones always use their own)";
     if (p.flag && p.token.equals("--shift")) p.label = "Snare on the other beats: the bar a beat later (when the snare falls on 1 and 3)";
     if (p.flag && p.token.equals("--no-fills")) p.label = "No fills (at the ends of phrases and before sections)";
     if (p.flag && p.token.equals("--no-crashes")) p.label = "No crashes (where sections and phrases start)";
