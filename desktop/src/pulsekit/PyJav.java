@@ -1909,7 +1909,7 @@ final class PyJav {
             final JButton search = new JButton(SogniSections.SEARCH, searchIcon());
             search.setName("sections-search");
             search.setToolTipText("Show the sections that match (an empty term shows them all)");
-            final JLabel found = new JLabel(SogniSections.searchSaid(all.size(), all.size(), "", true));
+            final JLabel found = new JLabel(SogniSections.searchSaid(all.size(), all.size(), "", true) + SogniSections.groupsNote(all));
             found.setName("sections-search-found");
             Runnable doSearch = () -> {
                 boolean contains = how.getSelectedIndex() == 0;
@@ -1922,7 +1922,7 @@ final class PyJav {
                 if (SogniSections.searchPattern(term.getText()) != null) for (SogniSections.Group g : groups) if (SogniSections.opens(g)) open.add(key.apply(g));
                 fill.run();
                 if (!rows.isEmpty()) list.setSelectedIndex(0);
-                found.setText(SogniSections.searchSaid(shownSecs.size(), all.size(), term.getText(), contains));
+                found.setText(SogniSections.searchSaid(shownSecs.size(), all.size(), term.getText(), contains) + SogniSections.groupsNote(all));
             };
             search.addActionListener(e -> doSearch.run());
             term.addActionListener(e -> doSearch.run());

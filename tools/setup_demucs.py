@@ -2,6 +2,8 @@
 """setup_demucs.py: Demucs for DrumMidi's "Separate drums first" (--separate), and Beat This! for DrumAlong's
 beats, on a computer.
 
+Usage: python setup_demucs.py [--gpu] [--dir <folder>]
+
 Makes a Python of its own in ~/.pulsekit/demucs, or the folder --dir names (nothing else on the computer
 changes; the downloads, Demucs's model and pip's temporary files stay in that folder too), installs PyTorch,
 Demucs, soundfile and Beat This! (beat-this) into it, and fetches Demucs's htdemucs model (about 80 MB) by

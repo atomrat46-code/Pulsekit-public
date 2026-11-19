@@ -157,6 +157,8 @@ public final class ProgramParams {
     boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
     // SogniMusic: music on Sogni, compared between models or made in random styles.
     boolean sogniMusic = has(out, "--compare_models") && has(out, "--random");
+    // setup_demucs.py: Demucs and Beat This! in a Python of their own (--gpu, --dir).
+    boolean setupDemucs = has(out, "--gpu") && has(out, "--dir") && out.size() == 2;
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -186,6 +188,12 @@ public final class ProgramParams {
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
       if (sogniMusic) knownSogniMusic(p);
+      if (setupDemucs && p.token.equals("--gpu")) p.label = "For an NVIDIA graphics card (PyTorch with CUDA); off: for the processor";
+      if (setupDemucs && p.token.equals("--dir")) {
+        p.dir = true;
+        p.label = "Install folder (a drive with room: 1-3 GB)";
+        p.hint = "empty: ~/.pulsekit/demucs";
+      }
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
