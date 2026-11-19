@@ -1071,13 +1071,17 @@ public final class ProgramParams {
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;
-      p.label = "Input folder: Run separately, the tests' zips (vst-render-*.zip); Render first, the MIDI files to render or a zip of them (the Input and Output tabs' folders are not used)";
+      p.label = "Input folder (Run separately): the tests' zips (vst-render-*.zip), its subfolders too (Run last reads the zips the run makes)";
       p.hint = "a folder";
+    } else if (p.token.equals("--hit_unzip")) {
+      p.dir = true;
+      p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive)";
+      p.hint = "empty: hit-bench/kits in the output folder";
     } else if (p.token.equals("--hit_zip_outdir")) {
       p.dir = true;
       p.typed = true;
-      p.label = "Zip folder: the bench's zip and the hit-model file (Render first: the run's tests' zips too) copied into this folder";
-      p.hint = "empty: they stay in the input folder; % codes: %ddmmyyyy, run-%n (the next free number)";
+      p.label = "Zip folder: the bench's zip and the hit-model file copied into this folder";
+      p.hint = "empty: they stay in the output folder (Run last: the run's zip folder); % codes: %ddmmyyyy, run-%n (the next free number)";
     } else if (p.token.equals("--hit_bench")) {
       p.label = "Hit model bench: DrumMidi on the kits' tests (vst-render zips) with its rules alone and with its hit model, kicks, snares and toms; the Hit model tab's parts (off: not run)";
     } else if (p.token.equals("--hit_bench_when")) {
@@ -1085,7 +1089,7 @@ public final class ProgramParams {
       p.dropdown = true;
       p.showWhen = "--hit_bench";
       p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
-          "Render first: the MIDI in the Hit model tab's input folder (or its zip) through the plugins, tested, then the bench"};
+          "Run last: after the run's renders and tests (and the cymbal model comparison, when it runs last too), on the tests' zips the run made"};
       p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
