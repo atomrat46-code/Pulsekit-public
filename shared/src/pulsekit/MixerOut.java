@@ -6,7 +6,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * "Add the result to the AudioMixer" (--to_mixer) for SogniMusic, MidiDrumGen and DrumMidi_CRT: after a
+ * "Add the result to the AudioMixer" (--to_mixer) for SogniMusic, MidiDrumGen, DrumMidi_CRT and DrumAlong (its
+ * instrument track too, so the beat plays along with it): after a
  * run that made its files one by one (not into a zip), each sound it made (a WAV or an MP3, or a MIDI
  * played with the kit when no WAV of it was made) becomes a track of the AudioMixer. Pulsekit does it
  * (the switch is taken out before the program runs).
@@ -47,7 +48,8 @@ public final class MixerOut {
 
   public static boolean takes(String program) {
     String p = program == null ? "" : program;
-    return p.equals("SogniMusic.java") || p.equals("MidiDrumGen.java") || p.equals("DrumMidi_CRT.java") || p.equals("DrumMidi_CRT.jar");
+    return p.equals("SogniMusic.java") || p.equals("MidiDrumGen.java") || p.equals("DrumMidi_CRT.java") || p.equals("DrumMidi_CRT.jar")
+        || p.equals("DrumAlong.jar");
   }
 
   /** The switch for Params. */
@@ -76,7 +78,22 @@ public final class MixerOut {
     String said;
     if (args.contains("--dir")) said = "Not added to the AudioMixer: the run was on a folder (" + FLAG + " is for one file at a time)";
     else if (args.contains("--zip") || args.contains("--zip_mb")) said = "Not added to the AudioMixer: the run made a zip (" + FLAG + " is for one file at a time)";
-    else said = add(r.files);
+    else if ("DrumAlong.jar".equals(name)) {
+      // The instrument track first, then the beat: the two play together in the mixer.
+      List<JavaRun.FileOut> both = new ArrayList<JavaRun.FileOut>();
+      for (String a : args) {
+        File f = new File(a);
+        if (a.startsWith("-") || !f.isFile() || !a.toLowerCase(Locale.ROOT).matches(".+\\.(wav|wave|mp3)")) continue;
+        try {
+          both.add(new JavaRun.FileOut(f.getName(), java.nio.file.Files.readAllBytes(f.toPath())));
+        } catch (Exception ignored) {
+          // the beat alone
+        }
+        break;
+      }
+      both.addAll(r.files);
+      said = add(both);
+    } else said = add(r.files);
     return new JavaRun.Result(r.log + (r.log.endsWith("\n") || r.log.isEmpty() ? "" : "\n") + said + "\n", r.files, r.code);
   }
 

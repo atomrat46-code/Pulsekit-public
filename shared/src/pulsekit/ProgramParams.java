@@ -120,6 +120,8 @@ public final class ProgramParams {
     boolean chat = has(out, "--prompt") && has(out, "--system");
     // MidiDrumGen: --style takes Pulsekit's style names.
     boolean drumGen = has(out, "--style") && has(out, "--intensity");
+    // DrumAlong: a drum beat played along with an instrument track (--busy, --half-time).
+    boolean drumAlong = has(out, "--busy") && has(out, "--half-time");
     // SplitWav: one WAV split in two (--output_file1, --output_file2).
     boolean splitWav = has(out, "--output_file1") && has(out, "--output_file2");
     // CutWav: one WAV cut at a time or size (--split_time).
@@ -179,6 +181,7 @@ public final class ProgramParams {
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
       if (drumGen && p.token.equals("--vst")) p.label = "Play it through a VST instead (vst_render.py's saved plugin; computer only)";
       if (drumGen) knownDrumGenBatch(p);
+      if (drumAlong) knownDrumAlong(p);
       if (videoFrames) knownVideoFrames(p);
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
@@ -237,7 +240,7 @@ public final class ProgramParams {
       out.add(save);
     }
     // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
-    if ((drumMidi || drumGen || sogniMusic) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
+    if ((drumMidi || drumGen || sogniMusic || drumAlong) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
     return out;
   }
 
@@ -718,6 +721,35 @@ public final class ProgramParams {
       for (String c : p.clears) if (c.equals(ps.get(i).token)) out.add(i);
     }
     return out;
+  }
+
+  /** DrumAlong's rows: the track (WAV or MP3, from the library too), the style, how busy, the switches. */
+  private static void knownDrumAlong(Param p) {
+    if (!p.flag && p.isFile() && isAudio(p)) {
+      p.refs = true;
+      p.label = "Instrument track: guitar, bass or keys without drums (WAV or MP3)";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--style")) {
+      p.label = "Style (empty: picked from the track)";
+      p.hint = "empty: from the track; rock, punk, metal, funk, shuffle, ballad, hip-hop, reggae, country, house, or a Pulsekit style";
+      String[] own = {"rock", "punk", "metal", "funk", "shuffle", "ballad", "hip-hop", "reggae", "country", "house"};
+      String[] all = StyleDb.names();
+      String[] both = new String[own.length + all.length];
+      System.arraycopy(own, 0, both, 0, own.length);
+      System.arraycopy(all, 0, both, own.length, all.length);
+      p.choices = both;
+    }
+    if (p.flag && p.takesValue && p.token.equals("--busy")) {
+      p.label = "Busy: how much the drummer plays, 1 (simple, steady) to 10 (ghost notes, sixteenths, long fills)";
+      p.hint = "empty: as busy as the track";
+    }
+    if (p.flag && p.takesValue && p.token.equals("--bpm")) p.hint = "empty: heard from the track";
+    if (p.flag && p.takesValue && p.token.equals("--timesig")) p.hint = "empty: heard from the track (4/4 or 3/4); 6/8 for a compound feel";
+    if (p.flag && p.token.equals("--half-time")) p.label = "Half time: the snare on three only";
+    if (p.flag && p.token.equals("--no-fills")) p.label = "No fills (at the ends of phrases and before sections)";
+    if (p.flag && p.token.equals("--no-crashes")) p.label = "No crashes (where sections and phrases start)";
+    if (p.flag && p.token.equals("--no-ghosts")) p.label = "No ghost notes (soft snares between the beats when busy)";
+    if (p.flag && p.token.equals("--grid")) p.label = "On a steady grid (for editing): not following the player's small tempo drifts";
   }
 
   private static void knownSogniMusic(Param p) {
