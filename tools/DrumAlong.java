@@ -27,7 +27,7 @@ import java.util.Locale;
  */
 public final class DrumAlong {
     static final String USAGE = "Usage: java DrumAlong <input.wav> [output.mid] [--style name] [--busy 1-10] [--bpm N] [--timesig 4/4|3/4|6/8] "
-            + "[--half-time] [--shift] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
+            + "[--half-time] [--shift] [--separate] [--no-fills] [--no-crashes] [--no-ghosts] [--grid]";
 
     static final int KICK = 36, SNARE = 38, SIDESTICK = 37, CLOSED_HH = 42, PEDAL_HH = 44, OPEN_HH = 46;
     static final int CRASH = 49, RIDE = 51, FLOOR_TOM = 41, LOW_TOM = 45, MID_TOM = 47, HIGH_TOM = 50;
@@ -101,7 +101,9 @@ public final class DrumAlong {
     static String input, output, styleName;
     static int busy = 0, tsNum = 0, tsDen = 4;
     static double bpmGiven = 0;
-    static boolean halfTimeGiven, fills = true, crashes = true, ghosts = true, onGrid, shift;
+    static boolean halfTimeGiven, fills = true, crashes = true, ghosts = true, onGrid, shift, separate;
+    /** --separate's parts (Demucs): the bass alone and the other instruments (guitars, keys) alone; null without. */
+    static double[] bassPart, otherPart;
 
     public static void main(String[] args) {
         try {
@@ -122,6 +124,8 @@ public final class DrumAlong {
         fills = crashes = ghosts = true;
         onGrid = false;
         shift = false;
+        separate = false;
+        bassPart = otherPart = null;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (a.equals("--style") && i + 1 < args.length) styleName = args[++i];
@@ -139,6 +143,8 @@ public final class DrumAlong {
             // The bar a beat later: the snare on the other beats (where the bar starts is the hardest to hear
             // from a guitar or bass alone: right on some 60% of SogniMusic's band tracks).
             else if (a.equals("--shift")) shift = true;
+            // A whole song (with drums, vocals): Demucs's bass and other parts heard instead (on a computer).
+            else if (a.equals("--separate")) separate = true;
             else if (a.startsWith("--")) {
                 // Pulsekit passes its own (--swing, --saveprompt...): not DrumAlong's.
                 if (i + 1 < args.length && !args[i + 1].startsWith("--") && !args[i + 1].contains(".")) i++;
@@ -166,6 +172,35 @@ public final class DrumAlong {
         DrumMidi_CRT.Audio audio = DrumMidi_CRT.readAudio(in);
         double sr = audio.sampleRate;
         double[] x = audio.samples;
+        if (separate) {
+            java.util.Map<String, File> st = DrumMidi_CRT.Demucs.stems(in, false, "Separate the song", "the song's drums, bass, other instruments and vocals");
+            if (st != null) {
+                try {
+                    double[][] part = new double[4][];
+                    String[] names = {"drums", "bass", "other", "vocals"};
+                    double[] level = new double[4];
+                    double total = 0;
+                    for (int k = 0; k < 4; k++) {
+                        DrumMidi_CRT.Audio a = DrumMidi_CRT.readAudio(st.get(names[k]));
+                        part[k] = a.samples;
+                        double sum = 0;
+                        for (int i = 0; i < a.samples.length; i += 16) sum += a.samples[i] * a.samples[i];
+                        level[k] = sum;
+                        total += sum;
+                        if (k == 1) sr = a.sampleRate;
+                    }
+                    bassPart = part[1];
+                    otherPart = part[2];
+                    int n = Math.min(bassPart.length, otherPart.length);
+                    x = new double[n];
+                    for (int i = 0; i < n; i++) x[i] = bassPart[i] + otherPart[i];
+                    System.out.println(String.format(Locale.ROOT, "Separated with Demucs: drums %.0f%%, bass %.0f%%, guitars and keys %.0f%%, vocals %.0f%% of the song's energy; the beat follows the bass and the guitars and keys",
+                            100 * level[0] / total, 100 * level[1] / total, 100 * level[2] / total, 100 * level[3] / total));
+                } finally {
+                    for (File f : st.values()) f.delete();
+                }
+            }
+        }
         System.out.println(String.format(Locale.ROOT, "Loaded %.1f s at %.0f Hz", x.length / sr, sr));
         if (x.length < sr * 4) {
             System.out.println("Failed: the track is too short (4 s at least)");
@@ -222,11 +257,14 @@ public final class DrumAlong {
         float[][] mag = DrumMidi_CRT.spectrogram(x, sr);
         int maxBin = mag[0].length - 1;
         double fps = sr / DrumMidi_CRT.HOP;
-        double[] low = DrumMidi_CRT.flux(mag, DrumMidi_CRT.bin(40, sr, maxBin), DrumMidi_CRT.bin(250, sr, maxBin));
-        double[] mid = DrumMidi_CRT.flux(mag, DrumMidi_CRT.bin(250, sr, maxBin), DrumMidi_CRT.bin(4000, sr, maxBin));
-        double[] high = DrumMidi_CRT.flux(mag, DrumMidi_CRT.bin(2000, sr, maxBin), DrumMidi_CRT.bin(8000, sr, maxBin));
-        double[] lowLevel = DrumMidi_CRT.bandMean(mag, DrumMidi_CRT.bin(40, sr, maxBin), DrumMidi_CRT.bin(250, sr, maxBin));
-        double[] midLevel = DrumMidi_CRT.bandMean(mag, DrumMidi_CRT.bin(250, sr, maxBin), DrumMidi_CRT.bin(4000, sr, maxBin));
+        // Separated (--separate): the bass's notes from the bass alone, the strums from the guitars and keys alone.
+        float[][] magLow = bassPart != null ? DrumMidi_CRT.spectrogram(bassPart, sr) : mag;
+        float[][] magMid = otherPart != null ? DrumMidi_CRT.spectrogram(otherPart, sr) : mag;
+        double[] low = DrumMidi_CRT.flux(magLow, DrumMidi_CRT.bin(40, sr, maxBin), DrumMidi_CRT.bin(250, sr, maxBin));
+        double[] mid = DrumMidi_CRT.flux(magMid, DrumMidi_CRT.bin(250, sr, maxBin), DrumMidi_CRT.bin(4000, sr, maxBin));
+        double[] high = DrumMidi_CRT.flux(magMid, DrumMidi_CRT.bin(2000, sr, maxBin), DrumMidi_CRT.bin(8000, sr, maxBin));
+        double[] lowLevel = DrumMidi_CRT.bandMean(magLow, DrumMidi_CRT.bin(40, sr, maxBin), DrumMidi_CRT.bin(250, sr, maxBin));
+        double[] midLevel = DrumMidi_CRT.bandMean(magMid, DrumMidi_CRT.bin(250, sr, maxBin), DrumMidi_CRT.bin(4000, sr, maxBin));
         // Is there a bass at all (a guitar alone has little below 250 Hz against its chords)?
         double lowSum = 0, midSum = 0;
         for (int t = 0; t < mag.length; t++) {

@@ -1746,6 +1746,18 @@ public class DrumMidi_CRT{
 
         /** The drums stem as a WAV in a temporary folder (the caller deletes it), or null (a note says why). */
         static File drums(File song) {
+            java.util.Map<String, File> st = stems(song, true, "Separate drums", "the drums");
+            if (st == null) return null;
+            note("Separated the drums with Demucs: DrumMidi listens to them alone");
+            return st.get("drums");
+        }
+
+        /**
+         * Demucs's stems of a song as WAVs in temporary files (the caller deletes them): drums and no_drums
+         * (`twoStems`), or drums, bass, other (guitars, keys...) and vocals. Null when Demucs is not there or
+         * failed: a note says why (`what` names the step, `parts` what it separates).
+         */
+        static java.util.Map<String, File> stems(File song, boolean twoStems, String what, String parts) {
             List<String> cmds = new ArrayList<String>();
             File py = python();
             if (py != null) cmds.add(py.getAbsolutePath());
@@ -1755,15 +1767,18 @@ public class DrumMidi_CRT{
             }
             if (System.getProperty("java.vendor", "").toLowerCase(java.util.Locale.ROOT).contains("android")
                     || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) {
-                note("Separate drums: Demucs runs on a computer only; the whole song is used");
+                note(what + ": Demucs runs on a computer only; the whole song is used");
                 return null;
             }
-            note("Separating the drums with Demucs (a minute or more on a long song)...");
+            note("Separating " + parts + " with Demucs (a minute or more on a long song)...");
             for (String cmd : cmds) {
                 File out = null;
                 try {
                     out = java.nio.file.Files.createTempDirectory("dm-demucs").toFile();
-                    ProcessBuilder pb = new ProcessBuilder(cmd, "-m", "demucs", "--two-stems=drums", "-n", "htdemucs", "-o", out.getAbsolutePath(), song.getAbsolutePath());
+                    List<String> c = new ArrayList<String>(java.util.Arrays.asList(cmd, "-m", "demucs"));
+                    if (twoStems) c.add("--two-stems=drums");
+                    c.addAll(java.util.Arrays.asList("-n", "htdemucs", "-o", out.getAbsolutePath(), song.getAbsolutePath()));
+                    ProcessBuilder pb = new ProcessBuilder(c);
                     pb.redirectErrorStream(true);
                     // Its model where setup_demucs.py put it (in its own folder, not on the system drive).
                     File root = py == null ? null : py.getAbsoluteFile().getParentFile().getParentFile();
@@ -1778,27 +1793,32 @@ public class DrumMidi_CRT{
                     }
                     int code = p.waitFor();
                     String stem = song.getName().replaceAll("\\.[^.]+$", "");
-                    File drums = new File(out, "htdemucs" + File.separator + stem + File.separator + "drums.wav");
-                    if (code == 0 && drums.isFile()) {
-                        File keep = File.createTempFile("dm-drums", ".wav");
-                        java.nio.file.Files.move(drums.toPath(), keep.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                        note("Separated the drums with Demucs: DrumMidi listens to them alone");
-                        return keep;
+                    File dir = new File(out, "htdemucs" + File.separator + stem);
+                    String[] names = twoStems ? new String[] {"drums", "no_drums"} : new String[] {"drums", "bass", "other", "vocals"};
+                    java.util.Map<String, File> got = new java.util.LinkedHashMap<String, File>();
+                    for (String n : names) {
+                        File f = new File(dir, n + ".wav");
+                        if (!f.isFile()) continue;
+                        File keep = File.createTempFile("dm-" + n, ".wav");
+                        java.nio.file.Files.move(f.toPath(), keep.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        got.put(n, keep);
                     }
+                    if (code == 0 && got.size() == names.length) return got;
+                    for (File f : got.values()) f.delete();
                     String tail = log.toString().trim();
                     if (tail.contains("No module named demucs")) continue;
-                    note("Separate drums: Demucs failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); the whole song is used");
+                    note(what + ": Demucs failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); the whole song is used");
                     return null;
                 } catch (java.io.IOException ex) {
                     // That Python is not there: the next one.
                 } catch (Exception ex) {
-                    note("Separate drums: " + ex.getMessage() + "; the whole song is used");
+                    note(what + ": " + ex.getMessage() + "; the whole song is used");
                     return null;
                 } finally {
                     if (out != null) deleteTree(out);
                 }
             }
-            note("Separate drums: Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
+            note(what + ": Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
             return null;
         }
 
