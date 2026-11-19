@@ -954,7 +954,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -972,6 +972,7 @@ public class DrumMidi_CRT{
         boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
         drumsOnly = false;
         separate = false;
+        drumStem = false;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -1002,6 +1003,8 @@ public class DrumMidi_CRT{
             else if ("--drums-only".equals(opt)) drumsOnly = true;
             // The drums separated from the song first (Demucs, on a computer: tools/setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
+            // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
+            else if ("--drum-stem".equals(opt)) drumStem = true;
             // A hit model learned elsewhere (vst_render's Hit model tab: hit-model.txt) in place of the built-in one;
             // "ugritone": the built-in one tuned on Ugritone kits' renders (HitModel.UGRITONE).
             else if ("--hit-model".equals(opt)) {
@@ -1036,8 +1039,12 @@ public class DrumMidi_CRT{
         File heard = inFile;
         if (separate) {
             File stem = Demucs.drums(inFile);
-            if (stem != null) heard = stem;
+            if (stem != null) {
+                heard = stem;
+                drumStem = true;
+            } else note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
         }
+        if (drumStem) note("Drum-stem mode: the drums alone (no bass, guitar or keys guards)");
         Audio audio = readAudio(heard);
         if (heard != inFile) heard.delete();
         double sr = audio.sampleRate;
@@ -1098,6 +1105,7 @@ public class DrumMidi_CRT{
         // tones (SogniMusic's guitar sessions: 0.71 median, nine in ten over 0.47; its drum sessions 0.36,
         // three in four under 0.47; a bench of kits alone 0.30). guitarLine alone heard 16% of the guitar sessions.
         if (midTone >= GUITAR_TONE) guitar = true;
+        if (drumStem) guitar = false;
 
         double[] kick = clickless ? kickBeforeHpss : flux(mag, bin(KICK_LO, sr, maxBin), bin(KICK_HI, sr, maxBin));
         double[] snareBody = flux(mag, bin(SNARE_BODY_LO, sr, maxBin), bin(SNARE_BODY_HI, sr, maxBin));
@@ -1269,7 +1277,7 @@ public class DrumMidi_CRT{
         {
             double[] ks = kickLevel.clone();
             Arrays.sort(ks);
-            accSure = ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0;
+            accSure = !drumStem && (ks[ks.length / 2] >= HitModel.TOM_BASS || midTone >= HitModel.TOM_TONE || guitarLine0);
         }
         boolean[] snareAt = new boolean[kick.length];
         for (Integer p : kickSnares) mark(snareAt, p.intValue(), 1);
@@ -1699,6 +1707,13 @@ public class DrumMidi_CRT{
 
     /** --separate: the drums told apart from a song's other instruments and vocals before DrumMidi listens. */
     static boolean separate;
+
+    /**
+     * Drum-stem mode (--separate's drums, or --drum-stem): only drums are there, so nothing is taken for a bass
+     * line, a guitar or keys (their guards, which leave out hits a band could have made, are off), as on a
+     * kit's render alone. Without it, a song with its band is told apart as well as can be, less completely.
+     */
+    static boolean drumStem;
 
     /**
      * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up (the one
@@ -4592,6 +4607,7 @@ public class DrumMidi_CRT{
      * at GUITAR_FLOOR of its loud level (95th percentile); drums alone, a ride too, leave it far lower.
      */
     static boolean guitarLine(float[][] mag, double sr, int maxBin) {
+        if (drumStem) return false;
         double[] g = bandMean(mag, bin(300, sr, maxBin), bin(1000, sr, maxBin));
         Arrays.sort(g);
         double loud = g[(int) (g.length * 0.95)];
@@ -4600,6 +4616,7 @@ public class DrumMidi_CRT{
 
     /** Something keeps the kick band up half the time: a bass line (drums alone leave it quiet between hits). */
     static boolean bassLine(double[] kickLevel) {
+        if (drumStem) return false;
         double[] s = kickLevel.clone();
         Arrays.sort(s);
         return s[s.length / 2] >= BASS_LINE;
