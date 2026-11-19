@@ -3314,8 +3314,14 @@ def cut_hits(java, jar, wav, times, out):
     return lines[-1] if lines else "DrumMidi_CRT said nothing"
 
 
-def silent_note(note, gizmo, carla):
-    """finish()'s silent note, for DrumGizmo (its MIDI map) or Carla (its project's kit)."""
+def silent_note(note, gizmo, carla, opts=None):
+    """finish()'s silent note, for DrumGizmo (its MIDI map), Carla (its project's kit) or Kontakt (a library
+    the free Kontakt Player plays only in demo mode)."""
+    plugins = " ".join(str(opts.get(k) or "") for k in ("--plugin", "--plugin2", "--plugin3", "--plugin4")) if opts else ""
+    if note and "kontakt" in plugins.lower() and note.startswith("the render is silent"):
+        return ("the render is silent. Kontakt: a library that is not a Player library (Kontakt Player says "
+                "\"Kontakt full version required\") plays in demo mode only for a while, then goes silent. Free libraries "
+                "are often not Player libraries. Is an instrument loaded and saved in the plugin's state (--edit)?")
     if note and gizmo and note.startswith("the render is silent"):
         return "the render is silent. Does the MIDI map play this kit's drums with the MIDI's notes (--midimap)?"
     if note and carla and note.startswith("the render is silent"):
@@ -5559,7 +5565,7 @@ def main(argv):
             print("Notes: none of %d to %d sounds either (each played alone)" % (SWEEP_LOW, SWEEP_HIGH))
         if check_note and check_note.startswith("the render is silent"):
             fail("%s plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: %s"
-                 % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"] or opts.get("--bridged"))))
+                 % (os.path.basename(os.path.normpath(name)), silent_note(check_note, gizmo, opts["--carla"] or opts.get("--bridged"), opts)))
         peak = float(np.max(np.abs(check_audio)))
         # Where the sound is in the test beat (its first notes are at 0 s): a plugin heard only late, or only
         # in a short burst, plays the beat wrong (a bridge starting, a kit loading).
@@ -5743,7 +5749,7 @@ def main(argv):
         if opts["--wav"]:
             print("Input: %s, %.1f s" % (os.path.basename(source), length))
         audio, note = finish(np, audio, volume)
-        note = silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"))
+        note = silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"), opts)
         if note:
             print("Note: " + note)
         if not out:
@@ -5796,7 +5802,7 @@ def main(argv):
             if note and note.startswith("the render is silent"):
                 # Nothing to test or keep: the MIDI's notes are ones this kit does not play.
                 silent += 1
-                print("Skipped %s: %s" % (rel(m), silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"))))
+                print("Skipped %s: %s" % (rel(m), silent_note(note, gizmo, opts["--carla"] or opts.get("--bridged"), opts)))
                 if silent >= SILENT_STOP and rendered == 0:
                     print("Stopped: the first %d renders are silent. Load a kit or patch the MIDI's notes play (--edit), "
                           "check the plugin (--check), or give a --map" % silent)
