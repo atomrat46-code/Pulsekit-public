@@ -175,6 +175,15 @@ public class BehaviorTest {
     String saved = "--faded-opens --drums-only";
     org.junit.Assert.assertTrue(e.forTrack("Waltz-drums-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
     org.junit.Assert.assertFalse(e.forTrack("Waltz-drums_piano-turbo").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    // 21112026: a track from a prompt alone ("Drums, guitar, bass, synth, vocals") is no drums-only track either.
+    org.junit.Assert.assertFalse(MusicExpect.of(java.util.Arrays.asList("--prompt", "Drums,guitar,bass,synth,vocals")).drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
+    // Full band with vocals: its instruments, drums among them, and it keeps the lyrics.
+    MusicExpect full = MusicExpect.of(java.util.Arrays.asList("--full_band", "--lyrics", "Rhyme time"));
+    org.junit.Assert.assertEquals("[drums, bass, guitar, synth, vocals]", full.instruments.toString());
+    org.junit.Assert.assertTrue(full.hasDrums());
+    org.junit.Assert.assertEquals("full_band", MusicExpect.sessionOf("Funk-full_band-sft"));
+    org.junit.Assert.assertTrue(full.forTrack("Funk-full_band-sft").lyrics);
+    org.junit.Assert.assertFalse(full.forTrack("Funk-full_band-sft").drumMidiArgs("a.wav", "a.mid", saved).contains("--drums-only"));
     java.util.List<String[]> t = MusicCompare.tracks("Wrote x.mp3\nTrack: Waltz-drums_piano-turbo sogni-Waltz-cb38898d-drums_piano-turbo.mp3\nCompared: Funk-sft sogni-Funk-1.mp3\n");
     org.junit.Assert.assertEquals(2, t.size());
     org.junit.Assert.assertEquals("Waltz-drums_piano-turbo", t.get(0)[0]);
