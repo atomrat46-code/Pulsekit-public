@@ -2248,7 +2248,36 @@ def apply_state(proc, plugin, given, label):
             return "%s: parameter values %s (Note: the full settings need a desktop: %s)" % (label, values, e)
     if ok is False:
         fail("the plugin did not take the settings in %s" % os.path.basename(path))
-    return "%s: settings %s" % (label, path)
+    said = "%s: settings %s" % (label, path)
+    twin = same_kit_settings(plugin, path)
+    if twin:
+        said += ("\nWarning: these settings are the same, byte for byte, as %s's: the kit loaded is likely the same one. Load this kit "
+                 "in Edit settings (in SSD5: double-click it in Kit Preset and wait for its MB to go up), then press Stop timer and close the window."
+                 % twin)
+    return said
+
+
+def same_kit_settings(plugin, path):
+    """Another kit of this plugin whose saved settings are the same bytes as `path`'s (the kit Edit settings
+    loaded was not changed between them), by its name; None when there is none."""
+    folder = os.path.dirname(os.path.abspath(path))
+    head = stem(plugin) + " ["
+    try:
+        mine = open(path, "rb").read()
+    except OSError:
+        return None
+    if not mine:
+        return None
+    for name in sorted(os.listdir(folder)):
+        other = os.path.join(folder, name)
+        if not (name.startswith(head) and name.endswith("].state")) or os.path.abspath(other) == os.path.abspath(path):
+            continue
+        try:
+            if os.path.getsize(other) == len(mine) and open(other, "rb").read() == mine:
+                return name[len(head):-len("].state")]
+        except OSError:
+            continue
+    return None
 
 
 def edit(proc, plugin, given, label):
