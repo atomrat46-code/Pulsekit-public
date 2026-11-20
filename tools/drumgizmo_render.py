@@ -122,7 +122,7 @@ def midi_events(path):
             if hi == 0x90 and d[p+1] > 0: ons.append((tick, d[p], d[p+1]))
             p += 2; last = max(last, tick)
         i += 8 + size
-    tempos.sort()
+    tempos.sort(key=lambda x: x[0])  # by tick only: of tempos at one tick the last is played
     def sec(tk):
         s, at, us = 0.0, 0, 500000
         for t, v in tempos:
