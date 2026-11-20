@@ -55,6 +55,22 @@ final class DrumLibraryWindow {
         return add;
     }
 
+    /** The tests: Add folder…'s folder (null: asked). */
+    static File folderAnswer;
+    static final String LAST_FOLDER_KEY = "drumLibraryFolder";
+
+    /** Add folder…'s chooser, where it was last; the folder picked, or null. */
+    static File pickFolder(java.awt.Component at, String part) {
+        java.util.prefs.Preferences node = java.util.prefs.Preferences.userNodeForPackage(DrumLibraryWindow.class);
+        File start = new File(node.get(LAST_FOLDER_KEY, ""));
+        JFileChooser c = new JFileChooser(start.isDirectory() ? start : MediaBrowser.downloads());
+        c.setDialogTitle("Add a folder's sounds" + (part == null ? " (each by its name)" : " to " + DrumLibrary.label(part)));
+        c.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (c.showOpenDialog(at) != JFileChooser.APPROVE_OPTION || c.getSelectedFile() == null) return null;
+        node.put(LAST_FOLDER_KEY, c.getSelectedFile().getAbsolutePath());
+        return c.getSelectedFile();
+    }
+
     /** Sounds added to the pad's part from a file, a folder (or its tree) or the DB; then measured. */
     static void addFrom(final Pulsekit app, int pad, String kind) {
         open();
@@ -194,12 +210,26 @@ final class DrumLibraryWindow {
         JButton analyze = new JButton(DrumLibrary.ANALYZE);
         analyze.setName("library-analyze");
         analyze.addActionListener(e -> analyze(app));
+        // Add folder…: a folder's sounds (and its subfolders'): into the part chosen above, or with All, each
+        // into its part by its name (the folder picked last remembered).
+        JButton addFolder = new JButton("Add folder\u2026");
+        addFolder.setName("library-add-folder");
+        addFolder.setToolTipText("Sounds from a folder and its subfolders: into the part chosen, or with All, each by its name (Kick 01.wav a kick)");
+        addFolder.addActionListener(e -> {
+            int at = Math.max(0, part.getSelectedIndex());
+            String into = at == 0 ? null : DrumLibrary.PARTS[at - 1];
+            File picked = folderAnswer != null ? folderAnswer : pickFolder(d, into);
+            if (picked == null) return;
+            said(app, into == null ? DrumLibrary.addFolderByName(picked, "folder") : DrumLibrary.addFolder(picked, true, into, "folder"));
+            analyze(app);
+        });
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         top.add(new JLabel("Part"));
         top.add(part);
         top.add(new JLabel("Sort by"));
         top.add(sort);
         top.add(analyze);
+        top.add(addFolder);
         JPanel north = new JPanel(new BorderLayout());
         north.add(top, BorderLayout.NORTH);
         JPanel said = new JPanel(new java.awt.GridLayout(2, 1));

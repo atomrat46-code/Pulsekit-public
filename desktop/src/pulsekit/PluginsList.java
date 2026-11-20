@@ -81,6 +81,8 @@ final class PluginsList {
     /** The plugins in the usual VST folders and in `more` (folders, or plugins whose folder is looked at), by path. */
     static List<File> scan(List<File> more) {
         Set<File> roots = new LinkedHashSet<File>(PyJav.vstFolders());
+        // The Plugins tab's Plugin folders too (Folders… adds them).
+        for (String f : PyJav.pluginFolders()) if (new File(f).isDirectory()) roots.add(new File(f));
         for (File f : more) {
             if (f == null) continue;
             File dir = f.isDirectory() && !isPlugin(f) ? f : f.getParentFile();
@@ -208,10 +210,43 @@ final class PluginsList {
      * chosen with Use, or null when closed.
      */
     static File show(final PyJav pj, Window owner, String current) {
+        return show(pj, owner, current, null);
+    }
+
+    /** The plugins found by the last scan (the Plugins tab's Scan, or the list's first opening); null: none yet. */
+    static List<File> kept;
+
+    /** Scans the plugin folders again; returns what changed: "12 plugins (2 new, 1 gone)". */
+    static String rescan() {
+        boolean first = kept == null;
+        List<File> before = first ? new ArrayList<File>() : kept;
+        List<File> more = new ArrayList<File>();
+        more.add(PyJav.lastVstFolder());
+        List<File> now = scan(more);
+        int added = 0, gone = 0;
+        for (File f : now) if (!before.contains(f)) added++;
+        for (File f : before) if (!now.contains(f)) gone++;
+        kept = now;
+        return now.size() + " plugin" + (now.size() == 1 ? "" : "s") + (first ? "" : " (" + added + " new, " + gone + " gone)");
+    }
+
+    /** The menu Use as… showed last (for the tests). */
+    static javax.swing.JPopupMenu lastUseAs;
+    /** The row Use as… chose (its token), with the plugin show() returns. */
+    static String usedAs;
+
+    /**
+     * The list; `targets` the rows a plugin can be used as ({token, label}: Plugin 1 to 4, CLAP plugin,
+     * Effect plugin), Use as… asks which; null: Use (the row it was opened for).
+     */
+    static File show(final PyJav pj, Window owner, String current, final List<String[]> targets) {
+        usedAs = null;
         final List<File> more = new ArrayList<File>();
         if (current != null && current.length() > 0) more.add(new File(current));
-        more.add(PyJav.lastVstFolder());
-        final List<File> all = scan(more);
+        if (kept == null) rescan();
+        final List<File> all = new ArrayList<File>(kept);
+        // The row's own plugin, outside the folders scanned: listed too.
+        if (current != null && current.length() > 0) for (File f : scan(more)) if (!all.contains(f)) all.add(f);
         final JDialog d = new JDialog(owner, "Plugins", java.awt.Dialog.ModalityType.APPLICATION_MODAL);
         last = d;
         final File[] chosen = new File[1];
@@ -288,7 +323,7 @@ final class PluginsList {
             toTop[0] = true;
             fill.run();
         });
-        final JButton use = new JButton("Use"), fav = new JButton("Add to favourites"), test = new JButton("Test plugin"), edit = new JButton("Edit settings"), close = new JButton("Close");
+        final JButton use = new JButton(targets == null ? "Use" : "Use as\u2026"), fav = new JButton("Add to favourites"), test = new JButton("Test plugin"), edit = new JButton("Edit settings"), close = new JButton("Close");
         use.setName("plugins-use");
         fav.setName("plugins-fav");
         test.setName("plugins-test");
@@ -300,6 +335,22 @@ final class PluginsList {
         final Runnable useIt = () -> {
             chosen[0] = list.getSelectedValue();
             if (chosen[0] != null) d.dispose();
+        };
+        // Use as…: Plugin 1 to 4, CLAP plugin, Effect plugin; the one picked takes the plugin.
+        final java.util.function.Consumer<java.awt.Component> useAs = at -> {
+            if (list.getSelectedValue() == null) return;
+            JPopupMenu m = new JPopupMenu();
+            m.setName("plugins-use-menu");
+            for (final String[] t : targets) {
+                javax.swing.JMenuItem item = item(t[1], () -> {
+                    usedAs = t[0];
+                    useIt.run();
+                });
+                item.setName("plugins-use-as:" + t[0]);
+                m.add(item);
+            }
+            lastUseAs = m;
+            m.show(at, 0, at.getHeight());
         };
         final Runnable favIt = () -> {
             File f = list.getSelectedValue();
@@ -334,7 +385,10 @@ final class PluginsList {
                 about.setText(result(f, editFirst, log) + "\n\n" + info(f));
             });
         };
-        use.addActionListener(e -> useIt.run());
+        use.addActionListener(e -> {
+            if (targets == null) useIt.run();
+            else useAs.accept(use);
+        });
         fav.addActionListener(e -> favIt.run());
         test.addActionListener(e -> run.accept(Boolean.FALSE));
         edit.addActionListener(e -> run.accept(Boolean.TRUE));
@@ -343,7 +397,10 @@ final class PluginsList {
         list.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) useIt.run();
+                if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                    if (targets == null) useIt.run();
+                    else useAs.accept(list);
+                }
             }
 
             @Override
@@ -363,7 +420,15 @@ final class PluginsList {
                 list.setSelectedIndex(at);
                 File f = list.getSelectedValue();
                 JPopupMenu m = new JPopupMenu();
-                m.add(item("Use", useIt));
+                if (targets == null) m.add(item("Use", useIt));
+                else {
+                    javax.swing.JMenu as = new javax.swing.JMenu("Use as");
+                    for (final String[] t : targets) as.add(item(t[1], () -> {
+                        usedAs = t[0];
+                        useIt.run();
+                    }));
+                    m.add(as);
+                }
                 m.add(item(favourites().contains(f.getAbsolutePath()) ? "Remove from favourites" : "Add to favourites", favIt));
                 m.add(item("Info", () -> javax.swing.JOptionPane.showMessageDialog(d, info(f), name(f), javax.swing.JOptionPane.INFORMATION_MESSAGE)));
                 m.add(item("Test plugin", () -> run.accept(Boolean.FALSE)));

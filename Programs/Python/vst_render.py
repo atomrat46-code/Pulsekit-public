@@ -3353,6 +3353,33 @@ def pls_midis(path):
     return found
 
 
+def main_out_only(chain, np, beat, volume, audio, note):
+    """The test beat again with the plugin's main stereo output alone (a multi-output plugin silent with all
+    its outputs); kept when it plays so. Returns (audio, note): the new ones, or the ones given."""
+    try:
+        outs = chain.main.get_num_output_channels()
+    except Exception:
+        return audio, note
+    if outs <= 2 or not hasattr(chain.main, "set_bus"):
+        return audio, note
+    try:
+        chain.main.set_bus(0, 2)
+        again, _, _ = chain.render(np, midi=beat, tail=1.0)
+    except Exception as e:
+        print("Outputs: the main stereo output alone could not be tried (%s)" % e)
+        return audio, note
+    again, said = finish(np, again, volume)
+    if said and said.startswith("the render is silent"):
+        print("Outputs: silent with the main stereo output alone too (of %d)" % outs)
+        try:
+            chain.main.set_bus(0, outs)
+        except Exception:
+            pass
+        return audio, note
+    print("Outputs: it plays with its main stereo output alone (it has %d): the run uses that" % outs)
+    return again, said
+
+
 class Chain(object):
     """The plugin (and the effect) loaded once, with their settings, for every file of a run."""
 
@@ -5553,6 +5580,10 @@ def main(argv):
                 check_audio, check_note = finish(np, check_audio, volume)
             if waited and not (check_note and check_note.startswith("the render is silent")):
                 print("Plugin check: it plays after %.0f s" % waited)
+        if check_note and check_note.startswith("the render is silent") and not gizmo:
+            # A plugin with many outputs (SSD5: 48, MT Power Drum Kit: 16) silent with all of them: once
+            # more with its main stereo output alone (DawDreamer's set_bus), the way a DAW opens it.
+            check_audio, check_note = main_out_only(chain, np, beat, volume, check_audio, check_note)
         if check_note and check_note.startswith("the render is silent") and not gizmo:
             # Silent for the GM drum notes: maybe its pads are on other notes (a sampler's C4 up). They are named.
             plays = note_sweep(chain, np, rate)

@@ -2127,6 +2127,25 @@ final class PyJav {
         return vstFolder();
     }
 
+    static final String CHOOSE_PLUGIN_KEY = "choosePluginFolder";
+
+    /** The folder Choose plugin's browser was last in (null: none yet, or gone). */
+    static File lastChooseFolder() {
+        String kept = java.util.prefs.Preferences.userNodeForPackage(PyJav.class).get(CHOOSE_PLUGIN_KEY, "");
+        return kept.length() > 0 && new File(kept).isDirectory() ? new File(kept) : null;
+    }
+
+    static void rememberChooseFolder(File dir) {
+        if (dir == null || !dir.isDirectory()) return;
+        java.util.prefs.Preferences node = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
+        node.put(CHOOSE_PLUGIN_KEY, dir.getAbsolutePath());
+        try {
+            node.flush();
+        } catch (java.util.prefs.BackingStoreException ignored) {
+            // kept for this session
+        }
+    }
+
     static void rememberVstFolder(File dir) {
         if (dir == null) return;
         java.util.prefs.Preferences node = java.util.prefs.Preferences.userNodeForPackage(PyJav.class);
@@ -3219,6 +3238,9 @@ final class PyJav {
         return menu;
     }
 
+    /** The tests: Delete from the list's answer (null: asked). */
+    static Boolean recentDeleteAnswer;
+
     /** A program's runs (the last first); a click loads it with those parameters. */
     javax.swing.JPopupMenu runsMenu(String name) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
@@ -3241,6 +3263,19 @@ final class PyJav {
         star.addActionListener(e -> app.setNow(name + (ProgramStars.toggle(name) ? " is starred" : " is no longer starred")));
         menu.addSeparator();
         menu.add(star);
+        // Delete: the program off the list (a copy no longer needed: setup_demucs (2).py); its file stays where it is.
+        javax.swing.JMenuItem delete = new javax.swing.JMenuItem("Delete " + name + " from the list\u2026");
+        delete.setName("pyjav-recent-delete");
+        delete.addActionListener(e -> {
+            String ask = "Delete " + name + " from Select program's list? Its recent parameters go with it; the program file itself stays.";
+            boolean yes = recentDeleteAnswer != null ? recentDeleteAnswer
+                : JOptionPane.showConfirmDialog(this.pyRecent, ask, "Delete from the list", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+            if (!yes) return;
+            int gone = PyJavRecent.forget(this.pyRecentDir(), name);
+            this.reloadPyRecent(0);
+            app.setNow(gone > 0 ? name + " is no longer in Select program's list" : name + " was not in the list");
+        });
+        menu.add(delete);
         MenuCancel.add(menu);
         return menu;
     }
@@ -3775,15 +3810,20 @@ final class PyJav {
                 pick.setName("params-file:" + p.token);
                 // A VST plugin: the system's chooser in the VST folders; a .vst3 bundle folder can be picked as it is.
                 if (p.plugin) pick.addActionListener(e -> {
-                    // Its own plugin's folder, else the folder a plugin was last picked from, else the usual VST folder.
-                    File start = values[index].length() > 0 ? new File(values[index]).getParentFile() : lastVstFolder();
+                    // The folder Choose plugin was last in (whichever row), else the row's plugin's folder, else the usual VST folder.
+                    File start = lastChooseFolder();
+                    if (start == null) start = values[index].length() > 0 ? new File(values[index]).getParentFile() : lastVstFolder();
                     JFileChooser chooser = new JFileChooser(start);
                     chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
                     chooser.setDialogTitle("Plugin (.dll, .vst3, .clap, .lv2) or SoundFont (.sf2, .sfz)");
-                    if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+                    int answer = chooser.showOpenDialog(app);
+                    // Where it was left, picked or not: the next Choose plugin opens there.
+                    rememberChooseFolder(chooser.getCurrentDirectory());
+                    if (answer != JFileChooser.APPROVE_OPTION) return;
                     values[index] = chooser.getSelectedFile().getAbsolutePath();
                     chosen.setText(chooser.getSelectedFile().getName());
                     rememberVstFolder(chooser.getSelectedFile().getParentFile());
+                    rememberChooseFolder(chooser.getSelectedFile().getParentFile());
                     this.editRow = rowEdit[0];
                     this.dllNotice(pick, chooser.getSelectedFile());
                     this.editRow = null;
@@ -3847,21 +3887,7 @@ final class PyJav {
                     picks.add(pick);
                     if (p.pls) picks.add(playlistButton(p, values, index, chosen));
                     if (p.plugin) {
-                        // Plugins list: the installed ones, favourites first to hand; test one, or load its kit.
-                        JButton plugins = new JButton("Plugins list");
-                        plugins.setName("params-plugins:" + p.token);
-                        plugins.addActionListener(e -> {
-                            File picked = PluginsList.show(this, SwingUtilities.getWindowAncestor(plugins), values[index]);
-                            if (picked == null) return;
-                            values[index] = picked.getAbsolutePath();
-                            chosen.setText(picked.getName());
-                            rememberVstFolder(picked.getParentFile());
-                            this.editRow = rowEdit[0];
-                            this.dllNotice(plugins, picked);
-                            this.editRow = null;
-                            this.kitForPlugin(plugins, p.token, values[index]);
-                        });
-                        picks.add(plugins);
+                        // (The Plugins list is beside Plugin folders, below: Use as… puts a plugin on any row.)
                         // Edit settings: the chosen plugin's own window (load a kit or patch, close it): kept for its runs,
                         // as the Plugins list's Edit settings does, without going there.
                         JButton editSettings = new JButton("Edit settings");
@@ -5120,13 +5146,38 @@ final class PyJav {
         change.setName("params-plugin-folders-change");
         change.setToolTipText("Where VST3 and VST2 plugins are looked for (the Plugin Browser's folders)");
         change.addActionListener(e -> {
-            if (PluginBrowser.foldersDialog(SwingUtilities.getWindowAncestor(change))) fill.run();
+            if (PluginBrowser.foldersDialog(SwingUtilities.getWindowAncestor(change))) {
+                fill.run();
+                // New folders: the Plugins list looks through them next time.
+                PluginsList.kept = null;
+            }
         });
         // (Beside the title, not under the list: there the row's height hid it.)
         JPanel head = new JPanel(new BorderLayout(6, 0));
         head.add(new JLabel("Plugin folders"), BorderLayout.WEST);
         change.setMargin(new java.awt.Insets(0, 6, 0, 6));
-        head.add(change, BorderLayout.EAST);
+        // Scan: the folders looked through again (a plugin installed, or one taken away); Plugins list: the
+        // plugins found, Use as… puts one on a row (Plugin 1 to 4, CLAP plugin, Effect plugin).
+        JButton scan = new JButton("Scan");
+        scan.setName("params-plugin-scan");
+        scan.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        scan.setToolTipText("Look through the plugin folders again: the Plugins list shows what is there now");
+        scan.addActionListener(e -> app.setNow("Scan: " + PluginsList.rescan() + " in the plugin folders"));
+        JButton listButton = new JButton("Plugins list");
+        listButton.setName("params-plugins-list");
+        listButton.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        listButton.setToolTipText("The installed plugins: test one, load its kit, or use it as plugin 1 to 4, the CLAP plugin or the effect");
+        listButton.addActionListener(e -> {
+            File picked = PluginsList.show(this, SwingUtilities.getWindowAncestor(listButton), "", ProgramParams.useTargets(ps));
+            if (picked == null || PluginsList.usedAs == null) return;
+            rememberVstFolder(picked.getParentFile());
+            this.usePlugin(ps, values, fileLabels, uses, PluginsList.usedAs, picked.getAbsolutePath());
+        });
+        JPanel headButtons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0));
+        headButtons.add(change);
+        headButtons.add(scan);
+        headButtons.add(listButton);
+        head.add(headButtons, BorderLayout.EAST);
         folders.add(head, BorderLayout.NORTH);
         lists.add(folders);
         // A plugin made a favourite (or a run made recent) while the Params are open, in the Plugin Browser

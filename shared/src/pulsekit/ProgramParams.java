@@ -159,6 +159,11 @@ public final class ProgramParams {
     boolean sogniMusic = has(out, "--compare_models") && has(out, "--random");
     // setup_demucs.py: Demucs and Beat This! in a Python of their own (--gpu, --dir).
     boolean setupDemucs = has(out, "--gpu") && has(out, "--dir") && out.size() == 2;
+    // vst_render's --scan (list the installed plugins): the Plugins tab's Plugins list and Scan do it.
+    if (vstRender) for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) {
+      Param p = it.next();
+      if (p.flag && p.token.equals("--scan")) it.remove();
+    }
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -835,7 +840,8 @@ public final class ProgramParams {
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
-    if (t.equals("--note_map")) return FILES;
+    // The plugins' files: Carla's project, DrumGizmo's kit and map, the saved settings.
+    if (t.equals("--note_map") || t.equals("--carla") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state") || t.equals("--effect_state")) return FILES;
     if (t.equals("--hit_bench") || t.equals("--hit_bench_when")) return SETTINGS;
     if (t.startsWith("--hit_")) return HITS;
     if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
@@ -900,8 +906,19 @@ public final class ProgramParams {
     return out;
   }
 
-  /** "Use as plugin 2" for --plugin2 (--plugin: "Use as plugin 1"). */
+  /** The rows a listed plugin can be used as ({token, label}): Plugin 1 to 4, CLAP plugin, Effect plugin. */
+  public static List<String[]> useTargets(List<Param> ps) {
+    List<String[]> out = new ArrayList<String[]>();
+    for (String t : pluginRows(ps)) out.add(new String[] {t, "Plugin " + (t.length() == "--plugin".length() ? "1" : t.substring("--plugin".length()))});
+    for (Param p : ps) if (p.plugin && p.token.equals("--clap")) out.add(new String[] {p.token, "CLAP plugin"});
+    for (Param p : ps) if (p.plugin && p.token.equals("--effect")) out.add(new String[] {p.token, "Effect plugin"});
+    return out;
+  }
+
+  /** "Use as plugin 2" for --plugin2 (--plugin: "Use as plugin 1"); "Use as CLAP plugin", "Use as effect plugin". */
   public static String useAs(String token) {
+    if (token.equals("--clap")) return "Use as CLAP plugin";
+    if (token.equals("--effect")) return "Use as effect plugin";
     String n = token.substring("--plugin".length());
     return "Use as plugin " + (n.length() == 0 ? "1" : n);
   }

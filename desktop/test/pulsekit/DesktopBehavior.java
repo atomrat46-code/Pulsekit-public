@@ -9638,6 +9638,63 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
+   * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
+   * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's
+   * kit and map and the settings rows on Files &amp; locations.
+   */
+  void s268_program_delete_library_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    final Pulsekit app = (Pulsekit) frame;
+    final PyJav py = (PyJav) get("pyJav");
+    File recentDir = py.pyRecentDir();
+    PyJavRecent.remember(recentDir, "setup_demucs (2).py", "", "print(1)", null);
+    PyJavRecent.remember(recentDir, "setup_demucs.py", "--gpu", "print(1)", null);
+    PyJavRecent.remember(recentDir, "setup_demucs (2).py", "--dir x", "print(1)", null);
+    edt(() -> py.reloadPyRecent(0));
+    out.append("before: ").append(PyJavRecent.programs(PyJavRecent.load(recentDir))).append('\n');
+    PyJav.recentDeleteAnswer = Boolean.TRUE;
+    edt(() -> {
+      javax.swing.JPopupMenu m = py.runsMenu("setup_demucs (2).py");
+      for (java.awt.Component c : m.getComponents()) if ("pyjav-recent-delete".equals(c.getName())) ((javax.swing.JMenuItem) c).doClick();
+    });
+    PyJav.recentDeleteAnswer = null;
+    out.append("after: ").append(PyJavRecent.programs(PyJavRecent.load(recentDir))).append('\n');
+    // The drum sound library: a folder with a subfolder.
+    File kit = new File(System.getProperty("user.home"), "kit-sounds");
+    new File(kit, "more").mkdirs();
+    short[] pcm = new short[2205];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 0.2) * (1 - i / (double) pcm.length));
+    for (String n : new String[] {"Kick 01.wav", "more/Snare 2.wav", "pad.wav"}) Files.write(new File(kit, n).toPath(), AudioIo.encodeWav(pcm, 22050));
+    javax.swing.SwingUtilities.invokeLater(() -> DrumLibraryWindow.show(app));
+    Thread.sleep(500);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    DrumLibraryWindow.folderAnswer = kit;
+    edt(() -> ((javax.swing.JButton) component(w, "library-add-folder")).doClick());
+    DrumLibraryWindow.folderAnswer = null;
+    for (int i = 0; i < 200 && DrumLibraryWindow.analyzing != null && DrumLibraryWindow.analyzing.isAlive(); i++) Thread.sleep(100);
+    StringBuilder lib = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.entries) lib.append(lib.length() == 0 ? "" : ", ").append(e.name).append('=').append(e.part);
+    // (Said, then the analysis says its own: the sounds are in the library by their parts.)
+    out.append("Add folder (All): ").append(lib).append('\n');
+    edt(() -> w.dispose());
+    // vst_render's rows: their tabs.
+    StringBuilder tabs = new StringBuilder();
+    boolean scan = false;
+    for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Python", "vst_render.py"), StandardCharsets.UTF_8))) {
+      if (p.token.equals("--scan")) scan = true;
+      if (p.token.matches("--carla|--drumgizmo|--midimap|--state|--effect_state|--effect|--clap")) tabs.append(p.token).append('=').append(p.tab).append(' ');
+    }
+    out.append("--scan row: ").append(scan).append(" | ").append(tabs.toString().trim()).append('\n');
+    this.out.append(out);
+    String o = out.toString();
+    boolean ok = o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
+        && o.contains("Add folder (All): Kick 01.wav=kick, Snare 2.wav=snare\n")
+        && o.contains("--scan row: false | --carla=Files & locations --clap=Plugins --drumgizmo=Files & locations --midimap=Files & locations --state=Files & locations --effect=Plugins --effect_state=Files & locations");
+    if (!ok) throw new AssertionError(o);
+  }
+
+  /**
    * 19112026: Browse sections' Search (a magnifying glass, Contains / Doesn't contain, the term with * and ?
    * wildcards) lists the sections that match, their groups open; a section's right click is its quick menu
    * (Add to group: the program's groups, New group…; Take out of the group), the list ordered by group after.
@@ -13133,7 +13190,9 @@ public final class DesktopBehavior {
     final JDialog d = params[0];
     PluginsList.last = null;
     answers.add("(keep)");
-    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "params-plugins:--plugin2")).doClick());
+    // The Plugins list beside Plugin folders (no longer on each plugin row); Use as… asks which row.
+    boolean rowButton = component(d, "params-plugins:--plugin2") != null;
+    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "params-plugins-list")).doClick());
     for (int i = 0; i < 100 && (PluginsList.last == null || !PluginsList.last.isShowing()); i++) Thread.sleep(100);
     Thread.sleep(300);
     final JDialog list = PluginsList.last;
@@ -13174,15 +13233,33 @@ public final class DesktopBehavior {
     for (int i = 0; i < 300 && PluginsList.lastTest == null; i++) Thread.sleep(100);
     idle();
     edt(() -> seen[4] = info.getText().split("\n")[0]);
+    final String[] useAs = new String[2];
+    edt(() -> useAs[0] = ((javax.swing.JButton) component(list, "plugins-use")).getText());
+    PluginsList.lastUseAs = null;
     edt(() -> ((javax.swing.JButton) component(list, "plugins-use")).doClick());
+    idle();
+    edt(() -> {
+      StringBuilder b = new StringBuilder();
+      javax.swing.JMenuItem two = null;
+      for (java.awt.Component c : PluginsList.lastUseAs.getComponents()) {
+        if (!(c instanceof javax.swing.JMenuItem)) continue;
+        b.append(b.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+        if ("plugins-use-as:--plugin2".equals(c.getName())) two = (javax.swing.JMenuItem) c;
+      }
+      useAs[1] = b.toString();
+      PluginsList.lastUseAs.setVisible(false);
+      two.doClick();
+    });
     idle();
     edt(() -> seen[5] = ((JLabel) component(d, "params-chosen:--plugin2")).getText());
     edt(() -> find(d.getContentPane(), "Cancel").doClick());
     idle();
     this.out.append("A-Z: ").append(seen[0]).append("\nZ-A: ").append(seen[1]).append("\nInfo: ").append(seen[2].replace('\n', '|')).append("\nFavourites: ").append(seen[3])
         .append("\nTest plugin: ").append(seen[4]).append("\nUse: --plugin2 ").append(seen[5]).append("\nZ-A selected, first shown: ").append(seen[6])
-        .append("\nSearch u?r*DRUM: ").append(seen[7]).append("\nSearch zz*q: ").append(seen[8]).append('\n');
-    boolean ok = seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
+        .append("\nSearch u?r*DRUM: ").append(seen[7]).append("\nSearch zz*q: ").append(seen[8]).append("\nrow button: ").append(rowButton)
+        .append("\nUse as: ").append(useAs[0]).append(" | ").append(useAs[1]).append('\n');
+    boolean ok = !rowButton && "Use as\u2026".equals(useAs[0]) && useAs[1].equals("Plugin 1, Plugin 2, Plugin 3, Plugin 4, CLAP plugin, Effect plugin")
+        && seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
         && seen[2].startsWith("Anarchy Drums (VST3, a bundle folder)") && seen[2].contains("Settings (kit, patch) saved with Edit on date")
         && seen[3].equals("\u2605 Anarchy Drums") && seen[4].length() > 0 && "Anarchy Drums.vst3".equals(seen[5]) && !list.isShowing()
         && seen[6].equals("0 0") && seen[7].equals("Ugritone Drums") && seen[8].equals("0 No plugin name matches zz*q.");
