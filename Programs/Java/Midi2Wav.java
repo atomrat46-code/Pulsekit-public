@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]
+ * Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--vary N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]
  *
  * Plays a drum MIDI file with a SoundFont and saves what it sounds like as a WAV file (16-bit stereo).
  *
@@ -60,7 +60,7 @@ public class Midi2Wav {
     }
 
     static void usage() {
-        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]");
+        System.out.println("Usage: java Midi2Wav <drums.mid> [output.wav] [--sf2 soundfont.sf2] [--rate N] [--volume N] [--vary N] [--addtodb] [--test] [--dir <folder>] [--recursive] [--kits <folder>]");
     }
 
     static int run(String[] args) throws Exception {
@@ -81,6 +81,8 @@ public class Midi2Wav {
             else if (a.equals("--recursive")) recursive = true;
             else if (a.equals("--rate") && i + 1 < args.length) rate = (int) Math.round(number(args[++i], a));
             else if (a.equals("--volume") && i + 1 < args.length) volume = number(args[++i], a);
+            // --vary N (0-100): each hit a little different (level, pitch, brightness), as a drummer's are.
+            else if (a.equals("--vary") && i + 1 < args.length) vary = Math.max(0, Math.min(100, number(args[++i], a))) / 100.0;
             else if (a.equals("--addtodb") || a.equals("--test")) {
                 // Pulsekit keeps the files, or tests its drum import on the WAV, after the run.
             } else if (a.equals("-h") || a.equals("--help")) {
@@ -301,6 +303,14 @@ public class Midi2Wav {
     }
 
     // ------------------------------------------------------------------ MIDI
+
+    /**
+     * --vary: how much each hit varies (0 none, 1 the most): its level up to +-VARY_DB, its pitch up to
+     * +-VARY_PITCH, and up to VARY_DULL of it through a soft low-pass (a hit a little off the centre is
+     * duller). Each note's own from its key and time, so a render is the same every time.
+     */
+    static double vary = 0;
+    static final double VARY_DB = 1.5, VARY_PITCH = 0.015, VARY_DULL = 0.35;
 
     static final class Note {
         double start;
@@ -860,6 +870,14 @@ public class Midi2Wav {
             double stopAt = Math.min(stop == null ? Double.MAX_VALUE : stop.doubleValue(), n.stop);
             double vel = n.velocity / 127.0;
             double gain = vel * vel * Math.pow(10, -z.attenuation * 0.4 / 20.0);
+            double dull = 0, lpA = 0, lp = 0;
+            if (vary > 0) {
+                java.util.Random r = new java.util.Random(n.key * 1000003L + Math.round(n.start * 1000));
+                gain *= Math.pow(10, (r.nextDouble() * 2 - 1) * VARY_DB * vary / 20.0);
+                step *= 1 + (r.nextDouble() * 2 - 1) * VARY_PITCH * vary;
+                dull = r.nextDouble() * VARY_DULL * vary;
+                lpA = 1 - Math.exp(-2 * Math.PI * 3000.0 / rate);
+            }
             double left = gain * Math.cos((z.pan + 1) * Math.PI / 4);
             double right = gain * Math.sin((z.pan + 1) * Math.PI / 4);
             int start = (int) Math.round(n.start * rate);
@@ -878,6 +896,10 @@ public class Midi2Wav {
                 double fr = pos - ip;
                 double s = smp[ip] + (ip + 1 < smp.length ? (smp[ip + 1] - smp[ip]) * fr : 0);
                 s /= 32768.0;
+                if (dull > 0) {
+                    lp += lpA * (s - lp);
+                    s = s * (1 - dull) + lp * dull;
+                }
                 double t = i / (double) rate;
                 double env = z.level(loop && i > offAt ? offAt / (double) rate : t);
                 if (i < 32 && z.attack == 0) env *= i / 32.0;

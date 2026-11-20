@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -129,6 +129,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   list picks the set and Pulsekit writes it), played after the plugins (or alone) with
                   Midi2Wav: its own WAVs, test and zips, as one more plugin. --padset_name: the set's name
                   (its files are named "Pads <name>"). No note map: the set plays Pulsekit's own notes.
+  --vary N        a Pads set or a SoundFont: each hit a little different (0-100: its level up to
+                  +-1.5 dB, pitch up to +-1.5% and brightness, at 100), as a drummer's hits are; the
+                  same every run. A song's drum set (one sample a drum) sounds less mechanical.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -869,10 +872,12 @@ class SoundFont:
         self.sf = opts["--plugin"]
         self.java = opts["--java"]
         self.jar = opts["--drummidi"]
+        self.vary = opts.get("--vary")
         if not self.jar or not os.path.isfile(self.jar):
             fail("%s is a SoundFont: Pulsekit's Midi2Wav plays it, in DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own, and Test does)"
                  % os.path.basename(self.sf))
-        print("SoundFont: %s, played with Pulsekit's Midi2Wav (its drum kit: bank 128, else its first preset)" % os.path.basename(self.sf))
+        print("SoundFont: %s, played with Pulsekit's Midi2Wav (its drum kit: bank 128, else its first preset)%s"
+              % (os.path.basename(self.sf), ", each hit varied (--vary %s)" % self.vary if self.vary else ""))
 
     def latency(self):
         return 0
@@ -888,7 +893,7 @@ class SoundFont:
         work = tempfile.mkdtemp(prefix="pulsekit-sf-")
         out = os.path.join(work, "out.wav")
         r = subprocess.run([self.java, "-cp", os.path.abspath(self.jar), "Midi2Wav", os.path.abspath(midi), out, "--sf2", os.path.abspath(self.sf),
-                            "--rate", str(self.rate)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=work)
+                            "--rate", str(self.rate)] + (["--vary", str(self.vary)] if self.vary else []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=work)
         if r.returncode != 0 or not os.path.isfile(out):
             said = r.stdout.decode("utf-8", "replace").strip().splitlines()
             raise ValueError("Midi2Wav: %s" % (said[-1] if said else "no WAV"))
@@ -2942,6 +2947,12 @@ def pad_kinds(pads):
 KEEP_NOTES = (35, 36, 37, 38, 39, 40)
 
 
+# A GM note's stand-ins in General MIDI itself (crash 1 -> crash 2, splash, china; ride -> ride 2, its bell):
+# a missing note goes to the first that plays a sound of its kind, before any pad chosen by sound alone (SSD5's
+# Classic kits: 49 silent, 57 its crash; by ring alone 49 went to 53, the ride bell, and every crash rang a bell).
+GM_STAND_INS = {49: (57, 55, 52), 57: (49, 55, 52), 52: (57, 49, 55), 55: (57, 49, 52), 51: (59, 53), 59: (51, 53), 38: (40,), 36: (35,), 42: (44,)}
+
+
 def suggest_map(pads):
     """A note map from the pads' sounds ({note: features}): [(GM note, pad, why)]. A GM note that is a pad
     already playing its own kind of sound is left as it is; one landing on a pad of another kind with no
@@ -2978,6 +2989,13 @@ def suggest_map(pads):
     out = []
     for note, pad, role in want:
         own = kinds.get(note)
+        if own is None:
+            for alt in GM_STAND_INS.get(note, ()):
+                k = kinds.get(alt)
+                if k is not None and (k == role or (k == "cymbal" and role in ("crash", "ride")) or (k == "hat" and role in ("closed", "open"))
+                                      or (role.startswith("snare") and k == "snare") or (role == "kick" and k == "kick")):
+                    pad = alt
+                    break
         fits = own is not None and (own == role or role.startswith(own) or (own == "hat" and role in ("closed", "open"))
                                     or (own == "cymbal" and role in ("crash", "ride", "open")))
         if pad is None:
@@ -2989,7 +3007,10 @@ def suggest_map(pads):
         if pad == note or fits:
             continue
         f = pads[pad]
-        out.append((note, pad, "%s-like (%s: %.0f Hz, rings %.2f s)" % (kinds[pad], role_word(role), f["pitch"] if kinds[pad] in ("kick", "tom") else f["centroid"], f["ring"])))
+        why = "%s-like (%s: %.0f Hz, rings %.2f s)" % (kinds[pad], role_word(role), f["pitch"] if kinds[pad] in ("kick", "tom") else f["centroid"], f["ring"])
+        if own is None and pad in GM_STAND_INS.get(note, ()):
+            why = "GM's own stand-in, " + why
+        out.append((note, pad, why))
     return sorted(out)
 
 
@@ -5351,7 +5372,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_unzip": None, "--hit_zip_outdir": None, "--hit_bench_when": None}

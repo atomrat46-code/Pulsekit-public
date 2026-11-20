@@ -857,7 +857,7 @@ public final class ProgramParams {
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
-    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
   }
@@ -1047,6 +1047,9 @@ public final class ProgramParams {
     } else if (p.token.equals("--parts")) {
       p.label = "Parts: the drums split between the plugin rows, played in one run and mixed into one WAV (kick=2: the kick by plugin 2)";
       p.hint = "kick=2,snare=1,toms=1,cymbals=3 (also hats); the notes not named: plugin 1; empty: each plugin its own run";
+    } else if (p.token.equals("--vary")) {
+      p.label = "Vary each hit of a Pads set or SoundFont: level, pitch and brightness a little different every hit, as a drummer's (0 none, 50 light, 100 the most)";
+      p.hint = "empty: none";
     } else if (p.token.equals("--padset")) {
       // The Pads tab's drum sets: the one picked is written as a SoundFont and played after the plugins.
       p.label = "Pads set: one of the Pads tab's drum sets, played after the plugins (its own WAVs, test and zips, as one more plugin)";
