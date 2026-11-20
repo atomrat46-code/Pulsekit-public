@@ -873,7 +873,9 @@ public final class JavaRun {
     try {
       dir.mkdirs();
       File sf2 = new File(dir, name.replaceAll("[\\\\/:*?\"<>|]", "_") + ".sf2");
-      writeFile(sf2, AudioIo.encodeSf2(v, name));
+      // A song set with several hits of a drum: they split the velocities (a render's hits vary).
+      short[][][] layers = DrumSetStore.layersOf == null ? null : DrumSetStore.layersOf.apply(name);
+      writeFile(sf2, layers != null ? AudioIo.encodeSf2(v, layers, name) : AudioIo.encodeSf2(v, name));
       List<String> out = new ArrayList<String>(argv);
       out.set(at + 1, sf2.getAbsolutePath());
       out.add("--padset_name");

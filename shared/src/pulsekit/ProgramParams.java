@@ -418,6 +418,12 @@ public final class ProgramParams {
     // DrumMidi --make-set: a drum set from the song's own drums (a clean hit of each drum cut out).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--make-set"))
       p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first";
+    // DrumMidi --set-hits: several hits of each drum kept (vst_render's Pads set plays them as velocity layers).
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--set-hits")) {
+      p.label = "Hits kept of each drum (several: the best first on the pad, and vst_render's Pads set plays them all as velocity layers, its hits varying)";
+      p.hint = "1; up to 8";
+      p.showWhen = "--make-set";
+    }
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";

@@ -954,7 +954,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--make-set] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -974,6 +974,7 @@ public class DrumMidi_CRT{
         separate = false;
         drumStem = false;
         makeSet = false;
+        setHits = 1;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -1008,6 +1009,8 @@ public class DrumMidi_CRT{
             else if ("--drum-stem".equals(opt)) drumStem = true;
             // A drum set from the song's own drums: a clean hit of each drum cut out (SetMaker), beside the MIDI.
             else if ("--make-set".equals(opt)) makeSet = true;
+            // --set-hits N: that many hits of each drum kept (the best first): a render plays them as velocity layers.
+            else if ("--set-hits".equals(opt)) setHits = Math.max(1, Math.min(8, Integer.parseInt(args[++i])));
             // A hit model learned elsewhere (vst_render's Hit model tab: hit-model.txt) in place of the built-in one;
             // "ugritone": the built-in one tuned on Ugritone kits' renders (HitModel.UGRITONE).
             else if ("--hit-model".equals(opt)) {
@@ -1575,7 +1578,7 @@ public class DrumMidi_CRT{
         if (makeSet) {
             String base = written.getName().replaceAll("(?i)\\.midi?$", "");
             File setDir = new File(written.getAbsoluteFile().getParentFile(), base + "-set");
-            note(SetMaker.make(audio.samples, audio.sampleRate, hits, setDir, inFile.getName().replaceAll("\\.[^.]+$", "")));
+            note(SetMaker.make(audio.samples, audio.sampleRate, hits, setDir, inFile.getName().replaceAll("\\.[^.]+$", ""), setHits));
         }
         finish("Succeeded: " + written.getName());
     }
@@ -1718,6 +1721,8 @@ public class DrumMidi_CRT{
 
     /** --make-set: a drum set from the song's own drums (SetMaker), beside the MIDI. */
     static boolean makeSet;
+    /** --set-hits: how many hits of each drum --make-set keeps (1 to 8). */
+    static int setHits = 1;
 
     /**
      * Drum-stem mode (--separate's drums, or --drum-stem): only drums are there, so nothing is taken for a bass
@@ -2140,6 +2145,11 @@ public class DrumMidi_CRT{
             {CRASH_NOTE, "crash", 0.50, 3.0}, {RACK_TOM, "rack tom", 0.25, 1.2}, {MID_TOM, "mid tom", 0.25, 1.2}, {FLOOR_TOM, "floor tom", 0.25, 1.5}};
 
         static String make(double[] x, double sr, List<Hit> hits, File dir, String song) throws Exception {
+            return make(x, sr, hits, dir, song, 1);
+        }
+
+        /** `keep` hits of each drum (the best first: <drum>.wav, then <drum> 2.wav...), each a line of set.txt. */
+        static String make(double[] x, double sr, List<Hit> hits, File dir, String song, int keep) throws Exception {
             StringBuilder index = new StringBuilder("# A drum set from " + song + " (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n");
             List<String> got = new ArrayList<String>(), none = new ArrayList<String>();
             double[] times = new double[hits.size()];
@@ -2149,16 +2159,15 @@ public class DrumMidi_CRT{
             for (Object[] d : DRUMS) {
                 int note = (Integer) d[0];
                 double minTail = (Double) d[2], maxLen = (Double) d[3];
-                int all = 0, clear = 0, bestTier = 9;
-                double bestScore = -1, bestStart = -1, bestLen = 0, fbTail = -1, fbStart = -1, fbLen = 0;
+                int all = 0, clear = 0;
                 boolean cymbal = CYMBAL_NOTES.contains(note);
+                // Each usable hit: {tier, score, start, length}; tier 0 alone, 1 a drum with only cymbals on it or a
+                // cymbal with only the kick under it (a drummer's usual way), 3 short (the ring it needs not there).
+                List<double[]> cands = new ArrayList<double[]>();
                 for (int i = 0; i < hits.size(); i++) {
                     Hit h = hits.get(i);
                     if (h.note != note) continue;
                     all++;
-                    // What else is struck around it (just before, or at the same moment), and the next hit after.
-                    // Tier 0: nothing; 1: a drum with only cymbals on it, or a cymbal with only the kick under
-                    // it (a drummer's usual way: kicks land with the ride or hats); 2: crowded.
                     int tier = 0;
                     double next = x.length / sr;
                     for (int j = 0; j < times.length; j++) {
@@ -2171,53 +2180,58 @@ public class DrumMidi_CRT{
                         }
                         if (dt > 0.015 && times[j] < next) next = times[j];
                     }
+                    if (tier == 2) continue;
                     double start = attack(x, sr, h.time);
                     double tail = next - 0.005 - start;
                     double len = Math.min(maxLen, tail);
                     if (len < 0.05) continue;
-                    if (tier < 2 && tail > fbTail) {
-                        fbTail = tail;
-                        fbStart = start;
-                        fbLen = len;
-                    }
-                    if (tier == 2 || tail < minTail) continue;
-                    if (tier == 0) clear++;
-                    // The cleanest tier first; then loud and long (the ring counts up to the longest cut).
-                    double score = peak(x, sr, start, Math.min(len, 0.05)) * (0.5 + 0.5 * Math.min(1.0, tail / maxLen));
-                    if (tier < bestTier || tier == bestTier && score > bestScore) {
-                        bestTier = tier;
-                        bestScore = score;
-                        bestStart = start;
-                        bestLen = len;
-                    }
+                    if (tail < minTail) tier = 3;
+                    else if (tier == 0) clear++;
+                    // Loud and long (the ring counts up to the longest cut); a short one by its ring alone.
+                    double score = tier == 3 ? tail : peak(x, sr, start, Math.min(len, 0.05)) * (0.5 + 0.5 * Math.min(1.0, tail / maxLen));
+                    cands.add(new double[] {tier, score, start, len});
                 }
-                if (bestStart < 0 && fbStart >= 0) {
-                    bestStart = fbStart;
-                    bestLen = fbLen;
-                    bestTier = 3;
-                }
-                if (bestStart < 0) {
+                if (cands.isEmpty()) {
                     if (all > 0) none.add(d[1] + " (" + all + " hits, none apart from other drums)");
                     continue;
                 }
-                double[] cut = cut(x, sr, bestStart, bestLen);
-                for (double v : cut) top = Math.max(top, Math.abs(v));
-                chosen.add(new Object[] {d, cut, all, clear, bestLen, bestTier});
+                java.util.Collections.sort(cands, (p, q) -> p[0] != q[0] ? Double.compare(p[0], q[0]) : Double.compare(q[1], p[1]));
+                int taken = 0;
+                for (double[] c : cands) {
+                    if (taken >= keep) break;
+                    // Short ones only when nothing better was there (the best one aside).
+                    if (taken > 0 && c[0] == 3) break;
+                    double[] cut = cut(x, sr, c[2], c[3]);
+                    for (double v : cut) top = Math.max(top, Math.abs(v));
+                    chosen.add(new Object[] {d, cut, all, clear, c[3], (int) c[0], taken});
+                    taken++;
+                }
             }
             if (chosen.isEmpty()) return "Drum set: no drum had a hit clear enough to cut" + (none.isEmpty() ? "" : " (" + String.join(", ", none) + ")");
             dir.mkdirs();
             // Together to 0.9 at the loudest: the drums keep the song's balance.
             double gain = top > 0 ? 0.9 / top : 1;
+            java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<String, Integer>();
+            java.util.Map<String, Integer> tiers = new java.util.HashMap<String, Integer>();
             for (Object[] c : chosen) {
                 Object[] d = (Object[]) c[0];
                 double[] y = (double[]) c[1];
                 for (int k = 0; k < y.length; k++) y[k] *= gain;
-                String file = d[1] + ".wav";
+                int nth = (Integer) c[6];
+                String file = d[1] + (nth == 0 ? "" : " " + (nth + 1)) + ".wav";
                 Sounds.writeWav16(new File(dir, file), y, (int) Math.round(sr));
                 index.append(d[0]).append('\t').append(file).append('\t').append(c[2]).append('\t').append(c[3])
                     .append('\t').append(String.format(java.util.Locale.ROOT, "%.2f", (Double) c[4])).append('\n');
-                int tier = (Integer) c[5];
-                got.add(d[1] + (tier == 1 ? (CYMBAL_NOTES.contains((Integer) d[0]) ? " (with a kick under it)" : " (with a cymbal on it)") : tier == 3 ? " (short: the longest ring there was)" : ""));
+                String drum = (String) d[1];
+                counts.put(drum, (counts.containsKey(drum) ? counts.get(drum) : 0) + 1);
+                if (nth == 0) tiers.put(drum, (Integer) c[5]);
+            }
+            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                int tier = tiers.get(e.getKey());
+                boolean cym = false;
+                for (Object[] d : DRUMS) if (d[1].equals(e.getKey())) cym = CYMBAL_NOTES.contains((Integer) d[0]);
+                got.add(e.getKey() + (e.getValue() > 1 ? " x" + e.getValue() : "")
+                    + (tier == 1 ? (cym ? " (with a kick under it)" : " (with a cymbal on it)") : tier == 3 ? " (short: the longest ring there was)" : ""));
             }
             java.io.Writer w = new java.io.OutputStreamWriter(new FileOutputStream(new File(dir, INDEX)), "UTF-8");
             try {

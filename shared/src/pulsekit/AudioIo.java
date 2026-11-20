@@ -1070,6 +1070,84 @@ public final class AudioIo {
     a.parts.get(a.parts.size() - 1).endSec = dur;
   }
 
+  /**
+   * The set as a SoundFont with several hits of a drum (`layers`, null where a pad has only its voice): its hits
+   * split the velocities between them, the quietest hit for the softest notes, so a render's hits vary.
+   */
+  public static byte[] encodeSf2(short[][] voices, short[][][] layers, String name) {
+    if (layers == null) return encodeSf2(voices, name);
+    java.util.List<short[]> samples = new java.util.ArrayList<short[]>();
+    java.util.List<int[]> zones = new java.util.ArrayList<int[]>();
+    for (int t = 0; t < Engine.NOTES.length && t < voices.length; t++) {
+      if (Engine.isSemi(t) || Engine.isChoke(t)) continue;
+      short[][] hits = t < layers.length && layers[t] != null && layers[t].length > 0 ? layers[t] : new short[][] {voices[t] == null ? new short[64] : voices[t]};
+      Integer[] order = new Integer[hits.length];
+      final int[] peak = new int[hits.length];
+      for (int k = 0; k < hits.length; k++) {
+        order[k] = k;
+        for (short v : hits[k]) peak[k] = Math.max(peak[k], Math.abs(v));
+      }
+      Arrays.sort(order, (a, b) -> Integer.compare(peak[a], peak[b]));
+      for (int k = 0; k < hits.length; k++) {
+        int lo = 1 + 127 * k / hits.length, hi = 127 * (k + 1) / hits.length;
+        zones.add(new int[] {t, samples.size(), k == 0 ? 0 : lo, hi});
+        samples.add(hits[order[k]]);
+      }
+    }
+    int pad = 46, frames = 0;
+    int[] starts = new int[samples.size()], ends = new int[samples.size()];
+    for (int i = 0; i < samples.size(); i++) {
+      starts[i] = frames;
+      ends[i] = frames + samples.get(i).length;
+      frames += samples.get(i).length + pad;
+    }
+    byte[] smpl = new byte[frames * 2];
+    int o = 0;
+    for (short[] src : samples) {
+      for (short v : src) {
+        smpl[o++] = (byte) (v & 0xff);
+        smpl[o++] = (byte) ((v >> 8) & 0xff);
+      }
+      o += pad * 2;
+    }
+    int n = samples.size();
+    byte[] shdr = new byte[46 * (n + 1)];
+    for (int[] z : zones) {
+      int b = z[1] * 46;
+      putStr(shdr, b, Engine.TRACK_SHORT[z[0]] + (z[2] == 0 ? "" : "" + (z[3] * 10 / 127)), 20);
+      put32(shdr, b + 20, starts[z[1]]);
+      put32(shdr, b + 24, ends[z[1]]);
+      put32(shdr, b + 28, starts[z[1]]);
+      put32(shdr, b + 32, ends[z[1]]);
+      put32(shdr, b + 36, SR);
+      shdr[b + 40] = (byte) Engine.NOTES[z[0]];
+      put16(shdr, b + 44, 1);
+    }
+    putStr(shdr, n * 46, "EOS", 20);
+    int gensPer = 4;
+    byte[] igen = new byte[4 * (zones.size() * gensPer + 1)];
+    for (int i = 0; i < zones.size(); i++) {
+      int[] z = zones.get(i);
+      int b = i * gensPer * 4, note = Engine.NOTES[z[0]];
+      put16(igen, b, 43);
+      put16(igen, b + 2, note | (note << 8));
+      put16(igen, b + 4, 44);
+      put16(igen, b + 6, z[2] | (z[3] << 8));
+      put16(igen, b + 8, 58);
+      put16(igen, b + 10, note);
+      put16(igen, b + 12, 53);
+      put16(igen, b + 14, z[1]);
+    }
+    byte[] ibag = new byte[4 * (zones.size() + 1)];
+    for (int i = 0; i <= zones.size(); i++) put16(ibag, i * 4, i * gensPer);
+    byte[] inst = new byte[44];
+    putStr(inst, 0, "Drumkit", 20);
+    put16(inst, 20, 0);
+    putStr(inst, 22, "EOI", 20);
+    put16(inst, 42, zones.size());
+    return sf2File(name, smpl, shdr, ibag, igen, inst);
+  }
+
   public static byte[] encodeSf2(short[][] voices, String name) {
     // One sample per key: the semi-open hat (the open hat's 46) and the chokes (aftertouch) have none of their own.
     int[] ts = new int[Engine.NOTES.length];
@@ -1130,6 +1208,11 @@ public final class AudioIo {
     put16(inst, 20, 0);
     putStr(inst, 22, "EOI", 20);
     put16(inst, 42, n);
+    return sf2File(name, smpl, shdr, ibag, igen, inst);
+  }
+
+  /** The SoundFont's file around its samples and instrument zones (one preset, bank 128). */
+  private static byte[] sf2File(String name, byte[] smpl, byte[] shdr, byte[] ibag, byte[] igen, byte[] inst) {
     byte[] pgen = new byte[4];
     put16(pgen, 0, 41);
     put16(pgen, 2, 0);

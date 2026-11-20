@@ -39,9 +39,24 @@ public final class SongDrumSet {
     return dir.getName().replaceAll("(?i)(-dm)?-set$", "");
   }
 
-  /** The pads' sounds (Engine.TRACK_ID order; null where the song gave none) at `rate`. */
+  /** The pads' sounds (Engine.TRACK_ID order; null where the song gave none) at `rate`: each drum's first (best) hit. */
   public static short[][] voices(File dir, int rate) throws Exception {
-    short[][] out = new short[Engine.TRACK_ID.length][];
+    short[][][] all = layers(dir, rate);
+    short[][] out = new short[all.length][];
+    for (int t = 0; t < all.length; t++) out[t] = all[t] == null ? null : all[t][0];
+    return out;
+  }
+
+  /** Whether some drum has more than one hit (DrumMidi --set-hits). */
+  public static boolean hasLayers(short[][][] layers) {
+    for (short[][] l : layers) if (l != null && l.length > 1) return true;
+    return false;
+  }
+
+  /** Every hit of each pad's drum (the best first), at `rate`; null where the song gave none. */
+  public static short[][][] layers(File dir, int rate) throws Exception {
+    java.util.List<java.util.List<short[]>> got = new java.util.ArrayList<java.util.List<short[]>>();
+    for (int t = 0; t < Engine.TRACK_ID.length; t++) got.add(new java.util.ArrayList<short[]>());
     for (String line : new String(Files.readAllBytes(new File(dir, INDEX).toPath()), StandardCharsets.UTF_8).split("\n")) {
       if (line.startsWith("#") || line.trim().isEmpty()) continue;
       String[] w = line.split("\t");
@@ -58,8 +73,10 @@ public final class SongDrumSet {
       if (track < 0 || !wav.isFile()) continue;
       AudioIo.Pcm pcm = AudioIo.parseWav(Files.readAllBytes(wav.toPath()));
       if (pcm == null || pcm.samples.length == 0) continue;
-      out[track] = toShorts(resample(pcm.samples, pcm.sr, rate));
+      got.get(track).add(toShorts(resample(pcm.samples, pcm.sr, rate)));
     }
+    short[][][] out = new short[Engine.TRACK_ID.length][][];
+    for (int t = 0; t < out.length; t++) if (!got.get(t).isEmpty()) out[t] = got.get(t).toArray(new short[0][]);
     return out;
   }
 

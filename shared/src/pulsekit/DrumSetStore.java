@@ -20,6 +20,12 @@ public final class DrumSetStore {
 
   /** The app's drum sets (Original first), for vst_render's Pads set list; null: none known. */
   public static volatile List<Engine.DrumSet> live;
+  /** A song set's several hits of a drum (DrumMidi --set-hits; null for a set without them), by its name; set by the app. */
+  public static volatile java.util.function.Function<String, short[][][]> layersOf;
+  /** A set's folder of song hits (beside the sets: <id>-hits), whether or not it is there. */
+  public static File hitsDir(File setsDir, Engine.DrumSet s) {
+    return new File(setsDir, s.id + "-hits");
+  }
   /** A set's sounds as the pads play it (Original's for the pads matching it), by its name; set by the app. */
   public static volatile java.util.function.Function<String, short[][]> voicesOf;
 

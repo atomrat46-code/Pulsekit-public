@@ -9678,6 +9678,28 @@ public final class DesktopBehavior {
         .append(", snare as Original ").append(s.matchOrig[sn]).append(", selected ").append(app.playback.drumSetIndex == app.drumSets.size() - 1)
         .append(", saved ").append(new File(PadKits.setsDir(), DrumSetStore.INDEX).isFile() && new String(Files.readAllBytes(new File(PadKits.setsDir(), DrumSetStore.INDEX).toPath()), StandardCharsets.UTF_8).contains("Back in Black drums"))
         .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // --set-hits: a second kick kept with the set; vst_render's Pads set SoundFont has them as velocity layers.
+    File dir2 = new File(System.getProperty("user.home"), "song2-dm-set");
+    dir2.mkdirs();
+    short[] kick2 = new short[44100 / 5];
+    for (int i = 0; i < kick2.length; i++) kick2[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 70 / 44100.0) * Math.exp(-i / 3000.0));
+    Files.write(new File(dir2, "kick.wav").toPath(), AudioIo.encodeWav(kick, 44100));
+    Files.write(new File(dir2, "kick 2.wav").toPath(), AudioIo.encodeWav(kick2, 44100));
+    Files.write(new File(dir2, "set.txt").toPath(), ("# A drum set from Thunder (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n"
+        + "36\tkick.wav\t120\t40\t0.25\n36\tkick 2.wav\t120\t40\t0.20\n").getBytes(StandardCharsets.UTF_8));
+    PadKits.fromSong(app, "Drum set from the song: " + dir2.getAbsolutePath());
+    idle();
+    Thread.sleep(300);
+    idle();
+    Engine.DrumSet s2 = app.drumSets.get(app.drumSets.size() - 1);
+    short[][][] layers = DrumSetStore.layersOf == null ? null : DrumSetStore.layersOf.apply(s2.name);
+    java.util.List<String> argv = JavaRun.withPadSet("vst_render.py", java.util.Arrays.asList("--padset", s2.name), new File(System.getProperty("user.home"), "padsets"));
+    byte[] sf2 = Files.readAllBytes(new File(argv.get(1)).toPath());
+    int vel = 0;
+    for (int i = 0; i + 3 < sf2.length; i++) if (sf2[i] == 'i' && sf2[i + 1] == 'g' && sf2[i + 2] == 'e' && sf2[i + 3] == 'n') vel = i;
+    out.append("layered: ").append(s2.name).append(", hits kept ").append(DrumSetStore.hitsDir(PadKits.setsDir(), s2).isDirectory())
+        .append(", kick layers ").append(layers == null || layers[0] == null ? 0 : layers[0].length).append(", sf2 ").append(sf2.length > 0)
+        .append(" | ").append(PadKits.lastSongSet).append('\n');
     // No set line: nothing added.
     PadKits.fromSong(app, "Succeeded: y.mid");
     idle();
@@ -9688,7 +9710,8 @@ public final class DesktopBehavior {
     this.out.append(out);
     String o = out.toString();
     boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
-        && o.contains("without: " + (before + 1)) && o.contains("Params: Make a drum set from the song's drums");
+        && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
+        && o.contains("without: " + (before + 2)) && o.contains("Params: Make a drum set from the song's drums");
     if (!ok) throw new AssertionError(o);
   }
 
