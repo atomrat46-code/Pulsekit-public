@@ -2278,6 +2278,11 @@ def edit(proc, plugin, given, label):
     finally:
         timer["open"] = False
     took = (timer["stopped"] or time.time()) - started
+    if took < WINDOW_SHUT and not timer["stopped"]:
+        # Back at once: the window did not open (MT Power Drum Kit's VST3), or closed itself. Nothing kept:
+        # the settings saved before stay as they were.
+        fail("the plugin's window did not open (it was back in %.1f s), so no settings were saved. "
+             "If the plugin also comes as a VST2 (.dll), try that one: some plugins open their window only so." % took)
     folder = os.path.dirname(path)
     if folder and not os.path.isdir(folder):
         os.makedirs(folder)
@@ -2296,6 +2301,9 @@ def edit(proc, plugin, given, label):
     print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if timer["stopped"] else "until the window closed"))
     return path
 
+
+# Edit settings back sooner than this (and no Stop timer): the plugin's window did not open.
+WINDOW_SHUT = 1.5
 
 # Without a kit load time (Edit settings' timer), a test waits at most this long for a slow kit.
 LOAD_WAIT = 30.0

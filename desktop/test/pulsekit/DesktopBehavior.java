@@ -8854,7 +8854,16 @@ public final class DesktopBehavior {
         + "print('kept %.1f' % float(open(state + '.load').read()))\n"
         + "print('limit %.0f, none %.0f' % (vr.load_limit('x', state), vr.load_limit('x', os.path.join(d, 'none.state'))))\n"
         + "open(state + '.load', 'w').write('42.0')\n"
-        + "print('long %.0f' % vr.load_limit('x', state))\n";
+        + "print('long %.0f' % vr.load_limit('x', state))\n"
+        // A window that does not open (MT Power Drum Kit's VST3): back at once, nothing saved over.
+        + "os.remove(timer)\n"
+        + "class Q(P):\n"
+        + "    def open_editor(self): pass\n"
+        + "shut = os.path.join(d, 'shut.state')\n"
+        + "try:\n"
+        + "    vr.edit(Q(), os.path.join(d, 'mt.vst3'), shut, 'Plugin')\n"
+        + "except SystemExit:\n"
+        + "    print('shut: saved %s' % os.path.exists(shut))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
@@ -8862,7 +8871,8 @@ public final class DesktopBehavior {
     java.util.regex.Matcher m = java.util.regex.Pattern.compile("kept ([0-9.]+)").matcher(said);
     double kept = m.find() ? Double.parseDouble(m.group(1)) : -1;
     boolean ok = kept >= 1.0 && kept < 2.2 && said.contains("Timer stopped") && said.contains("Kit load time") && said.contains("(Stop timer)")
-        && said.contains("limit 5, none 30") && said.contains("long 42");
+        && said.contains("limit 5, none 30") && said.contains("long 42")
+        && said.contains("Failed: the plugin's window did not open (it was back in 0.") && said.contains("shut: saved False");
     javax.swing.JButton b = PluginsList.stopTimerButton("t");
     this.out.append("button: ").append(b.getText()).append(", enabled ").append(b.isEnabled()).append('\n');
     if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
