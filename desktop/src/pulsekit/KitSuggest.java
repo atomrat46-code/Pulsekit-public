@@ -47,7 +47,7 @@ final class KitSuggest {
                     field.setCaretPosition(field.getText().length());
                     field.requestFocusInWindow();
                     // A pack picked: its sets offered at once.
-                    if (g[1].endsWith(": ")) SwingUtilities.invokeLater(() -> fire(field));
+                    if (g[1].endsWith(":")) SwingUtilities.invokeLater(() -> fire(field));
                 });
                 menu.add(item);
             }

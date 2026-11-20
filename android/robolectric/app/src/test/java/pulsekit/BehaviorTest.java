@@ -15519,11 +15519,18 @@ public class BehaviorTest {
     vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Blue sky.\n");
     Thread.sleep(5);
     PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: A red kite. Over hills. Stormy sky.\n");
-    vault.groupSogniSection(storm.id, "Weather");
     java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
     android.widget.EditText[] noFields = new android.widget.EditText[0];
     PyJavParams.searchTerm = "";
     PyJavParams.searchContains = true;
+    // No groups yet: said under the search; the term can have the keyboard (a list dialog's flags cleared).
+    PyJavParams.browseSections(app, "SogniPadd", none, noFields);
+    idle();
+    String noGroups = String.valueOf(((TextView) PyJavParams.lastSections.getWindow().getDecorView().findViewWithTag("sections-search-found")).getText());
+    int imFlags = android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM | android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+    boolean keyboard = (PyJavParams.lastSections.getWindow().getAttributes().flags & imFlags) == 0;
+    PyJavParams.lastSections.dismiss();
+    vault.groupSogniSection(storm.id, "Weather");
     PyJavParams.browseSections(app, "SogniPadd", none, noFields);
     idle();
     View head = PyJavParams.lastSections.getWindow().getDecorView();
@@ -15548,11 +15555,32 @@ public class BehaviorTest {
     PyJavParams.lastSectionMenu.dismiss();
     PyJavParams.searchTerm = "";
     PyJavParams.searchContains = true;
-    String out = "parts " + parts + " | all " + all + " | kite*sky " + kite + " (" + found + ") | not st?rmy " + not + " | menu " + menu;
-    boolean ok = parts.equals("true true true") && all.equals("\u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>")
+    String out = "no groups (" + noGroups + ") keyboard " + keyboard + " | parts " + parts + " | all " + all + " | kite*sky " + kite + " (" + found + ") | not st?rmy " + not + " | menu " + menu;
+    boolean ok = noGroups.equals("3 sections \u00b7 No groups yet: a section's menu has Add to group\u2026") && keyboard && parts.equals("true true true") && all.equals("\u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>")
         && kite.equals("Weather \u203a A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 <when>") && found.equals("2 of 3 sections contain \"kite*sky\"")
         && not.equals("A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>") && menu.endsWith("Add to group\u2026");
     if (!ok) throw new AssertionError(out);
+  }
+
+  /** 19112026_2: Video ready starts at the volume the last one was left at. */
+  @Test
+  public void s268_video_ready_volume_kept() throws Exception {
+    StringBuilder out = new StringBuilder();
+    for (int round = 0; round < 2; round++) {
+      java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+      files.add(new JavaRun.FileOut("clip" + round + ".mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+      app.pyJav.pkShowPyResult(new JavaRun.Result("SogniVideo\nSucceeded: clip" + round + ".mp4", files, 0));
+      idle();
+      AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+      View dv = d.getWindow().getDecorView();
+      android.widget.SeekBar volume = (android.widget.SeekBar) dv.findViewWithTag("video-offer:volume");
+      TextView level = (TextView) dv.findViewWithTag("video-offer:level");
+      out.append("round ").append(round).append(": ").append(volume.getProgress()).append(' ').append(level.getText()).append(", gain ").append(VideoOffer.last.gain()).append(" | ");
+      if (round == 0) volume.setProgress(35);
+      d.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    if (!out.toString().equals("round 0: 100 100%, gain 1.0 | round 1: 35 35%, gain 0.35 | ")) throw new AssertionError(out);
   }
 
   /**

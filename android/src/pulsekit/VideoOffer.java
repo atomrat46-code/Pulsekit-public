@@ -337,6 +337,8 @@ final class VideoOffer {
     static final String FULL_SCREEN = "Full screen preview";
     static final String PREFS = "video-ready";
     static final String MUTED = "muted";
+    /** The volume slider, as the last Video ready was left (0-100). */
+    static final String VOLUME = "volume";
     /** The full screen preview's Loop video, as it was left. */
     static final String FULL_LOOP = "full-loop";
 
@@ -375,6 +377,8 @@ final class VideoOffer {
         p.view.setTag("video-offer:view");
         // Muted or not as the last Video ready was left.
         p.muted = app.getSharedPreferences(PREFS, 0).getBoolean(MUTED, false);
+        // And at the volume it was left at.
+        p.volume = Math.max(0, Math.min(100, app.getSharedPreferences(PREFS, 0).getInt(VOLUME, 100)));
         // General settings > Show videos off: the clip is not shown (its items still are).
         if (!AppSettings.shows("V")) {
             p.view.setVisibility(android.view.View.GONE);
@@ -454,6 +458,8 @@ final class VideoOffer {
             public void onProgressChanged(SeekBar s, int value, boolean fromUser) {
                 p.volume = value;
                 p.applyVolume();
+                // The next Video ready starts at this volume (the full screen slider moves this one too).
+                app.getSharedPreferences(PREFS, 0).edit().putInt(VOLUME, value).apply();
             }
 
             @Override
@@ -463,7 +469,7 @@ final class VideoOffer {
             public void onStopTrackingTouch(SeekBar s) {}
         });
         volumeRow.addView(volume, new LinearLayout.LayoutParams(0, -2, 1f));
-        p.level = app.text("100%", 13, false);
+        p.level = app.text(p.muted ? "muted" : p.volume + "%", 13, false);
         p.level.setTag("video-offer:level");
         p.level.setMinWidth(app.dp(52));
         volumeRow.addView(p.level);

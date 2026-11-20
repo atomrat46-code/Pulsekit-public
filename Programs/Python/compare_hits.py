@@ -94,7 +94,7 @@ def midi_hits(path, kinds=None):
             if kind == 0x90 and d[p + 1] > 0:
                 notes.append((tick, d[p] & 0x7F))
             p += size
-    tempos.sort()
+    tempos.sort(key=lambda x: x[0])  # by tick, the file's order kept: of tempos at one tick the last is played
 
     def seconds(tick):
         sec, at, tempo = 0.0, 0, 500000

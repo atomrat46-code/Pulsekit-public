@@ -157,6 +157,13 @@ public final class ProgramParams {
     boolean midiBatch = has(out, "--combine") && has(out, "--cut") && has(out, "--list");
     // SogniMusic: music on Sogni, compared between models or made in random styles.
     boolean sogniMusic = has(out, "--compare_models") && has(out, "--random");
+    // setup_demucs.py: Demucs and Beat This! in a Python of their own (--gpu, --dir).
+    boolean setupDemucs = has(out, "--gpu") && has(out, "--dir") && out.size() == 2;
+    // vst_render's --scan (list the installed plugins): the Plugins tab's Plugins list and Scan do it.
+    if (vstRender) for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) {
+      Param p = it.next();
+      if (p.flag && p.token.equals("--scan")) it.remove();
+    }
     for (Param p : out) {
       known(p, drumMidi, chat);
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
@@ -186,6 +193,12 @@ public final class ProgramParams {
       if (midiBatch) knownMidiBatch(p);
       if (batchRun) knownBatchRun(p);
       if (sogniMusic) knownSogniMusic(p);
+      if (setupDemucs && p.token.equals("--gpu")) p.label = "For an NVIDIA graphics card (PyTorch with CUDA); off: for the processor";
+      if (setupDemucs && p.token.equals("--dir")) {
+        p.dir = true;
+        p.label = "Install folder (a drive with room: 1-3 GB)";
+        p.hint = "empty: ~/.pulsekit/demucs";
+      }
       // CompareHits --batch: a MidiDrumGen batch folder after vst_render.py --dir --test.
       if (compareHits && p.token.equals("--batch")) {
         p.dir = true;
@@ -396,12 +409,21 @@ public final class ProgramParams {
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
-    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
+    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
-      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: python tools/setup_demucs.py once); without it, the whole song with fewer, less sure hits";
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: setup_demucs.py in PyJav's Python menu, once); without it, the whole song with fewer, less sure hits";
     // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
+    // DrumMidi --make-set: a drum set from the song's own drums (a clean hit of each drum cut out).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--make-set"))
+      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first";
+    // DrumMidi --set-hits: several hits of each drum kept (vst_render's Pads set plays them as velocity layers).
+    if (drumMidi && p.flag && p.takesValue && p.token.equals("--set-hits")) {
+      p.label = "Hits kept of each drum (several: the best first on the pad, and vst_render's Pads set plays them all as velocity layers, its hits varying)";
+      p.hint = "1; up to 8";
+      p.showWhen = "--make-set";
+    }
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";
@@ -827,14 +849,15 @@ public final class ProgramParams {
   static String vstTab(Param p) {
     String t = p.token;
     if (!p.flag) return p.output ? OUTPUT : INPUT;
-    if (t.equals("--note_map")) return FILES;
+    // The plugins' files: Carla's project, DrumGizmo's kit and map, the saved settings.
+    if (t.equals("--note_map") || t.equals("--carla") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state") || t.equals("--effect_state")) return FILES;
     if (t.equals("--hit_bench") || t.equals("--hit_bench_when")) return SETTINGS;
     if (t.startsWith("--hit_")) return HITS;
     if (t.equals("--bench_dir") || t.equals("--bench_unzip") || t.equals("--bench_skip") || t.startsWith("--model_") || t.equals("--leave_one_out") || t.startsWith("--loo_") || t.startsWith("--new_") || t.equals("--bench_work")) return MODEL;
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
-    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
   }
@@ -892,8 +915,19 @@ public final class ProgramParams {
     return out;
   }
 
-  /** "Use as plugin 2" for --plugin2 (--plugin: "Use as plugin 1"). */
+  /** The rows a listed plugin can be used as ({token, label}): Plugin 1 to 4, CLAP plugin, Effect plugin. */
+  public static List<String[]> useTargets(List<Param> ps) {
+    List<String[]> out = new ArrayList<String[]>();
+    for (String t : pluginRows(ps)) out.add(new String[] {t, "Plugin " + (t.length() == "--plugin".length() ? "1" : t.substring("--plugin".length()))});
+    for (Param p : ps) if (p.plugin && p.token.equals("--clap")) out.add(new String[] {p.token, "CLAP plugin"});
+    for (Param p : ps) if (p.plugin && p.token.equals("--effect")) out.add(new String[] {p.token, "Effect plugin"});
+    return out;
+  }
+
+  /** "Use as plugin 2" for --plugin2 (--plugin: "Use as plugin 1"); "Use as CLAP plugin", "Use as effect plugin". */
   public static String useAs(String token) {
+    if (token.equals("--clap")) return "Use as CLAP plugin";
+    if (token.equals("--effect")) return "Use as effect plugin";
     String n = token.substring("--plugin".length());
     return "Use as plugin " + (n.length() == 0 ? "1" : n);
   }
@@ -1013,6 +1047,9 @@ public final class ProgramParams {
     } else if (p.token.equals("--parts")) {
       p.label = "Parts: the drums split between the plugin rows, played in one run and mixed into one WAV (kick=2: the kick by plugin 2)";
       p.hint = "kick=2,snare=1,toms=1,cymbals=3 (also hats); the notes not named: plugin 1; empty: each plugin its own run";
+    } else if (p.token.equals("--vary")) {
+      p.label = "Vary each hit of a Pads set or SoundFont: level, pitch and brightness a little different every hit, as a drummer's (0 none, 50 light, 100 the most)";
+      p.hint = "empty: none";
     } else if (p.token.equals("--padset")) {
       // The Pads tab's drum sets: the one picked is written as a SoundFont and played after the plugins.
       p.label = "Pads set: one of the Pads tab's drum sets, played after the plugins (its own WAVs, test and zips, as one more plugin)";

@@ -313,9 +313,14 @@ public final class AppSettings {
   /** The programs PyJav lists, in their order. */
   public static List<String> programs(List<String> names) {
     List<String> out = new ArrayList<String>();
-    for (String n : names) if (listsProgram(n)) out.add(n);
+    for (String n : names) if (listsProgram(n) && !(onPhone && COMPUTER_ONLY.contains(n))) out.add(n);
     return out;
   }
+
+  /** Programs that run on a computer only (not listed on the phone): Demucs's and Beat This!'s setup. */
+  public static final java.util.Set<String> COMPUTER_ONLY = new java.util.HashSet<String>(java.util.Arrays.asList("setup_demucs.py"));
+  /** Set by the Android app: the lists leave out COMPUTER_ONLY. */
+  public static boolean onPhone;
 
   /** Whether a file type letter (I V S T) is shown; any other letter is. */
   public static boolean shows(String letter) {

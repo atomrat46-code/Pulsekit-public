@@ -60,6 +60,19 @@ public final class PyJavRecent {
     return out;
   }
 
+  /** The program taken off the list (all its runs). Returns how many runs went. */
+  public static int forget(File dir, String name) {
+    if (dir == null || name == null) return 0;
+    List<Item> list = new ArrayList<Item>();
+    int gone = 0;
+    for (Item old : load(dir)) {
+      if (old.name.equals(name)) gone++;
+      else list.add(old);
+    }
+    if (gone > 0) write(dir, list);
+    return gone;
+  }
+
   public static void remember(File dir, String name, String extra, String source, byte[] bytes) {
     if (dir == null || name == null || name.trim().isEmpty()) return;
     if (!dir.isDirectory() && !dir.mkdirs()) return;
@@ -74,6 +87,10 @@ public final class PyJavRecent {
       if (old.name.equals(fresh.name) && ++same > PER_PROGRAM) continue;
       list.add(old);
     }
+    write(dir, list);
+  }
+
+  private static void write(File dir, List<Item> list) {
     StringBuilder text = new StringBuilder();
     for (Item item : list) {
       text.append(encode(item.name)).append('\n');

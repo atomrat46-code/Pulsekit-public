@@ -590,6 +590,42 @@ public final class DrumLibrary {
   }
 
   /** Files added (from a folder or one), under `part` or their names' parts; what it says. */
+  /**
+   * A folder's sounds (its subfolders too) for every part: each by its name ("Kick 01.wav" a kick); one
+   * whose name names no part is left out. A folder with a test beat's index (hits.txt) by its index.
+   */
+  public static String addFolderByName(File folder, String source) {
+    if (new File(folder, INDEX).isFile()) return addIndex(folder);
+    List<File> files = soundFiles(folder, true);
+    if (files.isEmpty()) return "No WAV or MP3 in " + folder.getName();
+    java.util.Map<String, Integer> byPart = new java.util.LinkedHashMap<String, Integer>();
+    int added = 0, nameless = 0, there = 0;
+    for (File f : files) {
+      String part = guess(f.getName());
+      if (part == null) {
+        nameless++;
+        continue;
+      }
+      Entry e = add(f.getAbsolutePath(), f.getName(), part, source);
+      if (e == null) {
+        there++;
+        continue;
+      }
+      added++;
+      byPart.put(e.part, (byPart.containsKey(e.part) ? byPart.get(e.part) : 0) + 1);
+    }
+    save();
+    StringBuilder b = new StringBuilder(added == 0 ? "Nothing added from " + folder.getName() : "Added " + added + " sound" + (added == 1 ? "" : "s") + " from " + folder.getName() + " by their names (");
+    if (added > 0) {
+      int i = 0;
+      for (java.util.Map.Entry<String, Integer> e : byPart.entrySet()) b.append(i++ == 0 ? "" : ", ").append(label(e.getKey())).append(' ').append(e.getValue());
+      b.append(')');
+    }
+    if (there > 0) b.append("; ").append(there).append(" already there");
+    if (nameless > 0) b.append("; ").append(nameless).append(" left out: no drum in the name (pick a part first to add them to it)");
+    return b.toString();
+  }
+
   public static String addFiles(List<File> files, String part, String source) {
     int added = 0, byName = 0;
     for (File f : files) {

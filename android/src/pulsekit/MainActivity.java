@@ -285,6 +285,8 @@ public class MainActivity extends UiKit {
 
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // The program lists leave out what runs on a computer only (setup_demucs.py).
+        AppSettings.onPhone = true;
         // The drum sound library's folder: its profile goes into DrumMidi's runs (--library).
         DrumLibrary.home = getFilesDir();
         // A crash is written to crash-log.txt; the next start shows it.

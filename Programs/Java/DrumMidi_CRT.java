@@ -954,7 +954,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -973,6 +973,8 @@ public class DrumMidi_CRT{
         drumsOnly = false;
         separate = false;
         drumStem = false;
+        makeSet = false;
+        setHits = 1;
         // Snare leak: hats on a snare that rise no more than its own wires do are left out.
         boolean snareLeak = false;
         boolean fadedOpens = false;
@@ -1001,10 +1003,14 @@ public class DrumMidi_CRT{
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--no-hit-model".equals(opt)) hitModel = false;
             else if ("--drums-only".equals(opt)) drumsOnly = true;
-            // The drums separated from the song first (Demucs, on a computer: tools/setup_demucs.py), then told apart.
+            // The drums separated from the song first (Demucs, on a computer: setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
             // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
             else if ("--drum-stem".equals(opt)) drumStem = true;
+            // A drum set from the song's own drums: a clean hit of each drum cut out (SetMaker), beside the MIDI.
+            else if ("--make-set".equals(opt)) makeSet = true;
+            // --set-hits N: that many hits of each drum kept (the best first): a render plays them as velocity layers.
+            else if ("--set-hits".equals(opt)) setHits = Math.max(1, Math.min(8, Integer.parseInt(args[++i])));
             // A hit model learned elsewhere (vst_render's Hit model tab: hit-model.txt) in place of the built-in one;
             // "ugritone": the built-in one tuned on Ugritone kits' renders (HitModel.UGRITONE).
             else if ("--hit-model".equals(opt)) {
@@ -1569,6 +1575,11 @@ public class DrumMidi_CRT{
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (chokesWritten > 0 ? ", " + chokesWritten + " chokes (aftertouch)" : "") + (writeToms ? "" : " (--no-toms: toms not written)"));
         // (A folder's run zipped: "MIDI written", so PyJav on the phone does not keep each one beside the zip.)
         note((zip && inDir ? "MIDI written: " : "MIDI Extracted to: ") + written.getAbsolutePath());
+        if (makeSet) {
+            String base = written.getName().replaceAll("(?i)\\.midi?$", "");
+            File setDir = new File(written.getAbsoluteFile().getParentFile(), base + "-set");
+            note(SetMaker.make(audio.samples, audio.sampleRate, hits, setDir, inFile.getName().replaceAll("\\.[^.]+$", ""), setHits));
+        }
         finish("Succeeded: " + written.getName());
     }
 
@@ -1708,6 +1719,11 @@ public class DrumMidi_CRT{
     /** --separate: the drums told apart from a song's other instruments and vocals before DrumMidi listens. */
     static boolean separate;
 
+    /** --make-set: a drum set from the song's own drums (SetMaker), beside the MIDI. */
+    static boolean makeSet;
+    /** --set-hits: how many hits of each drum --make-set keeps (1 to 8). */
+    static int setHits = 1;
+
     /**
      * Drum-stem mode (--separate's drums, or --drum-stem): only drums are there, so nothing is taken for a bass
      * line, a guitar or keys (their guards, which leave out hits a band could have made, are off), as on a
@@ -1716,7 +1732,7 @@ public class DrumMidi_CRT{
     static boolean drumStem;
 
     /**
-     * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up (the one
+     * Demucs (htdemucs, its drums stem) run in the Python that setup_demucs.py set up (the one
      * ~/.pulsekit/demucs.txt names: its --dir; else ~/.pulsekit/demucs), else the one -Ddm.demucsPython or
      * PULSEKIT_DEMUCS names, else python3 or python
      * with demucs installed. On 80 human-played grooves under real piano and synth (Ugritone and Riot kits):
@@ -1818,7 +1834,7 @@ public class DrumMidi_CRT{
                     if (out != null) deleteTree(out);
                 }
             }
-            note(what + ": Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
+            note(what + ": Demucs is not set up (on a computer: setup_demucs.py in PyJav's Python menu); the whole song is used");
             return null;
         }
 
@@ -1832,7 +1848,7 @@ public class DrumMidi_CRT{
                     || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) return null;
             File py = python();
             if (py == null) {
-                note("Beats: Beat This! is not set up (on a computer: python tools/setup_demucs.py); DrumAlong's own beat finder is used");
+                note("Beats: Beat This! is not set up (on a computer: setup_demucs.py in PyJav's Python menu); DrumAlong's own beat finder is used");
                 return null;
             }
             File wav = null;
@@ -1867,7 +1883,7 @@ public class DrumMidi_CRT{
                 if (code == 0 && beats != null && downs != null && beats.length >= 4) return new double[][] {beats, downs};
                 String tail = log.toString().trim();
                 if (tail.contains("No module named 'beat_this'") || tail.contains("No module named beat_this"))
-                    note("Beats: Beat This! is not installed (python tools/setup_demucs.py adds it); DrumAlong's own beat finder is used");
+                    note("Beats: Beat This! is not installed (setup_demucs.py in PyJav's Python menu adds it); DrumAlong's own beat finder is used");
                 else note("Beats: Beat This! failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); DrumAlong's own beat finder is used");
                 return null;
             } catch (Exception ex) {
@@ -2107,6 +2123,167 @@ public class DrumMidi_CRT{
      * --learn-kit reads a kick or tom) and the cymbal look (cymFeature: CYM_BANDS at 2.5-16 kHz, its fade
      * and level), each comma-separated; or "fail" and why. All from where the sound starts.
      */
+    /**
+     * --make-set: a drum set from the song's own drums (best with --separate: Demucs's drums stem). For each
+     * drum DrumMidi found, its cleanest hit: nothing else struck in the CLEAR_BEFORE before it, and a ring of
+     * at least the drum's MIN_TAIL before the next hit; the loudest and longest of those (none clear: the one
+     * with the longest ring). Cut from just before its attack to the next hit (at most the drum's MAX_LEN),
+     * with a short fade at the end; the hits scaled together (the drums keep their balance), written as
+     * <drum>.wav in the folder with set.txt (a line a drum: its note, file, hits, clear hits, length).
+     * Pulsekit on a computer makes it a drum set on the Pads page (its SET_SAID line).
+     */
+    static final class SetMaker {
+        static final String SET_SAID = "Drum set from the song: ";
+        static final String INDEX = "set.txt";
+        static final double CLEAR_BEFORE = 0.08;
+        /** The cymbals (hats, ride, crash): a drum hit with only these on it is the next best to one alone. */
+        static final java.util.Set<Integer> CYMBAL_NOTES = new java.util.HashSet<Integer>(java.util.Arrays.asList(CLOSED_HAT, PEDAL_HAT, OPEN_HAT, RIDE_NOTE, CRASH_NOTE));
+        /** Each drum: its note, file name, the ring it needs (MIN_TAIL, s) and the longest cut (MAX_LEN, s). */
+        static final Object[][] DRUMS = {
+            {KICK_NOTE, "kick", 0.20, 0.8}, {SNARE_NOTE, "snare", 0.20, 0.8}, {CLOSED_HAT, "closed hat", 0.10, 0.35},
+            {PEDAL_HAT, "pedal hat", 0.10, 0.35}, {OPEN_HAT, "open hat", 0.30, 1.2}, {RIDE_NOTE, "ride", 0.35, 2.0},
+            {CRASH_NOTE, "crash", 0.50, 3.0}, {RACK_TOM, "rack tom", 0.25, 1.2}, {MID_TOM, "mid tom", 0.25, 1.2}, {FLOOR_TOM, "floor tom", 0.25, 1.5}};
+
+        static String make(double[] x, double sr, List<Hit> hits, File dir, String song) throws Exception {
+            return make(x, sr, hits, dir, song, 1);
+        }
+
+        /** `keep` hits of each drum (the best first: <drum>.wav, then <drum> 2.wav...), each a line of set.txt. */
+        static String make(double[] x, double sr, List<Hit> hits, File dir, String song, int keep) throws Exception {
+            StringBuilder index = new StringBuilder("# A drum set from " + song + " (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n");
+            List<String> got = new ArrayList<String>(), none = new ArrayList<String>();
+            double[] times = new double[hits.size()];
+            for (int i = 0; i < times.length; i++) times[i] = hits.get(i).time;
+            double top = 0;
+            List<Object[]> chosen = new ArrayList<Object[]>();
+            for (Object[] d : DRUMS) {
+                int note = (Integer) d[0];
+                double minTail = (Double) d[2], maxLen = (Double) d[3];
+                int all = 0, clear = 0;
+                boolean cymbal = CYMBAL_NOTES.contains(note);
+                // Each usable hit: {tier, score, start, length}; tier 0 alone, 1 a drum with only cymbals on it or a
+                // cymbal with only the kick under it (a drummer's usual way), 3 short (the ring it needs not there).
+                List<double[]> cands = new ArrayList<double[]>();
+                for (int i = 0; i < hits.size(); i++) {
+                    Hit h = hits.get(i);
+                    if (h.note != note) continue;
+                    all++;
+                    int tier = 0;
+                    double next = x.length / sr;
+                    for (int j = 0; j < times.length; j++) {
+                        if (j == i) continue;
+                        double dt = times[j] - h.time;
+                        if (dt > -CLEAR_BEFORE && dt <= 0.015) {
+                            int other = hits.get(j).note;
+                            boolean mild = cymbal ? other == KICK_NOTE : CYMBAL_NOTES.contains(other);
+                            tier = Math.max(tier, mild ? 1 : 2);
+                        }
+                        if (dt > 0.015 && times[j] < next) next = times[j];
+                    }
+                    if (tier == 2) continue;
+                    double start = attack(x, sr, h.time);
+                    double tail = next - 0.005 - start;
+                    double len = Math.min(maxLen, tail);
+                    if (len < 0.05) continue;
+                    if (tail < minTail) tier = 3;
+                    else if (tier == 0) clear++;
+                    // Loud and long (the ring counts up to the longest cut); a short one by its ring alone.
+                    double score = tier == 3 ? tail : peak(x, sr, start, Math.min(len, 0.05)) * (0.5 + 0.5 * Math.min(1.0, tail / maxLen));
+                    cands.add(new double[] {tier, score, start, len});
+                }
+                if (cands.isEmpty()) {
+                    if (all > 0) none.add(d[1] + " (" + all + " hits, none apart from other drums)");
+                    continue;
+                }
+                java.util.Collections.sort(cands, new Comparator<double[]>() {
+                    public int compare(double[] p, double[] q) {
+                        return p[0] != q[0] ? Double.compare(p[0], q[0]) : Double.compare(q[1], p[1]);
+                    }
+                });
+                int taken = 0;
+                for (double[] c : cands) {
+                    if (taken >= keep) break;
+                    // Short ones only when nothing better was there (the best one aside).
+                    if (taken > 0 && c[0] == 3) break;
+                    double[] cut = cut(x, sr, c[2], c[3]);
+                    for (double v : cut) top = Math.max(top, Math.abs(v));
+                    chosen.add(new Object[] {d, cut, all, clear, c[3], (int) c[0], taken});
+                    taken++;
+                }
+            }
+            if (chosen.isEmpty()) return "Drum set: no drum had a hit clear enough to cut" + (none.isEmpty() ? "" : " (" + String.join(", ", none) + ")");
+            dir.mkdirs();
+            // Together to 0.9 at the loudest: the drums keep the song's balance.
+            double gain = top > 0 ? 0.9 / top : 1;
+            java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<String, Integer>();
+            java.util.Map<String, Integer> tiers = new java.util.HashMap<String, Integer>();
+            for (Object[] c : chosen) {
+                Object[] d = (Object[]) c[0];
+                double[] y = (double[]) c[1];
+                for (int k = 0; k < y.length; k++) y[k] *= gain;
+                int nth = (Integer) c[6];
+                String file = d[1] + (nth == 0 ? "" : " " + (nth + 1)) + ".wav";
+                Sounds.writeWav16(new File(dir, file), y, (int) Math.round(sr));
+                index.append(d[0]).append('\t').append(file).append('\t').append(c[2]).append('\t').append(c[3])
+                    .append('\t').append(String.format(java.util.Locale.ROOT, "%.2f", (Double) c[4])).append('\n');
+                String drum = (String) d[1];
+                counts.put(drum, (counts.containsKey(drum) ? counts.get(drum) : 0) + 1);
+                if (nth == 0) tiers.put(drum, (Integer) c[5]);
+            }
+            for (java.util.Map.Entry<String, Integer> e : counts.entrySet()) {
+                int tier = tiers.get(e.getKey());
+                boolean cym = false;
+                for (Object[] d : DRUMS) if (d[1].equals(e.getKey())) cym = CYMBAL_NOTES.contains((Integer) d[0]);
+                got.add(e.getKey() + (e.getValue() > 1 ? " x" + e.getValue() : "")
+                    + (tier == 1 ? (cym ? " (with a kick under it)" : " (with a cymbal on it)") : tier == 3 ? " (short: the longest ring there was)" : ""));
+            }
+            java.io.Writer w = new java.io.OutputStreamWriter(new FileOutputStream(new File(dir, INDEX)), "UTF-8");
+            try {
+                w.write(index.toString());
+            } finally {
+                w.close();
+            }
+            System.out.println(SET_SAID + dir.getAbsolutePath());
+            return "Drum set: " + String.join(", ", got) + (none.isEmpty() ? "" : "; left out: " + String.join(", ", none));
+        }
+
+        /** Where the hit starts: back from its peak near `t` (DrumMidi's time can be a little off) to where it rises, 2 ms before. */
+        static double attack(double[] x, double sr, double t) {
+            int a = Math.max(0, (int) ((t - 0.02) * sr)), b = Math.min(x.length, (int) ((t + 0.03) * sr));
+            if (b <= a) return Math.max(0, t);
+            int at = a;
+            double best = 0;
+            for (int i = a; i < b; i++) {
+                if (Math.abs(x[i]) > best) {
+                    best = Math.abs(x[i]);
+                    at = i;
+                }
+            }
+            int s0 = at;
+            while (s0 > a && Math.abs(x[s0]) > best * 0.1) s0--;
+            return Math.max(0, (s0 - sr * 0.002) / sr);
+        }
+
+        static double peak(double[] x, double sr, double from, double len) {
+            int a = Math.max(0, (int) (from * sr)), b = Math.min(x.length, (int) ((from + len) * sr));
+            double p = 0;
+            for (int i = a; i < b; i++) p = Math.max(p, Math.abs(x[i]));
+            return p;
+        }
+
+        /** The hit: from `start`, `len` seconds, a 1 ms fade in and a fade out over its last fifth (at least 20 ms). */
+        static double[] cut(double[] x, double sr, double start, double len) {
+            int a = Math.max(0, (int) (start * sr)), n = Math.max(1, Math.min(x.length - a, (int) (len * sr)));
+            double[] y = new double[n];
+            System.arraycopy(x, a, y, 0, n);
+            int in = Math.min(n, (int) (sr * 0.001)), out = Math.min(n, Math.max((int) (sr * 0.02), n / 5));
+            for (int i = 0; i < in; i++) y[i] *= i / (double) in;
+            for (int i = 0; i < out; i++) y[n - 1 - i] *= i / (double) out;
+            return y;
+        }
+    }
+
+
     static final class Sounds {
         private Sounds() {}
 

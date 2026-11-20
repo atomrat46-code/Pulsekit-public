@@ -244,7 +244,7 @@ public final class KitPacks {
       for (Map.Entry<String, List<String>> e : packs.entrySet()) {
         if (NO_PACK.equals(e.getKey())) {
           for (String set : e.getValue()) if (set.toLowerCase(java.util.Locale.ROOT).startsWith(low) && !set.equalsIgnoreCase(t.trim())) out.add(new String[] {set, set});
-        } else if (e.getKey().toLowerCase(java.util.Locale.ROOT).startsWith(low)) out.add(new String[] {e.getKey() + " (" + e.getValue().size() + ")", e.getKey() + ": "});
+        } else if (e.getKey().toLowerCase(java.util.Locale.ROOT).startsWith(low)) out.add(new String[] {e.getKey() + " (" + e.getValue().size() + ")", e.getKey() + ":"});
       }
       return out;
     }
@@ -253,14 +253,19 @@ public final class KitPacks {
       if (NO_PACK.equals(e.getKey()) || !packKey(e.getKey()).equals(packKey(pack))) continue;
       for (String set : e.getValue()) {
         String low = set.toLowerCase(java.util.Locale.ROOT);
-        if (low.startsWith(part) && !low.equals(part)) out.add(new String[] {set, e.getKey() + ": " + set});
+        if (low.startsWith(part) && !low.equals(part)) out.add(new String[] {set, e.getKey() + ":" + set});
       }
     }
     return out;
   }
 
-  /** The kit's full name from a pack and a set ("Pack: Set"; the set alone for NO_PACK). */
+  /** The kit's full name from a pack and a set ("Pack:Set"; the set alone for NO_PACK). */
   public static String join(String pack, String set) {
-    return pack == null || pack.isEmpty() || NO_PACK.equals(pack) ? set : pack + ": " + set;
+    return pack == null || pack.isEmpty() || NO_PACK.equals(pack) ? set : pack + ":" + set;
+  }
+
+  /** A kit name as kept: no spaces at its ends or around the pack's colon ("SSD 5 Classic: Classic Rock" is "SSD 5 Classic:Classic Rock"). */
+  public static String tidy(String kit) {
+    return kit == null ? "" : kit.trim().replaceAll("\\s*:\\s*", ":").replaceAll("\\s{2,}", " ");
   }
 }

@@ -279,6 +279,11 @@ final class PadKits {
             del.addActionListener(e -> {
                 if (!this.confirm("Delete the drum set " + s.name + "?")) return;
                 app.drumSets.remove(s);
+                // A song set's hits go with it.
+                java.io.File hits = DrumSetStore.hitsDir(setsDir(), s);
+                java.io.File[] kept = hits.listFiles();
+                if (kept != null) for (java.io.File f : kept) f.delete();
+                hits.delete();
                 int at = app.playback.drumSetIndex;
                 if (at >= app.drumSets.size() || at == i) at = 0;
                 else if (at > i) at--;
@@ -310,6 +315,87 @@ final class PadKits {
             return s;
         }
         return JOptionPane.showConfirmDialog(app, question, "Pulsekit", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION;
+    }
+
+    /** What fromSong said last (for the tests). */
+    static volatile String lastSongSet;
+
+    /**
+     * DrumMidi --make-set's drum set (its log names the folder): read now (the run's folder may be a temporary
+     * one), then added as a new drum set named after the song, its drums on their pads and the other pads
+     * as Original; selected, saved.
+     */
+    static void fromSong(final Pulsekit app, String log) {
+        final java.io.File dir = SongDrumSet.folderIn(log);
+        if (dir == null) return;
+        final short[][] voices;
+        try {
+            voices = SongDrumSet.voices(dir, DrumPads.VOICE_RATE);
+        } catch (Exception ex) {
+            lastSongSet = "The song's drum set could not be read: " + ex.getMessage();
+            javax.swing.SwingUtilities.invokeLater(() -> app.setNow(lastSongSet));
+            return;
+        }
+        if (SongDrumSet.count(voices) == 0) return;
+        final String song = SongDrumSet.song(dir);
+        // Several hits of a drum (--set-hits): the song's files kept beside the sets (the run's folder may go).
+        boolean several = false;
+        try {
+            several = SongDrumSet.hasLayers(SongDrumSet.layers(dir, DrumPads.VOICE_RATE));
+        } catch (Exception ignored) {
+            // the pads' sounds only
+        }
+        final boolean keepHits = several;
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            Engine.DrumSet s = Engine.DrumSet.isolated(null, Engine.uniqueSetName(song + " drums", app.drumSets));
+            DrumSetStore.fill(s, voices, "");
+            app.drumSets.add(s);
+            int layered = 0;
+            if (keepHits) {
+                java.io.File to = DrumSetStore.hitsDir(setsDir(), s);
+                to.mkdirs();
+                java.io.File[] files = dir.listFiles();
+                if (files != null) for (java.io.File f : files) {
+                    if (!f.isFile()) continue;
+                    try {
+                        java.nio.file.Files.copy(f.toPath(), new java.io.File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    } catch (Exception ex) {
+                        Logs.error("Song hits not kept", ex);
+                    }
+                }
+                short[][][] l = songLayers(app, s.name);
+                if (l != null) for (short[][] h : l) if (h != null && h.length > 1) layered++;
+            }
+            app.playback.drumSetIndex = app.drumSets.size() - 1;
+            app.playback.reloadDrumBank();
+            try {
+                DrumSetStore.save(setsDir(), app.drumSets);
+            } catch (Exception ex) {
+                Logs.error("Drum sets not saved", ex);
+            }
+            app.playback.refreshDrumSets();
+            StringBuilder pads = new StringBuilder();
+            for (int t = 0; t < voices.length; t++) if (voices[t] != null) pads.append(pads.length() == 0 ? "" : ", ").append(Engine.TRACK_LABEL[t]);
+            lastSongSet = "New drum set on the Pads page: " + s.name + " (" + pads + "; the other pads as Original)"
+                + (layered > 0 ? "; " + layered + " drum" + (layered == 1 ? "" : "s") + " with several hits (vst_render's Pads set plays them as velocity layers)" : "");
+            app.setNow(lastSongSet);
+        });
+    }
+
+    /** A song set's several hits of each drum (kept in its <id>-hits folder), by the set's name; null without them. */
+    static short[][][] songLayers(Pulsekit app, String name) {
+        for (Engine.DrumSet s : new java.util.ArrayList<Engine.DrumSet>(app.drumSets)) {
+            if (!s.name.equals(name)) continue;
+            java.io.File dir = DrumSetStore.hitsDir(setsDir(), s);
+            if (!new java.io.File(dir, SongDrumSet.INDEX).isFile()) return null;
+            try {
+                short[][][] l = SongDrumSet.layers(dir, DrumPads.VOICE_RATE);
+                return SongDrumSet.hasLayers(l) ? l : null;
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+        return null;
     }
 
     void saveSets() {

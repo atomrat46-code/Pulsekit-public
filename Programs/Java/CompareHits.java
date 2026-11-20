@@ -895,17 +895,56 @@ public final class CompareHits {
     return sb.toString();
   }
 
-  /** The MIDI file's first tempo in BPM, or 120. */
+  /** The MIDI file's tempo in BPM as it starts (of several tempos at its first tempo's tick, the last: it is the one played), or 120. */
   public static double midiBpm(byte[] midi) {
-    if (midi != null) {
-      for (int i = 0; i + 5 < midi.length; i++) {
-        if ((midi[i] & 0xff) == 0xff && midi[i + 1] == 0x51 && midi[i + 2] == 0x03) {
-          int us = ((midi[i + 3] & 0xff) << 16) | ((midi[i + 4] & 0xff) << 8) | (midi[i + 5] & 0xff);
-          if (us > 0) return 60000000.0 / us;
+    if (midi == null || midi.length < 14 || midi[0] != 'M' || midi[1] != 'T') return 120;
+    long firstTick = Long.MAX_VALUE;
+    int us = 0;
+    int i = 8 + (int) be32(midi, 4);
+    while (i + 8 <= midi.length) {
+      long len = be32(midi, i + 4);
+      boolean track = midi[i] == 'M' && midi[i + 1] == 'T' && midi[i + 2] == 'r' && midi[i + 3] == 'k';
+      int p = i + 8;
+      int end = (int) Math.min(midi.length, p + len);
+      i = end;
+      if (!track) continue;
+      long tick = 0;
+      int status = 0;
+      while (p < end) {
+        long[] v = varLen(midi, p, end);
+        tick += v[0];
+        p = (int) v[1];
+        if (p >= end) break;
+        int b = midi[p] & 0xff;
+        if (b == 0xff) {
+          if (p + 2 > end) break;
+          int type = midi[p + 1] & 0xff;
+          long[] l = varLen(midi, p + 2, end);
+          int at = (int) l[1];
+          if (type == 0x51 && l[0] >= 3 && at + 3 <= end && tick <= firstTick) {
+            int t = ((midi[at] & 0xff) << 16) | ((midi[at + 1] & 0xff) << 8) | (midi[at + 2] & 0xff);
+            if (t > 0) {
+              firstTick = tick;
+              us = t;
+            }
+          }
+          p = at + (int) l[0];
+          continue;
         }
+        if (b == 0xf0 || b == 0xf7) {
+          long[] l = varLen(midi, p + 1, end);
+          p = (int) l[1] + (int) l[0];
+          continue;
+        }
+        if ((b & 0x80) != 0) {
+          status = b;
+          p++;
+        }
+        int kind = status & 0xf0;
+        p += kind == 0xc0 || kind == 0xd0 ? 1 : 2;
       }
     }
-    return 120;
+    return us > 0 ? 60000000.0 / us : 120;
   }
 
   static Row row(Result r, int family) {

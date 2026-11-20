@@ -27,6 +27,8 @@ sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' ../android/AndroidManifest.
 # DrumMidi_CRT.jar (DrumMidi_CRT with an MP3 decoder) follows DrumMidi_CRT.java.
 python3 ../tools/make_drummidi_jar.py
 cp -r ../Programs "$OUT/classes/Programs"
+# Python's caches (from test runs) are not part of the programs.
+find "$OUT/classes/Programs" -name __pycache__ -type d -prune -exec rm -rf {} +
 cp -r ../Prompts "$OUT/classes/Programs/Scripts"
 (cd "$OUT/classes/Programs" && find . -type f ! -name index.txt | sed 's#^\./##' | sort) > "$OUT/classes/Programs/index.txt"
 

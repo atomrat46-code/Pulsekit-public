@@ -957,7 +957,7 @@ public final class PyJavParams {
       }
     }
     String[] rows = labels.toArray(new String[0]);
-    lastSections = new AlertDialog.Builder(activity).setCustomTitle(searchHeader(activity, program, ps, fields, kept.size(), all.size()))
+    lastSections = new AlertDialog.Builder(activity).setCustomTitle(searchHeader(activity, program, ps, fields, kept.size(), all))
         .setItems(rows, (d, w) -> {
           Object r = items.get(w);
           if (r instanceof PromptVault.SogniSection) {
@@ -970,6 +970,13 @@ public final class PyJavParams {
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
+    // A list dialog keeps the keyboard from its views (ALT_FOCUSABLE_IM): let the search term have it.
+    if (lastSections.getWindow() != null) {
+      lastSections.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+          | android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+      lastSections.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+          | android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+    }
     // Held: a group's sections; a section of its own, Load, Edit section, Remove section, Add to group….
     final AlertDialog list = lastSections;
     list.getListView().setOnItemLongClickListener((parent, view, position, id) -> {
@@ -994,7 +1001,7 @@ public final class PyJavParams {
    * Browse sections' header: its title, then Search (a magnifying glass), Contains / Doesn't contain and
    * the term; Search (or the keyboard's Search) lists the sections again with them.
    */
-  static View searchHeader(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, int found, int all) {
+  static View searchHeader(final Activity activity, final String program, final List<ProgramParams.Param> ps, final EditText[] fields, int found, List<PromptVault.SogniSection> all) {
     LinearLayout box = new LinearLayout(activity);
     box.setOrientation(LinearLayout.VERTICAL);
     box.setPadding(dp(activity, 20), dp(activity, 16), dp(activity, 16), dp(activity, 4));
@@ -1011,8 +1018,19 @@ public final class PyJavParams {
     go.setContentDescription(SogniSections.SEARCH);
     final android.widget.Spinner how = new android.widget.Spinner(activity);
     how.setTag("sections-search-how");
+    // Small text, so the term has the row's room (the list opens with the full words).
     android.widget.ArrayAdapter<String> ways = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item,
-        new String[] {SogniSections.CONTAINS, SogniSections.NOT_CONTAINS});
+        new String[] {SogniSections.CONTAINS, SogniSections.NOT_CONTAINS}) {
+      @Override
+      public View getView(int position, View convertView, android.view.ViewGroup parent) {
+        View v = super.getView(position, convertView, parent);
+        if (v instanceof TextView) {
+          ((TextView) v).setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+          v.setPadding(dp(activity, 2), 0, 0, 0);
+        }
+        return v;
+      }
+    };
     ways.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
     how.setAdapter(ways);
     how.setSelection(searchContains ? 0 : 1);
@@ -1022,6 +1040,7 @@ public final class PyJavParams {
     term.setHint("Search term (* ?)");
     term.setText(searchTerm);
     term.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+    term.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
     final Runnable run = () -> {
       searchTerm = term.getText().toString().trim();
       searchContains = how.getSelectedItemPosition() == 0;
@@ -1033,13 +1052,15 @@ public final class PyJavParams {
       run.run();
       return true;
     });
-    row.addView(go, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    // The search button, the way (Contains / Doesn't contain) small, and the term with the rest of the row.
+    row.addView(go, new LinearLayout.LayoutParams(dp(activity, 40), dp(activity, 40)));
     row.addView(how, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
     row.addView(term, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
     box.addView(row);
     TextView said = new TextView(activity);
     said.setTag("sections-search-found");
-    said.setText(SogniSections.searchSaid(found, all, searchTerm, searchContains));
+    said.setText(SogniSections.searchSaid(found, all.size(), searchTerm, searchContains) + SogniSections.groupsNote(all));
+    said.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
     box.addView(said);
     return box;
   }

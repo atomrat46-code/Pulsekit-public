@@ -8854,7 +8854,16 @@ public final class DesktopBehavior {
         + "print('kept %.1f' % float(open(state + '.load').read()))\n"
         + "print('limit %.0f, none %.0f' % (vr.load_limit('x', state), vr.load_limit('x', os.path.join(d, 'none.state'))))\n"
         + "open(state + '.load', 'w').write('42.0')\n"
-        + "print('long %.0f' % vr.load_limit('x', state))\n";
+        + "print('long %.0f' % vr.load_limit('x', state))\n"
+        // A window that does not open (MT Power Drum Kit's VST3): back at once, nothing saved over.
+        + "os.remove(timer)\n"
+        + "class Q(P):\n"
+        + "    def open_editor(self): pass\n"
+        + "shut = os.path.join(d, 'shut.state')\n"
+        + "try:\n"
+        + "    vr.edit(Q(), os.path.join(d, 'mt.vst3'), shut, 'Plugin')\n"
+        + "except SystemExit:\n"
+        + "    print('shut: saved %s' % os.path.exists(shut))\n";
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
     cmd.addAll(java.util.Arrays.asList("-c", check, script.getAbsolutePath(), dir.getAbsolutePath()));
     String said = PythonRun.runFor(cmd, 120, null).trim();
@@ -8862,7 +8871,8 @@ public final class DesktopBehavior {
     java.util.regex.Matcher m = java.util.regex.Pattern.compile("kept ([0-9.]+)").matcher(said);
     double kept = m.find() ? Double.parseDouble(m.group(1)) : -1;
     boolean ok = kept >= 1.0 && kept < 2.2 && said.contains("Timer stopped") && said.contains("Kit load time") && said.contains("(Stop timer)")
-        && said.contains("limit 5, none 30") && said.contains("long 42");
+        && said.contains("limit 5, none 30") && said.contains("long 42")
+        && said.contains("Failed: the plugin's window did not open (it was back in 0.") && said.contains("shut: saved False");
     javax.swing.JButton b = PluginsList.stopTimerButton("t");
     this.out.append("button: ").append(b.getText()).append(", enabled ").append(b.isEnabled()).append('\n');
     if (!ok || !"Stop timer".equals(b.getText()) || b.isEnabled()) throw new AssertionError(this.out.toString());
@@ -9635,6 +9645,141 @@ public final class DesktopBehavior {
         && t.contains("other row: \u2606, Mark as final") && t.contains("grouped: \u25be \u2605 F Portraits (1) | \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when> | selected 1")
         && t.contains("read back: favourite true, final true, group Portraits");
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  /**
+   * 20112026_3: DrumMidi --make-set: a song's drums cut into a clean hit each (set.txt and WAVs beside the
+   * MIDI); its log line makes them a new drum set on the Pads page, named after the song, each drum on its
+   * pad (the others as Original), selected and saved. DrumMidi's Params have the option.
+   */
+  void s269_song_drum_set() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    StringBuilder out = new StringBuilder();
+    File dir = new File(System.getProperty("user.home"), "song-dm-set");
+    dir.mkdirs();
+    short[] kick = new short[44100 / 4], hat = new short[44100 / 8];
+    for (int i = 0; i < kick.length; i++) kick[i] = (short) (20000 * Math.sin(i * 2 * Math.PI * 60 / 44100.0) * Math.exp(-i / 4000.0));
+    java.util.Random r = new java.util.Random(3);
+    for (int i = 0; i < hat.length; i++) hat[i] = (short) (6000 * (r.nextDouble() * 2 - 1) * Math.exp(-i / 900.0));
+    Files.write(new File(dir, "kick.wav").toPath(), AudioIo.encodeWav(kick, 44100));
+    Files.write(new File(dir, "closed hat.wav").toPath(), AudioIo.encodeWav(hat, 44100));
+    Files.write(new File(dir, "set.txt").toPath(), ("# A drum set from Back in Black (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n"
+        + "36\tkick.wav\t120\t40\t0.25\n42\tclosed hat.wav\t300\t9\t0.12\n").getBytes(StandardCharsets.UTF_8));
+    int before = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.fromSong(app, "Wrote x.mid: ...\nDrum set from the song: " + dir.getAbsolutePath() + "\nSucceeded: x.mid");
+    idle();
+    Thread.sleep(300);
+    idle();
+    Engine.DrumSet s = app.drumSets.get(app.drumSets.size() - 1);
+    int k = 0, h = 5, sn = 2;
+    out.append("sets ").append(before).append(" -> ").append(app.drumSets.size()).append(", last ").append(s.name)
+        .append(", kick ").append(s.samples[k] == null ? "none" : s.samples[k].length).append(", closed hat ").append(s.samples[h] == null ? "none" : s.samples[h].length)
+        .append(", snare as Original ").append(s.matchOrig[sn]).append(", selected ").append(app.playback.drumSetIndex == app.drumSets.size() - 1)
+        .append(", saved ").append(new File(PadKits.setsDir(), DrumSetStore.INDEX).isFile() && new String(Files.readAllBytes(new File(PadKits.setsDir(), DrumSetStore.INDEX).toPath()), StandardCharsets.UTF_8).contains("Back in Black drums"))
+        .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // --set-hits: a second kick kept with the set; vst_render's Pads set SoundFont has them as velocity layers.
+    File dir2 = new File(System.getProperty("user.home"), "song2-dm-set");
+    dir2.mkdirs();
+    short[] kick2 = new short[44100 / 5];
+    for (int i = 0; i < kick2.length; i++) kick2[i] = (short) (12000 * Math.sin(i * 2 * Math.PI * 70 / 44100.0) * Math.exp(-i / 3000.0));
+    Files.write(new File(dir2, "kick.wav").toPath(), AudioIo.encodeWav(kick, 44100));
+    Files.write(new File(dir2, "kick 2.wav").toPath(), AudioIo.encodeWav(kick2, 44100));
+    Files.write(new File(dir2, "set.txt").toPath(), ("# A drum set from Thunder (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n"
+        + "36\tkick.wav\t120\t40\t0.25\n36\tkick 2.wav\t120\t40\t0.20\n").getBytes(StandardCharsets.UTF_8));
+    PadKits.fromSong(app, "Drum set from the song: " + dir2.getAbsolutePath());
+    idle();
+    Thread.sleep(300);
+    idle();
+    Engine.DrumSet s2 = app.drumSets.get(app.drumSets.size() - 1);
+    short[][][] layers = DrumSetStore.layersOf == null ? null : DrumSetStore.layersOf.apply(s2.name);
+    java.util.List<String> argv = JavaRun.withPadSet("vst_render.py", java.util.Arrays.asList("--padset", s2.name), new File(System.getProperty("user.home"), "padsets"));
+    byte[] sf2 = Files.readAllBytes(new File(argv.get(1)).toPath());
+    int vel = 0;
+    for (int i = 0; i + 3 < sf2.length; i++) if (sf2[i] == 'i' && sf2[i + 1] == 'g' && sf2[i + 2] == 'e' && sf2[i + 3] == 'n') vel = i;
+    out.append("layered: ").append(s2.name).append(", hits kept ").append(DrumSetStore.hitsDir(PadKits.setsDir(), s2).isDirectory())
+        .append(", kick layers ").append(layers == null || layers[0] == null ? 0 : layers[0].length).append(", sf2 ").append(sf2.length > 0)
+        .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // No set line: nothing added.
+    PadKits.fromSong(app, "Succeeded: y.mid");
+    idle();
+    out.append("without: ").append(app.drumSets.size()).append('\n');
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("DrumMidi_CRT.java"))) if (p.token.equals("--make-set")) label = p.label;
+    out.append("Params: ").append(label).append('\n');
+    this.out.append(out);
+    String o = out.toString();
+    boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
+        && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
+        && o.contains("without: " + (before + 2)) && o.contains("Params: Make a drum set from the song's drums");
+    if (!ok) throw new AssertionError(o);
+  }
+
+  /**
+   * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
+   * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
+   * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's
+   * kit and map and the settings rows on Files &amp; locations.
+   */
+  void s268_program_delete_library_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    final Pulsekit app = (Pulsekit) frame;
+    final PyJav py = (PyJav) get("pyJav");
+    File recentDir = py.pyRecentDir();
+    PyJavRecent.remember(recentDir, "setup_demucs (2).py", "", "print(1)", null);
+    PyJavRecent.remember(recentDir, "setup_demucs.py", "--gpu", "print(1)", null);
+    PyJavRecent.remember(recentDir, "setup_demucs (2).py", "--dir x", "print(1)", null);
+    edt(() -> py.reloadPyRecent(0));
+    out.append("before: ").append(PyJavRecent.programs(PyJavRecent.load(recentDir))).append('\n');
+    PyJav.recentDeleteAnswer = Boolean.TRUE;
+    edt(() -> {
+      javax.swing.JPopupMenu m = py.runsMenu("setup_demucs (2).py");
+      for (java.awt.Component c : m.getComponents()) if ("pyjav-recent-delete".equals(c.getName())) ((javax.swing.JMenuItem) c).doClick();
+    });
+    PyJav.recentDeleteAnswer = null;
+    out.append("after: ").append(PyJavRecent.programs(PyJavRecent.load(recentDir))).append('\n');
+    // The drum sound library: a folder with a subfolder.
+    File kit = new File(System.getProperty("user.home"), "kit-sounds");
+    new File(kit, "more").mkdirs();
+    short[] pcm = new short[2205];
+    for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (8000 * Math.sin(i * 0.2) * (1 - i / (double) pcm.length));
+    for (String n : new String[] {"Kick 01.wav", "more/Snare 2.wav", "pad.wav"}) Files.write(new File(kit, n).toPath(), AudioIo.encodeWav(pcm, 22050));
+    javax.swing.SwingUtilities.invokeLater(() -> DrumLibraryWindow.show(app));
+    Thread.sleep(500);
+    final javax.swing.JDialog w = DrumLibraryWindow.last;
+    DrumLibraryWindow.folderAnswer = kit;
+    edt(() -> ((javax.swing.JButton) component(w, "library-add-folder")).doClick());
+    DrumLibraryWindow.folderAnswer = null;
+    for (int i = 0; i < 200 && DrumLibraryWindow.analyzing != null && DrumLibraryWindow.analyzing.isAlive(); i++) Thread.sleep(100);
+    StringBuilder lib = new StringBuilder();
+    for (DrumLibrary.Entry e : DrumLibrary.entries) lib.append(lib.length() == 0 ? "" : ", ").append(e.name).append('=').append(e.part);
+    // (Said, then the analysis says its own: the sounds are in the library by their parts.)
+    out.append("Add folder (All): ").append(lib).append('\n');
+    edt(() -> w.dispose());
+    // vst_render's rows: their tabs.
+    StringBuilder tabs = new StringBuilder();
+    boolean scan = false;
+    for (ProgramParams.Param p : ProgramParams.parse(new String(ProgramFiles.read("Python", "vst_render.py"), StandardCharsets.UTF_8))) {
+      if (p.token.equals("--scan")) scan = true;
+      if (p.token.matches("--carla|--drumgizmo|--midimap|--state|--effect_state|--effect|--clap")) tabs.append(p.token).append('=').append(p.tab).append(' ');
+    }
+    out.append("--scan row: ").append(scan).append(" | ").append(tabs.toString().trim()).append('\n');
+    // setup_demucs.py in the Python menu (said not installed yet); not listed on a phone.
+    java.util.List<String> pyNames = java.util.Arrays.asList(ProgramFiles.list("Python"));
+    String onComputer = String.valueOf(AppSettings.programs(pyNames).contains("setup_demucs.py"));
+    AppSettings.onPhone = true;
+    String onPhone = String.valueOf(AppSettings.programs(pyNames).contains("setup_demucs.py"));
+    AppSettings.onPhone = false;
+    out.append("setup_demucs listed: computer ").append(onComputer).append(", phone ").append(onPhone).append(" |").append(ProgramMenus.setupSaid("setup_demucs.py")).append('\n');
+    // A kit name tidied; a folder row's Browse opens where its folder is (its % codes left off).
+    out.append("tidy: '").append(KitPacks.tidy(" SSD 5 Classic: Classic Rock ")).append("' | Browse at: ").append(PyJav.startFolder(new File(kit, "%n").getPath()).getName())
+        .append(", ").append(PyJav.startFolder(new File(kit, "gone/deeper").getPath()).getName()).append('\n');
+    this.out.append(out);
+    String o = out.toString();
+    boolean ok = o.contains("setup_demucs listed: computer true, phone false |  (not installed yet: Demucs and Beat This!)") && o.contains("tidy: 'SSD 5 Classic:Classic Rock' | Browse at: kit-sounds, kit-sounds") && o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
+        && o.contains("Add folder (All): Kick 01.wav=kick, Snare 2.wav=snare\n")
+        && o.contains("--scan row: false | --carla=Files & locations --clap=Plugins --drumgizmo=Files & locations --midimap=Files & locations --state=Files & locations --effect=Plugins --effect_state=Files & locations");
+    if (!ok) throw new AssertionError(o);
   }
 
   /**
@@ -10469,15 +10614,15 @@ public final class DesktopBehavior {
         && all.contains("packs added: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville], Speed Metal Drums=[], KVLT=[]}, picked KVLT")
         && all.contains("edited: {Tight Studio Drums=[A taste of Compression, Noob Metal 2, Ringy Studio Kit], Speed Metal Drums=[], KVLT=[], Total Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
         && all.contains("pack row: Tight Studio Drums (3)")
-        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums: ; Total Drums (3) -> Total Drums: ; | Ti: Tight Studio Drums (3) -> Tight Studio Drums: ; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums: Ringy Studio Kit; | empty: \n")
-        && all.contains("kits.txt: [Ugritone Drums] | Tight Studio Drums: KVLT_Mexico 1998 = KVLT_Mexico 1998 | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums: Noob Metal 2 | Tight Studio Drums: Noob Metal 2 = Tight Studio Drums: Noob Metal | -KVLT_Mexico 1998 | Total Drums: Kind of metal | Total Drums: Pop Hits | Total Drums: Smells like Nashville | Total Drums: Kind of metal = Total Studio Drums: Kind of metal | Total Drums: Pop Hits = Total Studio Drums: Pop Hits | Total Drums: Smells like Nashville = Total Studio Drums: Smells like Nashville | [Riot Drums] | Default kit | ")
+        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums:; Total Drums (3) -> Total Drums:; | Ti: Tight Studio Drums (3) -> Tight Studio Drums:; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums:Ringy Studio Kit; | empty: \n")
+        && all.contains("kits.txt: [Ugritone Drums] | Tight Studio Drums:KVLT_Mexico 1998 = KVLT_Mexico 1998 | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums:Noob Metal 2 | Tight Studio Drums:Noob Metal 2 = Tight Studio Drums:Noob Metal | -KVLT_Mexico 1998 | Total Drums:Kind of metal | Total Drums:Pop Hits | Total Drums:Smells like Nashville | Total Drums:Kind of metal = Total Studio Drums:Kind of metal | Total Drums:Pop Hits = Total Studio Drums:Pop Hits | Total Drums:Smells like Nashville = Total Studio Drums:Smells like Nashville | [Riot Drums] | Default kit | ")
         && all.contains("added: Total Studio Drums / Smells like Nashville")
         && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
         && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Drums>; ")
-        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums: Ringy Studio Kit")
+        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums:Ringy Studio Kit")
         && all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
-        && all.contains("chosen: Total Studio Drums: Pop Hits");
+        && all.contains("chosen: Total Studio Drums:Pop Hits");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -10525,6 +10670,11 @@ public final class DesktopBehavior {
       app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
       out.append("Ugritone, No, one of its own: '").append(fields[one].getText()).append("'\n");
       PyJav.kitAskYes = null;
+      // A kit name left on the row from Ugritone, run with SSD5: not SSD5's kit, so cleared.
+      VstLists.rememberKits("--plugin \"C:/VST3/SSDSampler5.dll\" --kit_name \"KVLT_Mexico 1998\"");
+      fields[one].setText("KVLT_Mexico 1998");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/SSDSampler5.dll");
+      out.append("SSD5 (Ugritone's kit name left): '").append(fields[one].getText()).append("'\n");
       app.pyJav.kitForPlugin(null, "--plugin3", "C:/VST3/Fresh Drums.vst3");
       out.append("Fresh (no kit row field): ok\n");
     });
@@ -10532,7 +10682,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("Riot (saved kit only): ''") && all.contains("Anarchy (one kit): 'Anarchy_default kit'") && all.contains("avldrums (vst_render's list): 'Black Pearl'")
         && all.contains("Ugritone, Yes: 'Tight Studio Drums: Noob Metal' | asked: Ugritone Drums has 2 kits named for it before: / Tight Studio Drums: Noob Metal, KVLT_Mexico 1998")
         && all.contains("Is the most recently used, Tight Studio Drums: Noob Metal, the kit loaded in it now?")
-        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok");
+        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok") && all.contains("SSD5 (Ugritone's kit name left): ''");
     if (!ok) throw new AssertionError(all);
   }
 
@@ -10675,6 +10825,18 @@ public final class DesktopBehavior {
     Thread.sleep(300);
     String saved = new String(Files.readAllBytes(new File(home, ".pulsekit/vst-sessions.txt").toPath()), StandardCharsets.UTF_8);
     out.append("saved: ").append(saved.replace(h, "~").replaceAll("\\d\\d\\.\\d\\d\\.\\d{4} \\d\\d:\\d\\d", "<date>").trim()).append('\n');
+    // Save session as…: a new one, its name and description blank to start with.
+    final String[] asked = new String[1];
+    inspectNext = s -> {
+      asked[0] = "name '" + ((JTextField) component(s, "session-name")).getText() + "', description '" + ((JTextField) component(s, "session-description")).getText() + "'";
+      ((JTextField) component(s, "session-name")).setText("Kompit SSD");
+    };
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(d, "params-save-session-as")).doClick());
+    idle();
+    Thread.sleep(300);
+    String two = new String(Files.readAllBytes(new File(home, ".pulsekit/vst-sessions.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("save as: ").append(asked[0]).append(" | sessions ").append(two.split("\n").length).append(", first ").append(two.split("\t")[0]).append('\n');
+    if (!"name '', description ''".equals(asked[0]) || two.split("\n").length != 2 || !two.startsWith("Kompit SSD\t")) throw new AssertionError(out.toString());
     // Another folder, Test off, another plugin and kit: then the session picked puts them back.
     edt(() -> {
       @SuppressWarnings("unchecked")
@@ -11234,7 +11396,7 @@ public final class DesktopBehavior {
         && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
         && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
         && all.contains("only Notes: 49 (C#3), 51 (D#3) silent: looking for them on the plugin's other notes")
-        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
+        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 GM's own stand-in, cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
         && all.split("only Map suggestion").length == 3
         && all.contains("toms Map suggestion: [DigiDrum Pro] 45=41") && all.contains("toms Map suggestion: [DigiDrum Pro] 50=43") && all.split("toms Map suggestion").length == 5
         && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
@@ -13133,7 +13295,9 @@ public final class DesktopBehavior {
     final JDialog d = params[0];
     PluginsList.last = null;
     answers.add("(keep)");
-    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "params-plugins:--plugin2")).doClick());
+    // The Plugins list beside Plugin folders (no longer on each plugin row); Use as… asks which row.
+    boolean rowButton = component(d, "params-plugins:--plugin2") != null;
+    SwingUtilities.invokeLater(() -> ((javax.swing.JButton) component(d, "params-plugins-list")).doClick());
     for (int i = 0; i < 100 && (PluginsList.last == null || !PluginsList.last.isShowing()); i++) Thread.sleep(100);
     Thread.sleep(300);
     final JDialog list = PluginsList.last;
@@ -13174,15 +13338,33 @@ public final class DesktopBehavior {
     for (int i = 0; i < 300 && PluginsList.lastTest == null; i++) Thread.sleep(100);
     idle();
     edt(() -> seen[4] = info.getText().split("\n")[0]);
+    final String[] useAs = new String[2];
+    edt(() -> useAs[0] = ((javax.swing.JButton) component(list, "plugins-use")).getText());
+    PluginsList.lastUseAs = null;
     edt(() -> ((javax.swing.JButton) component(list, "plugins-use")).doClick());
+    idle();
+    edt(() -> {
+      StringBuilder b = new StringBuilder();
+      javax.swing.JMenuItem two = null;
+      for (java.awt.Component c : PluginsList.lastUseAs.getComponents()) {
+        if (!(c instanceof javax.swing.JMenuItem)) continue;
+        b.append(b.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+        if ("plugins-use-as:--plugin2".equals(c.getName())) two = (javax.swing.JMenuItem) c;
+      }
+      useAs[1] = b.toString();
+      PluginsList.lastUseAs.setVisible(false);
+      two.doClick();
+    });
     idle();
     edt(() -> seen[5] = ((JLabel) component(d, "params-chosen:--plugin2")).getText());
     edt(() -> find(d.getContentPane(), "Cancel").doClick());
     idle();
     this.out.append("A-Z: ").append(seen[0]).append("\nZ-A: ").append(seen[1]).append("\nInfo: ").append(seen[2].replace('\n', '|')).append("\nFavourites: ").append(seen[3])
         .append("\nTest plugin: ").append(seen[4]).append("\nUse: --plugin2 ").append(seen[5]).append("\nZ-A selected, first shown: ").append(seen[6])
-        .append("\nSearch u?r*DRUM: ").append(seen[7]).append("\nSearch zz*q: ").append(seen[8]).append('\n');
-    boolean ok = seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
+        .append("\nSearch u?r*DRUM: ").append(seen[7]).append("\nSearch zz*q: ").append(seen[8]).append("\nrow button: ").append(rowButton)
+        .append("\nUse as: ").append(useAs[0]).append(" | ").append(useAs[1]).append('\n');
+    boolean ok = !rowButton && "Use as\u2026".equals(useAs[0]) && useAs[1].equals("Plugin 1, Plugin 2, Plugin 3, Plugin 4, CLAP plugin, Effect plugin")
+        && seen[0].equals("Anarchy Drums, Riot, Ugritone Drums, Zeta Drums") && seen[1].equals("Zeta Drums, Ugritone Drums, Riot, Anarchy Drums")
         && seen[2].startsWith("Anarchy Drums (VST3, a bundle folder)") && seen[2].contains("Settings (kit, patch) saved with Edit on date")
         && seen[3].equals("\u2605 Anarchy Drums") && seen[4].length() > 0 && "Anarchy Drums.vst3".equals(seen[5]) && !list.isShowing()
         && seen[6].equals("0 0") && seen[7].equals("Ugritone Drums") && seen[8].equals("0 No plugin name matches zz*q.");

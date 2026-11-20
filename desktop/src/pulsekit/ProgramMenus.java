@@ -68,7 +68,7 @@ final class ProgramMenus {
         // A starred program (a right click in Select program) shows "★ ".
         ProgramStars.load(PromptDb.dir());
         for (String name : names) {
-            JMenuItem item = new JMenuItem(ProgramStars.label(name));
+            JMenuItem item = new JMenuItem(ProgramStars.label(name) + setupSaid(name));
             item.addActionListener(e -> {
                 if ("Code".equals(kind)) this.openCodeFile(name);
                 else if ("Scripts".equals(kind)) this.openScript(name);
@@ -78,6 +78,13 @@ final class ProgramMenus {
         }
         MenuCancel.add(menu);
         menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** setup_demucs.py's line says whether Demucs and Beat This! are set up (~/.pulsekit/demucs.txt names their Python). */
+    static String setupSaid(String name) {
+        if (!"setup_demucs.py".equals(name)) return "";
+        java.io.File kept = new java.io.File(new java.io.File(System.getProperty("user.home", "."), ".pulsekit"), "demucs.txt");
+        return kept.isFile() ? "  (installed: run again to repair or update)" : "  (not installed yet: Demucs and Beat This!)";
     }
 
     /** Java or Python: this file becomes the program Run executes. */

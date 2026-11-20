@@ -159,6 +159,23 @@ final class VstLists {
     }
 
     /**
+     * The kits named for this plugin and no other (kitsFor, less a name also given with another plugin: a
+     * kit name left on a row when its plugin was changed, Ugritone's "Total Studio Drums_ Gone Contry" run
+     * with SSD5, is not that plugin's kit).
+     */
+    static List<String> kitsOnlyFor(String plugin) {
+        String key = pluginKey(plugin);
+        java.util.Set<String> elsewhere = new java.util.HashSet<String>();
+        for (String line : kept(PLUGIN_KITS_KEY)) {
+            int tab = line.indexOf('\t');
+            if (tab > 0 && !line.substring(0, tab).equals(key)) elsewhere.add(line.substring(tab + 1).trim().toLowerCase(java.util.Locale.ROOT));
+        }
+        List<String> out = new ArrayList<String>();
+        for (String kit : kitsFor(plugin)) if (!elsewhere.contains(kit.toLowerCase(java.util.Locale.ROOT))) out.add(kit);
+        return out;
+    }
+
+    /**
      * The kit names kept before they were kept with their plugin (Kit loaded's list from runs before v446):
      * those not named for any plugin since (the runs' pairs, vst_render's kit-names.txt). Listed for every
      * plugin until a run, the Params or the cymbal bench ties them to one.

@@ -29,7 +29,7 @@ final class VstSessions {
         "--plugin", "--plugin2", "--plugin3", "--plugin4", "--kit_name", "--kit_name2", "--kit_name3", "--kit_name4",
         "--padset", "--parts", "--state", "--effect", "--effect_state",
         "--test", "--cymbal_bench", "--cymbal_bench_when", "--hit_bench", "--hit_bench_when",
-        "--bench_dir", "--bench_unzip", "--hit_dir", "--hit_unzip", "--hit_zip_outdir"));
+        "--bench_dir", "--bench_unzip", "--bench_work", "--hit_dir", "--hit_unzip", "--hit_zip_outdir", "--hit_model_file"));
 
     /** The folder rows' lists: the two input folders share one, each other kind its own. */
     static final Map<String, String> FOLDER_KEYS = new LinkedHashMap<String, String>();
@@ -43,6 +43,7 @@ final class VstSessions {
         FOLDER_KEYS.put("--hit_dir", "vstBenchFolders");
         FOLDER_KEYS.put("--bench_unzip", "vstUnzipFolders");
         FOLDER_KEYS.put("--hit_unzip", "vstUnzipFolders");
+        FOLDER_KEYS.put("--bench_work", "vstWorkFolders");
     }
     /** At most this many folders in each list. */
     static final int KEEP_FOLDERS = 30;

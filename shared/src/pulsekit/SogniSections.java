@@ -67,6 +67,12 @@ public final class SogniSections {
   }
 
   /** What the search found, for the line under it. */
+  /** Said after the count when none of the sections is in a group yet (Add to group… makes one). */
+  public static String groupsNote(java.util.List<PromptVault.SogniSection> all) {
+    for (Group g : groups(all)) if (g.named) return "";
+    return " \u00b7 No groups yet: a section's menu has Add to group\u2026";
+  }
+
   public static String searchSaid(int found, int all, String term, boolean contains) {
     if (searchPattern(term) == null) return all + " section" + (all == 1 ? "" : "s");
     return found + " of " + all + " section" + (all == 1 ? "" : "s") + (contains ? " contain " : " don't contain ") + "\"" + term.trim() + "\"";
