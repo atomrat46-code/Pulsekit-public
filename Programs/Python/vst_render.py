@@ -1084,7 +1084,15 @@ def kit_state(plugin):
     if not kit or kit == "parts":
         return None
     safe = re.sub(r'[\\/:*?"<>|]', "_", kit)
-    return os.path.join(os.path.expanduser("~"), ".pulsekit", "vst", "%s [%s].state" % (stem(plugin), safe))
+    folder = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst")
+    path = os.path.join(folder, "%s [%s].state" % (stem(plugin), safe))
+    if not os.path.isfile(path) and os.path.isdir(folder):
+        # Saved under the kit's name spaced otherwise ("SSD 5 Classic: Classic Rock", now "...Classic:Classic Rock").
+        want = re.sub(r"\s+", "", "%s [%s].state" % (stem(plugin), safe)).lower()
+        for name in sorted(os.listdir(folder)):
+            if name.endswith(".state") and re.sub(r"\s+", "", name).lower() == want:
+                return os.path.join(folder, name)
+    return path
 
 
 def state_home(plugin):

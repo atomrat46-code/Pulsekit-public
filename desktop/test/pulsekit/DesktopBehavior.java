@@ -9696,9 +9696,12 @@ public final class DesktopBehavior {
       if (p.token.matches("--carla|--drumgizmo|--midimap|--state|--effect_state|--effect|--clap")) tabs.append(p.token).append('=').append(p.tab).append(' ');
     }
     out.append("--scan row: ").append(scan).append(" | ").append(tabs.toString().trim()).append('\n');
+    // A kit name tidied; a folder row's Browse opens where its folder is (its % codes left off).
+    out.append("tidy: '").append(KitPacks.tidy(" SSD 5 Classic: Classic Rock ")).append("' | Browse at: ").append(PyJav.startFolder(new File(kit, "%n").getPath()).getName())
+        .append(", ").append(PyJav.startFolder(new File(kit, "gone/deeper").getPath()).getName()).append('\n');
     this.out.append(out);
     String o = out.toString();
-    boolean ok = o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
+    boolean ok = o.contains("tidy: 'SSD 5 Classic:Classic Rock' | Browse at: kit-sounds, kit-sounds") && o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
         && o.contains("Add folder (All): Kick 01.wav=kick, Snare 2.wav=snare\n")
         && o.contains("--scan row: false | --carla=Files & locations --clap=Plugins --drumgizmo=Files & locations --midimap=Files & locations --state=Files & locations --effect=Plugins --effect_state=Files & locations");
     if (!ok) throw new AssertionError(o);
@@ -10747,6 +10750,18 @@ public final class DesktopBehavior {
     Thread.sleep(300);
     String saved = new String(Files.readAllBytes(new File(home, ".pulsekit/vst-sessions.txt").toPath()), StandardCharsets.UTF_8);
     out.append("saved: ").append(saved.replace(h, "~").replaceAll("\\d\\d\\.\\d\\d\\.\\d{4} \\d\\d:\\d\\d", "<date>").trim()).append('\n');
+    // Save session as…: a new one, its name and description blank to start with.
+    final String[] asked = new String[1];
+    inspectNext = s -> {
+      asked[0] = "name '" + ((JTextField) component(s, "session-name")).getText() + "', description '" + ((JTextField) component(s, "session-description")).getText() + "'";
+      ((JTextField) component(s, "session-name")).setText("Kompit SSD");
+    };
+    SwingUtilities.invokeLater(() -> ((javax.swing.AbstractButton) component(d, "params-save-session-as")).doClick());
+    idle();
+    Thread.sleep(300);
+    String two = new String(Files.readAllBytes(new File(home, ".pulsekit/vst-sessions.txt").toPath()), StandardCharsets.UTF_8);
+    out.append("save as: ").append(asked[0]).append(" | sessions ").append(two.split("\n").length).append(", first ").append(two.split("\t")[0]).append('\n');
+    if (!"name '', description ''".equals(asked[0]) || two.split("\n").length != 2 || !two.startsWith("Kompit SSD\t")) throw new AssertionError(out.toString());
     // Another folder, Test off, another plugin and kit: then the session picked puts them back.
     edt(() -> {
       @SuppressWarnings("unchecked")

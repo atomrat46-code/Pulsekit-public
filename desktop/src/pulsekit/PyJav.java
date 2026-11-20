@@ -2127,6 +2127,19 @@ final class PyJav {
         return vstFolder();
     }
 
+    /**
+     * Where a folder row's Browse opens: the folder it names, its % codes left off (K:\Samples\%n opens
+     * K:\Samples), else the nearest folder above it that is there; null: none (the chooser's own).
+     */
+    static File startFolder(String now) {
+        String t = now == null ? "" : now.trim();
+        if (t.isEmpty()) return null;
+        File f = new File(t);
+        while (f != null && f.getPath().contains("%")) f = f.getParentFile();
+        while (f != null && !f.isDirectory()) f = f.getParentFile();
+        return f;
+    }
+
     static final String CHOOSE_PLUGIN_KEY = "choosePluginFolder";
 
     /** The folder Choose plugin's browser was last in (null: none yet, or gone). */
@@ -3694,9 +3707,7 @@ final class PyJav {
                 JButton browse = new JButton("Browse");
                 browse.setName("params-dir:" + p.token);
                 browse.addActionListener(e -> {
-                    String now = path.getText().trim();
-                    File start = now.length() > 0 && !now.contains("%") ? new File(now) : null;
-                    JFileChooser chooser = new JFileChooser(start);
+                    JFileChooser chooser = new JFileChooser(startFolder(path.getText()));
                     chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                     chooser.setDialogTitle("Directory");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
@@ -3770,7 +3781,7 @@ final class PyJav {
                 JButton browse = new JButton("Browse");
                 browse.setName("params-dir:" + p.token);
                 browse.addActionListener(e -> {
-                    JFileChooser chooser = new JFileChooser(values[index].length() > 0 ? new File(values[index]) : null);
+                    JFileChooser chooser = new JFileChooser(startFolder(values[index]));
                     chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                     chooser.setDialogTitle("Directory");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
@@ -4182,6 +4193,14 @@ final class PyJav {
                         for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(plugToken)) return values[k];
                         return "";
                     });
+                    // Left: tidied ("SSD 5 Classic: Classic Rock" is "SSD 5 Classic:Classic Rock").
+                    field.addFocusListener(new java.awt.event.FocusAdapter() {
+                        @Override
+                        public void focusLost(java.awt.event.FocusEvent e) {
+                            String tidy = KitPacks.tidy(field.getText());
+                            if (!tidy.equals(field.getText())) field.setText(tidy);
+                        }
+                    });
                     // A plugin dragged from Favourites or Recently used onto Kit loaded: the row's plugin, not its path typed in.
                     field.setTransferHandler(this.kitFieldDrop(field.getTransferHandler(), this.pluginDrop(ps, values, fileLabels, uses, plugToken)));
                 }
@@ -4285,9 +4304,17 @@ final class PyJav {
         java.awt.Dimension formSize = formView.getPreferredSize();
         java.awt.Rectangle screen = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         int room = screen.height - top.getPreferredSize().height - PARAMS_FRAME;
+        // vst_render's tabs: as tall as the screen has room for (a long tab, Settings, without scrolling where it fits).
+        boolean tabbed = formView instanceof javax.swing.JTabbedPane;
         formScroll.setPreferredSize(new java.awt.Dimension(Math.min(formSize.width + formScroll.getVerticalScrollBar().getPreferredSize().width, screen.width - PARAMS_SIDES),
-            Math.min(formSize.height, Math.max(PARAMS_MIN_FORM, room))));
+            tabbed ? Math.max(PARAMS_MIN_FORM, Math.min(formSize.height + 8, room)) : Math.min(formSize.height, Math.max(PARAMS_MIN_FORM, room))));
         box.add(formScroll, BorderLayout.CENTER);
+        // The window can be made bigger (or smaller) by dragging its edge: the rows follow.
+        box.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) == 0 || !box.isShowing()) return;
+            java.awt.Window w = SwingUtilities.getWindowAncestor(box);
+            if (w instanceof javax.swing.JDialog && !((javax.swing.JDialog) w).isResizable()) ((javax.swing.JDialog) w).setResizable(true);
+        });
         if (SogniSections.shown(program)) {
             // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
             JButton saveSection = new JButton(SogniSections.SAVE);
@@ -4344,6 +4371,8 @@ final class PyJav {
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
+        // vst_render's kit names: no spaces around the pack's colon or at the ends.
+        for (int i = 0; i < ps.size() && i < values.length; i++) if (ps.get(i).token.startsWith("--kit_name") && values[i] != null) values[i] = KitPacks.tidy(values[i]);
         for (int i = 0; i < areas.length; i++) if (areas[i] != null) values[i] = ProgramParams.oneLine(areas[i].getText());
         for (int i = 0; i < checks.length; i++) if (checks[i] != null) values[i] = checks[i].isSelected() ? "1" : "";
         // The rows left out: kept beside the Params, not in them (a run takes the Params' switches).
@@ -4389,6 +4418,10 @@ final class PyJav {
      * session's rows (VstSessions.TOKENS) as they are now, with the date; picking a session in the list puts
      * its rows into the Params (the others stay).
      */
+    /** The tests: Save session's name field shown last, and the dialog's answer (fills the fields; false: Cancel). */
+    static JTextField lastSessionAsk;
+    static java.util.function.BiPredicate<JTextField, JTextField> sessionAnswer;
+
     JPanel sessionBar(final java.util.List<ProgramParams.Param> ps, final String[] values, final JTextField[] fields, final javax.swing.JCheckBox[] checks,
             final javax.swing.JCheckBox[] uses, final JLabel[] fileLabels, final java.util.Map<Integer, java.util.function.Consumer<String>> setters) {
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -4429,8 +4462,12 @@ final class PyJav {
             list.setToolTipText(s.description.isEmpty() ? s.label() : s.description);
             app.setNow("Session loaded: " + s.name);
         });
-        save.addActionListener(e -> {
-            VstSessions.Session now = VstSessions.find(VstSessions.current());
+        // Save session as…: a new one (name and description blank); Save session: the one loaded, its name offered.
+        JButton saveAs = new JButton("Save session as\u2026");
+        saveAs.setName("params-save-session-as");
+        saveAs.setToolTipText("Save the Params as a new session (a name of its own)");
+        final java.util.function.Consumer<Boolean> saving = asNew -> {
+            VstSessions.Session now = asNew ? null : VstSessions.find(VstSessions.current());
             JTextField name = new JTextField(now == null ? "" : now.name, 28);
             name.setName("session-name");
             JTextField about = new JTextField(now == null ? "" : now.description, 28);
@@ -4440,9 +4477,12 @@ final class PyJav {
             ask.add(name);
             ask.add(new JLabel("Description (optional)"));
             ask.add(about);
-            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins and kit names, Test, the cymbal model comparison and the hit model bench (on or off, and when), the benches' folders. The date is added.</body></html>"));
+            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins and kit names, Test, the cymbal model comparison and the hit model bench (on or off, and when), the Cymbal model and Hit model tabs' folders and files. The date is added.</body></html>"));
             java.awt.Window w = SwingUtilities.getWindowAncestor(save);
-            if (JOptionPane.showConfirmDialog(w, ask, "Save session", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
+            lastSessionAsk = name;
+            boolean ok = sessionAnswer != null ? sessionAnswer.test(name, about)
+                : JOptionPane.showConfirmDialog(w, ask, asNew ? "Save session as" : "Save session", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION;
+            if (!ok) return;
             String n = VstSessions.clean(name.getText());
             if (n.isEmpty()) return;
             VstSessions.Session old = VstSessions.find(n);
@@ -4455,7 +4495,9 @@ final class PyJav {
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(w, "Could not save the session: " + ex.getMessage(), "Save session", JOptionPane.WARNING_MESSAGE);
             }
-        });
+        };
+        save.addActionListener(e -> saving.accept(Boolean.FALSE));
+        saveAs.addActionListener(e -> saving.accept(Boolean.TRUE));
         delete.addActionListener(e -> {
             int at = list.getSelectedIndex();
             if (at <= 0 || at > shown.size()) return;
@@ -4470,6 +4512,7 @@ final class PyJav {
             fill.run();
         });
         left.add(save);
+        left.add(saveAs);
         left.add(list);
         left.add(delete);
         return left;
