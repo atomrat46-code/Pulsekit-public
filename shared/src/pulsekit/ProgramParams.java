@@ -415,6 +415,9 @@ public final class ProgramParams {
     // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
+    // DrumMidi --make-set: a drum set from the song's own drums (a clean hit of each drum cut out).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--make-set"))
+      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first";
     // DrumMidi's hit model: the built-in one (recordings from anywhere), or the one tuned on Ugritone kits' renders.
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--hit-model")) {
       p.label = "Hit model (kicks, snares and toms)";

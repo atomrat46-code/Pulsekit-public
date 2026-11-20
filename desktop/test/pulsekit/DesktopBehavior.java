@@ -9648,6 +9648,51 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 20112026_3: DrumMidi --make-set: a song's drums cut into a clean hit each (set.txt and WAVs beside the
+   * MIDI); its log line makes them a new drum set on the Pads page, named after the song, each drum on its
+   * pad (the others as Original), selected and saved. DrumMidi's Params have the option.
+   */
+  void s269_song_drum_set() throws Exception {
+    final Pulsekit app = (Pulsekit) frame;
+    StringBuilder out = new StringBuilder();
+    File dir = new File(System.getProperty("user.home"), "song-dm-set");
+    dir.mkdirs();
+    short[] kick = new short[44100 / 4], hat = new short[44100 / 8];
+    for (int i = 0; i < kick.length; i++) kick[i] = (short) (20000 * Math.sin(i * 2 * Math.PI * 60 / 44100.0) * Math.exp(-i / 4000.0));
+    java.util.Random r = new java.util.Random(3);
+    for (int i = 0; i < hat.length; i++) hat[i] = (short) (6000 * (r.nextDouble() * 2 - 1) * Math.exp(-i / 900.0));
+    Files.write(new File(dir, "kick.wav").toPath(), AudioIo.encodeWav(kick, 44100));
+    Files.write(new File(dir, "closed hat.wav").toPath(), AudioIo.encodeWav(hat, 44100));
+    Files.write(new File(dir, "set.txt").toPath(), ("# A drum set from Back in Black (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n"
+        + "36\tkick.wav\t120\t40\t0.25\n42\tclosed hat.wav\t300\t9\t0.12\n").getBytes(StandardCharsets.UTF_8));
+    int before = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.fromSong(app, "Wrote x.mid: ...\nDrum set from the song: " + dir.getAbsolutePath() + "\nSucceeded: x.mid");
+    idle();
+    Thread.sleep(300);
+    idle();
+    Engine.DrumSet s = app.drumSets.get(app.drumSets.size() - 1);
+    int k = 0, h = 5, sn = 2;
+    out.append("sets ").append(before).append(" -> ").append(app.drumSets.size()).append(", last ").append(s.name)
+        .append(", kick ").append(s.samples[k] == null ? "none" : s.samples[k].length).append(", closed hat ").append(s.samples[h] == null ? "none" : s.samples[h].length)
+        .append(", snare as Original ").append(s.matchOrig[sn]).append(", selected ").append(app.playback.drumSetIndex == app.drumSets.size() - 1)
+        .append(", saved ").append(new File(PadKits.setsDir(), DrumSetStore.INDEX).isFile() && new String(Files.readAllBytes(new File(PadKits.setsDir(), DrumSetStore.INDEX).toPath()), StandardCharsets.UTF_8).contains("Back in Black drums"))
+        .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // No set line: nothing added.
+    PadKits.fromSong(app, "Succeeded: y.mid");
+    idle();
+    out.append("without: ").append(app.drumSets.size()).append('\n');
+    String label = "";
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("DrumMidi_CRT.java"))) if (p.token.equals("--make-set")) label = p.label;
+    out.append("Params: ").append(label).append('\n');
+    this.out.append(out);
+    String o = out.toString();
+    boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
+        && o.contains("without: " + (before + 1)) && o.contains("Params: Make a drum set from the song's drums");
+    if (!ok) throw new AssertionError(o);
+  }
+
+  /**
    * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
    * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
    * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's

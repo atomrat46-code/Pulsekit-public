@@ -312,6 +312,46 @@ final class PadKits {
         return JOptionPane.showConfirmDialog(app, question, "Pulsekit", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION;
     }
 
+    /** What fromSong said last (for the tests). */
+    static volatile String lastSongSet;
+
+    /**
+     * DrumMidi --make-set's drum set (its log names the folder): read now (the run's folder may be a temporary
+     * one), then added as a new drum set named after the song, its drums on their pads and the other pads
+     * as Original; selected, saved.
+     */
+    static void fromSong(final Pulsekit app, String log) {
+        final java.io.File dir = SongDrumSet.folderIn(log);
+        if (dir == null) return;
+        final short[][] voices;
+        try {
+            voices = SongDrumSet.voices(dir, DrumPads.VOICE_RATE);
+        } catch (Exception ex) {
+            lastSongSet = "The song's drum set could not be read: " + ex.getMessage();
+            javax.swing.SwingUtilities.invokeLater(() -> app.setNow(lastSongSet));
+            return;
+        }
+        if (SongDrumSet.count(voices) == 0) return;
+        final String song = SongDrumSet.song(dir);
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            Engine.DrumSet s = Engine.DrumSet.isolated(null, Engine.uniqueSetName(song + " drums", app.drumSets));
+            DrumSetStore.fill(s, voices, "");
+            app.drumSets.add(s);
+            app.playback.drumSetIndex = app.drumSets.size() - 1;
+            app.playback.reloadDrumBank();
+            try {
+                DrumSetStore.save(setsDir(), app.drumSets);
+            } catch (Exception ex) {
+                Logs.error("Drum sets not saved", ex);
+            }
+            app.playback.refreshDrumSets();
+            StringBuilder pads = new StringBuilder();
+            for (int t = 0; t < voices.length; t++) if (voices[t] != null) pads.append(pads.length() == 0 ? "" : ", ").append(Engine.TRACK_LABEL[t]);
+            lastSongSet = "New drum set on the Pads page: " + s.name + " (" + pads + "; the other pads as Original)";
+            app.setNow(lastSongSet);
+        });
+    }
+
     void saveSets() {
         try {
             DrumSetStore.save(setsDir(), app.drumSets);

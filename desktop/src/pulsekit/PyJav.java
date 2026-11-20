@@ -898,6 +898,8 @@ final class PyJav {
             Logs.run(name, promptProg ? runArgv : argv, result.code, result.log, runStarted);
             // vst_render's test: its test beat's hits into the drum sound library.
             if ("vst_render.py".equals(name)) DrumLibraryWindow.fromRun(app, result.log);
+            // DrumMidi --make-set: the song's own drums as a new drum set on the Pads page.
+            PadKits.fromSong(app, result.log);
             javax.swing.SwingUtilities.invokeLater(() -> {
                 tick.stop();
                 RUNNING.remove(name, runShown);
