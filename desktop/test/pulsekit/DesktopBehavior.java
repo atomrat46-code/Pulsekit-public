@@ -11396,7 +11396,7 @@ public final class DesktopBehavior {
         && all.contains("second: suggestions 0") && all.contains("second Notes left out by the note map: 48 (C3), 50 (D3)")
         && all.contains("second Notes: 36 (C2), 42 (F#2), 46 (A#2), 49 (C#3), 51 (D#3) heard")
         && all.contains("only Notes: 49 (C#3), 51 (D#3) silent: looking for them on the plugin's other notes")
-        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
+        && all.contains("only Map suggestion: [DigiDrum Pro] 49=57 # A3 GM's own stand-in, cymbal-like") && all.contains("only Map suggestion: [DigiDrum Pro] 51=57 # A3 cymbal-like")
         && all.split("only Map suggestion").length == 3
         && all.contains("toms Map suggestion: [DigiDrum Pro] 45=41") && all.contains("toms Map suggestion: [DigiDrum Pro] 50=43") && all.split("toms Map suggestion").length == 5
         && all.contains("kit 1: None") && all.contains("kit 2: Kit check: the test beat sounds exactly as it did for \"DigiDrum:kit 1\"") && all.contains("kit 3: None")
