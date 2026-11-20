@@ -2195,7 +2195,11 @@ public class DrumMidi_CRT{
                     if (all > 0) none.add(d[1] + " (" + all + " hits, none apart from other drums)");
                     continue;
                 }
-                java.util.Collections.sort(cands, (p, q) -> p[0] != q[0] ? Double.compare(p[0], q[0]) : Double.compare(q[1], p[1]));
+                java.util.Collections.sort(cands, new Comparator<double[]>() {
+                    public int compare(double[] p, double[] q) {
+                        return p[0] != q[0] ? Double.compare(p[0], q[0]) : Double.compare(q[1], p[1]);
+                    }
+                });
                 int taken = 0;
                 for (double[] c : cands) {
                     if (taken >= keep) break;
