@@ -38,6 +38,9 @@ public final class MusicExpect {
     {"--drums_bass_guitar", "drums_bass_guitar", "drums, bass, guitar"},
     {"--drums_piano", "drums_piano", "drums, piano"},
     {"--drums_synth", "drums_synth", "drums, synth"},
+    // The whole band with its singer: drums asked for by name all the way through (a list of instruments in
+    // a prompt alone left the drums out of every track).
+    {"--full_band", "full_band", "drums, bass, guitar, synth, vocals"},
     // No drums: the instrument alone (its sound laid over drums whose MIDI is known, to test DrumMidi under it).
     {"--piano_only", "piano", "piano"},
     {"--synth_only", "synth", "synth"},
@@ -83,7 +86,7 @@ public final class MusicExpect {
     MusicExpect e = new MusicExpect();
     e.prompt = prompt;
     e.genre = genre;
-    e.lyrics = false;
+    e.lyrics = s.equals("full_band") && lyrics;
     e.bpm = bpm;
     e.duration = duration;
     e.timesig = timesig;
@@ -207,7 +210,8 @@ public final class MusicExpect {
       // track alone; its MIDI goes into SogniMusic's file sets and zip.
       // --drums-only (DrumMidi's Drum tracks only: a song with another instrument skipped) only for a drums-only
       // session's track: a drums & piano track would stop the chain.
-      if (a.equals("--drums-only") && listed && !drumsOnly) continue;
+      // (Also a track made from a prompt alone: a song with its band is not drums only.)
+      if (a.equals("--drums-only") && !drumsOnly) continue;
       if (CHAIN_DROPS.contains(a)) {
         if (!DrumMidiArgs.onOff(a) && !a.equals("--recursive") && !a.equals("--zip") && i + 1 < mine.size() && !mine.get(i + 1).startsWith("--")) i++;
         continue;

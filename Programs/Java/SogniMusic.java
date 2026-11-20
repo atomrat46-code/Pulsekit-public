@@ -40,7 +40,8 @@ import java.util.Map;
  *
  * Instrument sessions: --drums_only, --drums_bass, --drums_guitar, --drums_bass_guitar, --drums_piano and
  * --drums_synth each ask for those instruments alone, in a prompt written for them (a rhythm-section duo, a
- * power trio, drums with a piano, drums with a synthesizer). --piano_only, --synth_only, --bass_only and
+ * power trio, drums with a piano, drums with a synthesizer). --full_band asks for the whole band with its drums
+ * all the way through, and a lead singer for --lyrics (the one session that sings). --piano_only, --synth_only, --bass_only and
  * --guitar_only ask for that instrument with no drums at all: clean piano and synth sound to lay over drums whose MIDI is known
  * (tools/accomp_mix.py layers:<folder>), to test DrumMidi under a real instrument.
  * One is picked, unless --multi_session: then each one given is a track of its own in the same
@@ -242,7 +243,7 @@ public final class SogniMusic {
       else if (a.equals("--drums_only")) {
         drumsOnly = true;
         if (!sessions.contains("drums")) sessions.add("drums");
-      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar") || a.equals("--drums_piano") || a.equals("--drums_synth")) {
+      } else if (a.equals("--drums_bass") || a.equals("--drums_guitar") || a.equals("--drums_bass_guitar") || a.equals("--drums_piano") || a.equals("--drums_synth") || a.equals("--full_band")) {
         if (!sessions.contains(a.substring(2))) sessions.add(a.substring(2));
       } else if (a.equals("--piano_only") || a.equals("--synth_only") || a.equals("--bass_only") || a.equals("--guitar_only")) {
         String t = a.substring(2, a.length() - "_only".length());
@@ -275,7 +276,7 @@ public final class SogniMusic {
     }
     // The sessions in their own order (drums, drums_bass, drums_guitar, drums_bass_guitar, drums_piano, drums_synth).
     List<String> ordered = new ArrayList<String>();
-    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth", "piano", "synth", "bass", "guitar"}) if (sessions.contains(t)) ordered.add(t);
+    for (String t : new String[] {"drums", "drums_bass", "drums_guitar", "drums_bass_guitar", "drums_piano", "drums_synth", "full_band", "piano", "synth", "bass", "guitar"}) if (sessions.contains(t)) ordered.add(t);
     sessions = ordered;
     if (sessions.size() > 1 && !multiSession) {
       say("Failed: pick one instrument session (" + sessionSwitches(sessions) + "), or add --multi_session to make each a track of its own");
@@ -285,7 +286,8 @@ public final class SogniMusic {
       say("Failed: use " + (drumsOnly && sessions.size() == 1 ? "--drums_only" : "an instrument session") + " or --instruments, not both (for drums with other instruments: --instruments \"drums, bass\")");
       return 2;
     }
-    if (!sessions.isEmpty() && lyrics != null && lyrics.trim().length() > 0) {
+    // (Full band sings the lyrics: the one session with vocals.)
+    if (!sessions.isEmpty() && !(sessions.size() == 1 && sessions.get(0).equals("full_band")) && lyrics != null && lyrics.trim().length() > 0) {
       say("Failed: " + (drumsOnly && sessions.size() == 1 ? "--drums_only makes a track" : "an instrument session makes tracks") + " without vocals, so leave out --lyrics");
       return 2;
     }
@@ -302,7 +304,7 @@ public final class SogniMusic {
       return 2;
     }
     String userPrompt = prompt;
-    prompt = sessions.size() == 1 ? sessionPrompt(prompt, genre, sessions.get(0)) : musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
+    prompt = sessions.size() == 1 ? sessionPrompt(prompt, genre, sessions.get(0), lyrics != null && lyrics.trim().length() > 0) : musicPrompt(prompt, genre, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
     if (Double.isNaN(bpm) || Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
     if (keyscale != null && keyscale.trim().length() > 0) {
       String k = keyscale(keyscale);
@@ -565,7 +567,7 @@ public final class SogniMusic {
       // Each instrument session (--multi_session) a track of its own; one session, or none, as before.
       List<String> each = sessions.size() > 1 ? sessions : java.util.Collections.singletonList(sessions.size() == 1 ? sessions.get(0) : "");
       for (String session : each) {
-        String p = session.length() > 0 ? sessionPrompt(userPrompt, style, session) : musicPrompt(userPrompt, style, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
+        String p = session.length() > 0 ? sessionPrompt(userPrompt, style, session, lyrics != null && lyrics.trim().length() > 0) : musicPrompt(userPrompt, style, drumsOnly, instruments, lyrics != null && lyrics.trim().length() > 0);
         String tag = sessions.size() > 1 ? session : "";
         for (String m : models) {
           String end = (tag.length() > 0 ? "-" + tag : "") + (models.size() > 1 ? "-" + m : "");
@@ -775,7 +777,7 @@ public final class SogniMusic {
   }
 
   static void usage() {
-    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--piano_only] [--synth_only] [--bass_only] [--guitar_only] [--instruments list] [--bpm N] [--duration seconds] "
+    say("Usage: java SogniMusic [output.mp3] [--prompt text] [--genre style] [--saveprompt] [--multi_session] [--drums_only] [--drums_bass] [--drums_guitar] [--drums_bass_guitar] [--drums_piano] [--drums_synth] [--full_band] [--piano_only] [--synth_only] [--bass_only] [--guitar_only] [--instruments list] [--bpm N] [--duration seconds] "
         + "[--keyscale key] [--timesig 2|3|4|6] [--model turbo|sft|music3] [--compare_models turbo,sft,music3|all] [--compare_to_file_sets] [--no_compare] [--random N] [--styles list] [--seed N] [--zip] [--zip_delete] [--zip_by_session] [--lyrics text] [--key_file credentials.txt] [--no_filter] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--no_wav] [--test] [--vst] [--batchdir <folder>] [--outdir <folder>] [--zip_outdir <folder>]");
   }
 
@@ -965,7 +967,7 @@ public final class SogniMusic {
       String keyscale, int timesig, boolean confirm, double maxCost, boolean deleteFromSogni) throws Exception {
     List<String[]> jobs = new ArrayList<String[]>();
     for (String session : sessions) {
-      String p = sessionPrompt(userPrompt, genre, session);
+      String p = sessionPrompt(userPrompt, genre, session, false);
       say("Session " + session + ": " + p);
       for (String m : models) jobs.add(new String[] {session + (models.size() > 1 ? "-" + m : ""), m, p, genre});
     }
@@ -980,7 +982,13 @@ public final class SogniMusic {
    * negative prompt), and "drum and bass" (a genre) is never said for drums with bass.
    */
   static String sessionPrompt(String prompt, String genre, String session) {
+    return sessionPrompt(prompt, genre, session, false);
+  }
+
+  /** `sung`: Full band has lyrics to sing (a singer asked for), else it plays as an instrumental band. */
+  static String sessionPrompt(String prompt, String genre, String session, boolean sung) {
     if (session.equals("drums")) return musicPrompt(prompt, genre, true, null, false);
+    if (session.equals("full_band")) return fullBandPrompt(prompt, genre, sung);
     if (solo(session)) return soloPrompt(prompt, genre, session);
     String g = genre == null ? "" : genre.trim();
     String style = prompt == null ? "" : prompt.trim();
@@ -1008,6 +1016,22 @@ public final class SogniMusic {
       sb.append(". Kick drum, snare drum, hi-hat, toms and cymbals, a bass guitar line and one electric guitar. Just the three of them playing together, "
           + "dry studio recording, instrumental.");
     }
+    return sb.toString();
+  }
+
+  /**
+   * --full_band: the whole band, the drums named first and all the way through (a prompt listing instruments
+   * alone made tracks without drums), with a lead singer when there are lyrics.
+   */
+  static String fullBandPrompt(String prompt, String genre, boolean sung) {
+    String g = genre == null ? "" : genre.trim();
+    String style = prompt == null ? "" : prompt.trim();
+    StringBuilder sb = new StringBuilder(sung ? "Full band song with a lead singer" : "Full band instrumental");
+    if (g.length() > 0) sb.append(", ").append(g);
+    if (style.length() > 0) sb.append(", ").append(style);
+    sb.append(". A drummer on an acoustic drum kit plays the beat from start to end: kick drum, snare drum, hi-hat, toms, crash and ride cymbals, "
+        + "the drums loud and clear in the mix. With an electric bass guitar, electric guitars and a synthesizer");
+    sb.append(sung ? ", and lead vocals singing the lyrics." : ", instrumental.");
     return sb.toString();
   }
 
