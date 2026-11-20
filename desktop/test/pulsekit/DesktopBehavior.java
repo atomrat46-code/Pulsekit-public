@@ -10539,15 +10539,15 @@ public final class DesktopBehavior {
         && all.contains("packs added: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville], Speed Metal Drums=[], KVLT=[]}, picked KVLT")
         && all.contains("edited: {Tight Studio Drums=[A taste of Compression, Noob Metal 2, Ringy Studio Kit], Speed Metal Drums=[], KVLT=[], Total Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
         && all.contains("pack row: Tight Studio Drums (3)")
-        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums: ; Total Drums (3) -> Total Drums: ; | Ti: Tight Studio Drums (3) -> Tight Studio Drums: ; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums: Ringy Studio Kit; | empty: \n")
-        && all.contains("kits.txt: [Ugritone Drums] | Tight Studio Drums: KVLT_Mexico 1998 = KVLT_Mexico 1998 | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums: Noob Metal 2 | Tight Studio Drums: Noob Metal 2 = Tight Studio Drums: Noob Metal | -KVLT_Mexico 1998 | Total Drums: Kind of metal | Total Drums: Pop Hits | Total Drums: Smells like Nashville | Total Drums: Kind of metal = Total Studio Drums: Kind of metal | Total Drums: Pop Hits = Total Studio Drums: Pop Hits | Total Drums: Smells like Nashville = Total Studio Drums: Smells like Nashville | [Riot Drums] | Default kit | ")
+        && all.contains("suggest T: Tight Studio Drums (3) -> Tight Studio Drums:; Total Drums (3) -> Total Drums:; | Ti: Tight Studio Drums (3) -> Tight Studio Drums:; | Tig: | set: Ringy Studio Kit -> Tight Studio Drums:Ringy Studio Kit; | empty: \n")
+        && all.contains("kits.txt: [Ugritone Drums] | Tight Studio Drums:KVLT_Mexico 1998 = KVLT_Mexico 1998 | -Speed Metal Drums | Speed Metal Drums: | KVLT: | -Noob Metal | Tight Studio Drums:Noob Metal 2 | Tight Studio Drums:Noob Metal 2 = Tight Studio Drums:Noob Metal | -KVLT_Mexico 1998 | Total Drums:Kind of metal | Total Drums:Pop Hits | Total Drums:Smells like Nashville | Total Drums:Kind of metal = Total Studio Drums:Kind of metal | Total Drums:Pop Hits = Total Studio Drums:Pop Hits | Total Drums:Smells like Nashville = Total Studio Drums:Smells like Nashville | [Riot Drums] | Default kit | ")
         && all.contains("added: Total Studio Drums / Smells like Nashville")
         && all.contains("moved: {Tight Studio Drums=[A taste of Compression, KVLT_Mexico 1998, Noob Metal, Ringy Studio Kit], Total Studio Drums=[Kind of metal, Pop Hits, Smells like Nashville]}")
         && all.contains("menu: The plugin only (Kit loaded as before); Tight Studio Drums>; Total Drums>; ")
-        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums: Ringy Studio Kit")
+        && all.contains("used: C:/VST3/Ugritone Drums.vst3 / Tight Studio Drums:Ringy Studio Kit")
         && all.contains("packs: {Total Studio Drums=[Kind of metal, Pop Hits], Tight Studio Drums=[Noob Metal], (no pack)=[KVLT_Mexico 1998]}")
         && all.contains("Riot: {(no pack)=[Default kit]}") && all.contains("shown: pack Total Studio Drums, set Kind of metal, sets [Kind of metal, Pop Hits]")
-        && all.contains("chosen: Total Studio Drums: Pop Hits");
+        && all.contains("chosen: Total Studio Drums:Pop Hits");
     if (!ok) throw new AssertionError(all);
   }
 
