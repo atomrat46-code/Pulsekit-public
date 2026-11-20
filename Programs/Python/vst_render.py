@@ -1230,7 +1230,9 @@ def midi_notes(path, touch=False):
                 p += 2
             events.append(tick)
         i += 8 + size
-    tempos.sort()
+    # By tick only, the file's order kept: of several tempos at one tick the last is the one played (a
+    # Midikompit groove has 100, 120 and 130 at tick 0 and plays at 130); sorting by value too picked 100.
+    tempos.sort(key=lambda x: x[0])
 
     def seconds(tick):
         secs, at, us = 0.0, 0, 500000
@@ -1454,17 +1456,71 @@ def to_mp3(java, jar, wav, mp3, kbps):
 
 
 def file_tempo(path):
-    """The MIDI file's own (first) tempo in BPM, or None when it has none (it plays at 120)."""
+    """The MIDI file's own tempo in BPM (the one it starts at: of several at its first tempo's tick, the
+    last, as it is played), or None when it has none (it plays at 120)."""
+    marks = tempo_marks(path)
+    if not marks:
+        return None
+    first = marks[0][0]
+    us = [v for t, v in marks if t == first][-1]
+    return round(60000000.0 / us, 2) if us else None
+
+
+def tempo_marks(path):
+    """The MIDI file's tempo marks as (tick, microseconds a beat), by tick, the file's order kept within one."""
     try:
         with open(path, "rb") as f:
-            data = f.read()
+            d = f.read()
     except OSError:
-        return None
-    i = data.find(b"\xff\x51\x03")
-    if i < 0 or i + 6 > len(data):
-        return None
-    us = int.from_bytes(data[i + 3:i + 6], "big")
-    return round(60000000.0 / us, 2) if us else None
+        return []
+    if d[:4] != b"MThd":
+        return []
+    out, i = [], 8 + int.from_bytes(d[4:8], "big")
+    while i + 8 <= len(d):
+        size = int.from_bytes(d[i + 4:i + 8], "big")
+        if d[i:i + 4] == b"MTrk":
+            p, end, tick, run = i + 8, min(len(d), i + 8 + size), 0, 0
+            while p < end:
+                v = 0
+                while p < end:
+                    b = d[p]
+                    p += 1
+                    v = (v << 7) | (b & 0x7F)
+                    if b < 0x80:
+                        break
+                tick += v
+                if p >= end:
+                    break
+                st = d[p]
+                if st == 0xFF and p + 2 < end:
+                    ty, p = d[p + 1], p + 2
+                    n = 0
+                    while p < end:
+                        b = d[p]
+                        p += 1
+                        n = (n << 7) | (b & 0x7F)
+                        if b < 0x80:
+                            break
+                    if ty == 0x51 and n == 3 and p + 3 <= end:
+                        out.append((tick, int.from_bytes(d[p:p + 3], "big")))
+                    p += n
+                elif st in (0xF0, 0xF7):
+                    p += 1
+                    n = 0
+                    while p < end:
+                        b = d[p]
+                        p += 1
+                        n = (n << 7) | (b & 0x7F)
+                        if b < 0x80:
+                            break
+                    p += n
+                else:
+                    if st & 0x80:
+                        run, p = st, p + 1
+                    p += 1 if (run & 0xF0) in (0xC0, 0xD0) else 2
+        i += 8 + size
+    out.sort(key=lambda x: x[0])
+    return out
 
 
 def name_tempo(path, root=None):
