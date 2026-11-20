@@ -9696,12 +9696,19 @@ public final class DesktopBehavior {
       if (p.token.matches("--carla|--drumgizmo|--midimap|--state|--effect_state|--effect|--clap")) tabs.append(p.token).append('=').append(p.tab).append(' ');
     }
     out.append("--scan row: ").append(scan).append(" | ").append(tabs.toString().trim()).append('\n');
+    // setup_demucs.py in the Python menu (said not installed yet); not listed on a phone.
+    java.util.List<String> pyNames = java.util.Arrays.asList(ProgramFiles.list("Python"));
+    String onComputer = String.valueOf(AppSettings.programs(pyNames).contains("setup_demucs.py"));
+    AppSettings.onPhone = true;
+    String onPhone = String.valueOf(AppSettings.programs(pyNames).contains("setup_demucs.py"));
+    AppSettings.onPhone = false;
+    out.append("setup_demucs listed: computer ").append(onComputer).append(", phone ").append(onPhone).append(" |").append(ProgramMenus.setupSaid("setup_demucs.py")).append('\n');
     // A kit name tidied; a folder row's Browse opens where its folder is (its % codes left off).
     out.append("tidy: '").append(KitPacks.tidy(" SSD 5 Classic: Classic Rock ")).append("' | Browse at: ").append(PyJav.startFolder(new File(kit, "%n").getPath()).getName())
         .append(", ").append(PyJav.startFolder(new File(kit, "gone/deeper").getPath()).getName()).append('\n');
     this.out.append(out);
     String o = out.toString();
-    boolean ok = o.contains("tidy: 'SSD 5 Classic:Classic Rock' | Browse at: kit-sounds, kit-sounds") && o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
+    boolean ok = o.contains("setup_demucs listed: computer true, phone false |  (not installed yet: Demucs and Beat This!)") && o.contains("tidy: 'SSD 5 Classic:Classic Rock' | Browse at: kit-sounds, kit-sounds") && o.contains("before: [setup_demucs (2).py, setup_demucs.py]") && o.contains("after: [setup_demucs.py]")
         && o.contains("Add folder (All): Kick 01.wav=kick, Snare 2.wav=snare\n")
         && o.contains("--scan row: false | --carla=Files & locations --clap=Plugins --drumgizmo=Files & locations --midimap=Files & locations --state=Files & locations --effect=Plugins --effect_state=Files & locations");
     if (!ok) throw new AssertionError(o);

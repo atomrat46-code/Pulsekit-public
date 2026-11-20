@@ -409,9 +409,9 @@ public final class ProgramParams {
       p.hint = "each one's MIDI is <name>-dm.mid; a zip's files are unpacked beside it";
     }
     if (drumMidi && p.flag && p.token.equals("--recursive")) p.label = "Its subfolders too";
-    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with tools/setup_demucs.py run).
+    // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
-      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: python tools/setup_demucs.py once); without it, the whole song with fewer, less sure hits";
+      p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: setup_demucs.py in PyJav's Python menu, once); without it, the whole song with fewer, less sure hits";
     // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";

@@ -10,13 +10,13 @@ Demucs, soundfile and Beat This! (beat-this) into it, and fetches Demucs's htdem
 separating a second of silence and Beat This!'s model (77 MB). DrumMidi finds it there by itself. About 1-3 GB; a song then takes about half its length on a
 4-core processor, seconds with an NVIDIA graphics card (--gpu).
 
-  python tools/setup_demucs.py          PyTorch for the processor
-  python tools/setup_demucs.py --gpu    PyTorch for an NVIDIA graphics card (CUDA)
-  python tools/setup_demucs.py --dir D:\Tools\demucs    in that folder (a drive with room: 1-3 GB)
+  python setup_demucs.py          PyTorch for the processor
+  python setup_demucs.py --gpu    PyTorch for an NVIDIA graphics card (CUDA)
+  python setup_demucs.py --dir D:\Tools\demucs    in that folder (a drive with room: 1-3 GB)
 
 DrumMidi finds it by ~/.pulsekit/demucs.txt, which names the Python in it (written when the setup is done).
 
-In Pulsekit: PyJav, Browse file: setup_demucs.py, --gpu and/or --dir <folder> in the Arguments, Run. Its steps
+In Pulsekit: PyJav, Python menu: setup_demucs.py, --gpu and/or --dir <folder> in the Arguments, Run. Its steps
 show in Output as they go; the PyTorch download takes a few minutes (most with --gpu).
 
 Needs Python 3.9 or later and the internet. Run again to repair or update.

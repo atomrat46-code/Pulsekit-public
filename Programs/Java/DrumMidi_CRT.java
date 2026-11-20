@@ -1001,7 +1001,7 @@ public class DrumMidi_CRT{
             else if ("--no-toms".equals(opt)) writeToms = false;
             else if ("--no-hit-model".equals(opt)) hitModel = false;
             else if ("--drums-only".equals(opt)) drumsOnly = true;
-            // The drums separated from the song first (Demucs, on a computer: tools/setup_demucs.py), then told apart.
+            // The drums separated from the song first (Demucs, on a computer: setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
             // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
             else if ("--drum-stem".equals(opt)) drumStem = true;
@@ -1716,7 +1716,7 @@ public class DrumMidi_CRT{
     static boolean drumStem;
 
     /**
-     * Demucs (htdemucs, its drums stem) run in the Python that tools/setup_demucs.py set up (the one
+     * Demucs (htdemucs, its drums stem) run in the Python that setup_demucs.py set up (the one
      * ~/.pulsekit/demucs.txt names: its --dir; else ~/.pulsekit/demucs), else the one -Ddm.demucsPython or
      * PULSEKIT_DEMUCS names, else python3 or python
      * with demucs installed. On 80 human-played grooves under real piano and synth (Ugritone and Riot kits):
@@ -1818,7 +1818,7 @@ public class DrumMidi_CRT{
                     if (out != null) deleteTree(out);
                 }
             }
-            note(what + ": Demucs is not set up (on a computer: python tools/setup_demucs.py); the whole song is used");
+            note(what + ": Demucs is not set up (on a computer: setup_demucs.py in PyJav's Python menu); the whole song is used");
             return null;
         }
 
@@ -1832,7 +1832,7 @@ public class DrumMidi_CRT{
                     || System.getProperty("java.vm.name", "").toLowerCase(java.util.Locale.ROOT).contains("dalvik")) return null;
             File py = python();
             if (py == null) {
-                note("Beats: Beat This! is not set up (on a computer: python tools/setup_demucs.py); DrumAlong's own beat finder is used");
+                note("Beats: Beat This! is not set up (on a computer: setup_demucs.py in PyJav's Python menu); DrumAlong's own beat finder is used");
                 return null;
             }
             File wav = null;
@@ -1867,7 +1867,7 @@ public class DrumMidi_CRT{
                 if (code == 0 && beats != null && downs != null && beats.length >= 4) return new double[][] {beats, downs};
                 String tail = log.toString().trim();
                 if (tail.contains("No module named 'beat_this'") || tail.contains("No module named beat_this"))
-                    note("Beats: Beat This! is not installed (python tools/setup_demucs.py adds it); DrumAlong's own beat finder is used");
+                    note("Beats: Beat This! is not installed (setup_demucs.py in PyJav's Python menu adds it); DrumAlong's own beat finder is used");
                 else note("Beats: Beat This! failed (" + (tail.length() > 300 ? tail.substring(tail.length() - 300) : tail) + "); DrumAlong's own beat finder is used");
                 return null;
             } catch (Exception ex) {
