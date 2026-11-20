@@ -2701,6 +2701,67 @@ def note_list(notes):
     return ", ".join(out)
 
 
+# The test's drum notes check: each drum note the scores count, played alone this far apart.
+NOTES_CHECK_GAP = 0.8
+# The MIDI's notes found silent in the plugin: their hits are left out of the test's scores (no sound to find).
+SILENT_NOTES = set()
+# A warning when the cymbals sit this many dB (or more) under the kick: DrumMidi hears fewer of them.
+CYMBALS_QUIET_DB = 20.0
+NOTE_LABELS = {35: "kick 2", 36: "kick", 37: "side stick", 38: "snare", 39: "clap", 40: "snare 2", 41: "low floor tom", 42: "closed hat",
+               43: "floor tom", 44: "pedal hat", 45: "low tom", 46: "open hat", 47: "mid tom", 48: "high tom", 49: "crash", 50: "high tom 2",
+               51: "ride", 52: "china", 53: "ride bell", 55: "splash", 57: "crash 2", 59: "ride 2"}
+
+
+def drum_notes_check(chain, np, rate, nmap):
+    """The test's notes check: every drum note the scores count (FAMILIES'), played alone through the plugin
+    (its note map applied). Returns the report's lines and the notes silent in it (their hits are left out of
+    the scores: a missed hit there is no sound, not DrumMidi's miss). Also each part's level, with a warning
+    when the cymbals sit far under the kick (CYMBALS_QUIET_DB)."""
+    import tempfile
+    notes = sorted(set(n for _, ns in FAMILIES for n in ns if nmap.get(n, n) is not None))
+    folder = tempfile.mkdtemp(prefix="vst-notes-")
+    print("Working: the notes check (each drum note alone: which ones the plugin plays, and how loud)")
+    sys.stdout.flush()
+    # Each note in a render of its own (a crash still ringing would hide a quiet ride after it).
+    loud = {}
+    for n in notes:
+        midi = notes_midi(os.path.join(folder, "note-%d.mid" % n), [(0.2, n, 110)])
+        try:
+            audio, _, _ = chain.render(np, midi=midi, tail=NOTES_CHECK_GAP)
+        except ValueError as e:
+            return ["Notes check: it did not play (%s)" % e], set()
+        mono = np.max(np.abs(audio), axis=0) if audio.size else audio
+        loud[n] = float(np.max(mono[int(0.15 * rate):])) if mono.size > int(0.15 * rate) else 0.0
+    # Silent: under a thousandth of the loudest note (-60 dB); a quiet cymbal is still heard (its hits count).
+    peak = max(loud.values()) if loud else 0.0
+    level, heard, silent = {}, [], []
+    for n in notes:
+        if peak > 1e-6 and loud[n] > peak * 0.001:
+            heard.append(n)
+            level[n] = 20 * np.log10(loud[n])
+        else:
+            silent.append(n)
+    lines = []
+    if silent:
+        lines.append("Notes check: silent in this plugin: %s; their hits are left out of the scores (no sound to find; a note map can send them to "
+                     "the plugin's own notes)" % ", ".join("%d (%s)" % (n, NOTE_LABELS.get(n, "note")) for n in silent))
+    else:
+        lines.append("Notes check: every drum note plays")
+    def part(ns):
+        got = [level[n] for n in ns if n in level]
+        return max(got) if got else None
+    kick, snare = part((36, 35)), part((38, 40))
+    cym = [x for x in (part((42,)), part((46,)), part((51, 59)), part((49, 57))) if x is not None]
+    named = [("kick", kick), ("snare", snare), ("closed hat", part((42,))), ("open hat", part((46,))), ("ride", part((51, 59))), ("crash", part((49, 57)))]
+    lines.append("Levels (each alone, dB): " + ", ".join("%s %.0f" % (k, v) for k, v in named if v is not None))
+    if kick is not None and cym:
+        gap = kick - sorted(cym)[len(cym) // 2]
+        if gap >= CYMBALS_QUIET_DB:
+            lines.append("Warning: the cymbals sit %.0f dB under the kick (most kits: 8 to 15 dB), so DrumMidi hears fewer of them (missed rides, "
+                         "extra closed hats). Raise the cymbals or overheads in the plugin's mixer (Edit settings)." % gap)
+    return lines, set(silent)
+
+
 # The note sweep for a plugin silent for the GM drum notes: every note from SWEEP_LOW to SWEEP_HIGH alone.
 SWEEP_LOW, SWEEP_HIGH, SWEEP_STEP = 24, 96, 0.3
 
@@ -5729,6 +5790,14 @@ def main(argv):
             choke_lines = ["Chokes from %s: %s" % (choke_from, chokes_text(pairs))] + choke_beat(chain, np, rate, bits, opts, kit_file, pairs)
             for line in choke_lines:
                 print(line)
+        # The notes check: which drum notes the plugin plays (the silent ones left out of the scores), and how loud.
+        SILENT_NOTES.clear()
+        if test and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
+            note_lines, quiet = drum_notes_check(chain, np, rate, nmap)
+            SILENT_NOTES.update(quiet)
+            for line in note_lines:
+                print(line)
+            choke_lines = list(choke_lines) + note_lines
         # The cymbal check: the crashes and rides, each struck alone and with a kick, as the songs play them.
         if test and "--no-cymbal-check" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
             extra = (["--no-toms"] if "--no-toms" in switches else []) + (["--snare-leak"] if "--snare-leak" in switches else []) + (["--faded-opens"] if "--faded-opens" in switches else [])
@@ -5881,6 +5950,8 @@ def main(argv):
         cymbals = [[0] * (len(CYMBAL_KINDS) + 1) for _ in CYMBAL_KINDS]
         cymbal_extra = [0] * len(CYMBAL_KINDS)
         tested = 0
+        # The played hits of notes silent in the plugin (the notes check), left out of the scores.
+        left_out = [0]
         kept_dm = KeptLog("DrumMidi MIDI files", len(batch_done))
         # --compare_kits: DrumMidi again on each render with the other profiles (their MIDI files in a temporary folder).
         compare = []
@@ -5914,6 +5985,9 @@ def main(argv):
                 print("Tested %d of %d: %s: %s" % (tested, len(batch_done), name, found))
                 continue
             length, played = midi_notes(at_tempo(m))
+            if SILENT_NOTES:
+                left_out[0] += sum(1 for t, n in played if n in SILENT_NOTES)
+                played = [(t, n) for t, n in played if n not in SILENT_NOTES]
             played = mapped(played, nmap)
             if no_toms:
                 played = [(t, n) for t, n in played if n not in TOMS]
@@ -5966,6 +6040,9 @@ def main(argv):
         if total:
             report.append("")
             report.append("All: " + score_line([(fam, total[fam][0], total[fam][1], total[fam][2]) for fam, notes in FAMILIES if fam in total]))
+            if left_out[0]:
+                report.append("Left out of the scores: %d played hit%s of notes silent in this plugin (%s)"
+                              % (left_out[0], "" if left_out[0] == 1 else "s", ", ".join(str(n) for n in sorted(SILENT_NOTES))))
             if any(sum(r) for r in cymbals) or any(cymbal_extra):
                 report.append("")
                 report.extend(breakdown_text(cymbals, cymbal_extra))
