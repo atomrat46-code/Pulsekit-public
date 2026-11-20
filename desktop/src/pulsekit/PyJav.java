@@ -5836,7 +5836,8 @@ final class PyJav {
         for (int i = 0; i < ps.size() && i < fields.length; i++) if (ps.get(i).token.equals(kitToken) && fields[i] != null) row = i;
         if (row < 0) return;
         JTextField field = fields[row];
-        java.util.List<String> kits = VstLists.kitsFor(path);
+        // Its own kits only: a name also given with another plugin was left on a row from that one.
+        java.util.List<String> kits = VstLists.kitsOnlyFor(path);
         String now = field.getText().trim();
         String plug = plugName(path).replaceAll("\\.(?i:vst3|dll|clap|lv2|so|component)$", "");
         if (kits.isEmpty()) {

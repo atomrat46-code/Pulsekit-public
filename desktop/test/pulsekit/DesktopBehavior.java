@@ -10582,6 +10582,11 @@ public final class DesktopBehavior {
       app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/Ugritone Drums.vst3");
       out.append("Ugritone, No, one of its own: '").append(fields[one].getText()).append("'\n");
       PyJav.kitAskYes = null;
+      // A kit name left on the row from Ugritone, run with SSD5: not SSD5's kit, so cleared.
+      VstLists.rememberKits("--plugin \"C:/VST3/SSDSampler5.dll\" --kit_name \"KVLT_Mexico 1998\"");
+      fields[one].setText("KVLT_Mexico 1998");
+      app.pyJav.kitForPlugin(null, "--plugin", "C:/VST3/SSDSampler5.dll");
+      out.append("SSD5 (Ugritone's kit name left): '").append(fields[one].getText()).append("'\n");
       app.pyJav.kitForPlugin(null, "--plugin3", "C:/VST3/Fresh Drums.vst3");
       out.append("Fresh (no kit row field): ok\n");
     });
@@ -10589,7 +10594,7 @@ public final class DesktopBehavior {
     boolean ok = all.contains("Riot (saved kit only): ''") && all.contains("Anarchy (one kit): 'Anarchy_default kit'") && all.contains("avldrums (vst_render's list): 'Black Pearl'")
         && all.contains("Ugritone, Yes: 'Tight Studio Drums: Noob Metal' | asked: Ugritone Drums has 2 kits named for it before: / Tight Studio Drums: Noob Metal, KVLT_Mexico 1998")
         && all.contains("Is the most recently used, Tight Studio Drums: Noob Metal, the kit loaded in it now?")
-        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok");
+        && all.contains("Ugritone, No: ''") && all.contains("Ugritone, No, one of its own: 'KVLT_Mexico 1998'") && all.contains("Fresh (no kit row field): ok") && all.contains("SSD5 (Ugritone's kit name left): ''");
     if (!ok) throw new AssertionError(all);
   }
 
