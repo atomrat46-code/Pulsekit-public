@@ -9785,7 +9785,9 @@ public final class DesktopBehavior {
   /**
    * 21112026: silent notes waited for: Edit settings keeps the plugin's longest Stop timer time (a shorter one
    * later keeps it); a crash silent at first (the kit still loading) is played again for up to that long and
-   * counts as heard; one silent all along is said silent after waiting.
+   * counts as heard; one silent all along is said silent after waiting. A test's start: a note the kit played
+   * before (Test, an earlier run) silent now stops the run; with several plugins each is checked first
+   * (--preflight), so one not right stops the run before anything is rendered.
    */
   void s270_silent_notes_wait() throws Exception {
     File home = new File(System.getProperty("user.home"));
@@ -9793,13 +9795,18 @@ public final class DesktopBehavior {
     Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
     File flow = new File(System.getProperty("pulsekit.test.dir"), "py/vst_silent_wait.py");
     java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
-    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
-    String got = PythonRun.runFor(cmd, 300, null).trim();
+    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath(),
+        new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath()));
+    String got = PythonRun.runFor(cmd, 600, null).trim();
     this.out.append(got).append('\n');
     boolean ok = got.contains("longest: 40")
         && got.contains("loading: silent [] | Notes check: 49 silent at first; all heard after 10 s (waited at most 40 s")
         && got.contains("never: silent [49] | Notes check: 49 silent at first; none heard, 49 still silent after 40 s")
-        && got.contains("Notes check: silent in this plugin: 49 (crash)");
+        && got.contains("Notes check: silent in this plugin: 49 (crash)")
+        && got.contains("new kit: Preflight: SSDSampler5.dll ready | heard kept: 49 in it False")
+        && got.contains("crash played before: Failed: SSDSampler5.dll: 49 (C#3) silent now, though this kit played it before")
+        && got.contains("two plugins: == Preflight 1 of 2: Other Drums.vst3 | Preflight: Other Drums.vst3 ready | == Preflight 2 of 2: SSDSampler5.dll | Failed: preflight: SSDSampler5.dll not ready (above), so nothing was rendered")
+        && got.contains("| rendered False");
     if (!ok) throw new AssertionError(got);
   }
 

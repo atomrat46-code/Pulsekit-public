@@ -39,3 +39,39 @@ for loads, name in ((2, 'loading'), (10 ** 6, 'never')):
     with contextlib.redirect_stdout(buf):
         lines, silent = vr.drum_notes_check(Chain(loads), np, R, {})
     print('%s: silent %s | %s' % (name, sorted(silent), ' | '.join(l for l in lines if 'silent' in l)))
+# The preflight (a test's start): a crash silent all along stops the run when this kit played it before
+# (Test or an earlier run), and not when it never did (a kit without one).
+JAR = sys.argv[3] if len(sys.argv) > 3 else ''
+class Plugin(Chain):
+    def __init__(self, daw, rate, opts, switches):
+        Chain.__init__(self, 10 ** 6)
+        self.fx = None
+        self.load_limit = 0.0
+        self.load_measured = False
+        self.longest_load = 0.0
+    def latency(self): return 0
+vr.Chain = Plugin
+vr.WARM_PAUSE = 0
+os.makedirs(plug, exist_ok=True)
+def pre(kit):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        song = vr.notes_midi(os.path.join(sys.argv[2], 'song.mid'), [(0.2, 36, 100), (0.7, 38, 100)])
+        try: vr.main([song, '--plugin', plug, '--test', '--preflight', '--kit_name', kit, '--drummidi', JAR, '--no-cymbal-check'])
+        except SystemExit: pass
+    return [l for l in buf.getvalue().splitlines() if l.startswith(('Preflight', 'Failed'))]
+vr.CURRENT_KIT[0] = 'No Crash'
+print('new kit: %s | heard kept: 49 in it %s' % (' | '.join(pre('No Crash')), 49 in vr.heard_before(plug)))
+vr.CURRENT_KIT[0] = 'Rock'
+vr.note_heard(plug, [36, 38, 49])
+print('crash played before: %s' % ' | '.join(pre('Rock')))
+# Two plugins: the second's kit (Rock) played the crash before: the preflight stops the run, nothing rendered.
+plug2 = os.path.join(sys.argv[2], 'Other Drums.vst3'); os.makedirs(plug2, exist_ok=True)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    song = vr.notes_midi(os.path.join(sys.argv[2], 'song.mid'), [(0.2, 36, 100), (0.7, 38, 100)])
+    try: vr.main([song, '--plugin', plug2, '--kit_name', 'Fine', '--plugin2', plug, '--kit_name2', 'Rock', '--test', '--drummidi', JAR, '--no-cymbal-check'])
+    except SystemExit: pass
+out = buf.getvalue()
+print('two plugins: %s | rendered %s' % (' | '.join(l for l in out.splitlines() if l.startswith(('== Preflight', 'Preflight', 'Failed: preflight'))),
+                                         any(f.endswith('.wav') and 'song' in f for f in os.listdir(sys.argv[2]))))

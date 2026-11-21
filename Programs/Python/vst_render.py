@@ -2432,6 +2432,33 @@ def note_longest_load(plugin, took):
         f.write("%.1f\n" % took)
 
 
+def heard_path(plugin):
+    """The notes this kit has played before (Test's beat, a run's notes check): "<kit settings>.heard"."""
+    return (kit_state(plugin) or plugin_state(plugin)) + ".heard"
+
+
+def heard_before(plugin):
+    """The notes the kit (this run's --kit_name) played in an earlier Test or run: a set, empty when none."""
+    try:
+        with open(heard_path(plugin)) as f:
+            return set(int(x) for x in f.read().split())
+    except (OSError, ValueError):
+        return set()
+
+
+def note_heard(plugin, notes):
+    """The notes heard now added to the kit's (heard_before)."""
+    got = heard_before(plugin) | set(int(n) for n in notes)
+    path = heard_path(plugin)
+    try:
+        if not os.path.isdir(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path))
+        with open(path, "w") as f:
+            f.write(" ".join(str(n) for n in sorted(got)) + "\n")
+    except OSError:
+        pass
+
+
 def silent_wait(chain):
     """How long silent notes are waited for (the kit still loading): the longest of the kit's load time and the
     plugin's longest Stop timer time; 0 for a plugin without either (Pads sets, SoundFonts)."""
@@ -5452,7 +5479,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--preflight"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -5540,6 +5567,23 @@ def main(argv):
             fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
         runs = plugin_runs(argv, opts)
         done = []
+        # A test of several plugins: each checked first (it plays, its notes as before, the longest load
+        # time waited), so a plugin that is not right stops the run now, not hours on at its turn.
+        if "--test" in switches and len(runs) > 1 and "--preflight" not in switches:
+            bad = []
+            for k, (plug, one) in enumerate(runs):
+                print("== Preflight %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
+                sys.stdout.flush()
+                try:
+                    main(one + ["--preflight"])
+                except SystemExit as e:
+                    if e.code:
+                        bad.append(os.path.basename(os.path.normpath(plug)))
+                print("")
+            if bad:
+                fail("preflight: %s not ready (above), so nothing was rendered; fix it, or untick its Use, and run again" % ", ".join(bad))
+            print("Preflight: all %d plugins ready; the run starts" % len(runs))
+            print("")
         for k, (plug, one) in enumerate(runs):
             print("== Plugin %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
             try:
@@ -5889,6 +5933,9 @@ def main(argv):
                     heard, silent, check_audio = h2, s2, again
             print("Notes: %s after %.0f s (waited at most %.0f s, the longest kit load time measured for the plugin)" % (
                 "all heard" if not silent else "%s still silent" % named_list(silent), waited, wait_max))
+        # The notes this kit plays, kept: a later run with one of them silent stops before its renders.
+        if heard and not gizmo:
+            note_heard(opts.get("--bridged") or opts["--clap"] or plugin or name, heard)
         if off:
             print("Notes left out by the note map: %s" % named_list(off))
         if silent:
@@ -5992,6 +6039,22 @@ def main(argv):
             for line in note_lines:
                 print(line)
             choke_lines = list(choke_lines) + note_lines
+            # A note this kit played before (Test, an earlier run) silent now, after the wait: the kit did not
+            # load as it did (or its settings changed): the run stops here, before hours of renders without it.
+            kit_key = opts.get("--bridged") or opts["--clap"] or plugin or name
+            before = heard_before(kit_key)
+            lost = sorted(set(quiet) & before)
+            if lost:
+                fail("%s: %s silent now, though this kit played %s before (Test or an earlier run): the kit did not load as it did "
+                     "(wait for it in Edit settings and press Stop timer when it has loaded, then Test it), so the run stopped before its renders"
+                     % (os.path.basename(os.path.normpath(name)), named_list(lost), "it" if len(lost) == 1 else "them"))
+            played = [n for n in sorted(set(n for _, ns in FAMILIES for n in ns if nmap.get(n, n) is not None)) if n not in quiet]
+            note_heard(kit_key, played)
+        # --preflight: the plugin checked (it plays, its notes as before), nothing rendered: a run of several
+        # plugins checks them all first, so one that is not right stops it at the start, not hours on.
+        if "--preflight" in switches:
+            print("Preflight: %s ready" % os.path.basename(os.path.normpath(name)))
+            return
         # The cymbal check: the crashes and rides, each struck alone and with a kick, as the songs play them.
         if test and "--no-cymbal-check" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
             extra = (["--no-toms"] if "--no-toms" in switches else []) + (["--snare-leak"] if "--snare-leak" in switches else []) + (["--faded-opens"] if "--faded-opens" in switches else [])
