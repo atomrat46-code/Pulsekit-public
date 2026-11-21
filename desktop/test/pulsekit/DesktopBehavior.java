@@ -9783,6 +9783,27 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 21112026: silent notes waited for: Edit settings keeps the plugin's longest Stop timer time (a shorter one
+   * later keeps it); a crash silent at first (the kit still loading) is played again for up to that long and
+   * counts as heard; one silent all along is said silent after waiting.
+   */
+  void s270_silent_notes_wait() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File flow = new File(System.getProperty("pulsekit.test.dir"), "py/vst_silent_wait.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath()));
+    String got = PythonRun.runFor(cmd, 300, null).trim();
+    this.out.append(got).append('\n');
+    boolean ok = got.contains("longest: 40")
+        && got.contains("loading: silent [] | Notes check: 49 silent at first; all heard after 10 s (waited at most 40 s")
+        && got.contains("never: silent [49] | Notes check: 49 silent at first; none heard, 49 still silent after 40 s")
+        && got.contains("Notes check: silent in this plugin: 49 (crash)");
+    if (!ok) throw new AssertionError(got);
+  }
+
+  /**
    * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
    * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
    * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's

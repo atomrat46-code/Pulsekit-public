@@ -679,6 +679,8 @@ def carla_edit(path, rack):
         fail("the project %s has no plugin now: open %s in Carla, save the project with it and try again" % (project, os.path.basename(path)))
     with open(os.path.splitext(state_home(path))[0] + ".state.load", "w") as f:
         f.write("%.1f\n" % took)
+    if stopped:
+        note_longest_load(path, took)
     print("Wrote Plugin settings: %s (Carla project)" % project)
     print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if stopped else "until Carla closed"))
     return project
@@ -2391,6 +2393,8 @@ def edit(proc, plugin, given, label):
     print("Wrote %s settings: %s" % (label, path))
     with open(path + ".load", "w") as f:
         f.write("%.1f\n" % took)
+    if timer["stopped"]:
+        note_longest_load(plugin, took)
     # The kit's settings are the plugin's last too (a row without a kit name plays them).
     if not given and path != plugin_state(plugin):
         import shutil
@@ -2405,6 +2409,33 @@ WINDOW_SHUT = 1.5
 
 # Without a kit load time (Edit settings' timer), a test waits at most this long for a slow kit.
 LOAD_WAIT = 30.0
+
+
+def longest_load(plugin):
+    """The longest kit load time measured with Stop timer for this plugin, any kit (0 when none): a kit's own
+    load time can be short of it (a kit saved before its timer, a slow day), so silent notes wait this long."""
+    try:
+        with open(plugin_state(plugin) + ".load-max") as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def note_longest_load(plugin, took):
+    """Stop timer's load time kept as the plugin's longest when it is longer (<plugin>.state.load-max)."""
+    if took <= longest_load(plugin):
+        return
+    path = plugin_state(plugin) + ".load-max"
+    if not os.path.isdir(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+    with open(path, "w") as f:
+        f.write("%.1f\n" % took)
+
+
+def silent_wait(chain):
+    """How long silent notes are waited for (the kit still loading): the longest of the kit's load time and the
+    plugin's longest Stop timer time; 0 for a plugin without either (Pads sets, SoundFonts)."""
+    return max(getattr(chain, "load_limit", 0.0) if getattr(chain, "load_measured", False) else 0.0, getattr(chain, "longest_load", 0.0))
 
 
 def load_limit(plugin, given):
@@ -2814,16 +2845,46 @@ def drum_notes_check(chain, np, rate, nmap):
     sys.stdout.flush()
     # Each note in a render of its own (a crash still ringing would hide a quiet ride after it).
     loud = {}
-    for n in notes:
+
+    def measure(n):
         midi = notes_midi(os.path.join(folder, "note-%d.mid" % n), [(0.2, n, 110)])
-        try:
-            audio, _, _ = chain.render(np, midi=midi, tail=NOTES_CHECK_GAP)
-        except ValueError as e:
-            return ["Notes check: it did not play (%s)" % e], set()
+        audio, _, _ = chain.render(np, midi=midi, tail=NOTES_CHECK_GAP)
         mono = np.max(np.abs(audio), axis=0) if audio.size else audio
         loud[n] = float(np.max(mono[int(0.15 * rate):])) if mono.size > int(0.15 * rate) else 0.0
+
+    for n in notes:
+        try:
+            measure(n)
+        except ValueError as e:
+            return ["Notes check: it did not play (%s)" % e], set()
     # Silent: under a thousandth of the loudest note (-60 dB); a quiet cymbal is still heard (its hits count).
     peak = max(loud.values()) if loud else 0.0
+    # Some silent: maybe the kit is still loading (SSD5's crashes and a tom, once): played again every 5 s for up to
+    # the longest load time measured for the plugin, before they count as silent.
+    first = [n for n in notes if not (peak > 1e-6 and loud[n] > peak * 0.001)]
+    limit = silent_wait(chain)
+    early = []
+    if first and peak > 1e-6 and limit > 0:
+        import time
+        waited = 0.0
+        quiet = list(first)
+        print("Notes check: %s silent at first (the kit still loading?): played again every 5 s, for up to %.0f s" % (
+            ", ".join(str(n) for n in quiet), limit))
+        sys.stdout.flush()
+        while quiet and waited < limit and not STOP["asked"]:
+            step = min(5.0, limit - waited)
+            time.sleep(step)
+            waited += step
+            for n in quiet:
+                try:
+                    measure(n)
+                except ValueError:
+                    pass
+            quiet = [n for n in quiet if not loud[n] > peak * 0.001]
+        late = [n for n in first if n not in quiet]
+        early.append("Notes check: %s silent at first; %s after %.0f s (waited at most %.0f s, the longest kit load time measured for the plugin)" % (
+            ", ".join(str(n) for n in first), "all heard" if not quiet else ("%s heard, %s still silent" % (", ".join(str(n) for n in late) or "none", ", ".join(str(n) for n in quiet))),
+            waited, limit))
     level, heard, silent = {}, [], []
     for n in notes:
         if peak > 1e-6 and loud[n] > peak * 0.001:
@@ -2831,7 +2892,7 @@ def drum_notes_check(chain, np, rate, nmap):
             level[n] = 20 * np.log10(loud[n])
         else:
             silent.append(n)
-    lines = []
+    lines = list(early)
     if silent:
         lines.append("Notes check: silent in this plugin: %s; their hits are left out of the scores (no sound to find; a note map can send them to "
                      "the plugin's own notes)" % ", ".join("%d (%s)" % (n, NOTE_LABELS.get(n, "note")) for n in silent))
@@ -3604,6 +3665,9 @@ class Chain(object):
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
         # How long a test waits for a slow kit (the load time Edit settings measured).
         self.load_limit = load_limit(clap or self.plugin, opts["--state"])
+        self.load_measured = self.load_limit != LOAD_WAIT
+        # The plugin's longest Stop timer time (any kit): silent notes are waited for at least this long.
+        self.longest_load = longest_load(clap or self.plugin)
         self.fx = None
         effect = opts["--effect"]
         if effect:
@@ -5801,6 +5865,30 @@ def main(argv):
         # Notes the note map leaves out (=none) are silent on purpose.
         off = [n for n in silent if chain.note_map and n in chain.note_map and chain.note_map[n] is None]
         silent = [n for n in silent if n not in off]
+        # Some notes silent: maybe the kit is still loading (SSD5's crashes and a tom, once): the test beat again
+        # every 5 s for up to the plugin's longest load time measured, before they count as silent.
+        wait_max = silent_wait(chain)
+        if silent and wait_max > 0 and not gizmo:
+            import time
+            first_silent = list(silent)
+            waited = 0.0
+            print("Notes: %s silent at first (the kit still loading?): the test beat again every 5 s, for up to %.0f s" % (named_list(first_silent), wait_max))
+            sys.stdout.flush()
+            while silent and waited < wait_max and not STOP["asked"]:
+                step = min(5.0, wait_max - waited)
+                time.sleep(step)
+                waited += step
+                try:
+                    again, _, _ = chain.render(np, midi=beat, tail=1.0)
+                except ValueError:
+                    break
+                again, again_note = finish(np, again, volume)
+                h2, s2 = notes_heard(np, again, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
+                s2 = [n for n in s2 if n not in off]
+                if len(s2) < len(silent):
+                    heard, silent, check_audio = h2, s2, again
+            print("Notes: %s after %.0f s (waited at most %.0f s, the longest kit load time measured for the plugin)" % (
+                "all heard" if not silent else "%s still silent" % named_list(silent), waited, wait_max))
         if off:
             print("Notes left out by the note map: %s" % named_list(off))
         if silent:
