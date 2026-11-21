@@ -916,7 +916,9 @@ public class DrumMidi_CRT{
             }
             File dir = new File(args[1]).getAbsoluteFile();
             File out = args.length > 2 ? new File(args[2]).getAbsoluteFile() : new File(dir, dir.getName() + " combined-set");
-            String said = SetMaker.combine(SetMaker.setsIn(dir, out), out, dir.getName());
+            // Named after the folder it is written to ("Doom combined-set" is Doom), else the songs' folder.
+            String named = out.getName().replaceAll("(?i)[ _-]*(combined)?[ _-]*set$", "").trim();
+            String said = SetMaker.combine(SetMaker.setsIn(dir, out), out, named.isEmpty() ? dir.getName() : named);
             finish(said.startsWith("Drum set") ? "Succeeded: " + said : "Failed: " + said);
             return;
         }

@@ -1969,7 +1969,7 @@ final class MediaBrowser {
         box.addView(note);
         LinearLayout types = this.app.row();
         final String[] picked = {this.searchType};
-        final String[][] kinds = {{"A", "All"}, {"I", "Pictures"}, {"V", "Videos"}, {"S", "Sounds"}, {"T", "Text"}, {"O", "Other"}};
+        final String[][] kinds = {{"A", "All"}, {"I", "Pictures"}, {"V", "Videos"}, {"S", "Sounds"}, {"T", "Text"}, {"Z", "Zips"}, {"O", "Other"}};
         final List<TextView> pills = new ArrayList<TextView>();
         for (final String[] k : kinds) {
             TextView pill = this.app.pill(k[1], k[0].equals(picked[0]), null);

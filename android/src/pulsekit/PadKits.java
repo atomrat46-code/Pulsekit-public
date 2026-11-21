@@ -168,7 +168,13 @@ final class PadKits {
             intent.setType("*/*");
             app.startActivityForResult(intent, PICK);
         };
-        MediaBrowser.chooseFor(app, "pads-zip", (name, file) -> this.addedZip(file, name), system);
+        // The browser on Z (zips), as it was again once one is picked.
+        final String was = MediaDir.filter;
+        MediaDir.filter = "Z";
+        MediaBrowser.chooseFor(app, "pads-zip", (name, file) -> {
+            MediaDir.filter = was;
+            this.addedZip(file, name);
+        }, system);
     }
 
     /**
@@ -192,20 +198,25 @@ final class PadKits {
                     this.added(file, name);
                     return;
                 }
+                // A combined set (the best of the songs' sets) is taken at once, named after the zip; one set alone too.
+                if (zipPick == null && SongDrumSet.isCombined(sets.get(0))) {
+                    this.fromFolder(sets.get(0), SongDrumSet.zipName(name));
+                    return;
+                }
                 if (sets.size() == 1 || zipPick != null) {
-                    this.fromFolder(sets.get(zipPick == null ? 0 : Math.max(0, Math.min(sets.size() - 1, zipPick))));
+                    this.fromFolder(sets.get(zipPick == null ? 0 : Math.max(0, Math.min(sets.size() - 1, zipPick))), null);
                     return;
                 }
                 String[] names = new String[sets.size()];
                 for (int i = 0; i < names.length; i++) names[i] = SongDrumSet.song(sets.get(i)) + (SongDrumSet.isCombined(sets.get(i)) ? " (combined)" : "");
-                lastDialog = new AlertDialog.Builder(app).setTitle(name + ": which drum set?").setItems(names, (d, w) -> this.fromFolder(sets.get(w)))
+                lastDialog = new AlertDialog.Builder(app).setTitle(name + ": which drum set?").setItems(names, (d, w) -> this.fromFolder(sets.get(w), null))
                     .setNegativeButton("Cancel", null).show();
             });
         }, "pulsekit-zip-read").start();
     }
 
     /** A song's drum set folder (set.txt and its WAVs): a new drum set named after the song, selected and saved. */
-    void fromFolder(final File dir) {
+    void fromFolder(final File dir, final String named) {
         new Thread(() -> {
             final short[][] voices;
             try {
@@ -215,7 +226,7 @@ final class PadKits {
                 app.handler.post(() -> Toast.makeText(app, lastZipSet, Toast.LENGTH_LONG).show());
                 return;
             }
-            final String song = SongDrumSet.song(dir);
+            final String song = named != null ? named : SongDrumSet.song(dir);
             app.handler.post(() -> {
                 if (SongDrumSet.count(voices) == 0) {
                     lastZipSet = "No drum in " + song + "'s set has a sound";

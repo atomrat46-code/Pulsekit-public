@@ -9754,6 +9754,15 @@ public final class DesktopBehavior {
     idle();
     PadKits.zipPick = null;
     out.append("from zip: sets ").append(app.drumSets.size() - beforeZip).append(" | ").append(PadKits.lastSongSet).append('\n');
+    // 21112026: a zip with a combined set: taken at once (not asked), named after the zip; zips under Z.
+    int beforeAuto = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.zipFile = zip;
+    edt(() -> zpb.kits.addZip());
+    for (int i = 0; i < 200 && (PadKits.lastSongSet == null || app.drumSets.size() == beforeAuto); i++) Thread.sleep(50);
+    idle();
+    out.append("combined at once: sets ").append(app.drumSets.size() - beforeAuto).append(" | ").append(PadKits.lastSongSet)
+        .append(" | Z: ").append(MediaDir.filterOf("Doom drum sets.zip")).append(" ").append(java.util.Arrays.asList(MediaDir.FILTERS)).append('\n');
     // No set line: nothing added.
     PadKits.fromSong(app, "Succeeded: y.mid");
     idle();
@@ -9767,7 +9776,9 @@ public final class DesktopBehavior {
         && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
         && o.contains("combined: Succeeded: Drum set combined from 2 songs: kick x2 (song2), closed hat (song) | New drum set on the Pads page: combo drums (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
         && o.contains("from zip: sets 1 | New drum set on the Pads page: combo drums 2 (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
-        && o.contains("without: " + (before + 4)) && o.contains("Params: Make a drum set from the song's drums");
+        && o.contains("combined at once: sets 1 | New drum set on the Pads page: combo drums 3 (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("| Z: Z [A, I, V, S, T, Z, O, F, G]")
+        && o.contains("without: " + (before + 5)) && o.contains("Params: Make a drum set from the song's drums");
     if (!ok) throw new AssertionError(o);
   }
 

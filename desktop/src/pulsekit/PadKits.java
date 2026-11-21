@@ -334,7 +334,7 @@ final class PadKits {
     static void fromSong(final Pulsekit app, String log) {
         final java.io.File dir = SongDrumSet.folderIn(log);
         if (dir == null) return;
-        fromFolder(app, dir);
+        fromFolder(app, dir, null);
     }
 
     /** Tests: the zip Add zip takes, and which of its sets is picked (null: asked). */
@@ -374,6 +374,13 @@ final class PadKits {
                     return;
                 }
                 int pick = 0;
+                // A combined set (the best of the songs' sets) is taken at once, named after the zip.
+                if (zipPick == null && SongDrumSet.isCombined(sets.get(0))) {
+                    final File dir = sets.get(0);
+                    loading = new Thread(() -> fromFolder(app, dir, SongDrumSet.zipName(file.getName())), "pulsekit-zip-set");
+                    loading.start();
+                    return;
+                }
                 if (sets.size() > 1) {
                     String[] names = new String[sets.size()];
                     for (int i = 0; i < names.length; i++) names[i] = SongDrumSet.song(sets.get(i)) + (SongDrumSet.isCombined(sets.get(i)) ? " (combined)" : "");
@@ -386,7 +393,7 @@ final class PadKits {
                     }
                 }
                 final File dir = sets.get(Math.max(0, Math.min(sets.size() - 1, pick)));
-                loading = new Thread(() -> fromFolder(app, dir), "pulsekit-zip-set");
+                loading = new Thread(() -> fromFolder(app, dir, null), "pulsekit-zip-set");
                 loading.start();
             });
         }, "pulsekit-zip-read");
@@ -394,7 +401,7 @@ final class PadKits {
     }
 
     /** A song's drum set folder (set.txt and its WAVs): a new drum set, selected and saved. */
-    static void fromFolder(final Pulsekit app, final java.io.File dir) {
+    static void fromFolder(final Pulsekit app, final java.io.File dir, final String named) {
         final short[][] voices;
         try {
             voices = SongDrumSet.voices(dir, DrumPads.VOICE_RATE);
@@ -408,7 +415,7 @@ final class PadKits {
             javax.swing.SwingUtilities.invokeLater(() -> app.setNow(lastSongSet));
             return;
         }
-        final String song = SongDrumSet.song(dir);
+        final String song = named != null ? named : SongDrumSet.song(dir);
         // Several hits of a drum (--set-hits): the song's files kept beside the sets (the run's folder may go).
         boolean several = false;
         try {

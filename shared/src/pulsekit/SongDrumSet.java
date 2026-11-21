@@ -122,6 +122,12 @@ public final class SongDrumSet {
     }
   }
 
+  /** A combined set's name from its zip's ("Doom drum sets.zip" is "Doom"): the songs it came from. */
+  public static String zipName(String zip) {
+    String n = (zip == null ? "" : zip).replaceAll("(?i)\\.zip$", "").replaceAll("(?i)[ _-]*(drum[ _-]*sets?|sets?|combined)$", "").trim();
+    return n.isEmpty() ? "Song" : n;
+  }
+
   /** Whether the set was made by --combine-sets (its set.txt says so). */
   public static boolean isCombined(File dir) {
     try {
