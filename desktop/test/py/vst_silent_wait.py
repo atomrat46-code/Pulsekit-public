@@ -39,6 +39,11 @@ for loads, name in ((2, 'loading'), (10 ** 6, 'never')):
     with contextlib.redirect_stdout(buf):
         lines, silent = vr.drum_notes_check(Chain(loads), np, R, {})
     print('%s: silent %s | %s' % (name, sorted(silent), ' | '.join(l for l in lines if 'silent' in l)))
+# --max_wait: longer than the Stop timer's longest (40 s): waited that long; 0 or shorter: the 40 s.
+for mw in (60, 10, 0):
+    vr.MAX_WAIT[0] = float(mw)
+    print('max_wait %d: waits %.0f' % (mw, vr.silent_wait(Chain(0))))
+vr.MAX_WAIT[0] = 0.0
 # The preflight (a test's start): a crash silent all along stops the run when this kit played it before
 # (Test or an earlier run), and not when it never did (a kit without one).
 JAR = sys.argv[3] if len(sys.argv) > 3 else ''

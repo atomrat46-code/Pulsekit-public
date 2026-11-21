@@ -9798,6 +9798,10 @@ public final class DesktopBehavior {
     cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath(),
         new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath()));
     String got = PythonRun.runFor(cmd, 600, null).trim();
+    // Params: Maximum plugin wait on the Plugins tab.
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (p.token.equals("--max_wait")) got += "\nParams: " + ProgramParams.vstTab(p) + " | " + p.label.replaceAll(":.*", "");
+    }
     this.out.append(got).append('\n');
     boolean ok = got.contains("longest: 40")
         && got.contains("loading: silent [] | Notes check: 49 silent at first; all heard after 10 s (waited at most 40 s")
@@ -9806,7 +9810,9 @@ public final class DesktopBehavior {
         && got.contains("new kit: Preflight: SSDSampler5.dll ready | heard kept: 49 in it False")
         && got.contains("crash played before: Failed: SSDSampler5.dll: 49 (C#3) silent now, though this kit played it before")
         && got.contains("two plugins: == Preflight 1 of 2: Other Drums.vst3 | Preflight: Other Drums.vst3 ready | == Preflight 2 of 2: SSDSampler5.dll | Failed: preflight: SSDSampler5.dll not ready (above), so nothing was rendered")
-        && got.contains("| rendered False");
+        && got.contains("| rendered False")
+        && got.contains("max_wait 60: waits 60") && got.contains("max_wait 10: waits 40") && got.contains("max_wait 0: waits 40")
+        && got.contains("Params: Plugins | Maximum plugin wait (seconds)");
     if (!ok) throw new AssertionError(got);
   }
 

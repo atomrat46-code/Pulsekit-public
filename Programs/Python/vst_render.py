@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -132,6 +132,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --vary N        a Pads set or a SoundFont: each hit a little different (0-100: its level up to
                   +-1.5 dB, pitch up to +-1.5% and brightness, at 100), as a drummer's hits are; the
                   same every run. A song's drum set (one sample a drum) sounds less mechanical.
+  --max_wait N    how long (seconds) a plugin's silent notes are waited for (a kit still loading) when
+                  the longest Stop timer time measured for it is shorter; 0 or less than that: that time.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -2459,10 +2461,16 @@ def note_heard(plugin, notes):
         pass
 
 
+# --max_wait (seconds): the most silent notes are waited for, when it is longer than the Stop timer's longest.
+MAX_WAIT = [0.0]
+
+
 def silent_wait(chain):
-    """How long silent notes are waited for (the kit still loading): the longest of the kit's load time and the
-    plugin's longest Stop timer time; 0 for a plugin without either (Pads sets, SoundFonts)."""
-    return max(getattr(chain, "load_limit", 0.0) if getattr(chain, "load_measured", False) else 0.0, getattr(chain, "longest_load", 0.0))
+    """How long silent notes are waited for (the kit still loading): the longest of the kit's load time, the
+    plugin's longest Stop timer time and --max_wait; 0 for a Pads set or SoundFont (no kit to load)."""
+    if not hasattr(chain, "load_limit"):
+        return 0.0
+    return max(chain.load_limit if getattr(chain, "load_measured", False) else 0.0, getattr(chain, "longest_load", 0.0), MAX_WAIT[0])
 
 
 def load_limit(plugin, given):
@@ -5463,7 +5471,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--max_wait": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_unzip": None, "--hit_zip_outdir": None, "--hit_bench_when": None}
@@ -5490,6 +5498,11 @@ def main(argv):
         scan()
         return
     CURRENT_KIT[0] = (opts.get("--kit_name") or "").strip()
+    # --max_wait: silent notes waited for at least this long (0, empty or not a number: the Stop timer's longest).
+    try:
+        MAX_WAIT[0] = max(0.0, float(opts.get("--max_wait") or 0))
+    except ValueError:
+        MAX_WAIT[0] = 0.0
     # --hit_model_file: DrumMidi's hit model from a file (the Hit model tab's bench learned it) in the tests too.
     HIT_MODEL_FILE[0] = None
     if opts["--hit_model_file"]:
