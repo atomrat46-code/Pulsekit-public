@@ -9073,6 +9073,17 @@ public final class DesktopBehavior {
     });
     idle();
     this.out.append("dropped on Kit loaded 4: ").append(dropped[0]).append('\n');
+    // 21112026: a kit name typed into Kit loaded (Params still open, not OK'd): Test and Edit settings use it.
+    final String[] typed = new String[1];
+    edt(() -> {
+      kit4.setText("SSD 5 Classic Metal: Classic Black");
+      PyJav pj = (PyJav) get("pyJav");
+      String[] none = new String[pj.shownParams.size()];
+      java.util.Arrays.fill(none, "");
+      typed[0] = PyJav.rowKit(pj.shownParams, none, pj.shownFields, "--plugin4") + " (values alone " + PyJav.rowKit(pj.shownParams, none, "--plugin4") + ")";
+      kit4.setText("");
+    });
+    this.out.append("typed kit for Test: ").append(typed[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9082,7 +9093,8 @@ public final class DesktopBehavior {
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
     boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
-        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''");
+        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''")
+        && this.out.toString().contains("typed kit for Test: [--kit_name, SSD 5 Classic Metal:Classic Black] (values alone [])");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");

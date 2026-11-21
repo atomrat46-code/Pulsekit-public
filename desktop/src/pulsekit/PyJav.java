@@ -3922,7 +3922,7 @@ final class PyJav {
                             app.setNow(PluginsList.testing(plug, true));
                             final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
                             // The row's kit name: its settings saved for that kit (one plugin, a kit a row).
-                            PluginsList.test(this, plug, true, rowKit(ps, values, p.token), log -> {
+                            PluginsList.test(this, plug, true, rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token), log -> {
                                 tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
@@ -5045,12 +5045,22 @@ final class PyJav {
 
     /** The row's kit name as vst_render's --kit_name (its settings are that kit's), or none. */
     static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, String pluginToken) {
+        return rowKit(ps, values, null, pluginToken);
+    }
+
+    /**
+     * The row's kit name as the open Params show it now: its field's text (typed or chosen, not yet OK'd:
+     * values has it only after OK), else values'. Test and Edit settings then use the kit on screen.
+     */
+    static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, JTextField[] fields, String pluginToken) {
         List<String> out = new ArrayList<String>();
         String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
         for (int i = 0; i < ps.size() && i < values.length; i++) {
-            if (ps.get(i).token.equals(kitToken) && values[i] != null && values[i].trim().length() > 0) {
+            if (!ps.get(i).token.equals(kitToken)) continue;
+            String kit = fields != null && i < fields.length && fields[i] != null ? KitPacks.tidy(fields[i].getText()) : values[i];
+            if (kit != null && kit.trim().length() > 0) {
                 out.add("--kit_name");
-                out.add(values[i].trim());
+                out.add(kit.trim());
             }
         }
         return out;
@@ -5077,7 +5087,7 @@ final class PyJav {
             extra.add("--map");
             extra.add(values[i].trim());
         }
-        extra.addAll(rowKit(ps, values, token));
+        extra.addAll(rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, token));
         VstLists.unpackMaps();
         try {
             File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");
