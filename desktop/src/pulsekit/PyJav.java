@@ -2463,7 +2463,7 @@ final class PyJav {
             return;
         }
         Double asked = c.askedBpm();
-        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model())
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setNow()
             + (asked == null ? "" : " at the tempo asked, " + (asked.doubleValue() == Math.rint(asked.doubleValue()) ? Long.toString(asked.longValue()) : asked.toString()) + " BPM"));
         SwingUtilities.invokeLater(() -> {
             app.pyInputPath = null;

@@ -406,10 +406,6 @@ public final class SogniMusic {
     }
     SogniApi api = new SogniApi(apiBase, key);
     // --random, --compare_models and --multi_session each make one track a run (their steps after need one).
-    if (SogniApi.variations > 1 && (randomCount > 0 || sessions.size() > 1 || compareModels != null && compareModels.trim().length() > 0)) {
-      say("Note: --variations is for one track's run; --random, --compare_models and --multi_session make one track a run");
-      SogniApi.variations = 1;
-    }
     if (randomCount > 0) {
       return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, sessions, randomModels, durationGiven ? duration : -1, bpmGiven ? bpm : -1,
           keyGiven ? keyscale : null, timesigGiven ? timesig : -1, lyrics, confirm, maxCost, deleteFromSogni);
@@ -640,6 +636,8 @@ public final class SogniMusic {
     int next = 0;
     int waited = 0;
     int done = 0;
+    // Runs that made nothing (did not start, or no audio).
+    int lost = 0;
     // Sogni's start rate limit (429): the waits in a row for one run, and when the next start may be tried.
     int rateWaits = 0;
     long rateUntil = 0;
@@ -686,17 +684,20 @@ public final class SogniMusic {
             failed[next] = true;
             next++;
             done++;
+            lost++;
           }
         }
       }
       if (active.isEmpty()) continue;
       // The oldest run going on: waited for, downloaded, and its place given to the next.
       int i = active.remove(0);
-      String file = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
-      if (file != null) made.add(file);
+      // Each run's variations (--variations): every one saved, under the run's label.
+      List<String> files = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
+      if (files.isEmpty()) lost++;
+      made.addAll(files);
       // The count so far (PyJav shows it on the status line: 12/300).
       done++;
-      if (jobs.size() > 1) say("Tracks: " + done + " of " + jobs.size() + " done (" + made.size() + " made" + (done - made.size() > 0 ? ", " + (done - made.size()) + " failed" : "") + ")");
+      if (jobs.size() > 1) say("Tracks: " + done + " of " + jobs.size() + " done (" + made.size() + " made" + (lost > 0 ? ", " + lost + " failed" : "") + ")");
     }
     if (made.isEmpty()) {
       say("Failed: no track was made");
@@ -738,8 +739,8 @@ public final class SogniMusic {
     return m.contains("Too many active") || m.contains("409") && m.toLowerCase(java.util.Locale.ROOT).contains("active");
   }
 
-  /** A run's track: waited for, downloaded and written; its file's name, or null when it made none. */
-  static String finishRun(SogniApi api, String[] job, String id, boolean oneName, String shared, boolean deleteFromSogni) {
+  /** A run's tracks (each variation): waited for, downloaded and written; their files' names, none when it made none. */
+  static List<String> finishRun(SogniApi api, String[] job, String id, boolean oneName, String shared, boolean deleteFromSogni) {
     String label = job[0];
     String what = kindOf(oneName, label) + label;
     try {
@@ -749,30 +750,39 @@ public final class SogniMusic {
         }
       });
       List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
+      List<String> names = new ArrayList<String>();
       if (audio.isEmpty()) {
         say(what + " made no audio: " + why(api, id, wf));
-        return null;
+        return names;
       }
-      String url = SogniApi.str(audio.get(0).get("url"));
-      String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
-      String base = oneName ? shared + "-" + label : trackName(job[3], id) + (job.length > 8 && job[8].length() > 0 ? "-" + job[8] : "");
-      File file = inWork(base + ext);
-      for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
-      byte[] data = api.download(url);
-      FileOutputStream fos = new FileOutputStream(file);
-      try {
-        fos.write(data);
-      } finally {
-        fos.close();
+      List<Map<String, Object>> keep = SogniApi.variationsOf(wf, audio);
+      String first = oneName ? shared + "-" + label : trackName(job[3], id) + (job.length > 8 && job[8].length() > 0 ? "-" + job[8] : "");
+      for (int v = 0; v < keep.size(); v++) {
+        String url = SogniApi.str(keep.get(v).get("url"));
+        String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(keep.get(v).get("mimeType")), ".mp3"));
+        // The first as named, then <name>_Variated2, _Variated3...
+        String base = SogniApi.variationName(first, v);
+        File file = inWork(base + ext);
+        for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
+        byte[] data = api.download(url);
+        FileOutputStream fos = new FileOutputStream(file);
+        try {
+          fos.write(data);
+        } finally {
+          fos.close();
+        }
+        say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+        // PyJav's line for each track (its file sets, the comparison): "Track:" when nothing is compared.
+        // A variation keeps its run's label (model, style, session), so it goes where its run goes.
+        say((noCompare ? "Track: " : "Compared: ") + label + " " + file.getName());
+        names.add(file.getName());
       }
-      say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      // PyJav's line for each track (its file sets, the comparison): "Track:" when nothing is compared.
-      say((noCompare ? "Track: " : "Compared: ") + label + " " + file.getName());
+      if (keep.size() > 1) say(what + ": " + keep.size() + " variations");
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
-      return file.getName();
+      return names;
     } catch (Exception ex) {
       say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
-      return null;
+      return new ArrayList<String>();
     }
   }
 

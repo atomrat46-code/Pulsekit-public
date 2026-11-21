@@ -100,9 +100,25 @@ public final class MusicCompare {
       return random ? setName(group(label)) : setName(label);
     }
 
+    /**
+     * The file set the track now in DrumMidi goes into: setFor its label, and a variation's
+     * (--variations: "..._Variated2.mp3") its own ("SogniMusic run 4 sft Variated2"), not its run's first.
+     */
+    public synchronized String setNow() {
+      if (at < 0 || at >= tracks.size()) return "";
+      String[] t = tracks.get(at);
+      return random ? setFor(t[0]) : setFor(t[0]) + variation(t[1]);
+    }
+
+    /** " Variated2" for a variation's file (sogni-Metal-1a2b3c4d-sft_Variated2.mp3), else "". */
+    static String variation(String file) {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("_Variated(\\d+)(\\(\\d+\\))?\\.[A-Za-z0-9]+$").matcher(file == null ? "" : file);
+      return m.find() ? " Variated" + m.group(1) : "";
+    }
+
     /** DrumMidi_CRT's arguments for the next track, or null when all are done (the chain ends). */
     public synchronized List<String> next() {
-      if (at >= 0 && at < tracks.size() && !made.contains(setFor(tracks.get(at)[0]))) made.add(setFor(tracks.get(at)[0]));
+      if (at >= 0 && at < tracks.size() && !made.contains(setNow())) made.add(setNow());
       at++;
       if (at >= tracks.size()) {
         if (chain == this) chain = null;
@@ -110,7 +126,7 @@ public final class MusicCompare {
       }
       String[] t = tracks.get(at);
       // A session's track: DrumMidi set for its instruments (drums alone, or with bass or guitar).
-      List<String> args = expect.forTrack(t[0]).drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+      List<String> args = expect.forTrack(t[0]).drumMidiArgs(t[1], setName(t[0]) + variation(t[1]) + ".mid", saved);
       // A --random track: DrumMidi's grid at the tempo asked for its style (each track draws its own).
       Double asked = askedBpm();
       if (asked != null) {
@@ -293,9 +309,12 @@ public final class MusicCompare {
     return c;
   }
 
-  /** Whether a file set now made is a --random run's (its chain going on): no Make a song question, as No. */
+  /**
+   * Whether a file set now made is one of several a run makes (a --random run's, or a comparison's or
+   * sessions' with two tracks or more, its chain going on): no Make a song question, as No.
+   */
   public static synchronized boolean quietSongs() {
-    return heldImport || chain != null && chain.random && chain.at < chain.tracks.size();
+    return heldImport || chain != null && (chain.random || chain.tracks.size() > 1) && chain.at < chain.tracks.size();
   }
 
   /** While a --random run's file sets a model are made, at the chain's end. */

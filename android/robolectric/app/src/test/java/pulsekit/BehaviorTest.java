@@ -11609,7 +11609,22 @@ public class BehaviorTest {
     pulsekit.MusicCompare.chain().next();
     boolean quietCompare = pulsekit.MusicCompare.quietSongs();
     pulsekit.MusicCompare.chain().next();
-    out.append("Make a song asked: random run ").append(!quietRandom).append(", comparison ").append(!quietCompare).append('\n');
+    // A comparison of two tracks (or more, variations too): no question for each file set either.
+    java.util.List<String[]> two = new java.util.ArrayList<String[]>(wavs);
+    two.add(new String[] {"Funk", "/x/a_Variated2.wav"});
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--compare_models", "turbo,sft"), new java.util.ArrayList<String>(), two, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietTwo = pulsekit.MusicCompare.quietSongs();
+    // A variation (--variations): a MIDI and file set of its own, not over its run's first.
+    String firstSet = pulsekit.MusicCompare.chain().setNow();
+    java.util.List<String> varArgs = pulsekit.MusicCompare.chain().next();
+    String varSet = pulsekit.MusicCompare.chain().setNow();
+    boolean varNamed = varArgs != null && String.join(" ", varArgs).contains(varSet + ".mid") && varSet.endsWith(" Funk Variated2") && !firstSet.equals(varSet);
+    out.append("variation's set: ").append(varSet).append(" (first ").append(firstSet).append(")\n");
+    pulsekit.MusicCompare.chain().next();
+    boolean afterTwo = pulsekit.MusicCompare.quietSongs();
+    out.append("Make a song asked: random run ").append(!quietRandom).append(", one track's comparison ").append(!quietCompare)
+        .append(", two tracks' ").append(!quietTwo).append(", after them ").append(!afterTwo).append('\n');
     // The file set's whole name (it was cut at 28 signs: "SogniMusic run 1 Melodic Tec").
     String setName = Engine.stemNameFromMidi("SogniMusic run 1 Melodic-Techno-sft.mid");
     // --zip_delete: the files the zip holds deleted, what was made in memory not on disk anyway.
@@ -11623,7 +11638,7 @@ public class BehaviorTest {
     out.append("file set name: ").append(setName).append(" | zip_delete: ").append(rz.deleteAfter).append(", ").append(deleted).append(", gone ").append(!zipped.exists()).append('\n');
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
-        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare
+        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare && quietTwo && !afterTwo && varNamed
         && setName.equals("SogniMusic run 1 Melodic Techno sft") && rz.deleteAfter && deleted.startsWith("Deleted the 1 zipped file") && !zipped.exists()
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
         && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
