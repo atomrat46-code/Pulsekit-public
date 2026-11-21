@@ -53,6 +53,10 @@ final class PadKits {
         TextView add = app.outline("Add SF2", false, v -> this.add());
         add.setTag("pads-add-kit");
         row.addView(add);
+        // Add zip: a drum set from a zip (DrumMidi --make-set's or --combine-sets' set folders, as shared).
+        TextView zip = app.outline("Add zip", false, v -> this.addZip());
+        zip.setTag("pads-add-zip");
+        row.addView(zip);
         this.kitList = new Spinner(app);
         this.kitList.setTag("pads-kit-list");
         this.kitList.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -148,9 +152,93 @@ final class PadKits {
         }, "pulsekit-kit-adopt").start();
     }
 
+    /** Add zip's file (not Add SF2's) is what the phone's picker brings back. */
+    boolean zipMode;
+    /** Tests: which of a zip's drum sets is picked (null: asked). */
+    static Integer zipPick;
+    /** What Add zip said last (for the tests). */
+    static volatile String lastZipSet;
+
+    /** Add zip: Pulsekit's file browser, Other… the phone's picker; then addedZip. */
+    void addZip() {
+        Runnable system = () -> {
+            this.zipMode = true;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            app.startActivityForResult(intent, PICK);
+        };
+        MediaBrowser.chooseFor(app, "pads-zip", (name, file) -> this.addedZip(file, name), system);
+    }
+
+    /**
+     * A zip picked with Add zip: its drum sets (folders with set.txt) unpacked; one becomes a new drum set
+     * (several: which, a combined one first). A zip without them: an SFZ kit, as Add SF2.
+     */
+    void addedZip(final File file, final String name) {
+        app.setNow("Reading " + name + "…");
+        new Thread(() -> {
+            final List<File> sets;
+            try {
+                File to = new File(new File(app.getCacheDir(), "zip-sets"), Long.toString(System.currentTimeMillis()));
+                to.mkdirs();
+                sets = SongDrumSet.fromZip(file, to);
+            } catch (Exception ex) {
+                app.handler.post(() -> Toast.makeText(app, "Could not read " + name + ": " + ex.getMessage(), Toast.LENGTH_LONG).show());
+                return;
+            }
+            app.handler.post(() -> {
+                if (sets.isEmpty()) {
+                    this.added(file, name);
+                    return;
+                }
+                if (sets.size() == 1 || zipPick != null) {
+                    this.fromFolder(sets.get(zipPick == null ? 0 : Math.max(0, Math.min(sets.size() - 1, zipPick))));
+                    return;
+                }
+                String[] names = new String[sets.size()];
+                for (int i = 0; i < names.length; i++) names[i] = SongDrumSet.song(sets.get(i)) + (SongDrumSet.isCombined(sets.get(i)) ? " (combined)" : "");
+                lastDialog = new AlertDialog.Builder(app).setTitle(name + ": which drum set?").setItems(names, (d, w) -> this.fromFolder(sets.get(w)))
+                    .setNegativeButton("Cancel", null).show();
+            });
+        }, "pulsekit-zip-read").start();
+    }
+
+    /** A song's drum set folder (set.txt and its WAVs): a new drum set named after the song, selected and saved. */
+    void fromFolder(final File dir) {
+        new Thread(() -> {
+            final short[][] voices;
+            try {
+                voices = SongDrumSet.voices(dir, DrumPads.VOICE_RATE);
+            } catch (Exception ex) {
+                lastZipSet = "The drum set could not be read: " + ex.getMessage();
+                app.handler.post(() -> Toast.makeText(app, lastZipSet, Toast.LENGTH_LONG).show());
+                return;
+            }
+            final String song = SongDrumSet.song(dir);
+            app.handler.post(() -> {
+                if (SongDrumSet.count(voices) == 0) {
+                    lastZipSet = "No drum in " + song + "'s set has a sound";
+                    Toast.makeText(app, lastZipSet, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Engine.DrumSet s = Engine.DrumSet.isolated(null, Engine.uniqueSetName(song + " drums", app.drumSets));
+                DrumSetStore.fill(s, voices, "");
+                app.drumSets.add(s);
+                this.select(app.drumSets.size() - 1);
+                StringBuilder pads = new StringBuilder();
+                for (int t = 0; t < voices.length; t++) if (voices[t] != null) pads.append(pads.length() == 0 ? "" : ", ").append(Engine.TRACK_LABEL[t]);
+                lastZipSet = "New drum set: " + s.name + " (" + pads + "; the other pads as Original)";
+                app.setNow(lastZipSet);
+                Toast.makeText(app, lastZipSet, Toast.LENGTH_LONG).show();
+            });
+        }, "pulsekit-zip-set").start();
+    }
+
     /** Add SF2: Pulsekit's file browser (its DB, Download, the folders), Other… the phone's picker. */
     void add() {
         Runnable system = () -> {
+            this.zipMode = false;
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
@@ -174,7 +262,12 @@ final class PadKits {
                 app.handler.post(() -> Toast.makeText(app, "Could not read " + name + ": " + ex.getMessage(), Toast.LENGTH_LONG).show());
                 return;
             }
-            app.handler.post(() -> this.added(copy, name));
+            final boolean zip = this.zipMode;
+            this.zipMode = false;
+            app.handler.post(() -> {
+                if (zip) this.addedZip(copy, name);
+                else this.added(copy, name);
+            });
         }, "pulsekit-kit-add").start();
     }
 

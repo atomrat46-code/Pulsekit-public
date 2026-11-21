@@ -9732,6 +9732,28 @@ public final class DesktopBehavior {
     idle();
     String combined = combLog.replaceAll("(?s).*(Succeeded: [^\n]*).*", "$1");
     out.append("combined: ").append(combined).append(" | ").append(PadKits.lastSongSet).append('\n');
+    // Add zip: the folder of sets zipped (as shared): which set asked (the combined one first), a new drum set.
+    File zip = new File(System.getProperty("user.home"), "combo sets.zip");
+    try (java.util.zip.ZipOutputStream zo = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      for (File d : combo.listFiles()) {
+        if (!d.isDirectory()) continue;
+        for (File f : d.listFiles()) {
+          zo.putNextEntry(new java.util.zip.ZipEntry(d.getName() + "/" + f.getName()));
+          zo.write(Files.readAllBytes(f.toPath()));
+          zo.closeEntry();
+        }
+      }
+    }
+    Playback zpb = (Playback) get("playback");
+    int beforeZip = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.zipFile = zip;
+    PadKits.zipPick = 0;
+    edt(() -> zpb.kits.addZip());
+    for (int i = 0; i < 200 && (PadKits.lastSongSet == null || app.drumSets.size() == beforeZip); i++) Thread.sleep(50);
+    idle();
+    PadKits.zipPick = null;
+    out.append("from zip: sets ").append(app.drumSets.size() - beforeZip).append(" | ").append(PadKits.lastSongSet).append('\n');
     // No set line: nothing added.
     PadKits.fromSong(app, "Succeeded: y.mid");
     idle();
@@ -9744,7 +9766,8 @@ public final class DesktopBehavior {
     boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
         && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
         && o.contains("combined: Succeeded: Drum set combined from 2 songs: kick x2 (song2), closed hat (song) | New drum set on the Pads page: combo drums (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
-        && o.contains("without: " + (before + 3)) && o.contains("Params: Make a drum set from the song's drums");
+        && o.contains("from zip: sets 1 | New drum set on the Pads page: combo drums 2 (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("without: " + (before + 4)) && o.contains("Params: Make a drum set from the song's drums");
     if (!ok) throw new AssertionError(o);
   }
 

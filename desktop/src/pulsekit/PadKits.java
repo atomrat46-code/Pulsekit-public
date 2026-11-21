@@ -59,6 +59,12 @@ final class PadKits {
             this.load(this.listed.get(i));
         });
         app.onChipMenu(add, this::kitMenu);
+        // Add zip: a drum set from a zip (DrumMidi --make-set's or --combine-sets' set folders, as shared).
+        JButton zip = app.outline("Add zip\u2026", false);
+        zip.setName("pads-add-zip");
+        zip.setToolTipText("A drum set from a zip of drum sets made from songs (DrumMidi's <song>-set folders): a new drum set on the pads; a zip of an SFZ kit goes onto the list as Add SF2 does");
+        zip.addActionListener(e -> this.addZip());
+        row.add(zip);
         row.add(this.kitList);
         this.refreshKits();
         // A SoundFont the pads have from before (File, or an earlier version): on the list as Original's kit.
@@ -328,6 +334,67 @@ final class PadKits {
     static void fromSong(final Pulsekit app, String log) {
         final java.io.File dir = SongDrumSet.folderIn(log);
         if (dir == null) return;
+        fromFolder(app, dir);
+    }
+
+    /** Tests: the zip Add zip takes, and which of its sets is picked (null: asked). */
+    static File zipFile;
+    static Integer zipPick;
+
+    /**
+     * Add zip: the zip's drum sets (folders with set.txt: DrumMidi --make-set's, --combine-sets') unpacked; one
+     * becomes a new drum set (several: which, a combined one first). A zip without them: an SFZ kit, as Add SF2.
+     */
+    void addZip() {
+        File f = zipFile;
+        zipFile = null;
+        if (f == null) {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Add a drum set from a zip");
+            fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Zips (.zip)", "zip"));
+            if (fc.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
+            f = fc.getSelectedFile();
+        }
+        final File file = f;
+        app.setNow("Reading " + file.getName() + "\u2026");
+        loading = new Thread(() -> {
+            final List<File> sets;
+            try {
+                File to = java.nio.file.Files.createTempDirectory("pulsekit-zip-set").toFile();
+                sets = SongDrumSet.fromZip(file, to);
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> app.setNow("Could not read " + file.getName() + ": " + String.valueOf(ex.getMessage()).split("\n")[0]));
+                return;
+            }
+            SwingUtilities.invokeLater(() -> {
+                if (sets.isEmpty()) {
+                    // No drum set from songs in it: an SFZ kit's zip, onto the list.
+                    addFile = file;
+                    this.add();
+                    return;
+                }
+                int pick = 0;
+                if (sets.size() > 1) {
+                    String[] names = new String[sets.size()];
+                    for (int i = 0; i < names.length; i++) names[i] = SongDrumSet.song(sets.get(i)) + (SongDrumSet.isCombined(sets.get(i)) ? " (combined)" : "");
+                    if (zipPick != null) pick = zipPick;
+                    else {
+                        Object got = JOptionPane.showInputDialog(app, file.getName() + " has " + names.length + " drum sets: which one?", "Add zip",
+                            JOptionPane.QUESTION_MESSAGE, null, names, names[0]);
+                        if (got == null) return;
+                        pick = java.util.Arrays.asList(names).indexOf(got);
+                    }
+                }
+                final File dir = sets.get(Math.max(0, Math.min(sets.size() - 1, pick)));
+                loading = new Thread(() -> fromFolder(app, dir), "pulsekit-zip-set");
+                loading.start();
+            });
+        }, "pulsekit-zip-read");
+        loading.start();
+    }
+
+    /** A song's drum set folder (set.txt and its WAVs): a new drum set, selected and saved. */
+    static void fromFolder(final Pulsekit app, final java.io.File dir) {
         final short[][] voices;
         try {
             voices = SongDrumSet.voices(dir, DrumPads.VOICE_RATE);
@@ -336,7 +403,11 @@ final class PadKits {
             javax.swing.SwingUtilities.invokeLater(() -> app.setNow(lastSongSet));
             return;
         }
-        if (SongDrumSet.count(voices) == 0) return;
+        if (SongDrumSet.count(voices) == 0) {
+            lastSongSet = "No drum in " + SongDrumSet.song(dir) + "'s set has a sound";
+            javax.swing.SwingUtilities.invokeLater(() -> app.setNow(lastSongSet));
+            return;
+        }
         final String song = SongDrumSet.song(dir);
         // Several hits of a drum (--set-hits): the song's files kept beside the sets (the run's folder may go).
         boolean several = false;

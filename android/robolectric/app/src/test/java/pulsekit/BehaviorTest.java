@@ -530,12 +530,35 @@ public class BehaviorTest {
       idle();
     }
     out.append("default: kit.sf2 ").append(app.persistence.kitFile().isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    // Add zip: a zip of a drum set from a song (DrumMidi --make-set's folder): a new drum set, selected.
+    java.io.File zip = new java.io.File(app.getCacheDir(), "song set.zip");
+    short[] kickWav = new short[11025];
+    for (int i = 0; i < kickWav.length; i++) kickWav[i] = (short) (20000 * Math.sin(i * 2 * Math.PI * 60 / 44100.0) * Math.exp(-i / 4000.0));
+    try (java.util.zip.ZipOutputStream zo = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      zo.putNextEntry(new java.util.zip.ZipEntry("Metal-set/set.txt"));
+      zo.write("# A drum set from Metal (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n36\tkick.wav\t95\t2\t0.25\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      zo.closeEntry();
+      zo.putNextEntry(new java.util.zip.ZipEntry("Metal-set/kick.wav"));
+      zo.write(AudioIo.encodeWav(kickWav, 44100));
+      zo.closeEntry();
+    }
+    int setsBefore = app.drumSets.size();
+    PadKits.lastZipSet = null;
+    out.append("Add zip shown: ").append(app.findViewById(android.R.id.content).findViewWithTag("pads-add-zip") != null).append('\n');
+    pb.kits.addedZip(zip, zip.getName());
+    for (int i = 0; i < 200 && PadKits.lastZipSet == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("from zip: ").append(PadKits.lastZipSet).append(", sets +").append(app.drumSets.size() - setsBefore).append(", selected ").append(pb.activeDrumSet().name).append('\n');
+    boolean zipOk = "New drum set: Metal drums (Kick; the other pads as Original)".equals(PadKits.lastZipSet) && app.drumSets.size() == setsBefore + 1
+        && "Metal drums".equals(pb.activeDrumSet().name);
     write("s13c_drum_sets_kits", out.toString());
     String t = out.toString();
     if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
         || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
         || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n") || !t.contains("list at first: Default kit of 1")
-        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit"))
+        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit") || !zipOk || !t.contains("Add zip shown: true"))
       throw new AssertionError(t);
   }
 

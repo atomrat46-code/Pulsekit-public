@@ -80,6 +80,57 @@ public final class SongDrumSet {
     return out;
   }
 
+  /**
+   * The drum sets in a zip (folders with a set.txt, as DrumMidi --make-set and --combine-sets write them,
+   * the folder itself zipped or several of them) unpacked under `to`, a folder each: a combined set first,
+   * then the others by name. Only the sets' own files (no paths out of `to`). None found: empty.
+   */
+  public static java.util.List<File> fromZip(File zip, File to) throws java.io.IOException {
+    java.util.Set<String> dirs = new java.util.TreeSet<String>();
+    java.util.zip.ZipFile z = new java.util.zip.ZipFile(zip);
+    try {
+      for (java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries(); en.hasMoreElements(); ) {
+        String n = en.nextElement().getName().replace('\\', '/');
+        if (n.equals(INDEX) || n.endsWith("/" + INDEX)) dirs.add(n.substring(0, n.length() - INDEX.length()));
+      }
+      java.util.List<File> out = new java.util.ArrayList<File>();
+      int k = 0;
+      for (String d : dirs) {
+        String name = d.isEmpty() ? zip.getName().replaceAll("(?i)\\.zip$", "") : d.substring(0, d.length() - 1).replaceAll(".*/", "");
+        File dir = new File(to, (k++) + "-" + name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+        dir.mkdirs();
+        for (java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries(); en.hasMoreElements(); ) {
+          java.util.zip.ZipEntry e = en.nextElement();
+          String n = e.getName().replace('\\', '/');
+          if (e.isDirectory() || !n.startsWith(d) || n.substring(d.length()).contains("/")) continue;
+          java.io.InputStream in = z.getInputStream(e);
+          try {
+            Files.copy(in, new File(dir, n.substring(d.length())).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+          } finally {
+            in.close();
+          }
+        }
+        out.add(dir);
+      }
+      // A combined set (--combine-sets) first: the best of the others.
+      java.util.List<File> sorted = new java.util.ArrayList<File>();
+      for (File f : out) if (isCombined(f)) sorted.add(f);
+      for (File f : out) if (!isCombined(f)) sorted.add(f);
+      return sorted;
+    } finally {
+      z.close();
+    }
+  }
+
+  /** Whether the set was made by --combine-sets (its set.txt says so). */
+  public static boolean isCombined(File dir) {
+    try {
+      return new String(Files.readAllBytes(new File(dir, INDEX).toPath()), StandardCharsets.UTF_8).split("\n")[0].contains("--combine-sets");
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
   /** How many pads have a sound. */
   public static int count(short[][] voices) {
     int n = 0;
