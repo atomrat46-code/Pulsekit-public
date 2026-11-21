@@ -9650,7 +9650,8 @@ public final class DesktopBehavior {
   /**
    * 20112026_3: DrumMidi --make-set: a song's drums cut into a clean hit each (set.txt and WAVs beside the
    * MIDI); its log line makes them a new drum set on the Pads page, named after the song, each drum on its
-   * pad (the others as Original), selected and saved. DrumMidi's Params have the option.
+   * pad (the others as Original), selected and saved. DrumMidi's Params have the option. --combine-sets: a
+   * folder's song sets made one (each drum from the set where it is clearest), a drum set too.
    */
   void s269_song_drum_set() throws Exception {
     final Pulsekit app = (Pulsekit) frame;
@@ -9700,6 +9701,25 @@ public final class DesktopBehavior {
     out.append("layered: ").append(s2.name).append(", hits kept ").append(DrumSetStore.hitsDir(PadKits.setsDir(), s2).isDirectory())
         .append(", kick layers ").append(layers == null || layers[0] == null ? 0 : layers[0].length).append(", sf2 ").append(sf2.length > 0)
         .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // --combine-sets: both songs' sets in a folder made one, each drum from the set where it is clearest
+    // (the kick from Thunder: as clear, more hits kept; the closed hat from Back in Black, the only one).
+    File combo = new File(System.getProperty("user.home"), "combo");
+    for (File d : new File[] {dir, dir2}) {
+      File to = new File(combo, d.getName());
+      to.mkdirs();
+      for (File f : d.listFiles()) Files.copy(f.toPath(), new File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    }
+    Process pr = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").getPath(), "-cp",
+        new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getPath(), "DrumMidi_CRT", "--combine-sets", combo.getPath())
+        .redirectErrorStream(true).start();
+    String combLog = new String(readAll(pr.getInputStream()), StandardCharsets.UTF_8).replaceAll("(?m)^Picked up.*\n", "");
+    pr.waitFor();
+    PadKits.fromSong(app, combLog);
+    idle();
+    Thread.sleep(300);
+    idle();
+    String combined = combLog.replaceAll("(?s).*(Succeeded: [^\n]*).*", "$1");
+    out.append("combined: ").append(combined).append(" | ").append(PadKits.lastSongSet).append('\n');
     // No set line: nothing added.
     PadKits.fromSong(app, "Succeeded: y.mid");
     idle();
@@ -9711,7 +9731,8 @@ public final class DesktopBehavior {
     String o = out.toString();
     boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
         && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
-        && o.contains("without: " + (before + 2)) && o.contains("Params: Make a drum set from the song's drums");
+        && o.contains("combined: Succeeded: Drum set combined from 2 songs: kick x2 (song2), closed hat (song) | New drum set on the Pads page: combo drums (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("without: " + (before + 3)) && o.contains("Params: Make a drum set from the song's drums");
     if (!ok) throw new AssertionError(o);
   }
 

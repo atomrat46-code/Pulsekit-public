@@ -417,7 +417,7 @@ public final class ProgramParams {
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
     // DrumMidi --make-set: a drum set from the song's own drums (a clean hit of each drum cut out).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--make-set"))
-      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first";
+      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first. On a folder (Dir): the songs' sets also made one, each drum from the song where it is clearest";
     // DrumMidi --set-hits: several hits of each drum kept (vst_render's Pads set plays them as velocity layers).
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--set-hits")) {
       p.label = "Hits kept of each drum (several: the best first on the pad, and vst_render's Pads set plays them all as velocity layers, its hits varying)";
