@@ -1105,7 +1105,7 @@ final class PyJav {
                 // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
                 if (MusicCompare.chainStep(name)) {
                     MusicCompare.Chain chain = MusicCompare.chain();
-                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
+                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.logName(), result);
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
                     else if (result.code != 130) {
                         // One track that failed is said and passed over; Stop stops the chain.

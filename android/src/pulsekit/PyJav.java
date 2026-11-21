@@ -1658,7 +1658,9 @@ final class PyJav {
                 app.importLibrary.rebuildImported();
                 app.importLibrary.rebuildImportedFills();
                 app.setNow("Succeeded: " + source);
-                android.widget.Toast.makeText(app, "Succeeded: " + source, 1).show();
+                // A run's chain of file sets (several tracks): the status line and the chain's end say it, no toast each
+                // (queued, they went on long after the run).
+                if (!pulsekit.MusicCompare.quietSongs()) android.widget.Toast.makeText(app, "Succeeded: " + source, 1).show();
                 return "Succeeded: " + source;
             }
             int[][] cells = pulsekit.Engine.parseMidi(data);
@@ -1920,7 +1922,7 @@ final class PyJav {
         // chain stops when it was stopped (Stop).
         if (pulsekit.MusicCompare.chainStep(program)) {
             pulsekit.MusicCompare.Chain chain = pulsekit.MusicCompare.chain();
-            if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.setName(chain.model()), made, madeLog);
+            if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.logName(), made, madeLog);
             boolean stopped = made != null && made.code == 130;
             if (ok) this.pkChainNext();
             else if (!stopped) {

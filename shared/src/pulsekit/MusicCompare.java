@@ -110,6 +110,13 @@ public final class MusicCompare {
       return random ? setFor(t[0]) : setFor(t[0]) + variation(t[1]);
     }
 
+    /** The track now in DrumMidi as its log is named in the zip: its label, and a variation's number ("sft Variated2"). */
+    public synchronized String logName() {
+      if (at < 0 || at >= tracks.size()) return "";
+      String[] t = tracks.get(at);
+      return setName(t[0]) + variation(t[1]);
+    }
+
     /** " Variated2" for a variation's file (sogni-Metal-1a2b3c4d-sft_Variated2.mp3), else "". */
     static String variation(String file) {
       java.util.regex.Matcher m = java.util.regex.Pattern.compile("_Variated(\\d+)(\\(\\d+\\))?\\.[A-Za-z0-9]+$").matcher(file == null ? "" : file);

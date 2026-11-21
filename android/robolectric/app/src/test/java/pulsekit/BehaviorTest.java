@@ -11642,7 +11642,8 @@ public class BehaviorTest {
     String firstSet = pulsekit.MusicCompare.chain().setNow();
     java.util.List<String> varArgs = pulsekit.MusicCompare.chain().next();
     String varSet = pulsekit.MusicCompare.chain().setNow();
-    boolean varNamed = varArgs != null && String.join(" ", varArgs).contains(varSet + ".mid") && varSet.endsWith(" Funk Variated2") && !firstSet.equals(varSet);
+    String varLog = pulsekit.MusicCompare.chain().logName();
+    boolean varNamed = varArgs != null && String.join(" ", varArgs).contains(varSet + ".mid") && varSet.endsWith(" Funk Variated2") && !firstSet.equals(varSet) && varLog.equals(varSet);
     out.append("variation's set: ").append(varSet).append(" (first ").append(firstSet).append(")\n");
     pulsekit.MusicCompare.chain().next();
     boolean afterTwo = pulsekit.MusicCompare.quietSongs();
