@@ -29,7 +29,12 @@ final class VstSessions {
         "--plugin", "--plugin2", "--plugin3", "--plugin4", "--kit_name", "--kit_name2", "--kit_name3", "--kit_name4",
         "--padset", "--parts", "--state", "--effect", "--effect_state",
         "--test", "--cymbal_bench", "--cymbal_bench_when", "--hit_bench", "--hit_bench_when",
-        "--bench_dir", "--bench_unzip", "--bench_work", "--hit_dir", "--hit_unzip", "--hit_zip_outdir", "--hit_model_file"));
+        "--bench_dir", "--bench_unzip", "--bench_work", "--hit_dir", "--hit_unzip", "--hit_zip_outdir", "--hit_model_file",
+        // Each session's own choices for its folders, plugins and runs: the kits (or runs) left out, the maps,
+        // the model comparison and leave-one-out's kits, the kits counted as new.
+        "--bench_skip", "--map", "--map2", "--map3", "--map4", "--note_map",
+        "--model_compare", "--model_a", "--model_a_kits", "--model_b", "--model_b_kits", "--leave_one_out", "--loo_kits", "--loo_names",
+        "--new_kits", "--new_runs", "--new_names", "--hit_loo"));
 
     /** The folder rows' lists: the two input folders share one, each other kind its own. */
     static final Map<String, String> FOLDER_KEYS = new LinkedHashMap<String, String>();

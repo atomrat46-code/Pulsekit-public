@@ -10890,7 +10890,7 @@ public final class DesktopBehavior {
     call("selectListedProgram", "Python", "vst_render.py");
     edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
     call("saveParams", "vst_render.py", "--dir " + q(kompit) + " --dir2 " + q(fillit) + " --outdir " + q(sogni) + " --zip_outdir " + q(new File(home, "Claude/Samples/%n"))
-        + " --test --cymbal_bench --cymbal_bench_when last --plugin " + q(plugin) + " --kit_name KVLT");
+        + " --test --cymbal_bench --cymbal_bench_when last --plugin " + q(plugin) + " --kit_name KVLT --bench_skip \"Riot Default kit, 20261121-135203\"");
     PyJav.paramsTab = ProgramParams.INPUT;
     final JDialog[] params = new JDialog[1];
     inspectNext = d -> params[0] = d;
@@ -10951,6 +10951,7 @@ public final class DesktopBehavior {
       dir.setSelectedIndex(1);
       ((javax.swing.JCheckBox) component(d, "params-check:--test")).doClick();
       ((JTextField) component(d, "params-field:--kit_name")).setText("Riot");
+      ((javax.swing.text.JTextComponent) component(d, "params-field:--bench_skip")).setText("Cardinal");
       javax.swing.JComboBox<?> list = (javax.swing.JComboBox<?>) component(d, "params-sessions");
       StringBuilder b = new StringBuilder("changed: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected());
       b.append(" | sessions: ");
@@ -10958,13 +10959,16 @@ public final class DesktopBehavior {
       list.setSelectedIndex(0);
       list.setSelectedIndex(1);
       b.append(" | loaded: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected())
-          .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText());
+          .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText())
+          .append(", left out ").append(((javax.swing.text.JTextComponent) component(d, "params-field:--bench_skip")).getText());
       out.append(b).append('\n');
       find(d.getContentPane(), "OK").doClick();
     });
     idle();
     out.append("kept: ").append(String.valueOf(call("loadParams", "vst_render.py")).replace(h, "~")).append('\n');
     PyJav.paramsTab = null;
+    // 22112026: each session keeps its own Kits left out (and maps, the model tab's choices).
+    if (!out.toString().contains(", kit KVLT, left out Riot Default kit, 20261121-135203")) throw new AssertionError(out.toString());
   }
 
   private static String q(File f) {

@@ -4482,7 +4482,7 @@ final class PyJav {
             ask.add(name);
             ask.add(new JLabel("Description (optional)"));
             ask.add(about);
-            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins and kit names, Test, the cymbal model comparison and the hit model bench (on or off, and when), the Cymbal model and Hit model tabs' folders and files. The date is added.</body></html>"));
+            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins, kit names and maps, Test, the cymbal model comparison and the hit model bench (on or off, and when), the Cymbal model and Hit model tabs' folders, files and choices, Kits left out too. The date is added.</body></html>"));
             java.awt.Window w = SwingUtilities.getWindowAncestor(save);
             lastSessionAsk = name;
             boolean ok = sessionAnswer != null ? sessionAnswer.test(name, about)
