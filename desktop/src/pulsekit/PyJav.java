@@ -3918,6 +3918,9 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
+                            // No kit name on the row: asked first (the settings are saved under it; without one they are
+                            // the plugin's own, and a name given later finds nothing saved for it).
+                            if (rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token).isEmpty() && !this.askRowKit(editSettings, ps, p.token, plug)) return;
                             if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
@@ -5067,6 +5070,44 @@ final class PyJav {
             }
         }
         return out;
+    }
+
+    /** Tests: the answer the kit name question gets (null: asked; "" the plugin's own settings, no kit name). */
+    static String kitNameAnswer;
+    /** What the kit name question said last (for the tests). */
+    static String lastKitNameAsk;
+
+    /**
+     * Edit settings with Kit loaded empty: which kit will be loaded? Its name (the kits named for the plugin
+     * before offered) goes into the row's Kit loaded, so its settings are saved as that kit's. Without a name
+     * they are the plugin's own settings. False: cancelled (nothing opened).
+     */
+    boolean askRowKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug) {
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        JTextField field = null;
+        if (this.shownFields != null && this.shownParams == ps) {
+            for (int i = 0; i < ps.size() && i < this.shownFields.length; i++) if (ps.get(i).token.equals(kitToken)) field = this.shownFields[i];
+        }
+        if (field == null) return true;
+        lastKitNameAsk = "Which kit will you load in " + plugName(plug.getPath()) + "? Its settings are saved under this name (Kit loaded), "
+            + "so Test and runs of this row play it. Leave it empty for the plugin's own settings, without a kit name.";
+        String name = kitNameAnswer;
+        if (name == null) {
+            java.util.List<String> known = VstLists.kitsOnlyFor(plug.getPath());
+            javax.swing.JComboBox<String> box = new javax.swing.JComboBox<String>(known.toArray(new String[0]));
+            box.setEditable(true);
+            box.setSelectedItem("");
+            JPanel ask = new JPanel(new BorderLayout(0, 6));
+            ask.add(new JLabel("<html><body style='width:320px'>" + lastKitNameAsk + "</body></html>"), BorderLayout.NORTH);
+            ask.add(box, BorderLayout.CENTER);
+            int got = JOptionPane.showConfirmDialog(at, ask, "Kit loaded \u00b7 " + plugName(plug.getPath()), JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (got != JOptionPane.OK_OPTION) return false;
+            Object v = box.getEditor().getItem();
+            name = v == null ? "" : v.toString();
+        }
+        name = KitPacks.tidy(name.trim());
+        if (name.length() > 0) field.setText(name);
+        return true;
     }
 
     /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
