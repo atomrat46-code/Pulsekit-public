@@ -1108,6 +1108,24 @@ def kit_state(plugin):
     return path
 
 
+def saved_kits(plugin):
+    """The kits this plugin has settings saved for ("<plugin> [<kit>].state"), as their files name them."""
+    folder = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst")
+    head = stem(plugin) + " ["
+    out = []
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            if name.startswith(head) and name.endswith("].state"):
+                out.append(name[len(head):-len("].state")].replace("_", ":", 1) if ":" not in name else name[len(head):-len("].state")])
+    return out
+
+
+def saved_kits_said(plugin):
+    """" Kits with settings saved for it: ..." (a kit's settings saved on another row show there), or ""."""
+    kits = saved_kits(plugin)
+    return (" Kits with settings saved for it: %s (if the kit was loaded with Edit settings on another row, it was saved under that row's kit name)" % ", ".join(kits)) if kits else ""
+
+
 def state_home(plugin):
     """The settings a run plays with: the kit's own (--kit_name), else the plugin's (said once: they are the
     kit Edit settings loaded last, which may be another kit)."""
@@ -1118,7 +1136,7 @@ def state_home(plugin):
     if kit and os.path.isfile(base) and (plugin, CURRENT_KIT[0]) not in KIT_STATE_SAID:
         KIT_STATE_SAID.add((plugin, CURRENT_KIT[0]))
         print("Kit settings: none saved for %s yet; %s plays with its last saved settings (the kit Edit settings loaded last, "
-              "maybe another one). Edit settings on its row saves this kit's." % (CURRENT_KIT[0], stem(plugin)))
+              "maybe another one). Edit settings on its row saves this kit's.%s" % (CURRENT_KIT[0], stem(plugin), saved_kits_said(plugin)))
     return base
 
 

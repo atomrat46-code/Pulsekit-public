@@ -566,6 +566,9 @@ final class PluginsList {
                 String k = t.substring("Kit settings: none saved for ".length()).replaceFirst(" yet;.*$", "");
                 unsaved = "\u26a0 " + k + " is not loaded yet: no settings are saved for it, so this test played the kit Edit settings saved last. "
                     + "Press Edit settings on its row, load " + k + " in the plugin's window, press Stop timer when it has loaded, close the window, then Test again.";
+                // The kits it has settings for: one loaded on another row was saved under that row's kit name.
+                int at = t.indexOf("Kits with settings saved for it: ");
+                if (at >= 0) unsaved += " " + t.substring(at).replaceFirst(" \\(if the kit was loaded.*$", "") + ".";
             }
             if (t.startsWith("Kit: ") && (t.contains("kick") || t.contains("not learned") || t.contains("silent"))) kit = t;
             if (t.startsWith("Failed")) failed = t;

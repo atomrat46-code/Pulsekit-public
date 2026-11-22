@@ -8957,7 +8957,7 @@ public final class DesktopBehavior {
     String ok1 = PluginsList.verdict("Good.vst3", "Plugin check: the test beat plays (peak -6.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: Good.vst3 plays");
     String some = PluginsList.verdict("Half.vst3", "Plugin check: the test beat plays (peak -9.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)\nSucceeded: Half.vst3 plays");
     // 22112026: a kit named but not saved yet: why it sounds as another kit, and what to do, said first.
-    String unsaved = PluginsList.verdict("SSDSampler5.dll", "Kit settings: none saved for SSD5 Classic Metal:Cracky yet; SSDSampler5 plays with its last saved settings\n"
+    String unsaved = PluginsList.verdict("SSDSampler5.dll", "Kit settings: none saved for SSD5 Classic Metal:Cracky yet; SSDSampler5 plays with its last saved settings. Kits with settings saved for it: SSD 5 Classic Metal:Classic Black, SSD 5 Classic:Absolute Rock (if the kit was loaded with Edit settings on another row, it was saved under that row's kit name)\n"
         + "Plugin check: the test beat plays (peak -10.4 dBFS)\nKit check: the test beat sounds exactly as it did for \"saved kit\": was the kit really changed in the plugin?\n"
         + "Kit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: SSDSampler5.dll plays");
     this.out.append("unsaved: ").append(unsaved.split("\n\n")[0].replace("\n", " | ")).append('\n');
@@ -8991,6 +8991,7 @@ public final class DesktopBehavior {
     PyJav.paramsTab = null;
     String all = this.out.toString();
     boolean unsavedOk = all.contains("unsaved: \u2714 SSDSampler5.dll plays drums: the kick, toms and cymbals of the test beat were heard | \u26a0 SSD5 Classic Metal:Cracky is not loaded yet: no settings are saved for it, so this test played the kit Edit settings saved last.")
+        && all.contains("then Test again. Kits with settings saved for it: SSD 5 Classic Metal:Classic Black, SSD 5 Classic:Absolute Rock.")
         && !all.contains("| \u26a0 the test beat sounds exactly");
     boolean ok = unsavedOk && all.contains("--kit_name4 left out: it is the kit name for --plugin4, which is not given") && all.contains("--map3 left out: it is the map for --plugin3, which is not given")
         && all.contains("ended: chain") && !all.contains("give --plugin")
@@ -9826,7 +9827,7 @@ public final class DesktopBehavior {
         && got.contains("49 still silent after 120 s (waited at most 120 s: the longest kit load time measured for the plugin, 3 rounds)")
         && got.contains("Params: Plugins | Wait rounds")
         && got.contains("unsaved run: Failed: no settings saved for the kit Classic Metal:Cracky yet, so Cracky Drums.vst3 would play the kit Edit settings saved last under its name")
-        && got.contains("unsaved Test: went on");
+        && got.contains("unsaved Test: went on") && got.contains("saved kits:  Kits with settings saved for it: Classic Metal:Black (if the kit was loaded with Edit settings on another row");
     if (!ok) throw new AssertionError(got);
   }
 

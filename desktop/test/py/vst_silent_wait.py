@@ -114,4 +114,7 @@ def chain_for(switches):
         except Exception as e: print('went on (%s)' % type(e).__name__)
     return [l for l in buf.getvalue().splitlines() if l.startswith(('Failed', 'exit', 'went on'))]
 print('unsaved run: %s' % ' | '.join(chain_for(['--test'])))
+# The kits it has settings for, as the none-saved line names them (another row's kit name shows there).
+open(os.path.join(sys.argv[2], '.pulsekit', 'vst', 'Cracky Drums [Classic Metal_Black].state'), 'w').close()
+print('saved kits: %s' % vr.saved_kits_said(cracky))
 print('unsaved Test: %s' % ' | '.join(chain_for(['--check'])))
