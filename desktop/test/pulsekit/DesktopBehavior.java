@@ -9092,17 +9092,24 @@ public final class DesktopBehavior {
       kit4.setText("");
     });
     this.out.append("typed kit for Test: ").append(typed[0]).append('\n');
-    // 22112026: Edit settings with Kit loaded empty asks which kit will be loaded; the answer fills the row.
+    // 22112026: Edit settings with Kit loaded empty: when the window is closed (the kit picked in the plugin's own
+    // list), its name asked; the answer fills the row and the settings saved as the plugin's are kept as the kit's.
     final String[] asked = new String[1];
+    final File vstDir = new File(System.getProperty("user.home"), ".pulsekit/vst");
+    vstDir.mkdirs();
+    final File own = new File(vstDir, "Anarchy Drums.state");
+    Files.write(own.toPath(), "kit".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(vstDir, "Anarchy Drums.state.load").toPath(), "12.0\n".getBytes(StandardCharsets.UTF_8));
     edt(() -> {
       PyJav pj = (PyJav) get("pyJav");
       PyJav.kitNameAnswer = "SSD5 Classic Metal: Cracky";
-      boolean go = pj.askRowKit(kit4, pj.shownParams, "--plugin4", anarchy);
+      pj.nameSavedKit(kit4, pj.shownParams, "--plugin4", anarchy, "Plugin: Anarchy Drums.vst3\nWrote Plugin settings: " + own.getAbsolutePath() + "\nKit load time: 12.0 s");
       PyJav.kitNameAnswer = null;
       String[] none = new String[pj.shownParams.size()];
       java.util.Arrays.fill(none, "");
-      asked[0] = "goes on " + go + ", field '" + kit4.getText() + "', row kit " + PyJav.rowKit(pj.shownParams, none, pj.shownFields, "--plugin4")
-          + " | asked: " + PyJav.lastKitNameAsk.replaceAll("\\?.*", "?");
+      asked[0] = "field '" + kit4.getText() + "', row kit " + PyJav.rowKit(pj.shownParams, none, pj.shownFields, "--plugin4")
+          + " | asked: " + PyJav.lastKitNameAsk.replaceAll("\\?.*", "?") + " | " + PyJav.lastKitNamed
+          + " | load kept " + new File(vstDir, "Anarchy Drums [SSD5 Classic Metal_Cracky].state.load").isFile();
       kit4.setText("");
     });
     this.out.append("kit asked: ").append(asked[0]).append('\n');
@@ -9117,7 +9124,7 @@ public final class DesktopBehavior {
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
         && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''")
         && this.out.toString().contains("typed kit for Test: [--kit_name, SSD 5 Classic Metal:Classic Black] (values alone [])")
-        && this.out.toString().contains("kit asked: goes on true, field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit will you load in Anarchy Drums.vst3?");
+        && this.out.toString().contains("kit asked: field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit did you load in Anarchy Drums.vst3? | Settings kept for SSD5 Classic Metal:Cracky: Anarchy Drums [SSD5 Classic Metal_Cracky].state | load kept true");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");

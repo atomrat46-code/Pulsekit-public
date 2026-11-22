@@ -3918,9 +3918,9 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
-                            // No kit name on the row: asked first (the settings are saved under it; without one they are
-                            // the plugin's own, and a name given later finds nothing saved for it).
-                            if (rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token).isEmpty() && !this.askRowKit(editSettings, ps, p.token, plug)) return;
+                            // No kit name on the row: asked when the window is closed (the kit is picked in the plugin's own
+                            // list), and the settings then kept under it too.
+                            final boolean nameAfter = rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token).isEmpty();
                             if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
@@ -3933,6 +3933,8 @@ final class PyJav {
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
+                                // The kit's name, asked now that it was picked in the window: the settings kept under it too.
+                                if (nameAfter) this.nameSavedKit(editSettings, ps, p.token, plug, log);
                                 // What it came to, always in a window: why it did not open (a 32-bit plugin without Carla,
                                 // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
@@ -5077,10 +5079,41 @@ final class PyJav {
     /** What the kit name question said last (for the tests). */
     static String lastKitNameAsk;
 
+    /** What naming the kit after Edit settings did last (for the tests). */
+    static String lastKitNamed;
+
     /**
-     * Edit settings with Kit loaded empty: which kit will be loaded? Its name (the kits named for the plugin
-     * before offered) goes into the row's Kit loaded, so its settings are saved as that kit's. Without a name
-     * they are the plugin's own settings. False: cancelled (nothing opened).
+     * Edit settings run with Kit loaded empty, its settings saved as the plugin's own ("Wrote Plugin settings:
+     * ...\SSDSampler5.state"): the kit's name asked (askRowKit), then those settings copied as that kit's
+     * ("SSDSampler5 [SSD5 Classic Metal_Cracky].state", its .params.json and .load too), so Test and runs of the
+     * row play it. No name: they stay the plugin's own.
+     */
+    void nameSavedKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug, String log) {
+        lastKitNamed = null;
+        String wrote = null;
+        for (String l : log.split("\n")) if (l.trim().startsWith("Wrote Plugin settings: ")) wrote = l.trim().substring("Wrote Plugin settings: ".length()).trim();
+        if (wrote == null || !wrote.toLowerCase(java.util.Locale.ROOT).endsWith(".state") || wrote.contains("[")) return;
+        if (!this.askRowKit(at, ps, pluginToken, plug)) return;
+        java.util.List<String> kit = rowKit(ps, new String[ps.size()], this.shownParams == ps ? this.shownFields : null, pluginToken);
+        if (kit.isEmpty()) return;
+        String safe = kit.get(1).replaceAll("[\\\\/:*?\"<>|]", "_");
+        String base = wrote.substring(0, wrote.length() - ".state".length());
+        File to = new File(base + " [" + safe + "].state");
+        try {
+            for (String end : new String[] {"", ".params.json", ".load"}) {
+                File from = new File(wrote + end);
+                if (from.isFile()) java.nio.file.Files.copy(from.toPath(), new File(to.getPath() + end).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            lastKitNamed = "Settings kept for " + kit.get(1) + ": " + to.getName();
+        } catch (Exception ex) {
+            lastKitNamed = "The settings could not be kept for " + kit.get(1) + ": " + ex.getMessage();
+        }
+        app.setNow(lastKitNamed);
+    }
+
+    /**
+     * Which kit was loaded? Its name (the kits named for the plugin before offered) goes into the row's Kit
+     * loaded. Without a name the settings stay the plugin's own. False: cancelled.
      */
     boolean askRowKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug) {
         String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
@@ -5089,8 +5122,8 @@ final class PyJav {
             for (int i = 0; i < ps.size() && i < this.shownFields.length; i++) if (ps.get(i).token.equals(kitToken)) field = this.shownFields[i];
         }
         if (field == null) return true;
-        lastKitNameAsk = "Which kit will you load in " + plugName(plug.getPath()) + "? Its settings are saved under this name (Kit loaded), "
-            + "so Test and runs of this row play it. Leave it empty for the plugin's own settings, without a kit name.";
+        lastKitNameAsk = "Which kit did you load in " + plugName(plug.getPath()) + "? Its settings are kept under this name (Kit loaded), "
+            + "so Test and runs of this row play it. Leave it empty to keep them as the plugin's own settings, without a kit name.";
         String name = kitNameAnswer;
         if (name == null) {
             java.util.List<String> known = VstLists.kitsOnlyFor(plug.getPath());
