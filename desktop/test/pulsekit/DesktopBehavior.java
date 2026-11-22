@@ -11036,6 +11036,9 @@ public final class DesktopBehavior {
       b.append(" | loaded: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected())
           .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText())
           .append(", left out ").append(((javax.swing.text.JTextComponent) component(d, "params-field:--bench_skip")).getText());
+      // 22112026: the session put another kit on plugin 1: Plugin check recommended, in red on the Plugins tab.
+      javax.swing.JLabel check = (javax.swing.JLabel) component(d, "params-plugin-check");
+      b.append(" | check: ").append(PyJav.lastPluginCheck.replaceAll("session .*?\\.", "session <name>.")).append(" (shown ").append(check != null && check.isVisible()).append(")");
       out.append(b).append('\n');
       find(d.getContentPane(), "OK").doClick();
     });
@@ -11043,7 +11046,9 @@ public final class DesktopBehavior {
     out.append("kept: ").append(String.valueOf(call("loadParams", "vst_render.py")).replace(h, "~")).append('\n');
     PyJav.paramsTab = null;
     // 22112026: each session keeps its own Kits left out (and maps, the model tab's choices).
-    if (!out.toString().contains(", kit KVLT, left out Riot Default kit, 20261121-135203")) throw new AssertionError(out.toString());
+    if (!out.toString().contains(", kit KVLT, left out Riot Default kit, 20261121-135203")
+        || !out.toString().contains("check: Plugin check recommended: plugin 1 has another plugin or kit with the session <name>. Test it (or Edit settings) to be sure the kits named are the ones played. (shown true)"))
+      throw new AssertionError(out.toString());
   }
 
   private static String q(File f) {

@@ -3919,6 +3919,7 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
+                            this.pluginChecked(p.token);
                             // No kit name on the row: asked when the window is closed (the kit is picked in the plugin's own
                             // list), and the settings then kept under it too.
                             final java.util.List<String> kitNow = rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token);
@@ -4472,7 +4473,13 @@ final class PyJav {
             delete.setEnabled(at > 0);
             if (at <= 0 || at > shown.size()) return;
             VstSessions.Session s = shown.get(at - 1);
+            java.util.Map<String, String> before = this.pluginRows(ps, values, fields);
             this.loadSession(s, ps, values, fields, checks, uses, fileLabels, setters);
+            // Plugins or kits another than the rows had: a check of those rows recommended (said in red on the Plugins tab).
+            java.util.Map<String, String> after = this.pluginRows(ps, values, fields);
+            for (String t : after.keySet()) if (!after.get(t).equals(before.get(t)) && after.get(t).length() > 1) this.pluginCheckRows.add(t);
+            this.pluginCheckSession = s.name;
+            this.showPluginCheck();
             VstSessions.setCurrent(s.name);
             list.setToolTipText(s.description.isEmpty() ? s.label() : s.description);
             app.setNow("Session loaded: " + s.name);
@@ -4979,7 +4986,20 @@ final class PyJav {
         for (java.util.Map.Entry<String, JPanel> e : pages.entrySet()) {
             JPanel holder = new JPanel(new BorderLayout(0, 10));
             holder.add(e.getValue(), BorderLayout.NORTH);
-            if (ProgramParams.PLUGINS.equals(e.getKey())) holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+            if (ProgramParams.PLUGINS.equals(e.getKey())) {
+                holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+                // Plugin check recommended (a session with other plugins or kits loaded): in red at the top.
+                JPanel top = new JPanel(new BorderLayout(0, 6));
+                this.pluginCheckNote = new JLabel();
+                this.pluginCheckNote.setName("params-plugin-check");
+                this.pluginCheckNote.setForeground(new java.awt.Color(0xE5, 0x48, 0x4D));
+                this.pluginCheckRows.clear();
+                this.showPluginCheck();
+                top.add(this.pluginCheckNote, BorderLayout.NORTH);
+                top.add(e.getValue(), BorderLayout.CENTER);
+                holder.remove(e.getValue());
+                holder.add(top, BorderLayout.NORTH);
+            }
             if (ProgramParams.FILES.equals(e.getKey())) holder.add(this.filesPanel(), BorderLayout.CENTER);
             holder.setName("params-tab:" + e.getKey());
             tabs.addTab(e.getKey(), holder);
@@ -5233,6 +5253,7 @@ final class PyJav {
             app.setNow("Choose a plugin first (" + token + ")");
             return;
         }
+        this.pluginChecked(token);
         final File plug = new File(path);
         String problem = DllInfo.problem(plug);
         if (DllInfo.BRIDGED.equals(problem) || DllInfo.isLv2(plug)) carlaRack();
@@ -5994,6 +6015,45 @@ final class PyJav {
 
     /** The Use as plugin menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastUseMenu;
+
+    /** The plugin rows a session loaded with another plugin or kit (their --plugin tokens): a check recommended. */
+    final java.util.Set<String> pluginCheckRows = new java.util.TreeSet<String>();
+    String pluginCheckSession = "";
+    /** The Plugins tab's red line saying it. */
+    JLabel pluginCheckNote;
+
+    /** Each plugin row's plugin and kit ("path\tkit"), by its --plugin token. */
+    java.util.Map<String, String> pluginRows(List<ProgramParams.Param> ps, String[] values, JTextField[] fields) {
+        java.util.Map<String, String> out = new java.util.TreeMap<String, String>();
+        for (int i = 0; i < ps.size(); i++) {
+            String t = ps.get(i).token;
+            if (!t.matches("--plugin\\d?")) continue;
+            String kit = "";
+            String kt = "--kit_name" + t.substring("--plugin".length());
+            for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(kt)) kit = fields != null && k < fields.length && fields[k] != null ? fields[k].getText().trim() : String.valueOf(values[k] == null ? "" : values[k]).trim();
+            out.put(t, String.valueOf(values[i] == null ? "" : values[i]).trim() + "\t" + KitPacks.tidy(kit));
+        }
+        return out;
+    }
+
+    /** The red line: the rows still to check (Test or Edit settings on a row takes it off), hidden when none. */
+    void showPluginCheck() {
+        if (this.pluginCheckNote == null) return;
+        java.util.List<String> rows = new java.util.ArrayList<String>();
+        for (String t : this.pluginCheckRows) rows.add("plugin " + (t.equals("--plugin") ? "1" : t.substring("--plugin".length())));
+        lastPluginCheck = rows.isEmpty() ? "" : "Plugin check recommended: " + String.join(", ", rows) + (rows.size() == 1 ? " has" : " have") + " another plugin or kit with the session "
+            + this.pluginCheckSession + ". Test " + (rows.size() == 1 ? "it" : "them") + " (or Edit settings) to be sure the kits named are the ones played.";
+        this.pluginCheckNote.setText(lastPluginCheck.isEmpty() ? "" : "<html><body style='width:600px'>" + lastPluginCheck + "</body></html>");
+        this.pluginCheckNote.setVisible(!lastPluginCheck.isEmpty());
+    }
+
+    /** What the red line says now (for the tests). */
+    static String lastPluginCheck = "";
+
+    /** A row tested or its settings edited: off the list of rows to check. */
+    void pluginChecked(String token) {
+        if (this.pluginCheckRows.remove(token)) this.showPluginCheck();
+    }
 
     /** Each plugin row's Edit settings (by its --plugin token), for the offer to open it. */
     final java.util.Map<String, JButton> editButtons = new java.util.HashMap<String, JButton>();
