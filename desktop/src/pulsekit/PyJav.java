@@ -5218,7 +5218,11 @@ final class PyJav {
             name = v == null ? "" : v.toString();
         }
         name = KitPacks.tidy(name.trim());
-        if (name.length() > 0) field.setText(name);
+        if (name.length() > 0) {
+            field.setText(name);
+            // A new name (its pack and set) onto the kit lists now, for this plugin: Choose and the next question offer it.
+            VstLists.rememberKits("--plugin \"" + plug.getPath() + "\" --kit_name \"" + name + "\"");
+        }
         return true;
     }
 
