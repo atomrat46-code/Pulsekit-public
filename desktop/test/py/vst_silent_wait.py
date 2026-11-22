@@ -39,6 +39,14 @@ for loads, name in ((2, 'loading'), (10 ** 6, 'never')):
     with contextlib.redirect_stdout(buf):
         lines, silent = vr.drum_notes_check(Chain(loads), np, R, {})
     print('%s: silent %s | %s' % (name, sorted(silent), ' | '.join(l for l in lines if 'silent' in l)))
+# --wait_rounds 3: a crash silent all along waited for 3 rounds of the 40 s, each round said.
+vr.WAIT_ROUNDS[0] = 3
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    lines, silent = vr.drum_notes_check(Chain(10 ** 6), np, R, {})
+vr.WAIT_ROUNDS[0] = 1
+said = buf.getvalue()
+print('rounds: %s | %s' % (' | '.join(l for l in said.splitlines() if 'round' in l), ' | '.join(l for l in lines if 'at first' in l)))
 # --max_wait: longer than the Stop timer's longest (40 s): waited that long; 0 or shorter: the 40 s.
 for mw in (60, 10, 0):
     vr.MAX_WAIT[0] = float(mw)

@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -134,6 +134,8 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   same every run. A song's drum set (one sample a drum) sounds less mechanical.
   --max_wait N    how long (seconds) a plugin's silent notes are waited for (a kit still loading) when
                   the longest Stop timer time measured for it is shorter; 0 or less than that: that time.
+  --wait_rounds N when notes are still silent after that wait, it is waited again, up to N rounds in all
+                  (a virus scan or an update slowing the computer as a kit loads); empty or 0: one.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -2465,6 +2467,8 @@ def note_heard(plugin, notes):
 
 # --max_wait (seconds): the most silent notes are waited for, when it is longer than the Stop timer's longest.
 MAX_WAIT = [0.0]
+# --wait_rounds: how many times that wait is repeated in all while notes stay silent.
+WAIT_ROUNDS = [1]
 
 
 def silent_wait(chain):
@@ -2899,16 +2903,22 @@ def drum_notes_check(chain, np, rate, nmap):
     # Some silent: maybe the kit is still loading (SSD5's crashes and a tom, once): played again every 5 s for up to
     # the longest load time measured for the plugin, before they count as silent.
     first = [n for n in notes if not (peak > 1e-6 and loud[n] > peak * 0.001)]
-    limit = silent_wait(chain)
+    one = silent_wait(chain)
+    limit = one * WAIT_ROUNDS[0]
     early = []
     if first and peak > 1e-6 and limit > 0:
         import time
         waited = 0.0
         quiet = list(first)
-        print("Notes check: %s silent at first (the kit still loading?): played again every 5 s, for up to %.0f s" % (
-            ", ".join(str(n) for n in quiet), limit))
+        print("Notes check: %s silent at first (the kit still loading?): played again every 5 s, for up to %.0f s%s" % (
+            ", ".join(str(n) for n in quiet), limit, " (%d rounds of %.0f s)" % (WAIT_ROUNDS[0], one) if WAIT_ROUNDS[0] > 1 else ""))
         sys.stdout.flush()
+        round_end = one
         while quiet and waited < limit and not STOP["asked"]:
+            if waited >= round_end:
+                print("Notes check: %s still silent after %.0f s: round %d of %d" % (", ".join(str(n) for n in quiet), waited, int(round_end // one) + 1, WAIT_ROUNDS[0]))
+                sys.stdout.flush()
+                round_end += one
             step = min(5.0, limit - waited)
             time.sleep(step)
             waited += step
@@ -2919,9 +2929,9 @@ def drum_notes_check(chain, np, rate, nmap):
                     pass
             quiet = [n for n in quiet if not loud[n] > peak * 0.001]
         late = [n for n in first if n not in quiet]
-        early.append("Notes check: %s silent at first; %s after %.0f s (waited at most %.0f s, the longest kit load time measured for the plugin)" % (
+        early.append("Notes check: %s silent at first; %s after %.0f s (waited at most %.0f s: the longest kit load time measured for the plugin%s)" % (
             ", ".join(str(n) for n in first), "all heard" if not quiet else ("%s heard, %s still silent" % (", ".join(str(n) for n in late) or "none", ", ".join(str(n) for n in quiet))),
-            waited, limit))
+            waited, limit, ", %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else ""))
     level, heard, silent = {}, [], []
     for n in notes:
         if peak > 1e-6 and loud[n] > peak * 0.001:
@@ -3708,8 +3718,8 @@ class Chain(object):
         if "--test" in switches or "--check" in switches:
             # How long silent notes are waited for, and where that comes from.
             wait = silent_wait(self)
-            print("Silent notes: waited for up to %.0f s, tried again every 5 s (the longest Stop timer time %s%s%s)" % (
-                wait, "%.0f s" % self.longest_load if self.longest_load else "not measured yet",
+            print("Silent notes: waited for up to %.0f s%s, tried again every 5 s (the longest Stop timer time %s%s%s)" % (
+                wait, " a round, %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else "", "%.0f s" % self.longest_load if self.longest_load else "not measured yet",
                 ", the kit's own %.0f s" % self.load_limit if self.load_measured else "",
                 ", Maximum plugin wait %.0f s" % MAX_WAIT[0] if MAX_WAIT[0] else ""))
         self.fx = None
@@ -5489,7 +5499,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--max_wait": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--max_wait": None, "--wait_rounds": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_unzip": None, "--hit_zip_outdir": None, "--hit_bench_when": None}
@@ -5521,6 +5531,11 @@ def main(argv):
         MAX_WAIT[0] = max(0.0, float(opts.get("--max_wait") or 0))
     except ValueError:
         MAX_WAIT[0] = 0.0
+    # --wait_rounds: the wait for silent notes repeated up to this many rounds in all (empty, 0 or not a number: one).
+    try:
+        WAIT_ROUNDS[0] = max(1, int(float(opts.get("--wait_rounds") or 1)))
+    except ValueError:
+        WAIT_ROUNDS[0] = 1
     # --hit_model_file: DrumMidi's hit model from a file (the Hit model tab's bench learned it) in the tests too.
     HIT_MODEL_FILE[0] = None
     if opts["--hit_model_file"]:
@@ -5942,14 +5957,21 @@ def main(argv):
         silent = [n for n in silent if n not in off]
         # Some notes silent: maybe the kit is still loading (SSD5's crashes and a tom, once): the test beat again
         # every 5 s for up to the plugin's longest load time measured, before they count as silent.
-        wait_max = silent_wait(chain)
+        one_round = silent_wait(chain)
+        wait_max = one_round * WAIT_ROUNDS[0]
         if silent and wait_max > 0 and not gizmo:
             import time
             first_silent = list(silent)
             waited = 0.0
-            print("Notes: %s silent at first (the kit still loading?): the test beat again every 5 s, for up to %.0f s" % (named_list(first_silent), wait_max))
+            print("Notes: %s silent at first (the kit still loading?): the test beat again every 5 s, for up to %.0f s%s" % (
+                named_list(first_silent), wait_max, " (%d rounds of %.0f s)" % (WAIT_ROUNDS[0], one_round) if WAIT_ROUNDS[0] > 1 else ""))
             sys.stdout.flush()
+            round_end = one_round
             while silent and waited < wait_max and not STOP["asked"]:
+                if waited >= round_end:
+                    print("Notes: %s still silent after %.0f s: round %d of %d" % (named_list(silent), waited, int(round_end // one_round) + 1, WAIT_ROUNDS[0]))
+                    sys.stdout.flush()
+                    round_end += one_round
                 step = min(5.0, wait_max - waited)
                 time.sleep(step)
                 waited += step
@@ -5962,8 +5984,8 @@ def main(argv):
                 s2 = [n for n in s2 if n not in off]
                 if len(s2) < len(silent):
                     heard, silent, check_audio = h2, s2, again
-            print("Notes: %s after %.0f s (waited at most %.0f s, the longest kit load time measured for the plugin)" % (
-                "all heard" if not silent else "%s still silent" % named_list(silent), waited, wait_max))
+            print("Notes: %s after %.0f s (waited at most %.0f s: the longest kit load time measured for the plugin%s)" % (
+                "all heard" if not silent else "%s still silent" % named_list(silent), waited, wait_max, ", %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else ""))
         # The notes this kit plays, kept: a later run with one of them silent stops before its renders.
         if heard and not gizmo:
             note_heard(opts.get("--bridged") or opts["--clap"] or plugin or name, heard)

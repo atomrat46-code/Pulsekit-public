@@ -9802,7 +9802,7 @@ public final class DesktopBehavior {
     got += "\nLongest now: " + VstLists.longestLoads();
     // Params: Maximum plugin wait on the Plugins tab.
     for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
-      if (p.token.equals("--max_wait")) got += "\nParams: " + ProgramParams.vstTab(p) + " | " + p.label.replaceAll(":.*", "");
+      if (p.token.equals("--max_wait") || p.token.equals("--wait_rounds")) got += "\nParams: " + ProgramParams.vstTab(p) + " | " + p.label.replaceAll(":.*", "");
     }
     this.out.append(got).append('\n');
     boolean ok = got.contains("longest: 40")
@@ -9814,7 +9814,10 @@ public final class DesktopBehavior {
         && got.contains("two plugins: == Preflight 1 of 2: Other Drums.vst3 | Preflight: Other Drums.vst3 ready | == Preflight 2 of 2: SSDSampler5.dll | Failed: preflight: SSDSampler5.dll not ready (above), so nothing was rendered")
         && got.contains("| rendered False")
         && got.contains("max_wait 60: waits 60") && got.contains("max_wait 10: waits 40") && got.contains("max_wait 0: waits 40")
-        && got.contains("Params: Plugins | Maximum plugin wait (seconds)") && got.contains("Longest now: SSDSampler5 40 s");
+        && got.contains("Params: Plugins | Maximum plugin wait (seconds)") && got.contains("Longest now: SSDSampler5 40 s")
+        && got.contains("for up to 120 s (3 rounds of 40 s) | Notes check: 49 still silent after 40 s: round 2 of 3 | Notes check: 49 still silent after 80 s: round 3 of 3")
+        && got.contains("49 still silent after 120 s (waited at most 120 s: the longest kit load time measured for the plugin, 3 rounds)")
+        && got.contains("Params: Plugins | Wait rounds");
     if (!ok) throw new AssertionError(got);
   }
 

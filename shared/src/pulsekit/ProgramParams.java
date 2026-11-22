@@ -857,7 +857,7 @@ public final class ProgramParams {
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
-    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--max_wait") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--max_wait") || t.equals("--wait_rounds") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
   }
@@ -1050,6 +1050,9 @@ public final class ProgramParams {
     } else if (p.token.equals("--max_wait")) {
       p.label = "Maximum plugin wait (seconds): how long a test waits for a plugin's silent notes (a kit still loading), when the longest Stop timer time is shorter";
       p.hint = "empty or 0: the longest Stop timer time; less than it: that time";
+    } else if (p.token.equals("--wait_rounds")) {
+      p.label = "Wait rounds: when notes are still silent after the whole wait, it is waited again, up to this many rounds in all (a virus scan or an update slowing the computer as a kit loads)";
+      p.hint = "empty or 0: one round";
     } else if (p.token.equals("--vary")) {
       p.label = "Vary each hit of a Pads set or SoundFont: level, pitch and brightness a little different every hit, as a drummer's (0 none, 50 light, 100 the most)";
       p.hint = "empty: none";
