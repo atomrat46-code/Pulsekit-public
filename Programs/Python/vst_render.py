@@ -3710,6 +3710,14 @@ class Chain(object):
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
+        # A kit named with no settings saved for it yet: the plugin plays the kit Edit settings saved last, so a
+        # run would make hours of another kit's sound under this kit's name: it stops (Test only says it).
+        if "--edit" not in switches and "--check" not in switches and not opts["--state"] and not opts["--carla"] and not bridged:
+            own = kit_state(clap or self.plugin)
+            if own and not os.path.isfile(own):
+                fail("no settings saved for the kit %s yet, so %s would play the kit Edit settings saved last under its name: press Edit settings "
+                     "on its row, load %s in the plugin's window, press Stop timer when it has loaded and close the window; then run again"
+                     % (CURRENT_KIT[0], os.path.basename(os.path.normpath(self.plugin)), CURRENT_KIT[0]))
         # How long a test waits for a slow kit (the load time Edit settings measured).
         self.load_limit = load_limit(clap or self.plugin, opts["--state"])
         self.load_measured = self.load_limit != LOAD_WAIT

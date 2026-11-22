@@ -10,6 +10,8 @@ import importlib.util
 s = importlib.util.spec_from_file_location('vr', sys.argv[1]); vr = importlib.util.module_from_spec(s); s.loader.exec_module(vr)
 import time
 time.sleep = lambda x: None
+RealChain = vr.Chain
+vr.RealChain = RealChain
 R = 44100
 plug = os.path.join(sys.argv[2], 'SSDSampler5.dll')
 # Edit settings' Stop timer: 40 s, then 12 s for another kit; the longest stays 40.
@@ -88,3 +90,28 @@ with contextlib.redirect_stdout(buf):
 out = buf.getvalue()
 print('two plugins: %s | rendered %s' % (' | '.join(l for l in out.splitlines() if l.startswith(('== Preflight', 'Preflight', 'Failed: preflight'))),
                                          any(f.endswith('.wav') and 'song' in f for f in os.listdir(sys.argv[2]))))
+# A kit named with no settings saved for it: a run stops (it would play the kit saved last under its name);
+# Test (--check) goes on and only says it. (The real plugin chain, its engine and plugin stood in for.)
+import collections
+class FakeDaw:
+    class RenderEngine:
+        def __init__(self, rate, block): pass
+class FakeProc:
+    def get_num_input_channels(self): return 0
+    def get_num_output_channels(self): return 2
+vr.load_plugin = lambda engine, label, path: FakeProc()
+vr.apply_state = lambda proc, plugin, given, label: "settings applied"
+cracky = os.path.join(sys.argv[2], 'Cracky Drums.vst3'); os.makedirs(cracky, exist_ok=True)
+def chain_for(switches):
+    vr.CURRENT_KIT[0] = 'Classic Metal:Cracky'
+    opts = collections.defaultdict(lambda: None, {'--plugin': cracky})
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            vr.RealChain(FakeDaw, 44100, opts, set(switches))
+            print('went on')
+        except SystemExit as e: print('exit %s' % e.code)
+        except Exception as e: print('went on (%s)' % type(e).__name__)
+    return [l for l in buf.getvalue().splitlines() if l.startswith(('Failed', 'exit', 'went on'))]
+print('unsaved run: %s' % ' | '.join(chain_for(['--test'])))
+print('unsaved Test: %s' % ' | '.join(chain_for(['--check'])))
