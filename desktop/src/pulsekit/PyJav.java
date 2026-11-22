@@ -3908,6 +3908,7 @@ final class PyJav {
                         // as the Plugins list's Edit settings does, without going there.
                         JButton editSettings = new JButton("Edit settings");
                         rowEdit[0] = editSettings;
+                        this.editButtons.put(p.token, editSettings);
                         editSettings.setName("params-plugin-edit:" + p.token);
                         editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
                         // Stop timer: pressed when the kit has loaded (its load time is how long a test waits for it).
@@ -5994,6 +5995,50 @@ final class PyJav {
     /** The Use as plugin menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastUseMenu;
 
+    /** Each plugin row's Edit settings (by its --plugin token), for the offer to open it. */
+    final java.util.Map<String, JButton> editButtons = new java.util.HashMap<String, JButton>();
+    /** Tests: the answer to the offer (null: asked); what it asked last. */
+    static Boolean editOfferAnswer;
+    static String lastEditOffer;
+
+    /** Whether settings are saved for the kit (the plugin's own without one), a kit's name spaced otherwise too. */
+    static boolean settingsSaved(File plug, String kit) {
+        File want = kit == null || kit.trim().isEmpty()
+            ? new File(kitStateFile(plug, "x").getParentFile(), plug.getName().replaceAll("(?i)\\.(vst3|dll|clap|lv2|so|component|vst)$", "") + ".state")
+            : kitStateFile(plug, kit.trim());
+        if (want.isFile()) return true;
+        String loose = want.getName().replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        File[] all = want.getParentFile().listFiles();
+        if (all != null) for (File f : all) if (f.getName().replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT).equals(loose)) return true;
+        return false;
+    }
+
+    /**
+     * A plugin put on a row (Choose plugin, Favourites, Recently used, the Plugins list, a pack's set): no
+     * settings saved for its kit yet (or for the plugin, no kit named) — Edit settings offered, to load it now.
+     * Saved before: nothing asked.
+     */
+    void offerEdit(java.awt.Component at, String pluginToken, String path) {
+        if (path == null || path.isEmpty() || !new File(path).exists() || !pluginToken.matches("--plugin\\d?")) return;
+        List<ProgramParams.Param> ps = this.shownParams;
+        JTextField[] fields = this.shownFields;
+        String kit = "";
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        if (ps != null && fields != null) for (int i = 0; i < ps.size() && i < fields.length; i++) if (ps.get(i).token.equals(kitToken) && fields[i] != null) kit = KitPacks.tidy(fields[i].getText());
+        File plug = new File(path);
+        if (settingsSaved(plug, kit)) {
+            lastEditOffer = null;
+            return;
+        }
+        lastEditOffer = "No settings are saved for " + (kit.isEmpty() ? plugName(path) : kit + " in " + plugName(path)) + " yet, so it would play "
+            + (kit.isEmpty() ? "as it starts" : "the kit Edit settings saved last") + ". Open Edit settings now to load " + (kit.isEmpty() ? "its kit" : kit) + "?";
+        JButton edit = this.editButtons.get(pluginToken);
+        boolean yes = editOfferAnswer != null ? editOfferAnswer.booleanValue()
+            : JOptionPane.showConfirmDialog(at, "<html><body style='width:340px'>" + lastEditOffer + "</body></html>", "Edit settings \u00b7 " + plugName(path),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+        if (yes && edit != null && editOfferAnswer == null) edit.doClick();
+    }
+
     /** A plugin put on a row (and its Use ticked). */
     void usePlugin(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path) {
         for (int i = 0; i < ps.size(); i++) {
@@ -6029,6 +6074,7 @@ final class PyJav {
             }
         }
         app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7) + ", its Kit loaded " + kit);
+        this.offerEdit(this.editButtons.get(token), token, path);
     }
 
     /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */
@@ -6075,6 +6121,7 @@ final class PyJav {
                 app.setNow(plug + ": Kit loaded left blank: name the kit loaded in it (its list has " + kits.size() + ")");
             }
         }
+        this.offerEdit(at, pluginToken, path);
     }
 
     /** Clear beside a list's Choose: shown while something is chosen or typed (SogniMusic's --workflow back to a new run). */

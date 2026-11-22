@@ -9139,6 +9139,21 @@ public final class DesktopBehavior {
       }
     });
     this.out.append("kit confirmed: ").append(confirmed[0]).append('\n');
+    // 22112026: a plugin put on a row with a kit that has no settings saved: Edit settings offered; saved: not.
+    final String[] offered = new String[1];
+    edt(() -> {
+      PyJav pj = (PyJav) get("pyJav");
+      PyJav.editOfferAnswer = false;
+      kit4.setText("New Kit");
+      pj.offerEdit(kit4, "--plugin4", anarchy.getAbsolutePath());
+      String saved = String.valueOf(PyJav.lastEditOffer);
+      kit4.setText("Never Saved");
+      pj.offerEdit(kit4, "--plugin4", anarchy.getAbsolutePath());
+      offered[0] = "saved kit: " + saved + " | new kit: " + PyJav.lastEditOffer;
+      PyJav.editOfferAnswer = null;
+      kit4.setText("");
+    });
+    this.out.append("edit offered: ").append(offered[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9151,7 +9166,8 @@ public final class DesktopBehavior {
         && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''")
         && this.out.toString().contains("typed kit for Test: [--kit_name, SSD 5 Classic Metal:Classic Black] (values alone [])")
         && this.out.toString().contains("kit asked: field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit did you load in Anarchy Drums.vst3? | Settings kept for SSD5 Classic Metal:Cracky: Anarchy Drums [SSD5 Classic Metal_Cracky].state | load kept true | listed true")
-        && this.out.toString().contains("kit confirmed: asked: Is the kit loaded in Anarchy Drums.vst3 now Old Kit (its drum package and kit)? | field 'New Kit' | new kit new, old kit old | Settings kept for New Kit: Anarchy Drums [New Kit].state; Old Kit's put back as they were");
+        && this.out.toString().contains("kit confirmed: asked: Is the kit loaded in Anarchy Drums.vst3 now Old Kit (its drum package and kit)? | field 'New Kit' | new kit new, old kit old | Settings kept for New Kit: Anarchy Drums [New Kit].state; Old Kit's put back as they were")
+        && this.out.toString().contains("edit offered: saved kit: null | new kit: No settings are saved for Never Saved in Anarchy Drums.vst3 yet, so it would play the kit Edit settings saved last. Open Edit settings now to load Never Saved?");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");
