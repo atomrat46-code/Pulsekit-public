@@ -9113,6 +9113,31 @@ public final class DesktopBehavior {
       kit4.setText("");
     });
     this.out.append("kit asked: ").append(asked[0]).append('\n');
+    // 22112026: a kit named on the row: after the window, "is the kit loaded the one named?" No: the name asked,
+    // the settings saved kept as that kit's, the named kit's own put back as they were.
+    final String[] confirmed = new String[1];
+    edt(() -> {
+      try {
+        PyJav pj = (PyJav) get("pyJav");
+        kit4.setText("Old Kit");
+        File oldFile = PyJav.kitStateFile(anarchy, "Old Kit");
+        Files.write(oldFile.toPath(), "old".getBytes(StandardCharsets.UTF_8));
+        java.util.Map<String, byte[]> kept = PyJav.keptKitFiles(anarchy, "Old Kit");
+        Files.write(oldFile.toPath(), "new".getBytes(StandardCharsets.UTF_8));
+        PyJav.kitSameAnswer = false;
+        PyJav.kitNameAnswer = "New Kit";
+        pj.confirmSavedKit(kit4, pj.shownParams, "--plugin4", anarchy, "Wrote Plugin settings: " + oldFile.getAbsolutePath(), "Old Kit", kept);
+        PyJav.kitSameAnswer = null;
+        PyJav.kitNameAnswer = null;
+        confirmed[0] = "asked: " + PyJav.lastKitSameAsk.replaceAll("\\?.*", "?") + " | field '" + kit4.getText() + "' | new kit "
+            + new String(Files.readAllBytes(PyJav.kitStateFile(anarchy, "New Kit").toPath()), StandardCharsets.UTF_8) + ", old kit "
+            + new String(Files.readAllBytes(oldFile.toPath()), StandardCharsets.UTF_8) + " | " + PyJav.lastKitNamed;
+        kit4.setText("");
+      } catch (Exception ex) {
+        confirmed[0] = "error " + ex;
+      }
+    });
+    this.out.append("kit confirmed: ").append(confirmed[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9124,7 +9149,8 @@ public final class DesktopBehavior {
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
         && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''")
         && this.out.toString().contains("typed kit for Test: [--kit_name, SSD 5 Classic Metal:Classic Black] (values alone [])")
-        && this.out.toString().contains("kit asked: field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit did you load in Anarchy Drums.vst3? | Settings kept for SSD5 Classic Metal:Cracky: Anarchy Drums [SSD5 Classic Metal_Cracky].state | load kept true");
+        && this.out.toString().contains("kit asked: field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit did you load in Anarchy Drums.vst3? | Settings kept for SSD5 Classic Metal:Cracky: Anarchy Drums [SSD5 Classic Metal_Cracky].state | load kept true")
+        && this.out.toString().contains("kit confirmed: asked: Is the kit loaded in Anarchy Drums.vst3 now Old Kit (its drum package and kit)? | field 'New Kit' | new kit new, old kit old | Settings kept for New Kit: Anarchy Drums [New Kit].state; Old Kit's put back as they were");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");

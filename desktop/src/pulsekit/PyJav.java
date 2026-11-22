@@ -3920,7 +3920,10 @@ final class PyJav {
                             File plug = new File(values[index]);
                             // No kit name on the row: asked when the window is closed (the kit is picked in the plugin's own
                             // list), and the settings then kept under it too.
-                            final boolean nameAfter = rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token).isEmpty();
+                            final java.util.List<String> kitNow = rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token);
+                            final boolean nameAfter = kitNow.isEmpty();
+                            // The kit named's settings as they are now: put back if the kit loaded turns out to be another.
+                            final java.util.Map<String, byte[]> kept = nameAfter ? null : keptKitFiles(plug, kitNow.get(1));
                             if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
@@ -3935,6 +3938,7 @@ final class PyJav {
                                 app.setNow(PluginsList.summary(log));
                                 // The kit's name, asked now that it was picked in the window: the settings kept under it too.
                                 if (nameAfter) this.nameSavedKit(editSettings, ps, p.token, plug, log);
+                                else this.confirmSavedKit(editSettings, ps, p.token, plug, log, kitNow.get(1), kept);
                                 // What it came to, always in a window: why it did not open (a 32-bit plugin without Carla,
                                 // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
@@ -5078,6 +5082,81 @@ final class PyJav {
     static String kitNameAnswer;
     /** What the kit name question said last (for the tests). */
     static String lastKitNameAsk;
+
+    /** Tests: the answer to "is the kit loaded the one named?" (null: asked). */
+    static Boolean kitSameAnswer;
+    /** That question as asked last (for the tests). */
+    static String lastKitSameAsk;
+
+    /** A kit's settings file as vst_render names it: ~/.pulsekit/vst/<plugin> [<kit>].state. */
+    static File kitStateFile(File plug, String kit) {
+        String name = plug.getName().replaceAll("(?i)\\.(vst3|dll|clap|lv2|so|component|vst)$", "");
+        return new File(new File(new File(System.getProperty("user.home"), ".pulsekit"), "vst"), name + " [" + kit.replaceAll("[\\\\/:*?\"<>|]", "_") + "].state");
+    }
+
+    /** The kit's settings files as they are (path to bytes; a file not there: null), to put back. */
+    static java.util.Map<String, byte[]> keptKitFiles(File plug, String kit) {
+        java.util.Map<String, byte[]> out = new java.util.LinkedHashMap<String, byte[]>();
+        File f = kitStateFile(plug, kit);
+        for (String end : new String[] {"", ".params.json", ".load"}) {
+            File one = new File(f.getPath() + end);
+            try {
+                out.put(one.getPath(), one.isFile() ? java.nio.file.Files.readAllBytes(one.toPath()) : null);
+            } catch (Exception ex) {
+                out.put(one.getPath(), null);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Edit settings with a kit named on the row, its window closed: is the kit loaded the one named? No: its
+     * name asked (the field set to it), the settings just saved kept as that kit's, and the named kit's own
+     * settings put back as they were (or none, when it had none). Yes, or no name given: as saved.
+     */
+    void confirmSavedKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug, String log, String named, java.util.Map<String, byte[]> kept) {
+        lastKitNamed = null;
+        String wrote = null;
+        for (String l : log.split("\n")) if (l.trim().startsWith("Wrote Plugin settings: ")) wrote = l.trim().substring("Wrote Plugin settings: ".length()).trim();
+        if (wrote == null || !wrote.toLowerCase(java.util.Locale.ROOT).endsWith(".state")) return;
+        lastKitSameAsk = "Is the kit loaded in " + plugName(plug.getPath()) + " now " + named + " (its drum package and kit)? "
+            + "No: you are asked its name, and " + named + " keeps its own settings.";
+        Boolean same = kitSameAnswer;
+        if (same == null) {
+            int got = JOptionPane.showConfirmDialog(at, "<html><body style='width:340px'>" + lastKitSameAsk + "</body></html>", "Kit loaded \u00b7 " + plugName(plug.getPath()),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            same = got != JOptionPane.NO_OPTION;
+        }
+        if (same) return;
+        JTextField field = null;
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        if (this.shownFields != null && this.shownParams == ps)
+            for (int i = 0; i < ps.size() && i < this.shownFields.length; i++) if (ps.get(i).token.equals(kitToken)) field = this.shownFields[i];
+        if (field != null) field.setText("");
+        boolean go = this.askRowKit(at, ps, pluginToken, plug);
+        java.util.List<String> kit = rowKit(ps, new String[ps.size()], this.shownParams == ps ? this.shownFields : null, pluginToken);
+        if (!go || kit.isEmpty() || kit.get(1).equals(named)) {
+            if (field != null && (!go || kit.isEmpty())) field.setText(named);
+            return;
+        }
+        File to = kitStateFile(plug, kit.get(1));
+        try {
+            for (String end : new String[] {"", ".params.json", ".load"}) {
+                File from = new File(wrote + end);
+                if (from.isFile()) java.nio.file.Files.copy(from.toPath(), new File(to.getPath() + end).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            // The named kit's own settings as they were before the window was opened.
+            if (kept != null) for (java.util.Map.Entry<String, byte[]> e : kept.entrySet()) {
+                File f = new File(e.getKey());
+                if (e.getValue() == null) f.delete();
+                else java.nio.file.Files.write(f.toPath(), e.getValue());
+            }
+            lastKitNamed = "Settings kept for " + kit.get(1) + ": " + to.getName() + "; " + named + "'s put back as they were";
+        } catch (Exception ex) {
+            lastKitNamed = "The settings could not be kept for " + kit.get(1) + ": " + ex.getMessage();
+        }
+        app.setNow(lastKitNamed);
+    }
 
     /** What naming the kit after Edit settings did last (for the tests). */
     static String lastKitNamed;
