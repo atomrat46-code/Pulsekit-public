@@ -1106,8 +1106,8 @@ public final class ProgramParams {
       p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
       p.hint = "empty: the kits folder in the bench's folder (below)";
     } else if (p.token.equals("--bench_skip")) {
-      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
-      p.hint = "Riot Default kit, Cardinal; empty: every kit found";
+      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; a run's date and time (20261121-135203) leaves only that run out, the kit's newest other run counts; the summary's kits.txt lists the kits found";
+      p.hint = "Riot Default kit, Cardinal, 20261121-135203; empty: every kit found (each kit's newest run)";
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;

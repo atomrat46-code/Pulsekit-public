@@ -211,7 +211,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
                   its MIDI and report stay. Not given: --bench_work's kits folder.
   --bench_skip    kits left out (a bad run, another plugin's test): parts of their zips' names, comma-
-                  separated (Riot Default kit, Cardinal); nothing of theirs is unpacked or run.
+                  separated (Riot Default kit, Cardinal); nothing of theirs is unpacked or run. A run's
+                  date and time (20261121-135203) leaves only that run out: the kit's newest other run
+                  counts (a run with silent notes, its kit tested again or not).
   --model_compare two models, each kit's cymbals right with both and the change, the new kits' and the
                   others' totals (cymbal-compare-<A>-vs-<B>-<date>.zip: summary, every drum's score, the
                   models learned).
@@ -4415,10 +4417,15 @@ def kit_aliases(home=None):
     return out
 
 
-def render_kits(folder, recursive, aliases=None):
+def render_kits(folder, recursive, aliases=None, skip=None, left=None):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
-    zips (the same zip in two folders counts once)."""
+    zips (the same zip in two folders counts once). `skip` (--bench_skip's parts): a zip whose whole name
+    has one in it is left out first, case, spaces and punctuation aside: a kit's name leaves the kit out, a
+    run's date and time (20261121-135203) only that run, so the kit's newest other run counts. `left`: the
+    runs left out, (name, stamp), added to it."""
+    plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    parts = [plain(p) for p in (skip or []) if plain(p)]
     # A kit's zips by its name in them, case, spaces and punctuation aside: a kit named again ("KVLT_Mexico
     # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then). So is a kit renamed
     # in Pulsekit's kit list (its aliases: Speed Metal: 1983 Metal = 1983 Metal).
@@ -4435,6 +4442,10 @@ def render_kits(folder, recursive, aliases=None):
         dirs.sort()
         for n in sorted(names):
             m = RENDER_ZIP.match(n)
+            if m and parts and any(p in plain(n) for p in parts):
+                if left is not None and (m.group(1), m.group(2)) not in left:
+                    left.append((m.group(1), m.group(2)))
+                continue
             if m:
                 same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
                 at = runs.setdefault(same, {}).setdefault(m.group(2), {})
@@ -4891,19 +4902,21 @@ def model_bench(opts, switches):
     work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
     unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
     print("Unzip folder: %s; DrumMidi's results kept in %s" % (unzip, os.path.join(work, "data")))
-    found = render_kits(folder, True)
     # Kits left out (--bench_skip: a bad run, another plugin's test): by parts of their zips' names, before
-    # any of their work. A part that names no kit is said, not a stop.
-    # (Commas or lines between them; # comments left out: Params' Import puts a file's lines in.)
+    # any of their work; a run's date and time leaves only that run out (the kit's newest other run counts).
+    # A part that names no zip is said, not a stop. (Commas or lines between them; # comments left out:
+    # Params' Import puts a file's lines in.)
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
+    left = []
+    found = render_kits(folder, True, skip=skip, left=left)
     if skip:
         plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-        out = [k for k in found if any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
         for p in skip:
-            if not any(plain(p) and plain(p) in plain(k[0]) for k in found):
+            if not any(plain(p) and plain(p) in plain("%s-%s" % k) for k in left):
                 print("Kits left out: no kit's zip name has %s in it" % p)
-        found = [k for k in found if k not in out]
-        print("Kits left out (%d): %s" % (len(out), ", ".join(k[0][len("vst-render-"):].strip("_") for k in out) or "none"))
+        kept = set(k[0] for k in found)
+        print("Runs left out (%d): %s" % (len(left), ", ".join("%s %s%s" % (n[len("vst-render-"):].strip("_"), st, " (an older run of it counts)" if n in kept else "")
+                                                             for n, st in left) or "none"))
     if len(found) < 2:
         fail("The cymbal model bench needs the zips of two kits' tests or more (vst-render-*.zip) in %s or its subfolders (found %d)" % (folder, len(found)))
     newest = found[-1][3]
@@ -5258,18 +5271,16 @@ def hit_bench(opts, switches):
     # (Its own work folder: the Cymbal model tab's folders are not used.)
     work = os.path.join(outdir, "hit-bench")
     unzip = opts["--hit_unzip"] or os.path.join(work, "kits")
+    # --bench_skip: kits, or single runs by their date and time, left out (as the cymbal bench does).
+    skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
     if only:
         # (This run's zips: each from its own folder, nothing else there.)
         mine = set(os.path.normcase(os.path.abspath(z)) for z in only)
         found = []
         for d in sorted(set(os.path.dirname(os.path.abspath(z)) for z in only)):
-            found += [k for k in render_kits(d, False) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
+            found += [k for k in render_kits(d, False, skip=skip) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
     else:
-        found = render_kits(folder, True)
-    skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
-    if skip:
-        plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-        found = [k for k in found if not any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
+        found = render_kits(folder, True, skip=skip)
     if not found:
         fail("The hit model bench found no tests' zips (vst-render-*.zip) in %s or its subfolders. It reads the zips a run with Test and "
              "Zip makes (renders and the MIDI played), not a zip of MIDI files: put that folder on the Input tab, the plugins on the Plugins tab, "

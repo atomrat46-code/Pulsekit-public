@@ -93,6 +93,14 @@ for run, (kit, bright) in enumerate((("Bright", 1.6), ("Dark", 0.7))):
     z.writestr("vst-test-%s.txt" % name, "vst_render --test\nPlugin: Fake Drums, kit %s\nNotes mapped (--map, none): none\n" % kit)
     z.writestr("vst-render-run.txt", "vst_render.py --plugin Fake --test --faded-opens\n")
     z.close()
+# A run left out by its date and time: the kit's older run counts instead (a run with silent notes).
+older = os.path.join(work, "older")
+os.makedirs(older, exist_ok=True)
+for stamp in ("20261101-120000", "20261112-120000"):
+    zipfile.ZipFile(os.path.join(older, "vst-render-Fake_Drums_Dark_-%s.zip" % stamp), "w").close()
+left = []
+picked = vr.render_kits(older, False, skip=["20261112-120000"], left=left)
+print("run skipped: %s | left %s | kit skipped: %s" % ([(k[0], k[1]) for k in picked], left, vr.render_kits(older, False, skip=["fake drums dark"])))
 out = os.path.join(work, "out")
 try:
     vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", os.path.join(work, "unzip"), "--outdir", out, "--model_compare",
