@@ -3705,6 +3705,13 @@ class Chain(object):
         self.load_measured = self.load_limit != LOAD_WAIT
         # The plugin's longest Stop timer time (any kit): silent notes are waited for at least this long.
         self.longest_load = longest_load(clap or self.plugin)
+        if "--test" in switches or "--check" in switches:
+            # How long silent notes are waited for, and where that comes from.
+            wait = silent_wait(self)
+            print("Silent notes: waited for up to %.0f s, tried again every 5 s (the longest Stop timer time %s%s%s)" % (
+                wait, "%.0f s" % self.longest_load if self.longest_load else "not measured yet",
+                ", the kit's own %.0f s" % self.load_limit if self.load_measured else "",
+                ", Maximum plugin wait %.0f s" % MAX_WAIT[0] if MAX_WAIT[0] else ""))
         self.fx = None
         effect = opts["--effect"]
         if effect:

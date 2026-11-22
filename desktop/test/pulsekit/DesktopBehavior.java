@@ -9798,6 +9798,8 @@ public final class DesktopBehavior {
     cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath(),
         new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath()));
     String got = PythonRun.runFor(cmd, 600, null).trim();
+    // The longest Stop timer times, as the Maximum plugin wait row says them (the 40 s the flow kept).
+    got += "\nLongest now: " + VstLists.longestLoads();
     // Params: Maximum plugin wait on the Plugins tab.
     for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
       if (p.token.equals("--max_wait")) got += "\nParams: " + ProgramParams.vstTab(p) + " | " + p.label.replaceAll(":.*", "");
@@ -9812,7 +9814,7 @@ public final class DesktopBehavior {
         && got.contains("two plugins: == Preflight 1 of 2: Other Drums.vst3 | Preflight: Other Drums.vst3 ready | == Preflight 2 of 2: SSDSampler5.dll | Failed: preflight: SSDSampler5.dll not ready (above), so nothing was rendered")
         && got.contains("| rendered False")
         && got.contains("max_wait 60: waits 60") && got.contains("max_wait 10: waits 40") && got.contains("max_wait 0: waits 40")
-        && got.contains("Params: Plugins | Maximum plugin wait (seconds)");
+        && got.contains("Params: Plugins | Maximum plugin wait (seconds)") && got.contains("Longest now: SSDSampler5 40 s");
     if (!ok) throw new AssertionError(got);
   }
 

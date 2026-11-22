@@ -237,4 +237,26 @@ final class VstLists {
         for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
         return out.toByteArray();
     }
+
+    /**
+     * Each plugin's longest kit load time measured with Edit settings' Stop timer (vst_render keeps it in
+     * ~/.pulsekit/vst/<plugin>.state.load-max): "SSDSampler5 40 s, Ugritone Drums 12 s", or that none is yet.
+     */
+    static String longestLoads() {
+        java.io.File[] files = new java.io.File(new java.io.File(System.getProperty("user.home"), ".pulsekit"), "vst").listFiles();
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (files != null) {
+            java.util.Arrays.sort(files);
+            for (java.io.File f : files) {
+                if (!f.getName().endsWith(".state.load-max")) continue;
+                try {
+                    double s = Double.parseDouble(new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim());
+                    out.add(f.getName().substring(0, f.getName().length() - ".state.load-max".length()) + " " + Math.round(s) + " s");
+                } catch (Exception ignored) {
+                    // left out
+                }
+            }
+        }
+        return out.isEmpty() ? "none measured yet (Edit settings: press Stop timer when the kit has loaded)" : String.join(", ", out);
+    }
 }

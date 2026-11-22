@@ -3571,6 +3571,9 @@ final class PyJav {
                     p.choices = maps[0];
                     p.choiceValues = maps[1];
                 }
+            } else if (p.token.equals("--max_wait")) {
+                // The longest Stop timer times now (Edit settings keeps each plugin's): what an empty field means.
+                p.label = p.label + ". Longest Stop timer now: " + VstLists.longestLoads();
             } else if (p.token.startsWith("--kit_name")) {
                 // Choose there is the pack and set chooser (KitChooser): shown even before any kit was named.
                 String[] kits = VstLists.kitNames();
