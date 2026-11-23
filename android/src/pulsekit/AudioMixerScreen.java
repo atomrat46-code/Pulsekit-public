@@ -461,7 +461,10 @@ final class AudioMixerScreen {
 
     /** An MP3 read by the phone (MediaExtractor), mono on both sides at its own rate. */
     static AudioIo.StereoPcm decodeMp3(byte[] mp3) throws Exception {
-        File tmp = File.createTempFile("pulsekit-mixer", ".mp3");
+        // In the mixer's own folder: java.io.tmpdir can name a program run's folder that is gone by now.
+        File at = AudioMix.dir;
+        if (at != null && !at.isDirectory()) at.mkdirs();
+        File tmp = File.createTempFile("pulsekit-mixer", ".mp3", at != null && at.isDirectory() ? at : null);
         try {
             java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
             try {
