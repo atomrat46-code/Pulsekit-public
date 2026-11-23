@@ -48,6 +48,66 @@ final class AudioMixerWindow {
         return new File(PromptDb.dir(), "audiomixer");
     }
 
+    /** The window's title: AudioMixer · its project's name, when it has one. */
+    static String title() {
+        return AudioMix.TITLE + (AudioMix.project.isEmpty() ? "" : " \u00b7 " + AudioMix.project);
+    }
+
+    /** The tests' name for Save project and project for Open project (instead of asking). */
+    static String projectAnswer;
+
+    /** Save project: a name asked (the project's own, or Project N), a project of that name replaced when Yes. */
+    static void saveProject(JDialog d, JLabel status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to save");
+            return;
+        }
+        String suggest = AudioMix.project;
+        if (suggest.isEmpty()) {
+            int n = 1;
+            while (AudioMix.projectExists("Project " + n)) n++;
+            suggest = "Project " + n;
+        }
+        String name = projectAnswer != null ? projectAnswer
+            : (String) javax.swing.JOptionPane.showInputDialog(d, "The tracks and their settings (volume, gain, Mute, Solo) under this name:", AudioMix.SAVE_PROJECT,
+                javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, suggest);
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim();
+        if (projectAnswer == null && AudioMix.projectExists(name) && !AudioMix.projectFolderName(name).equals(AudioMix.project)
+            && javax.swing.JOptionPane.showConfirmDialog(d, "A project " + name + " is saved already. Replace it?", AudioMix.SAVE_PROJECT,
+                javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
+        try {
+            AudioMix.saveProject(name);
+            say(status, "Saved the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+            d.setTitle(title());
+        } catch (Exception ex) {
+            say(status, "Could not save the project: " + ex.getMessage());
+        }
+    }
+
+    /** Open project: the saved ones listed (newest first); the mixer's tracks replaced by the one picked. */
+    static void openProject(JDialog d, JLabel status, Runnable fill) {
+        java.util.List<String> names = AudioMix.projects();
+        if (names.isEmpty()) {
+            say(status, "No projects saved yet: " + AudioMix.SAVE_PROJECT + " keeps the tracks under a name");
+            return;
+        }
+        String name = projectAnswer != null ? projectAnswer
+            : (String) javax.swing.JOptionPane.showInputDialog(d, "Open which project? It takes the place of the AudioMixer's tracks now: what is not saved in a project is lost.",
+                AudioMix.OPEN_PROJECT, javax.swing.JOptionPane.PLAIN_MESSAGE, null, names.toArray(new String[0]), names.get(0));
+        if (name == null) return;
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            d.setTitle(title());
+            say(status, "Opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
+    }
+
     /** The tests' answer to a run's question (a button's text; the tracks ticked as they are), and what was asked. */
     static String offerAnswer;
     static String lastOffer;
@@ -116,7 +176,7 @@ final class AudioMixerWindow {
             return;
         }
         AudioMix.open(folder());
-        final JDialog d = new JDialog(app, AudioMix.TITLE, false);
+        final JDialog d = new JDialog(app, title(), false);
         // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
         d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         d.setName("audiomixer");
@@ -165,7 +225,15 @@ final class AudioMixerWindow {
                 javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
             AudioMix.clear();
             fill[0].run();
+            d.setTitle(title());
         });
+        // Projects: the tracks and their settings saved under a name, and opened again.
+        JMenuItem saveP = new JMenuItem(AudioMix.SAVE_PROJECT + "\u2026");
+        saveP.setName("audiomixer-save-project");
+        saveP.addActionListener(e -> saveProject(d, status));
+        JMenuItem openP = new JMenuItem(AudioMix.OPEN_PROJECT + "\u2026");
+        openP.setName("audiomixer-open-project");
+        openP.addActionListener(e -> openProject(d, status, fill[0]));
         JMenuItem close = new JMenuItem("Close");
         close.addActionListener(e -> d.dispose());
         file.add(imp);
@@ -173,7 +241,10 @@ final class AudioMixerWindow {
         file.add(padsItem);
         file.add(mix);
         file.addSeparator();
+        file.add(saveP);
+        file.add(openP);
         file.add(clear);
+        file.addSeparator();
         file.add(close);
         bar.add(file);
         d.setJMenuBar(bar);

@@ -541,6 +541,28 @@ public final class DesktopBehavior {
     final int[] waves = new int[1];
     edt(() -> waves[0] = AudioMixerWindow.WAVES.size());
     out.append("waveforms: ").append(waves[0]).append(" for ").append(AudioMix.tracks.size()).append(" tracks, sound in the first: ").append(loudest > 0.05f).append('\n');
+    // Save project, New project, Open project: the tracks and their settings come back.
+    final String[] proj = new String[3];
+    edt(() -> {
+      AudioMix.Track first = AudioMix.tracks.get(0);
+      first.volume = 55;
+      first.mute = true;
+      AudioMix.save();
+      AudioMixerWindow.projectAnswer = "Demo";
+      javax.swing.JLabel st = new javax.swing.JLabel();
+      AudioMixerWindow.saveProject(AudioMixerWindow.last, st);
+      proj[0] = st.getText() + " | title " + AudioMixerWindow.last.getTitle();
+      AudioMix.clear();
+      AudioMixerWindow.refresh();
+      int cleared = AudioMix.tracks.size();
+      AudioMixerWindow.openProject(AudioMixerWindow.last, st, () -> AudioMixerWindow.refresh());
+      AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+      proj[1] = "cleared " + cleared + ", " + st.getText() + " | title " + AudioMixerWindow.last.getTitle();
+      proj[2] = back == null ? "none" : back.name + " volume " + back.volume + " mute " + back.mute + " sound " + new File(AudioMix.dir, back.file).isFile()
+          + " | projects " + AudioMix.projects();
+      AudioMixerWindow.projectAnswer = null;
+    });
+    out.append("project: ").append(proj[0]).append('\n').append(proj[1]).append('\n').append(proj[2]).append('\n');
     out.append("asked: ").append(String.valueOf(asked[0]).replace("\n", " ")).append("\nafter ").append(MixerOut.REPLACE).append(": ").append(after[0])
         .append(" tracks; after ").append(MixerOut.SKIP).append(": ").append(after[1]).append('\n');
     String text = out.toString();
@@ -548,6 +570,8 @@ public final class DesktopBehavior {
     boolean ok = inParams && lines.toString().contains("For the AudioMixer (asked when the run is done): beat.mid") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
         && asked[0] != null && asked[0].contains("The AudioMixer has ") && asked[0].endsWith(MixerOut.REPLACE + ", " + MixerOut.ADD_TO + ", " + MixerOut.SKIP)
         && after[0] == 1 && after[1] == 1 && waves[0] == AudioMix.tracks.size() && loudest > 0.05f
+        && proj[0].startsWith("Saved the project Demo (1 track) | title AudioMixer \u00b7 Demo") && proj[1].startsWith("cleared 0, Opened the project Demo (1 track)")
+        && proj[2].startsWith("beat volume 55 mute true sound true | projects [Demo]")
         && beat != null && beat.seconds > 1
         && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
     if (!ok) throw new AssertionError(text);

@@ -82,19 +82,30 @@ final class AudioMixerScreen {
             if (DrumPadScreen.last != null && DrumPadScreen.last.isShowing()) DrumPadScreen.last.dismiss();
             if (DrumGridScreen.last != null && DrumGridScreen.last.isShowing()) DrumGridScreen.last.dismiss();
             if (AudioMix.tracks.isEmpty()) return;
-            new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?")
+            new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?"
+                    + (AudioMix.project.isEmpty() ? "" : "\nThe project " + AudioMix.project + " keeps what was saved in it."))
                 .setPositiveButton("Clear", (d, w) -> {
                     AudioMix.clear();
                     fill[0].run();
+                    titled();
                 }).setNegativeButton("Cancel", null).show();
         });
         clear.setTag("audiomixer-clear");
         more.addView(mix);
         more.addView(clear, margin(app));
+        // Projects: the tracks and their settings saved under a name, and opened again.
+        LinearLayout projectRow = app.row();
+        TextView saveP = app.pill(AudioMix.SAVE_PROJECT, false, v -> saveProject(app, status));
+        saveP.setTag("audiomixer-save-project");
+        TextView openP = app.pill(AudioMix.OPEN_PROJECT, false, v -> openProject(app, status, fill[0]));
+        openP.setTag("audiomixer-open-project");
+        projectRow.addView(saveP);
+        projectRow.addView(openP, margin(app));
         col.addView(buttons);
         col.addView(padsRow);
         col.addView(transport);
         col.addView(more);
+        col.addView(projectRow);
         col.addView(status);
         col.addView(rows);
         ScrollView scroll = new ScrollView(app);
@@ -102,7 +113,7 @@ final class AudioMixerScreen {
         fill[0].run();
         refill = fill[0];
         if (last != null && last.isShowing()) last.dismiss();
-        last = new AlertDialog.Builder(app).setTitle(AudioMix.TITLE).setView(scroll).setPositiveButton("Close", null).create();
+        last = new AlertDialog.Builder(app).setTitle(title()).setView(scroll).setPositiveButton("Close", null).create();
         last.setOnDismissListener(d -> {
             stop();
             TrackRecorder.stop();
@@ -406,6 +417,96 @@ final class AudioMixerScreen {
                 app.setNow(shown);
             });
         }, "pulsekit-mixdown").start();
+    }
+
+    /** The window's title: AudioMixer · its project's name, when it has one. */
+    static String title() {
+        return AudioMix.TITLE + (AudioMix.project.isEmpty() ? "" : " \u00b7 " + AudioMix.project);
+    }
+
+    static void titled() {
+        if (last != null && last.isShowing()) last.setTitle(title());
+    }
+
+    /** The tests' name for Save project and project for Open project (instead of asking). */
+    static String projectAnswer;
+
+    /** Save project: a name asked (the project's own, or Project N), a project of that name replaced when Yes. */
+    static void saveProject(final MainActivity app, final TextView status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to save");
+            return;
+        }
+        String suggest = AudioMix.project;
+        if (suggest.isEmpty()) {
+            int n = 1;
+            while (AudioMix.projectExists("Project " + n)) n++;
+            suggest = "Project " + n;
+        }
+        if (projectAnswer != null) {
+            saveAs(app, status, projectAnswer);
+            return;
+        }
+        final android.widget.EditText name = new android.widget.EditText(app);
+        name.setSingleLine(true);
+        name.setText(suggest);
+        name.setSelectAllOnFocus(true);
+        name.setTag("audiomixer-project-name");
+        new AlertDialog.Builder(app).setTitle(AudioMix.SAVE_PROJECT).setMessage("The tracks and their settings (volume, gain, Mute, Solo) under this name:")
+            .setView(name).setPositiveButton("Save", (d, w) -> {
+                final String n = name.getText().toString().trim();
+                if (n.isEmpty()) return;
+                if (AudioMix.projectExists(n) && !AudioMix.projectFolderName(n).equals(AudioMix.project)) {
+                    new AlertDialog.Builder(app).setTitle(AudioMix.SAVE_PROJECT).setMessage("A project " + n + " is saved already. Replace it?")
+                        .setPositiveButton("Replace", (d2, w2) -> saveAs(app, status, n)).setNegativeButton("Cancel", null).show();
+                } else saveAs(app, status, n);
+            }).setNegativeButton("Cancel", null).show();
+    }
+
+    static void saveAs(MainActivity app, TextView status, String name) {
+        try {
+            AudioMix.saveProject(name);
+            say(status, "Saved the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+            titled();
+        } catch (Exception ex) {
+            say(status, "Could not save the project: " + ex.getMessage());
+        }
+    }
+
+    /** Open project: the saved ones listed (newest first); the mixer's tracks replaced by the one picked. */
+    static void openProject(final MainActivity app, final TextView status, final Runnable fill) {
+        final java.util.List<String> names = AudioMix.projects();
+        if (names.isEmpty()) {
+            say(status, "No projects saved yet: " + AudioMix.SAVE_PROJECT + " keeps the tracks under a name");
+            return;
+        }
+        if (projectAnswer != null) {
+            openNamed(status, fill, projectAnswer);
+            return;
+        }
+        new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT).setItems(names.toArray(new String[0]), (d, w) -> {
+            final String n = names.get(w);
+            if (AudioMix.tracks.isEmpty()) {
+                openNamed(status, fill, n);
+                return;
+            }
+            new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT)
+                .setMessage("Open " + n + "? It takes the place of the AudioMixer's tracks now: what is not saved in a project is lost.")
+                .setPositiveButton("Open", (d2, w2) -> openNamed(status, fill, n)).setNegativeButton("Cancel", null).show();
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    static void openNamed(TextView status, Runnable fill, String name) {
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            titled();
+            say(status, "Opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
     }
 
     /** The last run's question (for the tests). */

@@ -14104,10 +14104,29 @@ public class BehaviorTest {
       idle();
     }
     out.append("Not now: ").append(before).append(" tracks; Add to AudioMixer: ").append(String.valueOf(AudioExtract.lastSaid).replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    // Save project, New project, Open project: the tracks and their settings come back.
+    AudioMix.Track firstT = AudioMix.tracks.get(0);
+    firstT.volume = 40;
+    firstT.solo = true;
+    AudioMix.save();
+    int had = AudioMix.tracks.size();
+    android.widget.TextView pst = new android.widget.TextView(app);
+    AudioMixerScreen.projectAnswer = "Take 1";
+    AudioMixerScreen.saveProject(app, pst);
+    String savedSaid = String.valueOf(pst.getText());
+    AudioMix.clear();
+    int cleared = AudioMix.tracks.size();
+    AudioMixerScreen.openProject(app, pst, () -> {});
+    AudioMixerScreen.projectAnswer = null;
+    AudioMix.Track backT = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    out.append("project: ").append(savedSaid).append(" | cleared ").append(cleared).append(" | ").append(pst.getText()).append(" | ")
+        .append(backT == null ? "none" : backT.name + " volume " + backT.volume + " solo " + backT.solo).append(" | ").append(AudioMixerScreen.title()).append('\n');
+    boolean projectOk = savedSaid.equals("Saved the project Take 1 (" + had + " tracks)") && cleared == 0 && AudioMix.tracks.size() == had
+        && backT != null && backT.volume == 40 && backT.solo && AudioMixerScreen.title().equals("AudioMixer \u00b7 Take 1");
     AudioMix.clear();
     write("s244_to_mixer", out.toString());
     String text = out.toString();
-    boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
+    boolean ok = projectOk && params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
         && names.toString().trim().equals("groove song") && r.log.contains("For the AudioMixer (asked when the run is done): groove.mid, song.wav")
         && text.contains("waveforms: 2, playing groove: ") && text.contains("the other's playhead off: true, sound in the waveform: true") && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2

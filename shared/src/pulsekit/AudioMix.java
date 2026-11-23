@@ -75,9 +75,15 @@ public final class AudioMix {
     if (!dir.isDirectory()) dir.mkdirs();
     tracks.clear();
     toDb = false;
+    project = "";
     try {
       File s = new File(dir, SETTINGS);
-      if (s.isFile()) for (String line : new String(read(s), StandardCharsets.UTF_8).split("\n")) if (line.trim().equals("toDb=1")) toDb = true;
+      if (s.isFile()) {
+        for (String line : new String(read(s), StandardCharsets.UTF_8).split("\n")) {
+          if (line.trim().equals("toDb=1")) toDb = true;
+          if (line.startsWith("project=")) project = line.substring(8).trim();
+        }
+      }
       File f = new File(dir, LIST);
       if (!f.isFile()) return;
       for (String line : new String(read(f), StandardCharsets.UTF_8).split("\n")) {
@@ -110,7 +116,7 @@ public final class AudioMix {
     }
     try {
       write(new File(dir, LIST), sb.toString().getBytes(StandardCharsets.UTF_8));
-      write(new File(dir, SETTINGS), ("toDb=" + (toDb ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+      write(new File(dir, SETTINGS), ("toDb=" + (toDb ? 1 : 0) + "\nproject=" + clean(project) + "\n").getBytes(StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // kept for this session
     }
@@ -196,9 +202,73 @@ public final class AudioMix {
     save();
   }
 
-  /** New project: every track taken out. */
+  /** New project: every track taken out (no project's name any more). */
   public static synchronized void clear() {
     for (Track t : new ArrayList<Track>(tracks)) remove(t);
+    project = "";
+    save();
+  }
+
+  /** The project the tracks were saved as or opened from ("": none yet). */
+  public static String project = "";
+  public static final String SAVE_PROJECT = "Save project", OPEN_PROJECT = "Open project";
+
+  /** Where saved projects are kept: a folder each, beside the mixer's own. */
+  public static File projectsDir() {
+    return new File(dir == null ? new File(".") : dir.getParentFile(), "audiomixer-projects");
+  }
+
+  /** A name made safe as a folder's. */
+  public static String projectFolderName(String name) {
+    String n = name == null ? "" : name.trim().replaceAll("[\\\\/:*?\"<>|]+", "_");
+    return n.isEmpty() || n.equals(".") || n.equals("..") ? "Project" : n;
+  }
+
+  /** The saved projects, newest first. */
+  public static synchronized List<String> projects() {
+    File[] in = projectsDir().listFiles(File::isDirectory);
+    List<File> got = new ArrayList<File>();
+    if (in != null) for (File f : in) if (new File(f, LIST).isFile()) got.add(f);
+    java.util.Collections.sort(got, (a, b) -> Long.compare(new File(b, LIST).lastModified(), new File(a, LIST).lastModified()));
+    List<String> out = new ArrayList<String>();
+    for (File f : got) out.add(f.getName());
+    return out;
+  }
+
+  /** Whether a project of that name is saved already. */
+  public static boolean projectExists(String name) {
+    return new File(new File(projectsDir(), projectFolderName(name)), LIST).isFile();
+  }
+
+  /**
+   * Save project: the tracks (their WAVs, DrumPad hits) and their settings (volume, gain, Mute, Solo,
+   * input) copied into the project's folder, replacing what it had. The project's name is kept.
+   */
+  public static synchronized void saveProject(String name) throws Exception {
+    String n = projectFolderName(name);
+    File to = new File(projectsDir(), n);
+    if (to.isDirectory()) {
+      File[] old = to.listFiles();
+      if (old != null) for (File f : old) if (f.isFile()) f.delete();
+    }
+    to.mkdirs();
+    project = n;
+    save();
+    File[] in = dir.listFiles();
+    if (in != null) for (File f : in) if (f.isFile()) java.nio.file.Files.copy(f.toPath(), new File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  /** Open project: the mixer's tracks replaced by the saved project's. */
+  public static synchronized void openProject(String name) throws Exception {
+    File from = new File(projectsDir(), projectFolderName(name));
+    if (!new File(from, LIST).isFile()) throw new java.io.FileNotFoundException("No project " + name);
+    File[] here = dir.listFiles();
+    if (here != null) for (File f : here) if (f.isFile()) f.delete();
+    File[] in = from.listFiles();
+    if (in != null) for (File f : in) if (f.isFile()) java.nio.file.Files.copy(f.toPath(), new File(dir, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    open(dir);
+    project = from.getName();
+    save();
   }
 
   /** The file's sound, in stereo. */
