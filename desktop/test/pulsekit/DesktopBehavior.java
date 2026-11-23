@@ -14541,24 +14541,24 @@ public final class DesktopBehavior {
           out.append("  ").append(t.replaceAll("\\d+ BPM", "<n> BPM").replaceAll("drums \\d+%", "drums <n>%").replaceAll("score \\d+", "score <n>")).append('\n');
       }
       out.append("models asked: ").append(asked).append('\n');
-      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-ranking.txt");
-      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-ranking.txt");
+      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-drums-ranking.txt");
+      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-drums-ranking.txt");
       boolean rankingKept = ranking.isFile() && new String(Files.readAllBytes(ranking.toPath()), StandardCharsets.UTF_8).contains("Model comparison");
       out.append("ranking saved: ").append(rankingKept).append('\n');
       // --zip: everything in one zip (the tracks, their WAVs, DrumMidi's MIDI and results, the ranking, the logs).
-      File zip = new File(home, "Downloads/sogni-Rock-cmp1.zip");
-      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-Rock-cmp1.zip");
+      File zip = new File(home, "Downloads/sogni-Rock-cmp1-drums.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-Rock-cmp1-drums.zip");
       List<String> inZip = new ArrayList<String>();
       if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
       Collections.sort(inZip);
       out.append("zip: ").append(inZip).append('\n');
       List<String> want = java.util.Arrays.asList("DrumMidi_CRT SogniMusic run 1 sft log.txt", "DrumMidi_CRT SogniMusic run 1 turbo log.txt", "SogniMusic log.txt",
-          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-ranking.txt", "sogni-Rock-cmp1-sft.mp3",
-          "sogni-Rock-cmp1-turbo.mp3");
+          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-drums-ranking.txt", "sogni-Rock-cmp1-drums-sft.mp3",
+          "sogni-Rock-cmp1-drums-turbo.mp3");
       // The tracks' WAVs (Pulsekit's copies for measuring) stay out: their MP3s are there.
-      boolean zipped = inZip.containsAll(want) && !inZip.contains("sogni-Rock-cmp1-sft.wav") && !inZip.contains("sogni-Rock-cmp1-turbo.wav");
+      boolean zipped = inZip.containsAll(want) && !inZip.contains("sogni-Rock-cmp1-drums-sft.wav") && !inZip.contains("sogni-Rock-cmp1-drums-turbo.wav");
       // (SogniMusic's own "Compared:" lines may be gone by now: each DrumMidi run has its own log; the ranking is shown again.)
-      boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-\\w+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-\\w+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
+      boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-[\\w-]+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-[\\w-]+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
           && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
           && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain && rankingKept && zipped;
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
