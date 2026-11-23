@@ -4510,6 +4510,21 @@ def bench_sig(zips):
     return hashlib.sha1("\n".join("%s %d" % (os.path.basename(z), os.path.getsize(z)) for z in zips).encode("utf-8")).hexdigest()[:10]
 
 
+# The benches' scratch folders for each DrumMidi run: under their own work folder, not the system's
+# temp folder (a temp cleaner deleting it mid-run left DrumMidi's results unwritten and the song out).
+BENCH_TMP = [None]
+
+
+def bench_tmp(work):
+    """Sets (and makes) the benches' scratch folder under `work`, emptied of what an earlier run left."""
+    import shutil
+    t = os.path.join(work, "tmp")
+    shutil.rmtree(t, ignore_errors=True)
+    os.makedirs(t, exist_ok=True)
+    BENCH_TMP[0] = t
+    return t
+
+
 def bench_map(fn, songs, jobs, label):
     """fn on each song (`jobs` at a time), the results in order; the count said every half minute or
     so (Pulsekit stops a run that says nothing for 10 minutes, and a kit's songs can take longer)."""
@@ -4522,6 +4537,9 @@ def bench_map(fn, songs, jobs, label):
 
     def one(song):
         r = fn(song)
+        # A song whose results went missing is run once more (a busy machine, a file taken away).
+        if isinstance(r, str) and ("wrote no" in r or "failed" in r):
+            r = fn(song)
         with lock:
             count[0] += 1
             if time.time() - count[1] > 30:
@@ -4610,23 +4628,28 @@ def bench_kit_info(folder):
 
 
 def bench_songs(folder):
-    """[(audio, its MIDI)]: each render under mp3/ (or wav/) and the MIDI it was played from under midi/."""
+    """[(audio, its MIDI)]: each render under mp3/ (or wav/), at any depth (a --recursive run keeps its
+    folders: mp3/<run>/<sub>/.../x.mp3), and the MIDI it was played from in the same place under midi/."""
     import glob
     out = []
-    # mp3/<run>/ and midi/<run>/, or (a folder's files at its top) mp3/ and midi/ alone.
-    for audio in sorted(glob.glob(os.path.join(folder, "mp3", "*", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*", "*.wav"))
-                        + glob.glob(os.path.join(folder, "mp3", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*.wav"))):
-        top = os.path.basename(os.path.dirname(audio)) in ("mp3", "wav") and os.path.dirname(os.path.dirname(audio)) == folder.rstrip(os.sep)
-        sub = "" if top else os.path.basename(os.path.dirname(audio))
-        base = os.path.splitext(os.path.basename(audio))[0]
-        mid = None
-        # "<stem>-<Plugin> (<kit>)": the longest MIDI name the render's name starts with.
-        for c in glob.glob(os.path.join(folder, "midi", sub, "*.mid")):
-            s = os.path.basename(c)[:-4]
-            if base.startswith(s + "-") and (mid is None or len(s) > len(os.path.basename(mid)) - 4):
-                mid = c
-        if mid:
-            out.append((audio, mid))
+    for kind, ext in (("mp3", ".mp3"), ("wav", ".wav")):
+        root = os.path.join(folder, kind)
+        for here, dirs, files in sorted(os.walk(root)):
+            dirs.sort()
+            rel = os.path.relpath(here, root)
+            mids = glob.glob(os.path.join(folder, "midi", glob.escape(rel) if rel != "." else "", "*.mid"))
+            for name in sorted(files):
+                if not name.lower().endswith(ext):
+                    continue
+                base = os.path.splitext(name)[0]
+                mid = None
+                # "<stem>-<Plugin> (<kit>)": the longest MIDI name the render's name starts with.
+                for c in mids:
+                    s = os.path.basename(c)[:-4]
+                    if base.startswith(s + "-") and (mid is None or len(s) > len(os.path.basename(mid)) - 4):
+                        mid = c
+                if mid:
+                    out.append((os.path.join(here, name), mid))
     return out
 
 
@@ -4636,7 +4659,7 @@ def bench_dump(java, jar, audio, extra, kit):
     import subprocess
     import tempfile
     import shutil
-    where = tempfile.mkdtemp(prefix="pulsekit-bench-")
+    where = tempfile.mkdtemp(prefix="pulsekit-bench-", dir=BENCH_TMP[0])
     try:
         feats = os.path.join(where, "inputs.txt")
         argv = [java, "-Ddm.cymFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "dm.mid", "--no-cymbal-model"] + list(extra)
@@ -4669,9 +4692,14 @@ def bench_dump(java, jar, audio, extra, kit):
         shutil.rmtree(where, ignore_errors=True)
 
 
+# The benches' kept results' version: a new one when what goes into them changes (2: renders found in a
+# --recursive run's subfolders; before, only one folder deep, so such kits were scored on almost nothing).
+BENCH_DATA = "v2"
+
+
 def bench_cache(work, sig, kit, zips):
-    """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>.npz."""
-    return os.path.join(work, "data", sig, "%s-%s.npz" % (kit, bench_sig(zips)))
+    """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>-v2.npz."""
+    return os.path.join(work, "data", sig, "%s-%s-%s.npz" % (kit, bench_sig(zips), BENCH_DATA))
 
 
 def bench_data(cache, folder, info, java, jar, jobs, label=""):
@@ -4991,6 +5019,7 @@ def model_bench(opts, switches):
     outdir = opts["--outdir"] or folder
     os.makedirs(outdir, exist_ok=True)
     work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
+    bench_tmp(work)
     unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
     print("Unzip folder: %s; DrumMidi's results kept in %s" % (unzip, os.path.join(work, "data")))
     # Kits left out (--bench_skip: a bad run, another plugin's test): by parts of their zips' names, before
@@ -5176,7 +5205,7 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
     import subprocess
     import tempfile
     import shutil
-    where = tempfile.mkdtemp(prefix="pulsekit-hits-")
+    where = tempfile.mkdtemp(prefix="pulsekit-hits-", dir=BENCH_TMP[0])
     try:
         feats = os.path.join(where, "inputs.txt")
         more = list(extra) + (["--kit", os.path.abspath(kit)] if kit else [])
@@ -5359,6 +5388,7 @@ def hit_bench(opts, switches):
     os.makedirs(outdir, exist_ok=True)
     # (Its own work folder: the Cymbal model tab's folders are not used.)
     work = os.path.join(outdir, "hit-bench")
+    bench_tmp(work)
     unzip = opts["--hit_unzip"] or os.path.join(work, "kits")
     # --bench_skip: kits, or single runs by their date and time, left out (as the cymbal bench does).
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
@@ -5379,7 +5409,7 @@ def hit_bench(opts, switches):
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
     for n, (key, stamp, zips, where) in enumerate(found):
-        cache = os.path.join(work, "hits", sig, "%s-%s.npz" % (key, bench_sig(zips)))
+        cache = os.path.join(work, "hits", sig, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
