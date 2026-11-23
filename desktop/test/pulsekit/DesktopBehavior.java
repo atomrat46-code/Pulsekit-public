@@ -11246,6 +11246,7 @@ public final class DesktopBehavior {
         && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("both: unpacked 2 times, shared said true, hit bench's own unzip folder false, renders left [], cymbal kits 2".replace("true", "True").replace("false", "False"))
         && all.contains("Kit names: 2 kit names and their plugins from the tests' reports kept for Kit loaded's lists")
         && all.contains("named again: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000')]") && all.contains("without alias: 3")
         && all.contains("with alias: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000'), ('vst-render-Ugritone_Drums_Speed_Metal__1983_Metal_', '20261116-100000')]")

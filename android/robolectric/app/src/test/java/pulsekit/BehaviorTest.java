@@ -14520,6 +14520,30 @@ public class BehaviorTest {
     if (sendAsk != null) sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("SogniPadd's Params: ").append(PyJavParams.load(app, "SogniPadd.java")).append('\n');
+    File file = new File(app.getCacheDir(), "exported.txt");
+    PyJavParams.exportTo = file;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPedit", "Prompt: first kite\n");
+    vault.addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
+    PyJavParams.lastExportAsk = null;
+    dv.findViewWithTag("params-export-section").performClick();
+    idle();
+    AlertDialog exportAsk = PyJavParams.lastExportAsk;
+    out.append("export asks: ").append(exportAsk == null ? "no" : exportAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText() + " | " + exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append('\n');
+    File allFile = new File(app.getCacheDir(), "all.txt");
+    PyJavParams.exportTo = allFile;
+    if (exportAsk != null) exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("export all: ").append(PyJavParams.clipSaid).append('\n').append(allFile.isFile() ? new String(java.nio.file.Files.readAllBytes(allFile.toPath()), StandardCharsets.UTF_8) : "none");
+    PyJavParams.sendTo = null;
+    PyJavParams.exportTo = null;
+    d.dismiss();
+    idle();
+    write("s249_params_clip", out.toString());
     // The prompt's ★: the entries kept as a favourite section; again, not a favourite. G: in a new group.
     TextView starB = (TextView) dv.findViewWithTag("params-star");
     String starBefore = starB == null ? "-" : String.valueOf(starB.getText());
@@ -14548,30 +14572,6 @@ public class BehaviorTest {
     favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit", SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
     out.append("star before: ").append(starBefore).append(" | after: ").append(starAfter).append(" | again: ").append(starAgain)
         .append("\ngroup: ").append(favS == null ? "-" : favS.group).append('\n');
-    File file = new File(app.getCacheDir(), "exported.txt");
-    PyJavParams.exportTo = file;
-    dv.findViewWithTag("params-export-section").performClick();
-    idle();
-    out.append("export: ").append(PyJavParams.clipSaid).append('\n').append(new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
-    // 14112026: with sections saved for the program, Export asks: this entry, or all of them.
-    PromptVault vault = PromptVault.open(app.getFilesDir());
-    vault.addSogniSection("SogniPedit", "Prompt: first kite\n");
-    vault.addSogniSection("SogniPedit", "Prompt: second kite\nLoras: kite-style:0.5\n");
-    PyJavParams.lastExportAsk = null;
-    dv.findViewWithTag("params-export-section").performClick();
-    idle();
-    AlertDialog exportAsk = PyJavParams.lastExportAsk;
-    out.append("export asks: ").append(exportAsk == null ? "no" : exportAsk.getButton(DialogInterface.BUTTON_POSITIVE).getText() + " | " + exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).getText()).append('\n');
-    File allFile = new File(app.getCacheDir(), "all.txt");
-    PyJavParams.exportTo = allFile;
-    if (exportAsk != null) exportAsk.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
-    idle();
-    out.append("export all: ").append(PyJavParams.clipSaid).append('\n').append(allFile.isFile() ? new String(java.nio.file.Files.readAllBytes(allFile.toPath()), StandardCharsets.UTF_8) : "none");
-    PyJavParams.sendTo = null;
-    PyJavParams.exportTo = null;
-    d.dismiss();
-    idle();
-    write("s249_params_clip", out.toString());
     String text = out.toString();
     boolean ok = text.contains("star before: \u2606 | after: \u2605 favourite true | again: \u2606 favourite false\ngroup: Kites")
         && text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")

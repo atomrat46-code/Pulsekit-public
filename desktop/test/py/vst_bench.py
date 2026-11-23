@@ -179,3 +179,17 @@ print("without alias:", len(vr.render_kits(again, True, {})))
 os.makedirs(os.path.join(work, ".pulsekit", "maps"), exist_ok=True)
 open(os.path.join(work, ".pulsekit", "maps", "kits.txt"), "w").write("[Ugritone Drums]\nSpeed Metal: 1983 Metal = 1983 Metal\n")
 print("with alias:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])
+# Both benches in one run (run separately): one unzip folder, each kit's renders unpacked once and deleted after the cymbal bench.
+import contextlib
+import io
+bout = os.path.join(work, "both-out")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--cymbal_bench", "--model_compare", "--hit_dir", os.path.join(work, "runs"), "--bench_dir", os.path.join(work, "runs"),
+             "--outdir", bout, "--drummidi", jar])
+text = said.getvalue()
+shared = os.path.join(bout, "cymbal-bench", "kits")
+left = [d for d in os.listdir(shared) if os.path.isdir(os.path.join(shared, d)) and any(os.path.isdir(os.path.join(shared, d, s)) for s in ("mp3", "wav"))]
+print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s, renders left %s, cymbal kits %d" % (
+    text.count("unpacking"), "Unzip folder shared with the cymbal model comparison" in text, os.path.isdir(os.path.join(bout, "hit-bench", "kits")), left,
+    text.count("DrumMidi ran on each")))

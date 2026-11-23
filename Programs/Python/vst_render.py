@@ -4998,6 +4998,16 @@ def busy(what, fn, *args):
         done.set()
 
 
+def cymbal_unzip(opts):
+    """The cymbal bench's unzip folder, as model_bench works it out (None without its input folder)."""
+    folder = opts["--bench_dir"] or opts["--dir"]
+    if not folder:
+        return None
+    outdir = opts["--outdir"] or folder
+    work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
+    return opts["--bench_unzip"] or os.path.join(work, "kits")
+
+
 def model_bench(opts, switches):
     """--model_compare and --leave_one_out: the test renders' zips in --dir (with --recursive, its
     subfolders too) scored with DrumMidi's cymbal model as it is and as learned from the kits found;
@@ -5055,7 +5065,8 @@ def model_bench(opts, switches):
         reports.append(info["report"])
         d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
-        if ran:
+        # (Shared with the hit bench before it: the renders it kept for this bench go now too.)
+        if ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav")):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5389,7 +5400,11 @@ def hit_bench(opts, switches):
     # (Its own work folder: the Cymbal model tab's folders are not used.)
     work = os.path.join(outdir, "hit-bench")
     bench_tmp(work)
-    unzip = opts["--hit_unzip"] or os.path.join(work, "kits")
+    # Run with the cymbal comparison after it: one unzip folder for both, the renders kept for it.
+    shared = opts.get("_share_unzip")
+    unzip = shared or opts["--hit_unzip"] or os.path.join(work, "kits")
+    if shared:
+        print("Unzip folder shared with the cymbal model comparison after this bench: %s (each kit unpacked once; the renders deleted after it)" % shared)
     # --bench_skip: kits, or single runs by their date and time, left out (as the cymbal bench does).
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
     if only:
@@ -5416,7 +5431,7 @@ def hit_bench(opts, switches):
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
-        if ran:
+        if ran and not shared:
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5654,7 +5669,10 @@ def main(argv):
         busy("the hit model bench", hit_bench, opts, switches)
         return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
-        # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on).
+        # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on: the two
+        # share the cymbal bench's unzip folder, so each kit's renders are unpacked once).
+        if "--cymbal_bench" in switches and ("--model_compare" in switches or "--leave_one_out" in switches):
+            opts["_share_unzip"] = cymbal_unzip(opts)
         busy("the hit model bench", hit_bench, opts, switches)
         if "--cymbal_bench" not in switches:
             return
