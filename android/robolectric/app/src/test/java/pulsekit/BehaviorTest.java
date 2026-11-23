@@ -14044,6 +14044,28 @@ public class BehaviorTest {
       idle();
     }
     int waveRows = AudioMixerScreen.WAVES.size();
+    // File ▾: Import, the New items and Open, Save, Export project in one menu; New empty track from it adds a track.
+    View fileB = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-file");
+    String fileMenu = "none";
+    if (fileB != null) {
+      fileB.performClick();
+      idle();
+      android.view.Menu m = AudioMixerScreen.lastFileMenu.getMenu();
+      StringBuilder fm = new StringBuilder();
+      for (int i = 0; i < m.size(); i++) fm.append(m.getItem(i).getTitle()).append(i < m.size() - 1 ? " | " : "");
+      int beforeEmpty = AudioMix.tracks.size();
+      AudioMixerScreen.lastFileMenu.getMenu().performIdentifierAction(1, 0);
+      idle();
+      fm.append(" ; new empty adds ").append(AudioMix.tracks.size() - beforeEmpty);
+      AudioMixerScreen.lastFileMenu.dismiss();
+      if (AudioMix.tracks.size() > beforeEmpty) AudioMix.remove(AudioMix.tracks.get(AudioMix.tracks.size() - 1));
+      fileMenu = fm.toString();
+    }
+    out.append("file menu: ").append(fileMenu).append('\n');
+    for (int i = 0; i < 300 && (AudioMixerScreen.last == null || !AudioMixerScreen.last.isShowing() || AudioMixerScreen.WAVES.size() < 2); i++) {
+      Thread.sleep(10);
+      idle();
+    }
     View playOne = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-play:groove");
     // (Robolectric has no audio output: "No audio output", nothing plays; on a phone the row's playhead moves.)
     if (playOne != null) playOne.performClick();
@@ -14142,7 +14164,8 @@ public class BehaviorTest {
     AudioMix.clear();
     write("s244_to_mixer", out.toString());
     String text = out.toString();
-    boolean ok = projectOk && params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
+    boolean ok = projectOk && text.contains("file menu: Import new track\u2026 | New empty track | New DrumPad track | New project | Open project\u2026 | Save project\u2026 | Export project\u2026 ; new empty adds 1")
+        && params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
         && names.toString().trim().equals("groove song") && r.log.contains("For the AudioMixer (asked when the run is done): groove.mid, song.wav")
         && text.contains("waveforms: 2, playing groove: ") && text.contains("the other's playhead off: true, sound in the waveform: true") && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
