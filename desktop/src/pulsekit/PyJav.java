@@ -3703,9 +3703,11 @@ final class PyJav {
         // A definitions file (ParamDefs) fills several rows: the Params' rows kept for it.
         this.shownParams = ps;
         this.shownFields = fields;
+        this.shownValues = values;
         this.shownAreas = areas;
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
+        this.shownChecks = checks;
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
         // Where each row's label and field start in the form (vst_render's rows then go onto its tabs).
         final int[] rowStarts = new int[ps.size()];
@@ -5065,6 +5067,8 @@ final class PyJav {
                 holder.add(top, BorderLayout.NORTH);
             }
             if (ProgramParams.FILES.equals(e.getKey())) holder.add(this.filesPanel(), BorderLayout.CENTER);
+            // The benches' tabs: Delete extracted files (on with Settings' Don't delete the benches' unzipped files).
+            if (ProgramParams.MODEL.equals(e.getKey()) || ProgramParams.HITS.equals(e.getKey())) holder.add(this.deleteExtractedRow(e.getKey(), ps), BorderLayout.CENTER);
             holder.setName("params-tab:" + e.getKey());
             tabs.addTab(e.getKey(), holder);
         }
@@ -5408,6 +5412,108 @@ final class PyJav {
      * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
      */
     static final String PICKS_TIP = "Favourites and Recently used: click a plugin to use it as plugin 1 to 4, or drag it onto a plugin row";
+
+    /** The Params' switches as shown (their boxes), for the benches' Delete extracted files. */
+    javax.swing.JCheckBox[] shownChecks;
+    /** The Params' values as typed (folder rows keep theirs here, not in a field). */
+    String[] shownValues;
+    /** The tests' answer to Delete extracted files' question (null: asked), and what it did. */
+    static Boolean deleteExtractedYes;
+    static String deleteExtractedSaid;
+
+    /** A row's text now, by its switch ("" when it is not there or empty). */
+    String shownValue(List<ProgramParams.Param> ps, String token) {
+        for (int i = 0; i < ps.size(); i++) {
+            if (!ps.get(i).token.equals(token)) continue;
+            javax.swing.text.JTextComponent c = this.shownAreas != null && this.shownAreas[i] != null ? this.shownAreas[i] : this.shownFields != null ? this.shownFields[i] : null;
+            if (c != null) return c.getText().trim();
+            return this.shownValues != null && this.shownValues[i] != null ? this.shownValues[i].trim() : "";
+        }
+        return "";
+    }
+
+    /** A folder as vst_render takes it: relative ones under the program files folder. */
+    File benchPath(String path) {
+        File f = new File(path);
+        return f.isAbsolute() ? f : new File(this.programFolder(), path);
+    }
+
+    /**
+     * The benches' unzip folders as vst_render works them out: the cymbal bench's (its Unzip folder, else
+     * kits in its work folder), and for the Hit model tab the hit bench's too (both share the cymbal
+     * bench's when they run together).
+     */
+    List<File> benchUnzipFolders(String tab, List<ProgramParams.Param> ps) {
+        List<File> out = new ArrayList<File>();
+        String outdir = this.shownValue(ps, "--outdir");
+        String cymIn = this.shownValue(ps, "--bench_dir").isEmpty() ? this.shownValue(ps, "--dir") : this.shownValue(ps, "--bench_dir");
+        String cymUnzip = this.shownValue(ps, "--bench_unzip");
+        if (cymUnzip.isEmpty() && !(outdir.isEmpty() && cymIn.isEmpty())) {
+            String work = this.shownValue(ps, "--bench_work");
+            cymUnzip = new File(work.isEmpty() ? new File(outdir.isEmpty() ? cymIn : outdir, "cymbal-bench").getPath() : work, "kits").getPath();
+        }
+        if (!cymUnzip.isEmpty()) out.add(this.benchPath(cymUnzip));
+        if (ProgramParams.HITS.equals(tab)) {
+            String hitUnzip = this.shownValue(ps, "--hit_unzip");
+            String hitIn = this.shownValue(ps, "--hit_dir");
+            if (hitUnzip.isEmpty() && !(outdir.isEmpty() && hitIn.isEmpty())) hitUnzip = new File(new File(outdir.isEmpty() ? hitIn : outdir, "hit-bench"), "kits").getPath();
+            if (!hitUnzip.isEmpty()) {
+                File h = this.benchPath(hitUnzip);
+                if (!out.contains(h)) out.add(0, h);
+            }
+        }
+        return out;
+    }
+
+    /** Delete extracted files: the benches' unzip folders emptied, asked first; on only with Don't delete ticked. */
+    JPanel deleteExtractedRow(final String tab, final List<ProgramParams.Param> ps) {
+        JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 4));
+        final JButton del = new JButton(ProgramParams.DELETE_EXTRACTED);
+        del.setName("params-delete-extracted:" + tab);
+        javax.swing.JCheckBox keep = null;
+        for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--bench_keep") && this.shownChecks != null) keep = this.shownChecks[i];
+        final javax.swing.JCheckBox keepBox = keep;
+        final Runnable state = () -> {
+            boolean on = keepBox != null && keepBox.isSelected();
+            del.setEnabled(on);
+            del.setToolTipText(on ? "The kits' unpacked renders deleted (DrumMidi's kept results stay)" : ProgramParams.DELETE_EXTRACTED_OFF);
+        };
+        state.run();
+        if (keepBox != null) keepBox.addItemListener(ev -> state.run());
+        del.addActionListener(ev -> {
+            List<File> there = new ArrayList<File>();
+            for (File f : this.benchUnzipFolders(tab, ps)) if (f.isDirectory()) there.add(f);
+            if (there.isEmpty()) {
+                deleteExtractedSaid = "No extracted files to delete";
+                app.setNow(deleteExtractedSaid);
+                return;
+            }
+            StringBuilder list = new StringBuilder();
+            for (File f : there) list.append("\n").append(f.getPath());
+            boolean yes = deleteExtractedYes != null ? deleteExtractedYes.booleanValue()
+                : JOptionPane.showConfirmDialog(del, "Delete the extracted files in:" + list + "\n\nDrumMidi's kept results stay; the next bench unpacks the kits' zips again. Are you sure?",
+                    ProgramParams.DELETE_EXTRACTED, JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION;
+            if (!yes) return;
+            int gone = 0;
+            for (File f : there) {
+                File[] in = f.listFiles();
+                if (in != null) for (File k : in) {
+                    deleteTree(k);
+                    gone++;
+                }
+            }
+            deleteExtractedSaid = "Deleted the extracted files: " + gone + (gone == 1 ? " kit" : " kits") + " in " + there.size() + (there.size() == 1 ? " folder" : " folders");
+            app.setNow(deleteExtractedSaid);
+        });
+        row.add(del);
+        return row;
+    }
+
+    static void deleteTree(File f) {
+        File[] in = f.isDirectory() && !java.nio.file.Files.isSymbolicLink(f.toPath()) ? f.listFiles() : null;
+        if (in != null) for (File k : in) deleteTree(k);
+        f.delete();
+    }
 
     JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
         PluginLibrary.load(PromptDb.dir());

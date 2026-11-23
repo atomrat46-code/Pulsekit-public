@@ -845,6 +845,9 @@ public final class ProgramParams {
   /** vst_render's hit model bench (--hit_bench: DrumMidi's kicks, snares and toms on the kits' tests). */
   public static final String HITS = "Hit model";
   public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL, HITS};
+  /** The Cymbal model and Hit model tabs' button: the benches' unzipped files deleted (asked first). */
+  public static final String DELETE_EXTRACTED = "Delete extracted files";
+  public static final String DELETE_EXTRACTED_OFF = "On with Settings' Don't delete the benches' unzipped files (else each bench deletes them itself)";
 
   static String vstTab(Param p) {
     String t = p.token;
@@ -1134,6 +1137,8 @@ public final class ProgramParams {
       p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
           "Run last: after the run's renders and tests (and the cymbal model comparison, when it runs last too), on the tests' zips the run made"};
       p.choiceValues = new String[] {"", "last"};
+    } else if (p.token.equals("--bench_keep")) {
+      p.label = "Don't delete the benches' unzipped files automatically (a bench run again does not unpack the kits' zips again; the Cymbal model and Hit model tabs' Delete extracted files deletes them)";
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
     } else if (p.token.equals("--hit_model_file")) {

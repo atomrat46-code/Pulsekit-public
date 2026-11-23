@@ -193,3 +193,17 @@ left = [d for d in os.listdir(shared) if os.path.isdir(os.path.join(shared, d)) 
 print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s, renders left %s, cymbal kits %d" % (
     text.count("unpacking"), "Unzip folder shared with the cymbal model comparison" in text, os.path.isdir(os.path.join(bout, "hit-bench", "kits")), left,
     text.count("DrumMidi ran on each")))
+# --bench_keep: the renders kept after the bench; a bench run again (its kept results gone, another DrumMidi) unpacks nothing.
+kout = os.path.join(work, "keep-out")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+first = said.getvalue().count("unpacking")
+kunz = os.path.join(kout, "cymbal-bench", "kits")
+kept = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
+import shutil
+shutil.rmtree(os.path.join(kout, "cymbal-bench", "data"))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))

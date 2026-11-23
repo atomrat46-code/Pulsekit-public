@@ -11205,6 +11205,30 @@ public final class DesktopBehavior {
       }
       ((Pulsekit) frame).pyJav.importList(skip, list);
       b.append(" | import button ").append(component(d, "params-import:--bench_skip") != null).append(", imported: ").append(skip.getText());
+      // Delete extracted files: off until Settings' Don't delete is ticked; then asked, and the unzip folder emptied.
+      javax.swing.AbstractButton del = (javax.swing.AbstractButton) component(d, "params-delete-extracted:" + ProgramParams.MODEL);
+      javax.swing.AbstractButton delHit = (javax.swing.AbstractButton) component(d, "params-delete-extracted:" + ProgramParams.HITS);
+      javax.swing.JCheckBox keep = (javax.swing.JCheckBox) component(d, "params-check:--bench_keep");
+      b.append(" | delete: ").append(del != null && !del.isEnabled()).append(" off, hit tab's ").append(delHit != null && !delHit.isEnabled());
+      keep.setSelected(true);
+      b.append(", on with keep ").append(del.isEnabled() && delHit.isEnabled());
+      File unz = new File(System.getProperty("user.home"), "unz254");
+      new File(unz, "vst-render-Kit_A_/mp3").mkdirs();
+      new File(unz, "vst-render-Kit_B_").mkdirs();
+      // (The Unzip folder row is picked with Browse: its value set as Browse sets it.)
+      PyJav pjv = ((Pulsekit) frame).pyJav;
+      int unzAt = -1;
+      for (int k = 0; k < pjv.shownParams.size(); k++) if (pjv.shownParams.get(k).token.equals("--bench_unzip")) unzAt = k;
+      pjv.shownValues[unzAt] = unz.getAbsolutePath();
+      PyJav.deleteExtractedYes = false;
+      del.doClick();
+      b.append(", No: ").append(unz.list().length).append(" kits left");
+      PyJav.deleteExtractedYes = true;
+      del.doClick();
+      PyJav.deleteExtractedYes = null;
+      b.append(", Yes: ").append(PyJav.deleteExtractedSaid).append(", ").append(unz.list().length).append(" left");
+      keep.setSelected(false);
+      pjv.shownValues[unzAt] = "";
       ((javax.swing.JTextField) n).setText("30");
       ((javax.swing.JTextField) names).setText("Bucket");
       seen[0] = b.toString();
@@ -11238,6 +11262,8 @@ public final class DesktopBehavior {
         && all.contains("run skipped: [('vst-render-Fake_Drums_Dark_', '20261101-120000')] | left [('vst-render-Fake_Drums_Dark_', '20261112-120000')] | kit skipped: []") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
         && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
+        && all.contains("keep: unpacked 2, renders kept 2, again unpacked 0, DrumMidi ran 2")
+        && all.contains("delete: true off, hit tab's true, on with keep true, No: 2 kits left, Yes: Deleted the extracted files: 2 kits in 1 folder, 0 left")
         && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")

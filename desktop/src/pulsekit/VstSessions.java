@@ -28,7 +28,7 @@ final class VstSessions {
         "--dir", "--dir2", "--recursive", "--outdir", "--zip_outdir",
         "--plugin", "--plugin2", "--plugin3", "--plugin4", "--kit_name", "--kit_name2", "--kit_name3", "--kit_name4",
         "--padset", "--parts", "--state", "--effect", "--effect_state",
-        "--test", "--cymbal_bench", "--cymbal_bench_when", "--hit_bench", "--hit_bench_when",
+        "--test", "--cymbal_bench", "--cymbal_bench_when", "--hit_bench", "--hit_bench_when", "--bench_keep",
         "--bench_dir", "--bench_unzip", "--bench_work", "--hit_dir", "--hit_unzip", "--hit_zip_outdir", "--hit_model_file",
         // Each session's own choices for its folders, plugins and runs: the kits (or runs) left out, the maps,
         // the model comparison and leave-one-out's kits, the kits counted as new.

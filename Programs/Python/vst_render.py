@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--bench_keep] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -241,6 +241,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   or last (the run as it is set: --dir, --dir2, --outdir, the plugins, with --test and
                   --zip on; then the cymbal model comparison if it is run last too; then the bench on the
                   tests' zips the run made).
+  --bench_keep    the benches do not delete the kits' unpacked renders (the Cymbal model and Hit model
+                  tabs' Delete extracted files does): a bench run again, with another DrumMidi, does not
+                  unpack the zips again.
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
@@ -5066,7 +5069,8 @@ def model_bench(opts, switches):
         d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         # (Shared with the hit bench before it: the renders it kept for this bench go now too.)
-        if ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav")):
+        # (--bench_keep: kept for the next bench; the tabs' Delete extracted files deletes them.)
+        if "--bench_keep" not in switches and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5431,7 +5435,7 @@ def hit_bench(opts, switches):
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
-        if ran and not shared:
+        if ran and not shared and "--bench_keep" not in switches:
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5632,7 +5636,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--preflight"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--preflight", "--bench_keep"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
