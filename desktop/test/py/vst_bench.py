@@ -207,3 +207,7 @@ said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
 print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))
+# Several input folders, separated by ";": each one's kits found (the runs' two folders given apart).
+twodirs = "%s; %s" % (os.path.join(work, "runs", "1"), os.path.join(work, "runs", "2"))
+print("folders:", vr.bench_folders(twodirs) == [os.path.join(work, "runs", "1"), os.path.join(work, "runs", "2")],
+      "kits:", sorted(k[0] for k in vr.render_kits(twodirs, True)))

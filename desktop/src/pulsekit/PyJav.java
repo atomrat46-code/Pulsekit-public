@@ -3778,12 +3778,16 @@ final class PyJav {
                 JButton browse = new JButton("Browse");
                 browse.setName("params-dir:" + p.token);
                 browse.addActionListener(e -> {
-                    JFileChooser chooser = new JFileChooser(startFolder(path.getText()));
+                    String[] had = path.getText().trim().isEmpty() ? new String[0] : path.getText().trim().split("\\s*;\\s*");
+                    JFileChooser chooser = new JFileChooser(startFolder(had.length > 0 ? had[had.length - 1] : path.getText()));
                     chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                     chooser.setDialogTitle("Directory");
                     if (chooser.showOpenDialog(app) != JFileChooser.APPROVE_OPTION) return;
-                    if (used != null) used.setSelectedItem(chooser.getSelectedFile().getAbsolutePath());
-                    path.setText(chooser.getSelectedFile().getAbsolutePath());
+                    String picked = chooser.getSelectedFile().getAbsolutePath();
+                    // Several folders (the benches' input folders): the one picked added to them, once.
+                    String v = p.several ? ParamsFolders.add(path.getText(), picked) : picked;
+                    if (used != null) used.setSelectedItem(v);
+                    path.setText(v);
                 });
                 row.add(browse, BorderLayout.WEST);
                 row.add(used != null ? used : path, BorderLayout.CENTER);

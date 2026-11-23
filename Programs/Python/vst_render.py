@@ -4463,6 +4463,11 @@ def kit_aliases(home=None):
     return out
 
 
+def bench_folders(text):
+    """The benches' input folders: one, or several separated by ";" or lines (Windows paths have no ";")."""
+    return [f.strip().strip('"') for line in (text or "").splitlines() for f in line.split(";") if f.strip().strip('"')]
+
+
 def render_kits(folder, recursive, aliases=None, skip=None, left=None):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
@@ -4484,21 +4489,23 @@ def render_kits(folder, recursive, aliases=None, skip=None, left=None):
             k = aliases[k]
         return k
     runs, named = {}, {}
-    for root, dirs, names in os.walk(folder):
-        dirs.sort()
-        for n in sorted(names):
-            m = RENDER_ZIP.match(n)
-            if m and parts and any(p in plain(n) for p in parts):
-                if left is not None and (m.group(1), m.group(2)) not in left:
-                    left.append((m.group(1), m.group(2)))
-                continue
-            if m:
-                same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
-                at = runs.setdefault(same, {}).setdefault(m.group(2), {})
-                at.setdefault(n, os.path.join(root, n))
-                named.setdefault(same, {})[m.group(2)] = m.group(1)
-        if not recursive:
-            break
+    # (Several input folders: each one's zips, a kit found in two of them its newest run's.)
+    for top in (folder if isinstance(folder, (list, tuple)) else bench_folders(folder) or [folder]):
+        for root, dirs, names in os.walk(top):
+            dirs.sort()
+            for n in sorted(names):
+                m = RENDER_ZIP.match(n)
+                if m and parts and any(p in plain(n) for p in parts):
+                    if left is not None and (m.group(1), m.group(2)) not in left:
+                        left.append((m.group(1), m.group(2)))
+                    continue
+                if m:
+                    same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
+                    at = runs.setdefault(same, {}).setdefault(m.group(2), {})
+                    at.setdefault(n, os.path.join(root, n))
+                    named.setdefault(same, {})[m.group(2)] = m.group(1)
+            if not recursive:
+                break
     out = []
     for same, by_stamp in runs.items():
         stamp = max(by_stamp)
@@ -5023,7 +5030,7 @@ def busy(what, fn, *args):
 
 def cymbal_unzip(opts):
     """The cymbal bench's unzip folder, as model_bench works it out (None without its input folder)."""
-    folder = opts["--bench_dir"] or opts["--dir"]
+    folder = (bench_folders(opts["--bench_dir"] or opts["--dir"]) or [None])[0]
     if not folder:
         return None
     outdir = opts["--outdir"] or folder
@@ -5042,10 +5049,13 @@ def model_bench(opts, switches):
         import numpy  # noqa: F401
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
-    folder = opts["--bench_dir"] or opts["--dir"]
-    if not folder or not os.path.isdir(folder):
-        fail("The cymbal model bench reads the tests' zips (vst-render-*.zip) in its input folder (--bench_dir), and in "
-             "its subfolders: give the folder that holds the runs' folders%s" % (" (%s is not one)" % folder if folder else ""))
+    # Its input folders: one, or several separated by ";" (kits kept in different places read together).
+    folders = bench_folders(opts["--bench_dir"] or opts["--dir"])
+    missing = [f for f in folders if not os.path.isdir(f)]
+    if not folders or missing:
+        fail("The cymbal model bench reads the tests' zips (vst-render-*.zip) in its input folders (--bench_dir; several "
+             "separated by ;), and in their subfolders: give the folders that hold the runs' folders%s" % (" (%s: not a folder)" % ", ".join(missing) if missing else ""))
+    folder = folders[0]
     jar = opts["--drummidi"]
     if not jar or not os.path.isfile(jar):
         fail("--model_compare and --leave_one_out run DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
@@ -5061,7 +5071,7 @@ def model_bench(opts, switches):
     # Params' Import puts a file's lines in.)
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
     left = []
-    found = render_kits(folder, True, skip=skip, left=left)
+    found = render_kits(folders, True, skip=skip, left=left)
     if skip:
         plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
         for p in skip:
@@ -5071,9 +5081,9 @@ def model_bench(opts, switches):
         print("Runs left out (%d): %s" % (len(left), ", ".join("%s %s%s" % (n[len("vst-render-"):].strip("_"), st, " (an older run of it counts)" if n in kept else "")
                                                              for n, st in left) or "none"))
     if len(found) < 2:
-        fail("The cymbal model bench needs the zips of two kits' tests or more (vst-render-*.zip) in %s or its subfolders (found %d)" % (folder, len(found)))
+        fail("The cymbal model bench needs the zips of two kits' tests or more (vst-render-*.zip) in %s or its subfolders (found %d)" % ("; ".join(folders), len(found)))
     newest = found[-1][3]
-    print("Kits: %d tested kits' zips in %s; the newest run's folder: %s" % (len(found), folder, newest))
+    print("Kits: %d tested kits' zips in %s; the newest run's folder: %s" % (len(found), "; ".join(folders), newest))
     sig = hashlib.sha1(open(jar, "rb").read()).hexdigest()[:12]
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
@@ -5412,10 +5422,13 @@ def hit_bench(opts, switches):
     except ImportError as e:
         fail("numpy is not installed (%s). Install it with: pip install numpy" % e, 2)
     only = opts.get("_hit_zips")
-    folder = os.path.dirname(os.path.abspath(only[0])) if only else opts["--hit_dir"]
-    if not folder or not os.path.isdir(folder):
-        fail("The hit model bench reads the tests' zips (vst-render-*.zip) in its input folder (the Cymbal model tab's, --bench_dir), "
-             "and in its subfolders: give it as the Hit model tab's Input folder%s; or MIDI files to render there, with Settings' Hit model bench on Run last" % (" (%s is not one)" % folder if folder else ""))
+    # Its input folders (run separately): one, or several separated by ";".
+    folders = [os.path.dirname(os.path.abspath(only[0]))] if only else bench_folders(opts["--hit_dir"])
+    missing = [f for f in folders if not os.path.isdir(f)]
+    folder = folders[0] if folders else None
+    if not folders or missing:
+        fail("The hit model bench reads the tests' zips (vst-render-*.zip) in its input folders (several separated by ;), "
+             "and in their subfolders: give them as the Hit model tab's Input folder%s; or MIDI files to render there, with Settings' Hit model bench on Run last" % (" (%s: not a folder)" % ", ".join(missing) if missing else ""))
     jar = opts["--drummidi"]
     if not jar or not os.path.isfile(jar):
         fail("The hit model bench runs DrumMidi_CRT.jar (--drummidi; Pulsekit gives its own)")
@@ -5439,7 +5452,7 @@ def hit_bench(opts, switches):
         for d in sorted(set(os.path.dirname(os.path.abspath(z)) for z in only)):
             found += [k for k in render_kits(d, False, skip=skip) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
     else:
-        found = render_kits(folder, True, skip=skip)
+        found = render_kits(folders, True, skip=skip)
     if not found:
         fail("The hit model bench found no tests' zips (vst-render-*.zip) in %s or its subfolders. It reads the zips a run with Test and "
              "Zip makes (renders and the MIDI played), not a zip of MIDI files: put that folder on the Input tab, the plugins on the Plugins tab, "

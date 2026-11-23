@@ -76,6 +76,8 @@ public final class ProgramParams {
      * picked folder in it, and the path can then be written on, % codes and all.
      */
     public boolean typed;
+    /** Several folders, separated by ";": Browse adds the folder picked to them (the benches' input folders). */
+    public boolean several;
     /**
      * A VST2 or VST3 plugin (vst_render.py's --plugin and --effect): on the desktop the row's chooser
      * starts in the computer's VST folders and also takes a .vst3 bundle folder.
@@ -1110,8 +1112,10 @@ public final class ProgramParams {
       p.label = "Zip without the WAVs (the MIDI files and the report are small; zips without the Zip box)";
     } else if (p.token.equals("--bench_dir")) {
       p.dir = true;
-      p.label = "Input folder: the tests' zips (vst-render-*.zip), its subfolders too (the folder that holds the runs' folders, such as Claude/Samples)";
-      p.hint = "empty: the Input tab's folder";
+      p.typed = true;
+      p.several = true;
+      p.label = "Input folders: the tests' zips (vst-render-*.zip), their subfolders too (the folders that hold the runs' folders, such as Claude/Samples); several separated by ; (Browse adds one)";
+      p.hint = "empty: the Input tab's folder; J:\\TEST; D:\\Claude\\Samples";
     } else if (p.token.equals("--bench_unzip")) {
       p.dir = true;
       p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
@@ -1122,8 +1126,10 @@ public final class ProgramParams {
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;
-      p.label = "Input folder (Run separately): the tests' zips (vst-render-*.zip), its subfolders too (Run last reads the zips the run makes)";
-      p.hint = "a folder";
+      p.typed = true;
+      p.several = true;
+      p.label = "Input folders (Run separately): the tests' zips (vst-render-*.zip), their subfolders too; several separated by ; (Browse adds one; Run last reads the zips the run makes)";
+      p.hint = "a folder, or several: J:\\TEST; D:\\Claude\\Samples";
     } else if (p.token.equals("--hit_unzip")) {
       p.dir = true;
       p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive)";
