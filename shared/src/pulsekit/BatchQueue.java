@@ -104,11 +104,6 @@ public final class BatchQueue {
     return !this.params.isEmpty();
   }
 
-  /** The next section's Params (Run sections). */
-  public String nextParams() {
-    return this.params.get(this.next++);
-  }
-
   /** True when this finished run is the batch's (its program, or JoinVideo at the end). */
   public boolean takes(String program) {
     return this.joining ? "JoinVideo.java".equals(program) : this.program.equals(program);
