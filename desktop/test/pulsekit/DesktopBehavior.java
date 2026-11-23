@@ -617,7 +617,7 @@ public final class DesktopBehavior {
     edt(() -> AudioMixerWindow.show(app));
     Thread.sleep(300);
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-pads").doClick());
     final AudioMix.Track t = AudioMix.tracks.get(0);
     answers.add("(keep)");
     edt(() -> ((javax.swing.JButton) component(d, "audiomixer-editor:DrumPad 1")).doClick());
@@ -722,7 +722,7 @@ public final class DesktopBehavior {
     edt(() -> AudioMixerWindow.show(app));
     Thread.sleep(300);
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-pads").doClick());
     out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
     final AudioMix.Track t = AudioMix.tracks.get(0);
     answers.add("(keep)");
@@ -874,7 +874,7 @@ public final class DesktopBehavior {
     };
     edt(() -> AudioMixerWindow.show((Pulsekit) frame));
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-empty")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-empty").doClick());
     Thread.sleep(200);
     out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
     AudioMix.Track t = AudioMix.tracks.get(0);
@@ -982,7 +982,7 @@ public final class DesktopBehavior {
     out.append("setting: ").append(toDb == null ? "none" : toDb.getText() + " " + toDb.isSelected()).append('\n');
     if (toDb != null) edt(() -> toDb.doClick());
     AudioMixerWindow.lastSaid = null;
-    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-mixdown").doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(d, "audiomixer-mixdown")).doClick());
     for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Mixing")); i++) Thread.sleep(50);
     String said = String.valueOf(AudioMixerWindow.lastSaid);
     out.append("mixdown: ").append(said.replace(home.getAbsolutePath(), "~").replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
