@@ -73,6 +73,10 @@ public final class MixerOut {
     while (args.remove(FLAG)) {
       // all of them
     }
+    // DrumMidi run by a SogniMusic file sets chain: SogniMusic's own switch decides what goes into the mixer
+    // (its tracks); DrumMidi's switch is for DrumMidi run by itself.
+    MusicCompare.Chain chain = MusicCompare.chainStep(name) ? MusicCompare.chain() : null;
+    if (chain != null && chain.sogniMixer) return run.apply(args);
     JavaRun.Result r = run.apply(args);
     if (r.code != 0) return r;
     String said;
@@ -147,11 +151,16 @@ public final class MixerOut {
     return "audio";
   }
 
-  static final String TICKS = "offer-ticks.txt";
+  static final String TICKS = "audiomixer-offer-ticks.txt";
+
+  /** The ticks' file: beside the mixer's folder, not in it (a project saved or exported keeps only its tracks). */
+  static File ticksFile() {
+    return folder == null ? null : new File(folder.getAbsoluteFile().getParentFile(), TICKS);
+  }
 
   /** Whether the question ticks a file of this kind first: as it was ticked last time (ticked when never asked). */
   public static boolean ticked(String kind) {
-    File f = folder == null ? null : new File(folder, TICKS);
+    File f = ticksFile();
     if (f == null || !f.isFile()) return true;
     try {
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
@@ -167,7 +176,7 @@ public final class MixerOut {
   public static void rememberTicks(List<JavaRun.FileOut> files, boolean[] on) {
     if (folder == null || files == null || on == null) return;
     java.util.Map<String, Boolean> kinds = new java.util.LinkedHashMap<String, Boolean>();
-    File f = new File(folder, TICKS);
+    File f = ticksFile();
     try {
       if (f.isFile()) for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
         int eq = line.indexOf('=');
@@ -181,7 +190,7 @@ public final class MixerOut {
       kinds.putAll(now);
       StringBuilder sb = new StringBuilder();
       for (java.util.Map.Entry<String, Boolean> e : kinds.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue().booleanValue() ? 1 : 0).append('\n');
-      folder.mkdirs();
+      f.getParentFile().mkdirs();
       java.nio.file.Files.write(f.toPath(), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // asked as ticked next time

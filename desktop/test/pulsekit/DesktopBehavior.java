@@ -1440,7 +1440,7 @@ public final class DesktopBehavior {
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT")).append('\n');
       }
-      File saved = new File(home, ".pulsekit/sogni-House-wf7.mp3");
+      File saved = new File(home, ".pulsekit/sogni-House-wf7-drums.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
       for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, Math.min(20, e.prompt.length()))).append('\n');
       for (int i = 0; i < 100 && !("DrumMidi_CRT.jar".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
@@ -1510,11 +1510,11 @@ public final class DesktopBehavior {
       server.stop(0);
     }
     File kept = new File(home, ".pulsekit");
-    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
-    boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
-    boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
-    boolean zipped = new File(kept, "run3/sogni-House-wf7.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7.zip").isFile()
-        && new File(kept, "zips" + today + "/sogni-House-wf7.zip").isFile();
+    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7-drums.zip").isFile();
+    boolean one = new File(kept, "run1/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "run1/sogni-House-wf7-drums.zip").isFile();
+    boolean two = new File(kept, "run2/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "run2/sogni-House-wf7-drums.zip").isFile();
+    boolean zipped = new File(kept, "run3/sogni-House-wf7-drums.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7-drums.zip").isFile()
+        && new File(kept, "zips" + today + "/sogni-House-wf7-drums.zip").isFile();
     out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append(", run3 + zips<today>: ").append(zipped).append('\n');
     if (!dated || !one || !two || !zipped) throw new AssertionError(out.toString());
   }

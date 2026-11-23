@@ -218,6 +218,8 @@ public final class MusicCompare {
     /** The AudioMixer's lines: SogniMusic's run's, and where the DrumMidi runs' start in MixerOut's. */
     final List<String> mixer = new ArrayList<String>();
     int mixerFrom;
+    /** SogniMusic's own Add the result to the AudioMixer was on (its DrumMidi runs' switch is then not used). */
+    boolean sogniMixer;
   }
 
   /**
@@ -325,6 +327,7 @@ public final class MusicCompare {
     // The AudioMixer's lines (--to_mixer): SogniMusic's from its log, the DrumMidi runs' as they come.
     for (String line : (log == null ? "" : log).split("\n")) if (line.contains("AudioMixer")) c.mixer.add(line.trim());
     c.mixerFrom = MixerOut.saidCount();
+    c.sogniMixer = argv != null && argv.contains(MixerOut.FLAG);
     chain = c;
     return c;
   }
