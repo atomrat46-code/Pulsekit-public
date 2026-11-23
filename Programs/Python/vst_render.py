@@ -4949,6 +4949,27 @@ def bench_args(argv):
     return out
 
 
+def busy(what, fn, *args):
+    """fn(*args) with "Still working: <what>" said every 4 minutes while it runs: the benches' own long
+    steps (learning models, leave one out) say nothing for a long time, and Pulsekit stops a script
+    silent for 10 minutes. Only around the benches: a plugin that hangs while rendering is still
+    caught by that stop."""
+    import threading
+    import time
+    started = time.time()
+    done = threading.Event()
+
+    def beat():
+        while not done.wait(240):
+            print("Still working: %s (%d min so far)" % (what, int((time.time() - started) // 60)), flush=True)
+    t = threading.Thread(target=beat, daemon=True)
+    t.start()
+    try:
+        return fn(*args)
+    finally:
+        done.set()
+
+
 def model_bench(opts, switches):
     """--model_compare and --leave_one_out: the test renders' zips in --dir (with --recursive, its
     subfolders too) scored with DrumMidi's cymbal model as it is and as learned from the kits found;
@@ -5600,11 +5621,11 @@ def main(argv):
             fail("Hit model bench not run: the run made no tests' zips (it failed above)")
         opts["_hit_zips"] = list(RUN_TEST_ZIPS)
         print("Hit model bench: this run's %d tests' zip%s" % (len(RUN_TEST_ZIPS), "" if len(RUN_TEST_ZIPS) == 1 else "s"))
-        hit_bench(opts, switches)
+        busy("the hit model bench", hit_bench, opts, switches)
         return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
         # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on).
-        hit_bench(opts, switches)
+        busy("the hit model bench", hit_bench, opts, switches)
         if "--cymbal_bench" not in switches:
             return
     # The cymbal model comparison (Settings' switch; the Cymbal model tab's parts): run on its own (no
@@ -5613,7 +5634,7 @@ def main(argv):
     if BENCH_STAGE[0] == "bench" or "--cymbal_bench" in switches and BENCH_STAGE[0] is None:
         if not parts_ticked:
             fail("Cymbal model comparison: tick Compare two cymbal models or Leave one out (or both) on the Cymbal model tab")
-        model_bench(opts, switches)
+        busy("the cymbal model comparison", model_bench, opts, switches)
         return
     if parts_ticked and "--cymbal_bench" not in switches:
         print("Cymbal model comparison is off (Settings): the Cymbal model tab's Compare and Leave one out are not run")
