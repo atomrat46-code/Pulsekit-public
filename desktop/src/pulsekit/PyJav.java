@@ -1758,6 +1758,60 @@ final class PyJav {
         return v == null ? "" : v.toString().trim();
     }
 
+    /** The prompt row's ★ and G last made (for the tests). */
+    JButton lastStar, lastGroupButton;
+
+    /** The prompt row's ★ (the entries now as a favourite section; again, not one) and G (as a section in a group). */
+    java.util.List<JButton> markButtons(final String app, final java.util.List<ProgramParams.Param> ps, final JTextField[] fields, final javax.swing.JTextArea[] areas) {
+        final JButton star = new JButton(SogniSections.STAR_OFF);
+        star.setName("params-star");
+        star.setToolTipText(SogniSections.STAR_TIP);
+        star.setMargin(new java.awt.Insets(1, 4, 1, 4));
+        final JButton group = new JButton(SogniSections.GROUP_BUTTON);
+        group.setName("params-group");
+        group.setToolTipText(SogniSections.GROUP_TIP);
+        group.setMargin(new java.awt.Insets(1, 4, 1, 4));
+        // Its mark once the rows are filled (they are made after the label).
+        SwingUtilities.invokeLater(() -> {
+            try {
+                star.setText(SogniSections.starNow(PromptDb.vault(), app, sectionFields(ps, fields, areas)));
+            } catch (Exception ignored) {
+                // ☆
+            }
+        });
+        star.addActionListener(e -> {
+            java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+            if (now.isEmpty()) {
+                this.sectionSay("Nothing to mark: the prompt and the other rows are empty");
+                return;
+            }
+            try {
+                PromptVault.SogniSection sec = SogniSections.sectionOf(PromptDb.vault(), app, now);
+                if (this.markSection(sec, !sec.favourite, sec.fin)) this.sectionSay(this.sectionSaid);
+                star.setText(SogniSections.star(sec));
+            } catch (Exception ex) {
+                this.sectionSay("Could not save the section: " + ex.getMessage());
+            }
+        });
+        group.addActionListener(e -> {
+            java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+            if (now.isEmpty()) {
+                this.sectionSay("Nothing to put in a group: the prompt and the other rows are empty");
+                return;
+            }
+            try {
+                PromptVault.SogniSection sec = SogniSections.sectionOf(PromptDb.vault(), app, now);
+                String name = this.askGroup(group, sec);
+                if (name != null && this.groupSection(sec, name)) this.sectionSay(this.sectionSaid);
+            } catch (Exception ex) {
+                this.sectionSay("Could not save the section: " + ex.getMessage());
+            }
+        });
+        this.lastStar = star;
+        this.lastGroupButton = group;
+        return java.util.Arrays.asList(star, group);
+    }
+
     /** A section added to a group by name ("" takes it out); false when it could not be (said). */
     boolean groupSection(PromptVault.SogniSection sec, String group) {
         try {
@@ -3665,6 +3719,8 @@ final class PyJav {
                 JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                 withClip.add(rowLabel);
                 for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
+                // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
+                if (p.token.equals("--prompt")) for (JButton b : this.markButtons(SogniSections.app(program), ps, fields, areas)) withClip.add(b);
                 form.add(withClip);
             } else {
                 form.add(rowLabel);

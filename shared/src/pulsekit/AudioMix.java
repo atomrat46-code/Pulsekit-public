@@ -258,6 +258,91 @@ public final class AudioMix {
     if (in != null) for (File f : in) if (f.isFile()) java.nio.file.Files.copy(f.toPath(), new File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
   }
 
+  public static final String EXPORT_PROJECT = "Export project";
+
+  /** Export project's zip name: "AudioMixer <project> 071126-1530.zip" (the project's name, else "mix"). */
+  public static String exportName() {
+    String p = project == null || project.isEmpty() ? "mix" : projectFolderName(project);
+    return "AudioMixer " + p + " " + new java.text.SimpleDateFormat("ddMMyy-HHmm", Locale.ROOT).format(new java.util.Date()) + ".zip";
+  }
+
+  /**
+   * Export project: the tracks' sounds (WAVs, DrumPad hits) and their settings in one zip, in a folder
+   * named after the project, for another computer or phone's Import new track… (or Open project).
+   */
+  public static synchronized byte[] exportZip() throws Exception {
+    save();
+    String folder = project == null || project.isEmpty() ? "AudioMixer project" : projectFolderName(project);
+    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+    java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(bos);
+    File[] in = dir.listFiles();
+    if (in != null) {
+      java.util.Arrays.sort(in);
+      for (File f : in) {
+        if (!f.isFile()) continue;
+        z.putNextEntry(new java.util.zip.ZipEntry(folder + "/" + f.getName()));
+        z.write(read(f));
+        z.closeEntry();
+      }
+    }
+    z.close();
+    return bos.toByteArray();
+  }
+
+  /** Whether a zip is an exported AudioMixer project (its mixer.txt in it). */
+  public static boolean isProjectZip(byte[] zip) {
+    try {
+      java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+      for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+        String n = e.getName().replace('\\', '/');
+        if (!e.isDirectory() && (n.equals(LIST) || n.endsWith("/" + LIST))) {
+          z.close();
+          return true;
+        }
+      }
+      z.close();
+    } catch (Exception ignored) {
+      // not a zip
+    }
+    return false;
+  }
+
+  /**
+   * An exported project's zip kept as a saved project (its own name, numbered when that is taken); the
+   * name, for Open project. Only plain files: no folders, nothing outside the project's folder.
+   */
+  public static synchronized String importZip(byte[] zip, String zipName) throws Exception {
+    String base = null;
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+    for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+      if (e.isDirectory()) continue;
+      String n = e.getName().replace('\\', '/');
+      String[] parts = n.split("/");
+      String file = parts[parts.length - 1];
+      if (file.isEmpty() || file.startsWith(".") || n.contains("..")) continue;
+      if (parts.length > 1 && base == null) base = parts[parts.length - 2];
+      java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+      byte[] buf = new byte[65536];
+      for (int k; (k = z.read(buf)) > 0; ) b.write(buf, 0, k);
+      files.put(file, b.toByteArray());
+    }
+    z.close();
+    if (!files.containsKey(LIST)) throw new java.io.IOException((zipName == null ? "The zip" : zipName) + " is not an AudioMixer project (no " + LIST + " in it)");
+    String name = projectFolderName(base != null && !base.equals("AudioMixer project") ? base
+        : (zipName == null ? "Imported" : zipName.replaceAll("(?i)\\.zip$", "")));
+    String n = name;
+    for (int k = 2; new File(projectsDir(), n).exists(); k++) n = name + " " + k;
+    File to = new File(projectsDir(), n);
+    to.mkdirs();
+    for (java.util.Map.Entry<String, byte[]> e : files.entrySet()) write(new File(to, e.getKey()), e.getValue());
+    // Its settings name it as it is kept here.
+    File st = new File(to, SETTINGS);
+    String settings = st.isFile() ? new String(read(st), StandardCharsets.UTF_8).replaceAll("(?m)^project=.*\\n?", "") : "";
+    write(st, (settings + (settings.isEmpty() || settings.endsWith("\n") ? "" : "\n") + "project=" + n + "\n").getBytes(StandardCharsets.UTF_8));
+    return n;
+  }
+
   /** Open project: the mixer's tracks replaced by the saved project's. */
   public static synchronized void openProject(String name) throws Exception {
     File from = new File(projectsDir(), projectFolderName(name));

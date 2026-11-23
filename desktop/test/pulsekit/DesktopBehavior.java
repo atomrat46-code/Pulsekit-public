@@ -562,6 +562,31 @@ public final class DesktopBehavior {
           + " | projects " + AudioMix.projects();
       AudioMixerWindow.projectAnswer = null;
     });
+    // Export project's zip, then Import new track… with it (as on another computer): kept as a project, opened.
+    final String[] exp = new String[2];
+    try {
+      byte[] zip = AudioMix.exportZip();
+      File zf = new File(home, AudioMix.exportName());
+      Files.write(zf.toPath(), zip);
+      java.util.List<String> names = new java.util.ArrayList<String>();
+      java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+      for (java.util.zip.ZipEntry e; (e = zin.getNextEntry()) != null; ) names.add(e.getName());
+      zin.close();
+      exp[0] = "zip " + zf.getName().replaceAll("\\d{6}-\\d{4}", "<date>") + ": " + names;
+      AudioMix.clear();
+      AudioMixerWindow.importNext = zf;
+      AudioMixerWindow.importOpen = true;
+      edt(() -> {
+        javax.swing.JLabel st = new javax.swing.JLabel();
+        AudioMixerWindow.importTrack((Pulsekit) frame, AudioMixerWindow.last, st, () -> AudioMixerWindow.refresh());
+        AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+        exp[1] = st.getText() + " | " + (back == null ? "none" : back.name + " volume " + back.volume + " mute " + back.mute) + " | projects " + AudioMix.projects();
+      });
+      AudioMixerWindow.importOpen = null;
+    } catch (Exception ex) {
+      exp[1] = "failed: " + ex;
+    }
+    out.append("export: ").append(exp[0]).append('\n').append("import: ").append(exp[1]).append('\n');
     out.append("project: ").append(proj[0]).append('\n').append(proj[1]).append('\n').append(proj[2]).append('\n');
     out.append("asked: ").append(String.valueOf(asked[0]).replace("\n", " ")).append("\nafter ").append(MixerOut.REPLACE).append(": ").append(after[0])
         .append(" tracks; after ").append(MixerOut.SKIP).append(": ").append(after[1]).append('\n');
@@ -572,6 +597,8 @@ public final class DesktopBehavior {
         && after[0] == 1 && after[1] == 1 && waves[0] == AudioMix.tracks.size() && loudest > 0.05f
         && proj[0].startsWith("Saved the project Demo (1 track) | title AudioMixer \u00b7 Demo") && proj[1].startsWith("cleared 0, Opened the project Demo (1 track)")
         && proj[2].startsWith("beat volume 55 mute true sound true | projects [Demo]")
+        && String.valueOf(exp[0]).equals("zip AudioMixer Demo <date>.zip: [Demo/beat.wav, Demo/mixer-settings.txt, Demo/mixer.txt]")
+        && String.valueOf(exp[1]).startsWith("Imported and opened the project Demo 2 (1 track) | beat volume 55 mute true | projects [Demo 2, Demo]")
         && beat != null && beat.seconds > 1
         && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
     if (!ok) throw new AssertionError(text);
@@ -15257,6 +15284,22 @@ public final class DesktopBehavior {
       } finally {
         PyJav.exportAll = null;
       }
+      // The prompt's ★: the entries kept as a favourite section; again, not a favourite. G: in a group.
+      try {
+        javax.swing.AbstractButton star = (javax.swing.AbstractButton) component(d, "params-star");
+        seen.append("star before: ").append(star.getText());
+        star.doClick();
+        PromptVault.SogniSection fav = PromptDb.vault().findSogniSection("SogniPedit", SogniSections.text(PyJav.sectionFields(pj.shownParams, pj.shownFields, pj.shownAreas)));
+        seen.append(" | after: ").append(star.getText()).append(" favourite ").append(fav != null && fav.favourite);
+        star.doClick();
+        seen.append(" | again: ").append(star.getText()).append(" favourite ").append(fav != null && fav.favourite).append('\n');
+        PyJav.groupAnswer = "Kites";
+        ((javax.swing.AbstractButton) component(d, "params-group")).doClick();
+        PyJav.groupAnswer = null;
+        seen.append("group: ").append(fav == null ? "-" : fav.group).append(", sections ").append(PromptDb.vault().sogniSections("SogniPedit").size()).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
     };
     answers.add("Cancel");
     call("openParams");
@@ -15268,7 +15311,8 @@ public final class DesktopBehavior {
     String file = out.isFile() ? new String(Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8) : "";
     this.out.append(seen).append("SogniPadd's Params: ").append(padd).append("\nLoRAs go to: ").append(loraTargets).append("\nfile:\n").append(file);
     String all = this.out.toString();
-    boolean ok = all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
+    boolean ok = all.contains("star before: \u2606 | after: \u2605 favourite true | again: \u2606 favourite false") && all.contains("group: Kites, sections 3")
+        && all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
         && all.contains("paste, No: other words") && all.contains("paste, Yes: a red kite over green hills (Pasted into the prompt)")
         && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
         && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")

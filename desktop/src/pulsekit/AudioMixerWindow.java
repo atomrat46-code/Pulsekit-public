@@ -234,6 +234,9 @@ final class AudioMixerWindow {
         JMenuItem openP = new JMenuItem(AudioMix.OPEN_PROJECT + "\u2026");
         openP.setName("audiomixer-open-project");
         openP.addActionListener(e -> openProject(d, status, fill[0]));
+        JMenuItem exportP = new JMenuItem(AudioMix.EXPORT_PROJECT + "\u2026");
+        exportP.setName("audiomixer-export-project");
+        exportP.addActionListener(e -> exportProject(app, status));
         JMenuItem close = new JMenuItem("Close");
         close.addActionListener(e -> d.dispose());
         file.add(imp);
@@ -243,6 +246,7 @@ final class AudioMixerWindow {
         file.addSeparator();
         file.add(saveP);
         file.add(openP);
+        file.add(exportP);
         file.add(clear);
         file.addSeparator();
         file.add(close);
@@ -450,11 +454,78 @@ final class AudioMixerWindow {
         importNext = null;
         if (f == null) {
             JFileChooser c = new JFileChooser(MediaBrowser.downloads());
-            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, M4A, MIDI", "wav", "wave", "mp3", "m4a", "aac", "mid", "midi"));
+            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, M4A, MIDI, an exported project (zip)", "wav", "wave", "mp3", "m4a", "aac", "mid", "midi", "zip"));
             if (c.showOpenDialog(d) != JFileChooser.APPROVE_OPTION) return;
             f = c.getSelectedFile();
         }
-        add(app, f, status, fill);
+        if (f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) importProject(d, f, status, fill);
+        else add(app, f, status, fill);
+    }
+
+    /** The tests' answer to opening an imported project now (null: asked). */
+    static Boolean importOpen;
+
+    /** An exported project's zip kept as a project; opened now when Yes (it takes the place of the tracks). */
+    static void importProject(JDialog d, File f, JLabel status, Runnable fill) {
+        String name;
+        try {
+            byte[] zip = Files.readAllBytes(f.toPath());
+            if (!AudioMix.isProjectZip(zip)) {
+                say(status, f.getName() + " is not an exported AudioMixer project");
+                return;
+            }
+            name = AudioMix.importZip(zip, f.getName());
+        } catch (Exception ex) {
+            say(status, "Could not import " + f.getName() + ": " + ex.getMessage());
+            return;
+        }
+        boolean open = importOpen != null ? importOpen.booleanValue()
+            : javax.swing.JOptionPane.showConfirmDialog(d, "Imported the project " + name + ". Open it now? It takes the place of the AudioMixer's tracks"
+                + (AudioMix.tracks.isEmpty() ? "." : ": what is not saved in a project is lost."), AudioMix.OPEN_PROJECT, javax.swing.JOptionPane.YES_NO_OPTION)
+                == javax.swing.JOptionPane.YES_OPTION;
+        if (!open) {
+            say(status, "Imported the project " + name + ": " + AudioMix.OPEN_PROJECT + " opens it");
+            return;
+        }
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            d.setTitle(title());
+            say(status, "Imported and opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
+    }
+
+    /** Export project's zip saved last (for the tests). */
+    static File lastExport;
+
+    /** Export project: the tracks and their settings in one zip, in the program files folder. */
+    static void exportProject(final Pulsekit app, final JLabel status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to export");
+            return;
+        }
+        say(status, "Exporting…");
+        new Thread(() -> {
+            String said;
+            File saved = null;
+            try {
+                saved = app.pyJav.saveProgramFile(AudioMix.exportName(), AudioMix.exportZip());
+                if (saved == null) throw new java.io.IOException("the program files folder took no file");
+                said = "Exported the project: " + saved.getPath();
+            } catch (Exception ex) {
+                said = "Could not export the project: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            }
+            lastExport = saved;
+            final String shown = said;
+            SwingUtilities.invokeLater(() -> {
+                say(status, shown);
+                app.setNow(shown);
+            });
+        }, "pulsekit-mixer-export").start();
     }
 
     /** `f` added as a track (off the Swing thread); the rows made again. */

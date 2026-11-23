@@ -14039,7 +14039,10 @@ public class BehaviorTest {
     }
     out.append("offer: ").append(offerButtons).append('\n');
     // The mixer shown after: each row has its waveform; ▶ on one puts the playhead on that row alone.
-    idle();
+    for (int i = 0; i < 300 && (AudioMixerScreen.last == null || !AudioMixerScreen.last.isShowing() || AudioMixerScreen.WAVES.isEmpty()); i++) {
+      Thread.sleep(10);
+      idle();
+    }
     int waveRows = AudioMixerScreen.WAVES.size();
     View playOne = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-play:groove");
     // (Robolectric has no audio output: "No audio output", nothing plays; on a phone the row's playhead moves.)
@@ -14123,6 +14126,19 @@ public class BehaviorTest {
         .append(backT == null ? "none" : backT.name + " volume " + backT.volume + " solo " + backT.solo).append(" | ").append(AudioMixerScreen.title()).append('\n');
     boolean projectOk = savedSaid.equals("Saved the project Take 1 (" + had + " tracks)") && cleared == 0 && AudioMix.tracks.size() == had
         && backT != null && backT.volume == 40 && backT.solo && AudioMixerScreen.title().equals("AudioMixer \u00b7 Take 1");
+    // Export project's zip, then Import new track… with it (as on another phone): kept as a project, opened.
+    byte[] pzip = AudioMix.exportZip();
+    File pzf = new File(app.getCacheDir(), AudioMix.exportName());
+    java.nio.file.Files.write(pzf.toPath(), pzip);
+    AudioMix.clear();
+    AudioMixerScreen.importOpen = true;
+    android.widget.TextView ist = new android.widget.TextView(app);
+    AudioMixerScreen.add(app, pzf.getName(), pzf, ist, () -> {});
+    AudioMixerScreen.importOpen = null;
+    AudioMix.Track impT = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    String imported = ist.getText() + " | " + (impT == null ? "none" : impT.name + " volume " + impT.volume + " solo " + impT.solo) + " | " + AudioMix.projects();
+    out.append("import: ").append(imported).append('\n');
+    projectOk &= imported.startsWith("Opened the project Take 1 2 (" + had + " tracks) | " + firstT.name + " volume 40 solo true | [Take 1 2, Take 1]");
     AudioMix.clear();
     write("s244_to_mixer", out.toString());
     String text = out.toString();
@@ -14504,6 +14520,34 @@ public class BehaviorTest {
     if (sendAsk != null) sendAsk.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
     idle();
     out.append("SogniPadd's Params: ").append(PyJavParams.load(app, "SogniPadd.java")).append('\n');
+    // The prompt's ★: the entries kept as a favourite section; again, not a favourite. G: in a new group.
+    TextView starB = (TextView) dv.findViewWithTag("params-star");
+    String starBefore = starB == null ? "-" : String.valueOf(starB.getText());
+    if (starB != null) starB.performClick();
+    idle();
+    PromptVault.SogniSection favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit",
+        SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    String starAfter = (starB == null ? "-" : String.valueOf(starB.getText())) + " favourite " + (favS != null && favS.favourite);
+    if (starB != null) starB.performClick();
+    idle();
+    favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit", SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    String starAgain = (starB == null ? "-" : String.valueOf(starB.getText())) + " favourite " + (favS != null && favS.favourite);
+    View groupB = dv.findViewWithTag("params-group");
+    if (groupB != null) groupB.performClick();
+    idle();
+    AlertDialog pickG = PyJavParams.lastRowGroupPick;
+    if (pickG != null) {
+      android.widget.ListView lv = pickG.getListView();
+      lv.performItemClick(lv.getChildAt(lv.getCount() - 1), lv.getCount() - 1, 0);
+      idle();
+      android.widget.EditText gname = (android.widget.EditText) PyJavParams.lastGroupName.getWindow().getDecorView().findViewWithTag("section-group-name");
+      gname.setText("Kites");
+      PyJavParams.lastGroupName.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit", SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    out.append("star before: ").append(starBefore).append(" | after: ").append(starAfter).append(" | again: ").append(starAgain)
+        .append("\ngroup: ").append(favS == null ? "-" : favS.group).append('\n');
     File file = new File(app.getCacheDir(), "exported.txt");
     PyJavParams.exportTo = file;
     dv.findViewWithTag("params-export-section").performClick();
@@ -14529,7 +14573,8 @@ public class BehaviorTest {
     idle();
     write("s249_params_clip", out.toString());
     String text = out.toString();
-    boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
+    boolean ok = text.contains("star before: \u2606 | after: \u2605 favourite true | again: \u2606 favourite false\ngroup: Kites")
+        && text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
         && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
         && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
         && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7")

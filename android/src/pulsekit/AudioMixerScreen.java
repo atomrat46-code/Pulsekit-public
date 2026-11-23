@@ -99,13 +99,18 @@ final class AudioMixerScreen {
         saveP.setTag("audiomixer-save-project");
         TextView openP = app.pill(AudioMix.OPEN_PROJECT, false, v -> openProject(app, status, fill[0]));
         openP.setTag("audiomixer-open-project");
+        TextView exportP = app.pill(AudioMix.EXPORT_PROJECT, false, v -> exportProject(app, status));
+        exportP.setTag("audiomixer-export-project");
         projectRow.addView(saveP);
         projectRow.addView(openP, margin(app));
+        LinearLayout exportRow = app.row();
+        exportRow.addView(exportP);
         col.addView(buttons);
         col.addView(padsRow);
         col.addView(transport);
         col.addView(more);
         col.addView(projectRow);
+        col.addView(exportRow);
         col.addView(status);
         col.addView(rows);
         ScrollView scroll = new ScrollView(app);
@@ -372,6 +377,10 @@ final class AudioMixerScreen {
 
     /** `file` (named `name`) added as a track, off the main thread; the rows made again. */
     static void add(final MainActivity app, final String name, final File file, final TextView status, final Runnable fill) {
+        if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
+            importProject(app, name, file, status, fill);
+            return;
+        }
         if (!AudioMix.importable(name)) {
             say(status, name + " is not a WAV, an MP3, an M4A or a MIDI file");
             return;
@@ -514,6 +523,64 @@ final class AudioMixerScreen {
         } catch (Exception ex) {
             say(status, "Could not open the project: " + ex.getMessage());
         }
+    }
+
+    /** The tests' answer to opening an imported project now (null: asked), and Export project's file last saved. */
+    static Boolean importOpen;
+    static String lastExport;
+
+    /** An exported project's zip kept as a project; opened now when Yes (it takes the place of the tracks). */
+    static void importProject(final MainActivity app, final String name, final File file, final TextView status, final Runnable fill) {
+        final String kept;
+        try {
+            byte[] zip = AudioMix.read(file);
+            if (!AudioMix.isProjectZip(zip)) {
+                say(status, name + " is not an exported AudioMixer project");
+                return;
+            }
+            kept = AudioMix.importZip(zip, name);
+        } catch (Exception ex) {
+            say(status, "Could not import " + name + ": " + ex.getMessage());
+            return;
+        }
+        final Runnable open = () -> openNamed(status, fill, kept);
+        if (importOpen != null) {
+            if (importOpen.booleanValue()) open.run();
+            else say(status, "Imported the project " + kept + ": " + AudioMix.OPEN_PROJECT + " opens it");
+            return;
+        }
+        new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT)
+            .setMessage("Imported the project " + kept + ". Open it now? It takes the place of the AudioMixer's tracks"
+                + (AudioMix.tracks.isEmpty() ? "." : ": what is not saved in a project is lost."))
+            .setPositiveButton("Open", (d, w) -> open.run())
+            .setNegativeButton("Not now", (d, w) -> say(status, "Imported the project " + kept + ": " + AudioMix.OPEN_PROJECT + " opens it")).show();
+    }
+
+    /** Export project: the tracks and their settings in one zip, in Download. */
+    static void exportProject(final MainActivity app, final TextView status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to export");
+            return;
+        }
+        say(status, "Exporting…");
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        new Thread(() -> {
+            String said;
+            String where = null;
+            try {
+                where = ArtJava.publish(app, AudioMix.exportName(), AudioMix.exportZip());
+                if (where == null) throw new java.io.IOException("Download took no file");
+                said = "Exported the project: " + where;
+            } catch (Exception ex) {
+                said = "Could not export the project: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            }
+            lastExport = where;
+            final String shown = said;
+            main.post(() -> {
+                say(status, shown);
+                app.setNow(shown);
+            });
+        }, "pulsekit-mixer-export").start();
     }
 
     /** The last run's question (for the tests). */
