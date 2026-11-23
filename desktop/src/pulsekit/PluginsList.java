@@ -558,9 +558,18 @@ final class PluginsList {
      * first (\u2714 plays drums, all heard; \u26a0 plays, some drums silent; \u2718 plays nothing), then the lines it rests on.
      */
     static String verdict(String name, String log) {
-        String kit = "", failed = "", check = "", sameKit = "";
+        String kit = "", failed = "", check = "", sameKit = "", unsaved = "";
         for (String l : log.split("\n")) {
             String t = l.trim();
+            // A kit named with no settings saved for it yet: the test played another kit (the one saved last).
+            if (t.startsWith("Kit settings: none saved for ")) {
+                String k = t.substring("Kit settings: none saved for ".length()).replaceFirst(" yet;.*$", "");
+                unsaved = "\u26a0 " + k + " is not loaded yet: no settings are saved for it, so this test played the kit Edit settings saved last. "
+                    + "Press Edit settings on its row, load " + k + " in the plugin's window, press Stop timer when it has loaded, close the window, then Test again.";
+                // The kits it has settings for: one loaded on another row was saved under that row's kit name.
+                int at = t.indexOf("Kits with settings saved for it: ");
+                if (at >= 0) unsaved += " " + t.substring(at).replaceFirst(" \\(if the kit was loaded.*$", "") + ".";
+            }
             if (t.startsWith("Kit: ") && (t.contains("kick") || t.contains("not learned") || t.contains("silent"))) kit = t;
             if (t.startsWith("Failed")) failed = t;
             if (t.startsWith("Plugin check")) check = t;
@@ -590,7 +599,9 @@ final class PluginsList {
         for (String l : summary(log).split("\n")) if (!(l.trim().startsWith("Failed") && head.contains(l.trim().replaceFirst("^Failed:\\s*", "")))) rest.append(l).append('\n');
         String lines = rest.toString().trim();
         // The kit named, not changed (its test beat as another kit's): said right under the verdict.
-        if (sameKit.length() > 0) head += "\n" + sameKit;
+        // Not saved yet says why it sounds as another kit: the kit check's warning is then that, said once.
+        if (unsaved.length() > 0) head += "\n" + unsaved;
+        else if (sameKit.length() > 0) head += "\n" + sameKit;
         return head + (lines.length() > 0 ? "\n\n" + lines : "") + (kit.length() > 0 && lines.indexOf(kit) < 0 ? "\n" + kit : "");
     }
 

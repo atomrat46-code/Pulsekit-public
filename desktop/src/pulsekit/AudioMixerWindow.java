@@ -48,13 +48,141 @@ final class AudioMixerWindow {
         return new File(PromptDb.dir(), "audiomixer");
     }
 
+    /** The window's title: AudioMixer · its project's name, when it has one. */
+    static String title() {
+        return AudioMix.TITLE + (AudioMix.project.isEmpty() ? "" : " \u00b7 " + AudioMix.project);
+    }
+
+    /** The tests' name for Save project and project for Open project (instead of asking). */
+    static String projectAnswer;
+
+    /** Save project: a name asked (the project's own, or Project N), a project of that name replaced when Yes. */
+    static void saveProject(JDialog d, JLabel status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to save");
+            return;
+        }
+        String suggest = AudioMix.project;
+        if (suggest.isEmpty()) {
+            int n = 1;
+            while (AudioMix.projectExists("Project " + n)) n++;
+            suggest = "Project " + n;
+        }
+        String name = projectAnswer != null ? projectAnswer
+            : (String) javax.swing.JOptionPane.showInputDialog(d, "The tracks and their settings (volume, gain, Mute, Solo) under this name:", AudioMix.SAVE_PROJECT,
+                javax.swing.JOptionPane.PLAIN_MESSAGE, null, null, suggest);
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim();
+        if (projectAnswer == null && AudioMix.projectExists(name) && !AudioMix.projectFolderName(name).equals(AudioMix.project)
+            && javax.swing.JOptionPane.showConfirmDialog(d, "A project " + name + " is saved already. Replace it?", AudioMix.SAVE_PROJECT,
+                javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
+        try {
+            AudioMix.saveProject(name);
+            say(status, "Saved the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+            d.setTitle(title());
+        } catch (Exception ex) {
+            say(status, "Could not save the project: " + ex.getMessage());
+        }
+    }
+
+    /** Open project: the saved ones listed (newest first); the mixer's tracks replaced by the one picked. */
+    static void openProject(JDialog d, JLabel status, Runnable fill) {
+        java.util.List<String> names = AudioMix.projects();
+        if (names.isEmpty()) {
+            say(status, "No projects saved yet: " + AudioMix.SAVE_PROJECT + " keeps the tracks under a name");
+            return;
+        }
+        String name = projectAnswer != null ? projectAnswer
+            : (String) javax.swing.JOptionPane.showInputDialog(d, "Open which project? It takes the place of the AudioMixer's tracks now: what is not saved in a project is lost.",
+                AudioMix.OPEN_PROJECT, javax.swing.JOptionPane.PLAIN_MESSAGE, null, names.toArray(new String[0]), names.get(0));
+        if (name == null) return;
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            d.setTitle(title());
+            say(status, "Opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
+    }
+
+    /** The tests' answer to a run's question (a button's text; the tracks ticked as they are), and what was asked. */
+    static String offerAnswer;
+    static String lastOffer;
+
+    /**
+     * A run's sounds held for the mixer (--to_mixer): one into an empty mixer goes in at once; else asked
+     * which go in (all ticked), and whether they replace the mixer's tracks or join them. Then the mixer.
+     */
+    static void offer(final Pulsekit app) {
+        final java.util.List<JavaRun.FileOut> waiting = MixerOut.takeWaiting();
+        if (waiting.isEmpty()) return;
+        if (!MixerOut.needsAsking(waiting.size())) {
+            addRun(app, waiting, false);
+            return;
+        }
+        int has = AudioMix.tracks.size();
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        String text = MixerOut.askRun(waiting.size(), has);
+        for (String line : text.split("\n")) box.add(new JLabel(line));
+        final java.util.List<javax.swing.JCheckBox> ticks = new java.util.ArrayList<javax.swing.JCheckBox>();
+        for (JavaRun.FileOut f : waiting) {
+            // Ticked as its kind was last time (song tracks, drum MIDIs, each stem).
+            javax.swing.JCheckBox c = new javax.swing.JCheckBox(new File(f.name).getName(), MixerOut.ticked(MixerOut.kindOf(f.name)));
+            c.setName("audiomixer-offer-track");
+            ticks.add(c);
+            box.add(c);
+        }
+        String[] options = has > 0 ? new String[] {MixerOut.REPLACE, MixerOut.ADD_TO, MixerOut.SKIP} : new String[] {MixerOut.ADD_THESE, MixerOut.SKIP};
+        lastOffer = text + " | " + String.join(", ", options);
+        String picked;
+        if (offerAnswer != null) {
+            picked = offerAnswer;
+        } else {
+            int i = javax.swing.JOptionPane.showOptionDialog(app, box, MixerOut.ASK_RUN_TITLE, javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            picked = i < 0 ? MixerOut.SKIP : options[i];
+        }
+        if (MixerOut.SKIP.equals(picked)) {
+            app.setNow("Not added to the AudioMixer");
+            return;
+        }
+        java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
+        boolean[] on = new boolean[waiting.size()];
+        for (int i = 0; i < waiting.size(); i++) {
+            on[i] = ticks.get(i).isSelected();
+            if (on[i]) chosen.add(waiting.get(i));
+        }
+        MixerOut.rememberTicks(waiting, on);
+        addRun(app, chosen, MixerOut.REPLACE.equals(picked));
+    }
+
+    /** The chosen sounds into the mixer (in the background), then the mixer shown. */
+    static void addRun(final Pulsekit app, final java.util.List<JavaRun.FileOut> chosen, final boolean replace) {
+        if (chosen.isEmpty()) {
+            app.setNow("Nothing added to the AudioMixer");
+            return;
+        }
+        new Thread(() -> {
+            final String said = MixerOut.addChosen(chosen, replace);
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                app.setNow(said.split("\n")[0] + (said.contains("\n") ? " \u2026" : ""));
+                show(app);
+                refresh();
+            });
+        }, "pulsekit-mixer-run").start();
+    }
+
     static void show(final Pulsekit app) {
         if (last != null && last.isDisplayable()) {
             last.toFront();
             return;
         }
         AudioMix.open(folder());
-        final JDialog d = new JDialog(app, AudioMix.TITLE, false);
+        final JDialog d = new JDialog(app, title(), false);
         // The window's X closes it as Close does: what it plays stops (hidden, it went on playing).
         d.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         d.setName("audiomixer");
@@ -67,6 +195,7 @@ final class AudioMixerWindow {
         final Runnable[] fill = new Runnable[1];
         fill[0] = () -> {
             rows.removeAll();
+            WAVES.clear();
             if (AudioMix.tracks.isEmpty()) {
                 JLabel none = new JLabel("No tracks yet: File > " + AudioMix.IMPORT);
                 none.setName("audiomixer-empty");
@@ -102,7 +231,18 @@ final class AudioMixerWindow {
                 javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return;
             AudioMix.clear();
             fill[0].run();
+            d.setTitle(title());
         });
+        // Projects: the tracks and their settings saved under a name, and opened again.
+        JMenuItem saveP = new JMenuItem(AudioMix.SAVE_PROJECT + "\u2026");
+        saveP.setName("audiomixer-save-project");
+        saveP.addActionListener(e -> saveProject(d, status));
+        JMenuItem openP = new JMenuItem(AudioMix.OPEN_PROJECT + "\u2026");
+        openP.setName("audiomixer-open-project");
+        openP.addActionListener(e -> openProject(d, status, fill[0]));
+        JMenuItem exportP = new JMenuItem(AudioMix.EXPORT_PROJECT + "\u2026");
+        exportP.setName("audiomixer-export-project");
+        exportP.addActionListener(e -> exportProject(app, status));
         JMenuItem close = new JMenuItem("Close");
         close.addActionListener(e -> d.dispose());
         file.add(imp);
@@ -110,7 +250,11 @@ final class AudioMixerWindow {
         file.add(padsItem);
         file.add(mix);
         file.addSeparator();
+        file.add(saveP);
+        file.add(openP);
+        file.add(exportP);
         file.add(clear);
+        file.addSeparator();
         file.add(close);
         bar.add(file);
         d.setJMenuBar(bar);
@@ -213,7 +357,7 @@ final class AudioMixerWindow {
                     l[i] = Math.max(-1, Math.min(1, l[i] * g));
                     rr[i] = Math.max(-1, Math.min(1, rr[i] * g));
                 }
-                play(l, rr, status, t.name);
+                play(l, rr, status, t.name, java.util.Collections.singletonList(t));
             } catch (Exception ex) {
                 status.setText("Could not play " + t.name);
             }
@@ -232,6 +376,8 @@ final class AudioMixerWindow {
         });
         r.add(out);
         box.add(r);
+        // Its waveform, with where the playing has got to (▶, Play mix).
+        box.add(new WaveView(t));
         box.add(t.pads ? padsRow(app, t, name) : recordRow(t, name, status));
         return box;
     }
@@ -314,11 +460,78 @@ final class AudioMixerWindow {
         importNext = null;
         if (f == null) {
             JFileChooser c = new JFileChooser(MediaBrowser.downloads());
-            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, M4A, MIDI", "wav", "wave", "mp3", "m4a", "aac", "mid", "midi"));
+            c.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("WAV, MP3, M4A, MIDI, an exported project (zip)", "wav", "wave", "mp3", "m4a", "aac", "mid", "midi", "zip"));
             if (c.showOpenDialog(d) != JFileChooser.APPROVE_OPTION) return;
             f = c.getSelectedFile();
         }
-        add(app, f, status, fill);
+        if (f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) importProject(d, f, status, fill);
+        else add(app, f, status, fill);
+    }
+
+    /** The tests' answer to opening an imported project now (null: asked). */
+    static Boolean importOpen;
+
+    /** An exported project's zip kept as a project; opened now when Yes (it takes the place of the tracks). */
+    static void importProject(JDialog d, File f, JLabel status, Runnable fill) {
+        String name;
+        try {
+            byte[] zip = Files.readAllBytes(f.toPath());
+            if (!AudioMix.isProjectZip(zip)) {
+                say(status, f.getName() + " is not an exported AudioMixer project");
+                return;
+            }
+            name = AudioMix.importZip(zip, f.getName());
+        } catch (Exception ex) {
+            say(status, "Could not import " + f.getName() + ": " + ex.getMessage());
+            return;
+        }
+        boolean open = importOpen != null ? importOpen.booleanValue()
+            : javax.swing.JOptionPane.showConfirmDialog(d, "Imported the project " + name + ". Open it now? It takes the place of the AudioMixer's tracks"
+                + (AudioMix.tracks.isEmpty() ? "." : ": what is not saved in a project is lost."), AudioMix.OPEN_PROJECT, javax.swing.JOptionPane.YES_NO_OPTION)
+                == javax.swing.JOptionPane.YES_OPTION;
+        if (!open) {
+            say(status, "Imported the project " + name + ": " + AudioMix.OPEN_PROJECT + " opens it");
+            return;
+        }
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            d.setTitle(title());
+            say(status, "Imported and opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
+    }
+
+    /** Export project's zip saved last (for the tests). */
+    static File lastExport;
+
+    /** Export project: the tracks and their settings in one zip, in the program files folder. */
+    static void exportProject(final Pulsekit app, final JLabel status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to export");
+            return;
+        }
+        say(status, "Exporting…");
+        new Thread(() -> {
+            String said;
+            File saved = null;
+            try {
+                saved = app.pyJav.saveProgramFile(AudioMix.exportName(), AudioMix.exportZip());
+                if (saved == null) throw new java.io.IOException("the program files folder took no file");
+                said = "Exported the project: " + saved.getPath();
+            } catch (Exception ex) {
+                said = "Could not export the project: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            }
+            lastExport = saved;
+            final String shown = said;
+            SwingUtilities.invokeLater(() -> {
+                say(status, shown);
+                app.setNow(shown);
+            });
+        }, "pulsekit-mixer-export").start();
     }
 
     /** `f` added as a track (off the Swing thread); the rows made again. */
@@ -403,18 +616,107 @@ final class AudioMixerWindow {
         if (last != null && last.isDisplayable() && refill != null) refill.run();
     }
 
+    /** The tracks playing now (▶: its own; Play mix: those heard), the frames played, the rows' waveforms. */
+    static final java.util.Set<AudioMix.Track> SOUNDING = new java.util.HashSet<AudioMix.Track>();
+    static int playFrames;
+    static final java.util.List<WaveView> WAVES = new java.util.ArrayList<WaveView>();
+
+    /** Seconds played of what plays now, or -1. */
+    static double playedSeconds() {
+        javax.sound.sampled.Clip c = playing;
+        if (c == null) return -1;
+        try {
+            return c.getLongFramePosition() / (double) AudioMix.RATE;
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    /** The playheads moved about 25 times a second while something plays; at its end they go. */
+    static final javax.swing.Timer TICKER = new javax.swing.Timer(40, e -> {
+        double at = playedSeconds();
+        if (at < 0 || at * AudioMix.RATE >= playFrames) SOUNDING.clear();
+        for (WaveView w : WAVES) w.repaint();
+        if (SOUNDING.isEmpty()) ((javax.swing.Timer) e.getSource()).stop();
+    });
+
+    /** A track's waveform (WAV or MP3 alike: the mixer keeps each as a WAV) and the playhead on it. */
+    static final class WaveView extends javax.swing.JComponent {
+        final AudioMix.Track t;
+        float[] peaks;
+        int loading = -1;
+
+        WaveView(AudioMix.Track t) {
+            this.t = t;
+            setName("audiomixer-wave:" + t.name);
+            setAlignmentX(0.0f);
+            setPreferredSize(new java.awt.Dimension(560, 40));
+            setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 40));
+            WAVES.add(this);
+        }
+
+        /** The playhead's place (0 to 1) on this track now, or -1 when it is not playing. */
+        double playhead() {
+            if (!SOUNDING.contains(t) || t.seconds <= 0) return -1;
+            double at = playedSeconds();
+            return at < 0 || at > t.seconds ? -1 : at / t.seconds;
+        }
+
+        @Override
+        protected void paintComponent(java.awt.Graphics g0) {
+            java.awt.Graphics2D g = (java.awt.Graphics2D) g0;
+            int w = getWidth(), h = getHeight();
+            int cols = Math.max(1, w / 3);
+            if ((peaks == null || peaks.length != cols) && loading != cols) {
+                // Read in the background: a long WAV would hold up the window.
+                loading = cols;
+                final int want = cols;
+                new Thread(() -> {
+                    final float[] p = AudioMix.peaks(t, want);
+                    SwingUtilities.invokeLater(() -> {
+                        peaks = p;
+                        repaint();
+                    });
+                }, "pulsekit-mixer-wave").start();
+            }
+            float mid = h / 2f;
+            g.setColor(new java.awt.Color(128, 128, 128, 80));
+            g.fillRect(0, (int) mid, w, 1);
+            if (peaks != null) {
+                g.setColor(new java.awt.Color(0x8F, 0xA8, 0x9A));
+                float cw = w / (float) peaks.length;
+                for (int i = 0; i < peaks.length; i++) {
+                    int a = Math.max(1, Math.round(peaks[i] * (mid - 2)));
+                    g.fillRect(Math.round(i * cw), Math.round(mid - a), Math.max(1, Math.round(cw) - 1), 2 * a);
+                }
+            }
+            double at = playhead();
+            if (at >= 0) {
+                g.setColor(new java.awt.Color(0xE0, 0xA8, 0x20));
+                int x = (int) Math.round(at * w);
+                g.fillRect(x - 1, 0, 2, h);
+            }
+        }
+    }
+
     static void playMix(final JLabel status) {
         new Thread(() -> {
             try {
                 float[][] m = AudioMix.mix(null);
-                SwingUtilities.invokeLater(() -> play(m[0], m[1], status, "the mix"));
+                final java.util.List<AudioMix.Track> heard = AudioMix.heard();
+                SwingUtilities.invokeLater(() -> play(m[0], m[1], status, "the mix", heard));
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> say(status, "Could not mix: " + ex.getMessage()));
             }
         }, "pulsekit-mixer-play").start();
     }
 
+    /** Plays a sound that is no mixer track's (a pad, a kit's sound): no playhead. */
     static void play(float[] l, float[] r, JLabel status, String what) {
+        play(l, r, status, what, java.util.Collections.<AudioMix.Track>emptyList());
+    }
+
+    static void play(float[] l, float[] r, JLabel status, String what, java.util.Collection<AudioMix.Track> which) {
         stop();
         if (l.length == 0) {
             say(status, "Nothing to play");
@@ -427,6 +729,9 @@ final class AudioMixerWindow {
             SoundOut.volume(c);
             c.start();
             playing = c;
+            SOUNDING.addAll(which);
+            playFrames = l.length;
+            TICKER.restart();
             say(status, "Playing " + what);
         } catch (Exception ex) {
             say(status, "No audio output for " + what);
@@ -436,6 +741,10 @@ final class AudioMixerWindow {
     static void stop() {
         javax.sound.sampled.Clip c = playing;
         playing = null;
+        if (!SOUNDING.isEmpty()) {
+            SOUNDING.clear();
+            for (WaveView w : WAVES) w.repaint();
+        }
         if (c != null) {
             try {
                 c.stop();

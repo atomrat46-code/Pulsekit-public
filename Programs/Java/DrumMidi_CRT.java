@@ -815,11 +815,19 @@ public class DrumMidi_CRT{
         }
         logPath = keepLog;
         inDir = false;
+        // --make-set on a folder: the songs' sets also made one (each drum from the song where it is clearest),
+        // said last so Pulsekit makes that one its drum set.
+        String combined = "";
+        if (opts.contains("--make-set")) {
+            File out = new File(dir, dir.getName() + " combined-set");
+            List<File> sets = SetMaker.setsIn(dir, out);
+            if (sets.size() > 1) combined = "; " + SetMaker.combine(sets, out, dir.getName());
+        }
         // --zip: the folder's MIDI files (and the log) as <folder>-dm.zip in the folder (or --zip_outdir).
         zipBase = dir.getName() + "-dm";
         zipDir = dir;
         finish("Succeeded: DrumMidi on " + done + " of " + wavs.size() + " audio files in " + dir.getName() + " (<name>-dm.mid beside each)"
-                + (skipped > 0 ? "; " + skipped + " skipped (--drums-only: another instrument heard or named)" : ""));
+                + (skipped > 0 ? "; " + skipped + " skipped (--drums-only: another instrument heard or named)" : "") + combined);
     }
 
     static void wavsIn(File dir, boolean recursive, List<File> into) {
@@ -899,6 +907,21 @@ public class DrumMidi_CRT{
             Sounds.cut(new File(args[1]), new File(args[2]), new File(args[3]));
             return;
         }
+        // --combine-sets <folder> [<out folder>]: the song drum sets (--make-set's <song>-set folders) in the
+        // folder made one: each drum from the set where it is clearest (SetMaker.combine).
+        if (args.length > 0 && "--combine-sets".equals(args[0])) {
+            if (args.length < 2 || !new File(args[1]).isDirectory()) {
+                finish("Failed: --combine-sets needs a folder with drum sets from songs (DrumMidi --make-set's <song>-set folders)");
+                return;
+            }
+            File dir = new File(args[1]).getAbsoluteFile();
+            File out = args.length > 2 ? new File(args[2]).getAbsoluteFile() : new File(dir, dir.getName() + " combined-set");
+            // Named after the folder it is written to ("Doom combined-set" is Doom), else the songs' folder.
+            String named = out.getName().replaceAll("(?i)[ _-]*(combined)?[ _-]*set$", "").trim();
+            String said = SetMaker.combine(SetMaker.setsIn(dir, out), out, named.isEmpty() ? dir.getName() : named);
+            finish(said.startsWith("Drum set") ? "Succeeded: " + said : "Failed: " + said);
+            return;
+        }
         // --sounds <list.txt> <out.txt>: each drum sound listed measured (Pulsekit's drum sound library).
         if (args.length > 0 && "--sounds".equals(args[0])) {
             if (args.length < 3) {
@@ -954,7 +977,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--keep-stems] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -972,6 +995,8 @@ public class DrumMidi_CRT{
         boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
         drumsOnly = false;
         separate = false;
+        keepStems = false;
+        keptStems = null;
         drumStem = false;
         makeSet = false;
         setHits = 1;
@@ -1005,6 +1030,8 @@ public class DrumMidi_CRT{
             else if ("--drums-only".equals(opt)) drumsOnly = true;
             // The drums separated from the song first (Demucs, on a computer: setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
+            // --separate's stems kept as WAVs beside the MIDI (drums, bass, vocals, other): an old song's parts.
+            else if ("--keep-stems".equals(opt)) keepStems = true;
             // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
             else if ("--drum-stem".equals(opt)) drumStem = true;
             // A drum set from the song's own drums: a clean hit of each drum cut out (SetMaker), beside the MIDI.
@@ -1043,13 +1070,34 @@ public class DrumMidi_CRT{
         if (library != null && kit != null) note("Library " + library.name + " not used: the kit profile " + kit.name + " is this kit's own");
         else if (library != null) note("Library " + library.name + ": kick and toms from " + library.said + " (its cymbals are not used)");
         File heard = inFile;
-        if (separate) {
+        if (separate && keepStems) {
+            // All four stems (kept beside the MIDI once it is written); DrumMidi listens to a copy of the drums.
+            java.util.Map<String, File> st = Demucs.stems(inFile, false, "Separate the stems", "the drums, bass, vocals and the rest");
+            File stem = null;
+            if (st != null && st.get("drums") != null) {
+                try {
+                    stem = File.createTempFile("dm-heard", ".wav");
+                    java.nio.file.Files.copy(st.get("drums").toPath(), stem.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (Exception ex) {
+                    stem = null;
+                }
+            }
+            if (stem != null) {
+                keptStems = st;
+                note("Separated the song with Demucs (drums, bass, vocals, other): DrumMidi listens to the drums alone");
+                heard = stem;
+                drumStem = true;
+            } else {
+                if (st != null) for (File f : st.values()) f.delete();
+                note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
+            }
+        } else if (separate) {
             File stem = Demucs.drums(inFile);
             if (stem != null) {
                 heard = stem;
                 drumStem = true;
             } else note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
-        }
+        } else if (keepStems) note("--keep-stems keeps --separate's stems: without --separate there are none");
         if (drumStem) note("Drum-stem mode: the drums alone (no bass, guitar or keys guards)");
         Audio audio = readAudio(heard);
         if (heard != inFile) heard.delete();
@@ -1571,6 +1619,7 @@ public class DrumMidi_CRT{
             return;
         }
         made.add(written);
+        keepStemsBeside(written, inFile);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (chokesWritten > 0 ? ", " + chokesWritten + " chokes (aftertouch)" : "") + (writeToms ? "" : " (--no-toms: toms not written)"));
         // (A folder's run zipped: "MIDI written", so PyJav on the phone does not keep each one beside the zip.)
@@ -1718,6 +1767,34 @@ public class DrumMidi_CRT{
 
     /** --separate: the drums told apart from a song's other instruments and vocals before DrumMidi listens. */
     static boolean separate;
+
+    /** --keep-stems (with --separate): Demucs's four stems kept beside the MIDI; the temporary ones until then. */
+    static boolean keepStems;
+    static java.util.Map<String, File> keptStems;
+
+    /** The stems kept beside the MIDI: <song>-drums.wav, -bass.wav, -vocals.wav, -other.wav; the temporary ones deleted. */
+    static void keepStemsBeside(File written, File song) {
+        java.util.Map<String, File> st = keptStems;
+        keptStems = null;
+        if (st == null) return;
+        String base = song.getName().replaceAll("\\.[^.]+$", "");
+        File dir = written.getAbsoluteFile().getParentFile();
+        StringBuilder names = new StringBuilder();
+        for (String n : new String[] {"drums", "bass", "vocals", "other"}) {
+            File f = st.get(n);
+            if (f == null || !f.isFile()) continue;
+            File to = new File(dir, base + "-" + n + ".wav");
+            try {
+                java.nio.file.Files.copy(f.toPath(), to.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                made.add(to.getAbsoluteFile());
+                names.append(names.length() == 0 ? "" : ", ").append(to.getName());
+            } catch (Exception ex) {
+                note("Stem " + n + " not kept: " + ex.getMessage());
+            }
+        }
+        for (File f : st.values()) f.delete();
+        if (names.length() > 0) note("Kept the stems: " + names);
+    }
 
     /** --make-set: a drum set from the song's own drums (SetMaker), beside the MIDI. */
     static boolean makeSet;
@@ -2245,6 +2322,111 @@ public class DrumMidi_CRT{
             }
             System.out.println(SET_SAID + dir.getAbsolutePath());
             return "Drum set: " + String.join(", ", got) + (none.isEmpty() ? "" : "; left out: " + String.join(", ", none));
+        }
+
+        /** The song drum sets (folders with a --make-set set.txt) in `dir` and its folders, two levels down; not `out`. */
+        static List<File> setsIn(File dir, File out) {
+            List<File> sets = new ArrayList<File>();
+            setsIn(dir, out == null ? null : out.getAbsoluteFile(), 0, sets);
+            return sets;
+        }
+
+        static void setsIn(File dir, File out, int depth, List<File> into) {
+            File[] in = dir.listFiles();
+            if (in == null) return;
+            Arrays.sort(in);
+            for (File f : in) {
+                if (!f.isDirectory() || f.getAbsoluteFile().equals(out)) continue;
+                File idx = new File(f, INDEX);
+                if (idx.isFile() && firstLine(idx).contains("(DrumMidi --make-set)")) into.add(f);
+                else if (depth < 2) setsIn(f, out, depth + 1, into);
+            }
+        }
+
+        static String firstLine(File f) {
+            try {
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
+                try {
+                    String s = r.readLine();
+                    return s == null ? "" : s;
+                } finally {
+                    r.close();
+                }
+            } catch (java.io.IOException ex) {
+                return "";
+            }
+        }
+
+        /**
+         * Several songs' drum sets made one (a run's variations, its models): each drum taken whole (all its
+         * hits, its velocity layers) from the set where it is clearest: not cut short (its ring there, the
+         * drum's MIN_TAIL), then the most hits heard alone, the most hits kept, the longest. Written to `out`
+         * as a --make-set set (set.txt says which song each drum is from), SET_SAID last.
+         */
+        static String combine(List<File> sets, File out, String name) throws Exception {
+            if (sets.isEmpty()) return "no drum sets from songs (--make-set's <song>-set folders) found";
+            // Each drum's best: {score..., the set, its rows}.
+            java.util.Map<Integer, Object[]> best = new java.util.LinkedHashMap<Integer, Object[]>();
+            for (File set : sets) {
+                java.util.Map<Integer, List<String[]>> rows = new java.util.LinkedHashMap<Integer, List<String[]>>();
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(new File(set, INDEX)), "UTF-8"));
+                try {
+                    for (String line = r.readLine(); line != null; line = r.readLine()) {
+                        String[] w = line.split("\t");
+                        if (line.startsWith("#") || w.length < 5 || !new File(set, w[1]).isFile()) continue;
+                        int note = Integer.parseInt(w[0].trim());
+                        if (!rows.containsKey(note)) rows.put(note, new ArrayList<String[]>());
+                        rows.get(note).add(w);
+                    }
+                } finally {
+                    r.close();
+                }
+                for (java.util.Map.Entry<Integer, List<String[]>> e : rows.entrySet()) {
+                    String[] first = e.getValue().get(0);
+                    double minTail = 0.2;
+                    for (Object[] d : DRUMS) if (((Integer) d[0]).intValue() == e.getKey().intValue()) minTail = (Double) d[2];
+                    double len = Double.parseDouble(first[4]);
+                    double[] score = {len + 0.005 >= minTail ? 1 : 0, Integer.parseInt(first[3].trim()), e.getValue().size(), len};
+                    Object[] had = best.get(e.getKey());
+                    if (had == null || better(score, (double[]) had[0])) best.put(e.getKey(), new Object[] {score, set, e.getValue()});
+                }
+            }
+            if (best.isEmpty()) return "no drum in the sets had a hit";
+            out.mkdirs();
+            File[] old = out.listFiles();
+            if (old != null) for (File f : old) if (f.isFile()) f.delete();
+            StringBuilder index = new StringBuilder("# A drum set from " + name + " (DrumMidi --make-set): note, file, hits, clear hits, length (s); combined from "
+                + sets.size() + " songs' sets (--combine-sets), each drum from the one where it is clearest\n");
+            List<String> said = new ArrayList<String>();
+            for (Object[] d : DRUMS) {
+                Object[] b = best.get(d[0]);
+                if (b == null) continue;
+                File set = (File) b[1];
+                @SuppressWarnings("unchecked")
+                List<String[]> rows = (List<String[]>) b[2];
+                for (String[] w : rows) {
+                    java.nio.file.Files.copy(new File(set, w[1]).toPath(), new File(out, w[1]).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    index.append(String.join("\t", w)).append('\n');
+                }
+                double[] sc = (double[]) b[0];
+                said.add(d[1] + (rows.size() > 1 ? " x" + rows.size() : "") + " (" + set.getName().replaceAll("(?i)(-sep)?(-dm)?-set$", "")
+                    + (sc[0] == 0 ? ", short" : "") + ")");
+                index.append("# ").append(d[1]).append(": from ").append(set.getName()).append('\n');
+            }
+            java.io.Writer w = new java.io.OutputStreamWriter(new FileOutputStream(new File(out, INDEX)), "UTF-8");
+            try {
+                w.write(index.toString());
+            } finally {
+                w.close();
+            }
+            System.out.println(SET_SAID + out.getAbsolutePath());
+            return "Drum set combined from " + sets.size() + " songs: " + String.join(", ", said);
+        }
+
+        /** A drum's set `a` before `b`: not short, more hits alone, more hits kept, longer. */
+        static boolean better(double[] a, double[] b) {
+            for (int i = 0; i < a.length; i++) if (a[i] != b[i]) return a[i] > b[i];
+            return false;
         }
 
         /** Where the hit starts: back from its peak near `t` (DrumMidi's time can be a little off) to where it rises, 2 ms before. */

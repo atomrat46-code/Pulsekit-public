@@ -517,9 +517,88 @@ public final class DesktopBehavior {
     AudioMix.Track sound = null;
     for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("walk-audio")) sound = t;
     out.append(String.format(java.util.Locale.ROOT, "walk-audio: %s%n", sound == null ? "none" : String.format(java.util.Locale.ROOT, "%.1f s", sound.seconds)));
+    // The mixer has tracks now: the next run's track is asked about (Replace its tracks; then Don't add).
+    String[] asked = new String[2];
+    int[] after = new int[2];
+    String[] answersRun = {MixerOut.REPLACE, MixerOut.SKIP};
+    for (int k = 0; k < 2; k++) {
+      AudioMixerWindow.offerAnswer = answersRun[k];
+      AudioMixerWindow.lastOffer = null;
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("beat.mid --style rock --bars 2 " + MixerOut.FLAG));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && AudioMixerWindow.lastOffer == null; i++) Thread.sleep(50);
+      Thread.sleep(1500);
+      idle();
+      asked[k] = AudioMixerWindow.lastOffer;
+      after[k] = AudioMix.tracks.size();
+    }
+    AudioMixerWindow.offerAnswer = null;
+    // Each row's waveform: the beat's has sound in it.
+    float[] beatPeaks = AudioMix.tracks.isEmpty() ? new float[0] : AudioMix.peaks(AudioMix.tracks.get(0), 50);
+    float loudest = 0;
+    for (float v : beatPeaks) loudest = Math.max(loudest, v);
+    final int[] waves = new int[1];
+    edt(() -> waves[0] = AudioMixerWindow.WAVES.size());
+    out.append("waveforms: ").append(waves[0]).append(" for ").append(AudioMix.tracks.size()).append(" tracks, sound in the first: ").append(loudest > 0.05f).append('\n');
+    // Save project, New project, Open project: the tracks and their settings come back.
+    final String[] proj = new String[3];
+    edt(() -> {
+      AudioMix.Track first = AudioMix.tracks.get(0);
+      first.volume = 55;
+      first.mute = true;
+      AudioMix.save();
+      AudioMixerWindow.projectAnswer = "Demo";
+      javax.swing.JLabel st = new javax.swing.JLabel();
+      AudioMixerWindow.saveProject(AudioMixerWindow.last, st);
+      proj[0] = st.getText() + " | title " + AudioMixerWindow.last.getTitle();
+      AudioMix.clear();
+      AudioMixerWindow.refresh();
+      int cleared = AudioMix.tracks.size();
+      AudioMixerWindow.openProject(AudioMixerWindow.last, st, () -> AudioMixerWindow.refresh());
+      AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+      proj[1] = "cleared " + cleared + ", " + st.getText() + " | title " + AudioMixerWindow.last.getTitle();
+      proj[2] = back == null ? "none" : back.name + " volume " + back.volume + " mute " + back.mute + " sound " + new File(AudioMix.dir, back.file).isFile()
+          + " | projects " + AudioMix.projects();
+      AudioMixerWindow.projectAnswer = null;
+    });
+    // Export project's zip, then Import new track… with it (as on another computer): kept as a project, opened.
+    final String[] exp = new String[2];
+    try {
+      byte[] zip = AudioMix.exportZip();
+      File zf = new File(home, AudioMix.exportName());
+      Files.write(zf.toPath(), zip);
+      java.util.List<String> names = new java.util.ArrayList<String>();
+      java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+      for (java.util.zip.ZipEntry e; (e = zin.getNextEntry()) != null; ) names.add(e.getName());
+      zin.close();
+      exp[0] = "zip " + zf.getName().replaceAll("\\d{6}-\\d{4}", "<date>") + ": " + names;
+      AudioMix.clear();
+      AudioMixerWindow.importNext = zf;
+      AudioMixerWindow.importOpen = true;
+      edt(() -> {
+        javax.swing.JLabel st = new javax.swing.JLabel();
+        AudioMixerWindow.importTrack((Pulsekit) frame, AudioMixerWindow.last, st, () -> AudioMixerWindow.refresh());
+        AudioMix.Track back = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+        exp[1] = st.getText() + " | " + (back == null ? "none" : back.name + " volume " + back.volume + " mute " + back.mute) + " | projects " + AudioMix.projects();
+      });
+      AudioMixerWindow.importOpen = null;
+    } catch (Exception ex) {
+      exp[1] = "failed: " + ex;
+    }
+    out.append("export: ").append(exp[0]).append('\n').append("import: ").append(exp[1]).append('\n');
+    out.append("project: ").append(proj[0]).append('\n').append(proj[1]).append('\n').append(proj[2]).append('\n');
+    out.append("asked: ").append(String.valueOf(asked[0]).replace("\n", " ")).append("\nafter ").append(MixerOut.REPLACE).append(": ").append(after[0])
+        .append(" tracks; after ").append(MixerOut.SKIP).append(": ").append(after[1]).append('\n');
     String text = out.toString();
     boolean vlc = VlcPlayer.available();
-    boolean ok = inParams && lines.toString().contains("Added to the AudioMixer: beat") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+    boolean ok = inParams && lines.toString().contains("For the AudioMixer (asked when the run is done): beat.mid") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+        && asked[0] != null && asked[0].contains("The AudioMixer has ") && asked[0].endsWith(MixerOut.REPLACE + ", " + MixerOut.ADD_TO + ", " + MixerOut.SKIP)
+        && after[0] == 1 && after[1] == 1 && waves[0] == AudioMix.tracks.size() && loudest > 0.05f
+        && proj[0].startsWith("Saved the project Demo (1 track) | title AudioMixer \u00b7 Demo") && proj[1].startsWith("cleared 0, Opened the project Demo (1 track)")
+        && proj[2].startsWith("beat volume 55 mute true sound true | projects [Demo]")
+        && String.valueOf(exp[0]).equals("zip AudioMixer Demo <date>.zip: [Demo/beat.wav, Demo/mixer-settings.txt, Demo/mixer.txt]")
+        && String.valueOf(exp[1]).startsWith("Imported and opened the project Demo 2 (1 track) | beat volume 55 mute true | projects [Demo 2, Demo]")
         && beat != null && beat.seconds > 1
         && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
     if (!ok) throw new AssertionError(text);
@@ -1361,7 +1440,7 @@ public final class DesktopBehavior {
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT")).append('\n');
       }
-      File saved = new File(home, ".pulsekit/sogni-House-wf7.mp3");
+      File saved = new File(home, ".pulsekit/sogni-House-wf7-drums.mp3");
       out.append("saved file is the track: ").append(saved.isFile() && java.util.Arrays.equals(Files.readAllBytes(saved.toPath()), track)).append('\n');
       for (SogniHistory.Entry e : SogniHistory.entries()) out.append("history: ").append(e.id).append(" ").append(e.status).append(" ").append(e.prompt.substring(0, Math.min(20, e.prompt.length()))).append('\n');
       for (int i = 0; i < 100 && !("DrumMidi_CRT.jar".equals(get("pyName")) && get("pyInputPath") != null); i++) Thread.sleep(50);
@@ -1431,11 +1510,11 @@ public final class DesktopBehavior {
       server.stop(0);
     }
     File kept = new File(home, ".pulsekit");
-    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7.zip").isFile();
-    boolean one = new File(kept, "run1/sogni-House-wf7.mp3").isFile() && new File(kept, "run1/sogni-House-wf7.zip").isFile();
-    boolean two = new File(kept, "run2/sogni-House-wf7.mp3").isFile() && new File(kept, "run2/sogni-House-wf7.zip").isFile();
-    boolean zipped = new File(kept, "run3/sogni-House-wf7.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7.zip").isFile()
-        && new File(kept, "zips" + today + "/sogni-House-wf7.zip").isFile();
+    boolean dated = new File(kept, "music" + today + "/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "music" + today + "/sogni-House-wf7-drums.zip").isFile();
+    boolean one = new File(kept, "run1/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "run1/sogni-House-wf7-drums.zip").isFile();
+    boolean two = new File(kept, "run2/sogni-House-wf7-drums.mp3").isFile() && new File(kept, "run2/sogni-House-wf7-drums.zip").isFile();
+    boolean zipped = new File(kept, "run3/sogni-House-wf7-drums.mp3").isFile() && !new File(kept, "run3/sogni-House-wf7-drums.zip").isFile()
+        && new File(kept, "zips" + today + "/sogni-House-wf7-drums.zip").isFile();
     out.append("music<today>: ").append(dated).append(", run1: ").append(one).append(", run2: ").append(two).append(", run3 + zips<today>: ").append(zipped).append('\n');
     if (!dated || !one || !two || !zipped) throw new AssertionError(out.toString());
   }
@@ -8956,6 +9035,11 @@ public final class DesktopBehavior {
     for (String line : said.split("\n")) if (line.contains("left out") || line.startsWith("ended") || line.contains("give --plugin")) this.out.append(line.trim()).append('\n');
     String ok1 = PluginsList.verdict("Good.vst3", "Plugin check: the test beat plays (peak -6.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: Good.vst3 plays");
     String some = PluginsList.verdict("Half.vst3", "Plugin check: the test beat plays (peak -9.0 dBFS)\nKit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals not heard: 51 ride (0.0% of the loudest cymbal)\nSucceeded: Half.vst3 plays");
+    // 22112026: a kit named but not saved yet: why it sounds as another kit, and what to do, said first.
+    String unsaved = PluginsList.verdict("SSDSampler5.dll", "Kit settings: none saved for SSD5 Classic Metal:Cracky yet; SSDSampler5 plays with its last saved settings. Kits with settings saved for it: SSD 5 Classic Metal:Classic Black, SSD 5 Classic:Absolute Rock (if the kit was loaded with Edit settings on another row, it was saved under that row's kit name)\n"
+        + "Plugin check: the test beat plays (peak -10.4 dBFS)\nKit check: the test beat sounds exactly as it did for \"saved kit\": was the kit really changed in the plugin?\n"
+        + "Kit: vst-kit-x.kit: kick and toms 36 (3 hits), 43 (3 hits); cymbals 42 closed hat (3 hits)\nSucceeded: SSDSampler5.dll plays");
+    this.out.append("unsaved: ").append(unsaved.split("\n\n")[0].replace("\n", " | ")).append('\n');
     String none = PluginsList.verdict("Synth.vst3", "Failed: Synth.vst3 plays nothing for a test beat (kick, snare, hats: GM notes 36, 38, 42), so it is skipped: the render is silent");
     this.out.append(ok1.split("\n")[0]).append('\n').append(some.split("\n")[0]).append('\n').append(none.split("\n")[0]).append('\n');
     call("showView", "py");
@@ -8985,7 +9069,10 @@ public final class DesktopBehavior {
     edt(() -> d.dispose());
     PyJav.paramsTab = null;
     String all = this.out.toString();
-    boolean ok = all.contains("--kit_name4 left out: it is the kit name for --plugin4, which is not given") && all.contains("--map3 left out: it is the map for --plugin3, which is not given")
+    boolean unsavedOk = all.contains("unsaved: \u2714 SSDSampler5.dll plays drums: the kick, toms and cymbals of the test beat were heard | \u26a0 SSD5 Classic Metal:Cracky is not loaded yet: no settings are saved for it, so this test played the kit Edit settings saved last.")
+        && all.contains("then Test again. Kits with settings saved for it: SSD 5 Classic Metal:Classic Black, SSD 5 Classic:Absolute Rock.")
+        && !all.contains("| \u26a0 the test beat sounds exactly");
+    boolean ok = unsavedOk && all.contains("--kit_name4 left out: it is the kit name for --plugin4, which is not given") && all.contains("--map3 left out: it is the map for --plugin3, which is not given")
         && all.contains("ended: chain") && !all.contains("give --plugin")
         && all.contains("\u2714 Good.vst3 plays drums: the kick, toms and cymbals of the test beat were heard")
         && all.contains("\u26a0 Half.vst3 plays, but some drums were not heard: cymbals not heard: 51 ride (0.0% of the loudest cymbal)")
@@ -9073,6 +9160,79 @@ public final class DesktopBehavior {
     });
     idle();
     this.out.append("dropped on Kit loaded 4: ").append(dropped[0]).append('\n');
+    // 21112026: a kit name typed into Kit loaded (Params still open, not OK'd): Test and Edit settings use it.
+    final String[] typed = new String[1];
+    edt(() -> {
+      kit4.setText("SSD 5 Classic Metal: Classic Black");
+      PyJav pj = (PyJav) get("pyJav");
+      String[] none = new String[pj.shownParams.size()];
+      java.util.Arrays.fill(none, "");
+      typed[0] = PyJav.rowKit(pj.shownParams, none, pj.shownFields, "--plugin4") + " (values alone " + PyJav.rowKit(pj.shownParams, none, "--plugin4") + ")";
+      kit4.setText("");
+    });
+    this.out.append("typed kit for Test: ").append(typed[0]).append('\n');
+    // 22112026: Edit settings with Kit loaded empty: when the window is closed (the kit picked in the plugin's own
+    // list), its name asked; the answer fills the row and the settings saved as the plugin's are kept as the kit's.
+    final String[] asked = new String[1];
+    final File vstDir = new File(System.getProperty("user.home"), ".pulsekit/vst");
+    vstDir.mkdirs();
+    final File own = new File(vstDir, "Anarchy Drums.state");
+    Files.write(own.toPath(), "kit".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(vstDir, "Anarchy Drums.state.load").toPath(), "12.0\n".getBytes(StandardCharsets.UTF_8));
+    edt(() -> {
+      PyJav pj = (PyJav) get("pyJav");
+      PyJav.kitNameAnswer = "SSD5 Classic Metal: Cracky";
+      pj.nameSavedKit(kit4, pj.shownParams, "--plugin4", anarchy, "Plugin: Anarchy Drums.vst3\nWrote Plugin settings: " + own.getAbsolutePath() + "\nKit load time: 12.0 s");
+      PyJav.kitNameAnswer = null;
+      String[] none = new String[pj.shownParams.size()];
+      java.util.Arrays.fill(none, "");
+      asked[0] = "field '" + kit4.getText() + "', row kit " + PyJav.rowKit(pj.shownParams, none, pj.shownFields, "--plugin4")
+          + " | asked: " + PyJav.lastKitNameAsk.replaceAll("\\?.*", "?") + " | " + PyJav.lastKitNamed
+          + " | load kept " + new File(vstDir, "Anarchy Drums [SSD5 Classic Metal_Cracky].state.load").isFile()
+          + " | listed " + VstLists.kitsOnlyFor(anarchy.getPath()).contains("SSD5 Classic Metal:Cracky");
+      kit4.setText("");
+    });
+    this.out.append("kit asked: ").append(asked[0]).append('\n');
+    // 22112026: a kit named on the row: after the window, "is the kit loaded the one named?" No: the name asked,
+    // the settings saved kept as that kit's, the named kit's own put back as they were.
+    final String[] confirmed = new String[1];
+    edt(() -> {
+      try {
+        PyJav pj = (PyJav) get("pyJav");
+        kit4.setText("Old Kit");
+        File oldFile = PyJav.kitStateFile(anarchy, "Old Kit");
+        Files.write(oldFile.toPath(), "old".getBytes(StandardCharsets.UTF_8));
+        java.util.Map<String, byte[]> kept = PyJav.keptKitFiles(anarchy, "Old Kit");
+        Files.write(oldFile.toPath(), "new".getBytes(StandardCharsets.UTF_8));
+        PyJav.kitSameAnswer = false;
+        PyJav.kitNameAnswer = "New Kit";
+        pj.confirmSavedKit(kit4, pj.shownParams, "--plugin4", anarchy, "Wrote Plugin settings: " + oldFile.getAbsolutePath(), "Old Kit", kept);
+        PyJav.kitSameAnswer = null;
+        PyJav.kitNameAnswer = null;
+        confirmed[0] = "asked: " + PyJav.lastKitSameAsk.replaceAll("\\?.*", "?") + " | field '" + kit4.getText() + "' | new kit "
+            + new String(Files.readAllBytes(PyJav.kitStateFile(anarchy, "New Kit").toPath()), StandardCharsets.UTF_8) + ", old kit "
+            + new String(Files.readAllBytes(oldFile.toPath()), StandardCharsets.UTF_8) + " | " + PyJav.lastKitNamed;
+        kit4.setText("");
+      } catch (Exception ex) {
+        confirmed[0] = "error " + ex;
+      }
+    });
+    this.out.append("kit confirmed: ").append(confirmed[0]).append('\n');
+    // 22112026: a plugin put on a row with a kit that has no settings saved: Edit settings offered; saved: not.
+    final String[] offered = new String[1];
+    edt(() -> {
+      PyJav pj = (PyJav) get("pyJav");
+      PyJav.editOfferAnswer = false;
+      kit4.setText("New Kit");
+      pj.offerEdit(kit4, "--plugin4", anarchy.getAbsolutePath());
+      String saved = String.valueOf(PyJav.lastEditOffer);
+      kit4.setText("Never Saved");
+      pj.offerEdit(kit4, "--plugin4", anarchy.getAbsolutePath());
+      offered[0] = "saved kit: " + saved + " | new kit: " + PyJav.lastEditOffer;
+      PyJav.editOfferAnswer = null;
+      kit4.setText("");
+    });
+    this.out.append("edit offered: ").append(offered[0]).append('\n');
     edt(() -> find(d.getContentPane(), "OK").doClick());
     idle();
     String kept = String.valueOf(call("loadParams", "vst_render.py"));
@@ -9082,7 +9242,11 @@ public final class DesktopBehavior {
         .append(" | recent ").append(recentShown[0]).append(" | menu ").append(items[0]).append(" | kept: ").append(kept).append('\n');
     boolean tabsOk = titles.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginOnTab && clearSeen[0] && clearSeen[1] && clearSeen[2] && recentShown[0].equals("2: /vst/Riot Drums.vst3")
         && items[0].startsWith("Use as plugin 1;Use as plugin 2;Use as plugin 3;Use as plugin 4;") && kept.contains("--plugin3 /vst/Artillery.vst3")
-        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''");
+        && kept.contains("--plugin4 \"" + new java.io.File(System.getProperty("user.home"), "Anarchy Drums.vst3").getAbsolutePath() + "\"") && this.out.toString().contains("dropped on Kit loaded 4: true field ''")
+        && this.out.toString().contains("typed kit for Test: [--kit_name, SSD 5 Classic Metal:Classic Black] (values alone [])")
+        && this.out.toString().contains("kit asked: field 'SSD5 Classic Metal:Cracky', row kit [--kit_name, SSD5 Classic Metal:Cracky] | asked: Which kit did you load in Anarchy Drums.vst3? | Settings kept for SSD5 Classic Metal:Cracky: Anarchy Drums [SSD5 Classic Metal_Cracky].state | load kept true | listed true")
+        && this.out.toString().contains("kit confirmed: asked: Is the kit loaded in Anarchy Drums.vst3 now Old Kit (its drum package and kit)? | field 'New Kit' | new kit new, old kit old | Settings kept for New Kit: Anarchy Drums [New Kit].state; Old Kit's put back as they were")
+        && this.out.toString().contains("edit offered: saved kit: null | new kit: No settings are saved for Never Saved in Anarchy Drums.vst3 yet, so it would play the kit Edit settings saved last. Open Edit settings now to load Never Saved?");
     // Logs: an entry's Delete, then the type's Clear all.
     AppSettings.setLogging(true);
     Logs.write(Logs.RUNS, "one", "first");
@@ -9650,7 +9814,8 @@ public final class DesktopBehavior {
   /**
    * 20112026_3: DrumMidi --make-set: a song's drums cut into a clean hit each (set.txt and WAVs beside the
    * MIDI); its log line makes them a new drum set on the Pads page, named after the song, each drum on its
-   * pad (the others as Original), selected and saved. DrumMidi's Params have the option.
+   * pad (the others as Original), selected and saved. DrumMidi's Params have the option. --combine-sets: a
+   * folder's song sets made one (each drum from the set where it is clearest), a drum set too.
    */
   void s269_song_drum_set() throws Exception {
     final Pulsekit app = (Pulsekit) frame;
@@ -9700,6 +9865,56 @@ public final class DesktopBehavior {
     out.append("layered: ").append(s2.name).append(", hits kept ").append(DrumSetStore.hitsDir(PadKits.setsDir(), s2).isDirectory())
         .append(", kick layers ").append(layers == null || layers[0] == null ? 0 : layers[0].length).append(", sf2 ").append(sf2.length > 0)
         .append(" | ").append(PadKits.lastSongSet).append('\n');
+    // --combine-sets: both songs' sets in a folder made one, each drum from the set where it is clearest
+    // (the kick from Thunder: as clear, more hits kept; the closed hat from Back in Black, the only one).
+    File combo = new File(System.getProperty("user.home"), "combo");
+    for (File d : new File[] {dir, dir2}) {
+      File to = new File(combo, d.getName());
+      to.mkdirs();
+      for (File f : d.listFiles()) Files.copy(f.toPath(), new File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    }
+    Process pr = new ProcessBuilder(new File(System.getProperty("java.home"), "bin/java").getPath(), "-cp",
+        new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getPath(), "DrumMidi_CRT", "--combine-sets", combo.getPath())
+        .redirectErrorStream(true).start();
+    String combLog = new String(readAll(pr.getInputStream()), StandardCharsets.UTF_8).replaceAll("(?m)^Picked up.*\n", "");
+    pr.waitFor();
+    PadKits.fromSong(app, combLog);
+    idle();
+    Thread.sleep(300);
+    idle();
+    String combined = combLog.replaceAll("(?s).*(Succeeded: [^\n]*).*", "$1");
+    out.append("combined: ").append(combined).append(" | ").append(PadKits.lastSongSet).append('\n');
+    // Add zip: the folder of sets zipped (as shared): which set asked (the combined one first), a new drum set.
+    File zip = new File(System.getProperty("user.home"), "combo sets.zip");
+    try (java.util.zip.ZipOutputStream zo = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      for (File d : combo.listFiles()) {
+        if (!d.isDirectory()) continue;
+        for (File f : d.listFiles()) {
+          zo.putNextEntry(new java.util.zip.ZipEntry(d.getName() + "/" + f.getName()));
+          zo.write(Files.readAllBytes(f.toPath()));
+          zo.closeEntry();
+        }
+      }
+    }
+    Playback zpb = (Playback) get("playback");
+    int beforeZip = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.zipFile = zip;
+    PadKits.zipPick = 0;
+    edt(() -> zpb.kits.addZip());
+    for (int i = 0; i < 200 && (PadKits.lastSongSet == null || app.drumSets.size() == beforeZip); i++) Thread.sleep(50);
+    idle();
+    PadKits.zipPick = null;
+    out.append("from zip: sets ").append(app.drumSets.size() - beforeZip).append(" | ").append(PadKits.lastSongSet).append('\n');
+    // 21112026: a zip with a combined set: taken at once (not asked), named after the zip; zips under Z.
+    int beforeAuto = app.drumSets.size();
+    PadKits.lastSongSet = null;
+    PadKits.zipFile = zip;
+    edt(() -> zpb.kits.addZip());
+    for (int i = 0; i < 200 && (PadKits.lastSongSet == null || app.drumSets.size() == beforeAuto); i++) Thread.sleep(50);
+    idle();
+    out.append("combined at once: sets ").append(app.drumSets.size() - beforeAuto).append(" | ").append(PadKits.lastSongSet)
+        .append(" | Z: ").append(MediaDir.filterOf("Doom drum sets.zip")).append(" ").append(java.util.Arrays.asList(MediaDir.FILTERS)).append('\n');
     // No set line: nothing added.
     PadKits.fromSong(app, "Succeeded: y.mid");
     idle();
@@ -9711,8 +9926,53 @@ public final class DesktopBehavior {
     String o = out.toString();
     boolean ok = o.contains("sets " + before + " -> " + (before + 1) + ", last Back in Black drums, kick 5512, closed hat 2756, snare as Original true, selected true, saved true | New drum set on the Pads page: Back in Black drums (Kick, Closed hat; the other pads as Original)")
         && o.contains("layered: Thunder drums, hits kept true, kick layers 2, sf2 true | New drum set on the Pads page: Thunder drums (Kick; the other pads as Original); 1 drum with several hits")
-        && o.contains("without: " + (before + 2)) && o.contains("Params: Make a drum set from the song's drums");
+        && o.contains("combined: Succeeded: Drum set combined from 2 songs: kick x2 (song2), closed hat (song) | New drum set on the Pads page: combo drums (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("from zip: sets 1 | New drum set on the Pads page: combo drums 2 (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("combined at once: sets 1 | New drum set on the Pads page: combo drums 3 (Kick, Closed hat; the other pads as Original); 1 drum with several hits")
+        && o.contains("| Z: Z [A, I, V, S, T, Z, O, F, G]")
+        && o.contains("without: " + (before + 5)) && o.contains("Params: Make a drum set from the song's drums");
     if (!ok) throw new AssertionError(o);
+  }
+
+  /**
+   * 21112026: silent notes waited for: Edit settings keeps the plugin's longest Stop timer time (a shorter one
+   * later keeps it); a crash silent at first (the kit still loading) is played again for up to that long and
+   * counts as heard; one silent all along is said silent after waiting. A test's start: a note the kit played
+   * before (Test, an earlier run) silent now stops the run; with several plugins each is checked first
+   * (--preflight), so one not right stops the run before anything is rendered.
+   */
+  void s270_silent_notes_wait() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    File script = new File(home, "vst_render.py");
+    Files.write(script.toPath(), ProgramFiles.bundledSource("vst_render.py").getBytes(StandardCharsets.UTF_8));
+    File flow = new File(System.getProperty("pulsekit.test.dir"), "py/vst_silent_wait.py");
+    java.util.List<String> cmd = new java.util.ArrayList<String>(PythonRun.pythonCommand());
+    cmd.addAll(java.util.Arrays.asList(flow.getAbsolutePath(), script.getAbsolutePath(), home.getAbsolutePath(),
+        new File(System.getProperty("pulsekit.test.dir", "."), "../../Programs/Java/DrumMidi_CRT.jar").getAbsolutePath()));
+    String got = PythonRun.runFor(cmd, 600, null).trim();
+    // The longest Stop timer times, as the Maximum plugin wait row says them (the 40 s the flow kept).
+    got += "\nLongest now: " + VstLists.longestLoads();
+    // Params: Maximum plugin wait on the Plugins tab.
+    for (ProgramParams.Param p : ProgramParams.parse(ProgramFiles.bundledSource("vst_render.py"))) {
+      if (p.token.equals("--max_wait") || p.token.equals("--wait_rounds")) got += "\nParams: " + ProgramParams.vstTab(p) + " | " + p.label.replaceAll(":.*", "");
+    }
+    this.out.append(got).append('\n');
+    boolean ok = got.contains("longest: 40")
+        && got.contains("loading: silent [] | Notes check: 49 silent at first; all heard after 10 s (waited at most 40 s")
+        && got.contains("never: silent [49] | Notes check: 49 silent at first; none heard, 49 still silent after 40 s")
+        && got.contains("Notes check: silent in this plugin: 49 (crash)")
+        && got.contains("new kit: Preflight: SSDSampler5.dll ready | heard kept: 49 in it False")
+        && got.contains("crash played before: Failed: SSDSampler5.dll: 49 (C#3) silent now, though this kit played it before")
+        && got.contains("two plugins: == Preflight 1 of 2: Other Drums.vst3 | Preflight: Other Drums.vst3 ready | == Preflight 2 of 2: SSDSampler5.dll | Failed: preflight: SSDSampler5.dll not ready (above), so nothing was rendered")
+        && got.contains("| rendered False")
+        && got.contains("max_wait 60: waits 60") && got.contains("max_wait 10: waits 40") && got.contains("max_wait 0: waits 40")
+        && got.contains("Params: Plugins | Maximum plugin wait (seconds)") && got.contains("Longest now: SSDSampler5 40 s")
+        && got.contains("for up to 120 s (3 rounds of 40 s) | Notes check: 49 still silent after 40 s: round 2 of 3 | Notes check: 49 still silent after 80 s: round 3 of 3")
+        && got.contains("49 still silent after 120 s (waited at most 120 s: the longest kit load time measured for the plugin, 3 rounds)")
+        && got.contains("Params: Plugins | Wait rounds")
+        && got.contains("unsaved run: Failed: no settings saved for the kit Classic Metal:Cracky yet, so Cracky Drums.vst3 would play the kit Edit settings saved last under its name")
+        && got.contains("unsaved Test: went on") && got.contains("saved kits:  Kits with settings saved for it: Classic Metal:Black (if the kit was loaded with Edit settings on another row");
+    if (!ok) throw new AssertionError(got);
   }
 
   /**
@@ -10784,7 +11044,7 @@ public final class DesktopBehavior {
     call("selectListedProgram", "Python", "vst_render.py");
     edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText(""));
     call("saveParams", "vst_render.py", "--dir " + q(kompit) + " --dir2 " + q(fillit) + " --outdir " + q(sogni) + " --zip_outdir " + q(new File(home, "Claude/Samples/%n"))
-        + " --test --cymbal_bench --cymbal_bench_when last --plugin " + q(plugin) + " --kit_name KVLT");
+        + " --test --cymbal_bench --cymbal_bench_when last --plugin " + q(plugin) + " --kit_name KVLT --bench_skip \"Riot Default kit, 20261121-135203\"");
     PyJav.paramsTab = ProgramParams.INPUT;
     final JDialog[] params = new JDialog[1];
     inspectNext = d -> params[0] = d;
@@ -10845,6 +11105,7 @@ public final class DesktopBehavior {
       dir.setSelectedIndex(1);
       ((javax.swing.JCheckBox) component(d, "params-check:--test")).doClick();
       ((JTextField) component(d, "params-field:--kit_name")).setText("Riot");
+      ((javax.swing.text.JTextComponent) component(d, "params-field:--bench_skip")).setText("Cardinal");
       javax.swing.JComboBox<?> list = (javax.swing.JComboBox<?>) component(d, "params-sessions");
       StringBuilder b = new StringBuilder("changed: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected());
       b.append(" | sessions: ");
@@ -10852,13 +11113,21 @@ public final class DesktopBehavior {
       list.setSelectedIndex(0);
       list.setSelectedIndex(1);
       b.append(" | loaded: --dir ").append(String.valueOf(dir.getSelectedItem()).replace(h, "~")).append(", test ").append(((javax.swing.JCheckBox) component(d, "params-check:--test")).isSelected())
-          .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText());
+          .append(", kit ").append(((JTextField) component(d, "params-field:--kit_name")).getText())
+          .append(", left out ").append(((javax.swing.text.JTextComponent) component(d, "params-field:--bench_skip")).getText());
+      // 22112026: the session put another kit on plugin 1: Plugin check recommended, in red on the Plugins tab.
+      javax.swing.JLabel check = (javax.swing.JLabel) component(d, "params-plugin-check");
+      b.append(" | check: ").append(PyJav.lastPluginCheck.replaceAll("session .*?\\.", "session <name>.")).append(" (shown ").append(check != null && check.isVisible()).append(")");
       out.append(b).append('\n');
       find(d.getContentPane(), "OK").doClick();
     });
     idle();
     out.append("kept: ").append(String.valueOf(call("loadParams", "vst_render.py")).replace(h, "~")).append('\n');
     PyJav.paramsTab = null;
+    // 22112026: each session keeps its own Kits left out (and maps, the model tab's choices).
+    if (!out.toString().contains(", kit KVLT, left out Riot Default kit, 20261121-135203")
+        || !out.toString().contains("check: Plugin check recommended: plugin 1 has another plugin or kit with the session <name>. Test it (or Edit settings) to be sure the kits named are the ones played. (shown true)"))
+      throw new AssertionError(out.toString());
   }
 
   private static String q(File f) {
@@ -10936,6 +11205,30 @@ public final class DesktopBehavior {
       }
       ((Pulsekit) frame).pyJav.importList(skip, list);
       b.append(" | import button ").append(component(d, "params-import:--bench_skip") != null).append(", imported: ").append(skip.getText());
+      // Delete extracted files: off until Settings' Don't delete is ticked; then asked, and the unzip folder emptied.
+      javax.swing.AbstractButton del = (javax.swing.AbstractButton) component(d, "params-delete-extracted:" + ProgramParams.MODEL);
+      javax.swing.AbstractButton delHit = (javax.swing.AbstractButton) component(d, "params-delete-extracted:" + ProgramParams.HITS);
+      javax.swing.JCheckBox keep = (javax.swing.JCheckBox) component(d, "params-check:--bench_keep");
+      b.append(" | delete: ").append(del != null && !del.isEnabled()).append(" off, hit tab's ").append(delHit != null && !delHit.isEnabled());
+      keep.setSelected(true);
+      b.append(", on with keep ").append(del.isEnabled() && delHit.isEnabled());
+      File unz = new File(System.getProperty("user.home"), "unz254");
+      new File(unz, "vst-render-Kit_A_/mp3").mkdirs();
+      new File(unz, "vst-render-Kit_B_").mkdirs();
+      // (The Unzip folder row is picked with Browse: its value set as Browse sets it.)
+      PyJav pjv = ((Pulsekit) frame).pyJav;
+      int unzAt = -1;
+      for (int k = 0; k < pjv.shownParams.size(); k++) if (pjv.shownParams.get(k).token.equals("--bench_unzip")) unzAt = k;
+      pjv.shownValues[unzAt] = unz.getAbsolutePath();
+      PyJav.deleteExtractedYes = false;
+      del.doClick();
+      b.append(", No: ").append(unz.list().length).append(" kits left");
+      PyJav.deleteExtractedYes = true;
+      del.doClick();
+      PyJav.deleteExtractedYes = null;
+      b.append(", Yes: ").append(PyJav.deleteExtractedSaid).append(", ").append(unz.list().length).append(" left");
+      keep.setSelected(false);
+      pjv.shownValues[unzAt] = "";
       ((javax.swing.JTextField) n).setText("30");
       ((javax.swing.JTextField) names).setText("Bucket");
       seen[0] = b.toString();
@@ -10965,9 +11258,12 @@ public final class DesktopBehavior {
         && all.contains("Cymbal model, Hit model]")
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
         && all.contains("unzipped: vst-render-Fake_Drums_Bright_ renders False midi True")
-        && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Kits left out (1): Fake_Drums_Bright") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
+        && all.contains("Kits left out: no kit's zip name has Nothing in it") && all.contains("Runs left out (1): Fake_Drums_Bright 20261111-120000")
+        && all.contains("run skipped: [('vst-render-Fake_Drums_Dark_', '20261101-120000')] | left [('vst-render-Fake_Drums_Dark_', '20261112-120000')] | kit skipped: []") && all.contains("skip: exit 1") && all.contains("unzip folder outside the output folder: True")
         && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
+        && all.contains("keep: unpacked 2, renders kept 2, again unpacked 0, DrumMidi ran 2")
+        && all.contains("delete: true off, hit tab's true, on with keep true, No: 2 kits left, Yes: Deleted the extracted files: 2 kits in 1 folder, 0 left")
         && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
@@ -10976,6 +11272,7 @@ public final class DesktopBehavior {
         && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
+        && all.contains("both: unpacked 2 times, shared said true, hit bench's own unzip folder false, renders left [], cymbal kits 2".replace("true", "True").replace("false", "False"))
         && all.contains("Kit names: 2 kit names and their plugins from the tests' reports kept for Kit loaded's lists")
         && all.contains("named again: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000')]") && all.contains("without alias: 3")
         && all.contains("with alias: [('vst-render-Ugritone_Drums_KVLT__Mexico_1998_', '20261116-100000'), ('vst-render-Ugritone_Drums_Speed_Metal__1983_Metal_', '20261116-100000')]")
@@ -13600,6 +13897,13 @@ public final class DesktopBehavior {
     };
     runIt.run();
     int whileOff = Logs.entries(Logs.ALL).size();
+    // Logging off: a run that failed is written all the same; one that finished, or was stopped (130), is not.
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 0, "fine", System.currentTimeMillis());
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 130, "Stopped", System.currentTimeMillis());
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 1, "Failed: no output for 600 s", System.currentTimeMillis());
+    java.util.List<Logs.Entry> offRuns = Logs.entries(Logs.RUNS);
+    String offLogged = offRuns.size() + (offRuns.isEmpty() ? "" : " (" + offRuns.get(0).title + ")");
+    Logs.delete(offRuns);
     // General settings > Logging on (another dialog first, the MIDI synth's message, is let go).
     final boolean[] box = new boolean[2];
     final boolean[] shown = new boolean[2];
@@ -13628,6 +13932,7 @@ public final class DesktopBehavior {
     java.util.List<Logs.Entry> starts = Logs.entries(Logs.STARTS);
     String runText = runs.size() > 1 ? Logs.text(runs.get(1)) : "";
     String secretText = runs.size() > 0 ? Logs.text(runs.get(0)) : "";
+    this.out.append("failed run while off, logged: ").append(offLogged).append('\n');
     this.out.append("while off: ").append(whileOff).append(" entries | box unticked first: ").append(box[0]).append(", on after a click: ").append(box[1])
         .append("\nruns: ").append(runs.size()).append(" (newest: ").append(runs.isEmpty() ? "-" : runs.get(0).title).append("), starts: ").append(starts.size())
         .append("\nsecret run args: ").append(secretText.replaceAll("(?s).*?(Arguments:[^\n]*).*", "$1")).append('\n');
@@ -13668,7 +13973,7 @@ public final class DesktopBehavior {
     String exportedText = exported.isFile() ? new String(Files.readAllBytes(exported.toPath()), StandardCharsets.UTF_8) : "";
     this.out.append("window: ").append(seen[0]).append(" | after Delete: ").append(seen[2]).append(" | ").append(seen[3])
         .append("\nshown: ").append(seen[1].split("\n")[0]).append(" / ").append(seen[1].contains("Exit code: 0")).append(" | exported: ").append(exportedText.contains("Program: Wav2Mp3.java")).append('\n');
-    boolean ok = whileOff == 0 && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
+    boolean ok = whileOff == 0 && offLogged.equals("1 (Off.java failed (exit code 1))") && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
         && runText.contains("Exit code: 0") && runText.contains("Output:") && starts.size() >= 1 && secretText.contains("--password (hidden)") && !secretText.contains("hunter2")
         && secretText.contains("\"a b.txt\"") && seen[1].startsWith("Type: Program runs") && seen[1].contains("Program: Wav2Mp3.java") && exportedText.contains("Program: Wav2Mp3.java")
         && "1".equals(seen[2]) && seen[3].startsWith("1 entries");
@@ -14236,24 +14541,24 @@ public final class DesktopBehavior {
           out.append("  ").append(t.replaceAll("\\d+ BPM", "<n> BPM").replaceAll("drums \\d+%", "drums <n>%").replaceAll("score \\d+", "score <n>")).append('\n');
       }
       out.append("models asked: ").append(asked).append('\n');
-      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-ranking.txt");
-      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-ranking.txt");
+      File ranking = new File(home, "Downloads/sogni-Rock-cmp1-drums-ranking.txt");
+      if (!ranking.isFile()) ranking = new File(home, ".pulsekit/sogni-Rock-cmp1-drums-ranking.txt");
       boolean rankingKept = ranking.isFile() && new String(Files.readAllBytes(ranking.toPath()), StandardCharsets.UTF_8).contains("Model comparison");
       out.append("ranking saved: ").append(rankingKept).append('\n');
       // --zip: everything in one zip (the tracks, their WAVs, DrumMidi's MIDI and results, the ranking, the logs).
-      File zip = new File(home, "Downloads/sogni-Rock-cmp1.zip");
-      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-Rock-cmp1.zip");
+      File zip = new File(home, "Downloads/sogni-Rock-cmp1-drums.zip");
+      if (!zip.isFile()) zip = new File(home, ".pulsekit/sogni-Rock-cmp1-drums.zip");
       List<String> inZip = new ArrayList<String>();
       if (zip.isFile()) for (ZipPack.Entry e : ZipPack.list(zip)) inZip.add(e.name);
       Collections.sort(inZip);
       out.append("zip: ").append(inZip).append('\n');
       List<String> want = java.util.Arrays.asList("DrumMidi_CRT SogniMusic run 1 sft log.txt", "DrumMidi_CRT SogniMusic run 1 turbo log.txt", "SogniMusic log.txt",
-          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-ranking.txt", "sogni-Rock-cmp1-sft.mp3",
-          "sogni-Rock-cmp1-turbo.mp3");
+          "SogniMusic run 1 sft.mid", "SogniMusic run 1 turbo.mid", "sogni-Rock-cmp1-drums-ranking.txt", "sogni-Rock-cmp1-drums-sft.mp3",
+          "sogni-Rock-cmp1-drums-turbo.mp3");
       // The tracks' WAVs (Pulsekit's copies for measuring) stay out: their MP3s are there.
-      boolean zipped = inZip.containsAll(want) && !inZip.contains("sogni-Rock-cmp1-sft.wav") && !inZip.contains("sogni-Rock-cmp1-turbo.wav");
+      boolean zipped = inZip.containsAll(want) && !inZip.contains("sogni-Rock-cmp1-drums-sft.wav") && !inZip.contains("sogni-Rock-cmp1-drums-turbo.wav");
       // (SogniMusic's own "Compared:" lines may be gone by now: each DrumMidi run has its own log; the ranking is shown again.)
-      boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-\\w+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-\\w+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
+      boolean ok = text.matches("(?s).*\\d\\. turbo: sogni-Rock-[\\w-]+-turbo\\.mp3.*") && text.matches("(?s).*\\d\\. sft: sogni-Rock-[\\w-]+-sft\\.mp3.*") && text.contains("Model comparison") && text.contains("Best: ")
           && asked.size() == 2 && asked.contains("turbo") && asked.contains("sft")
           && sets.equals(java.util.Arrays.asList("SogniMusic run 1 sft", "SogniMusic run 1 turbo")) && rankingAgain && rankingKept && zipped;
       if (!ok) throw new AssertionError(this.out.toString() + "\n" + text);
@@ -15006,6 +15311,22 @@ public final class DesktopBehavior {
       } finally {
         PyJav.exportAll = null;
       }
+      // The prompt's ★: the entries kept as a favourite section; again, not a favourite. G: in a group.
+      try {
+        javax.swing.AbstractButton star = (javax.swing.AbstractButton) component(d, "params-star");
+        seen.append("star before: ").append(star.getText());
+        star.doClick();
+        PromptVault.SogniSection fav = PromptDb.vault().findSogniSection("SogniPedit", SogniSections.text(PyJav.sectionFields(pj.shownParams, pj.shownFields, pj.shownAreas)));
+        seen.append(" | after: ").append(star.getText()).append(" favourite ").append(fav != null && fav.favourite);
+        star.doClick();
+        seen.append(" | again: ").append(star.getText()).append(" favourite ").append(fav != null && fav.favourite).append('\n');
+        PyJav.groupAnswer = "Kites";
+        ((javax.swing.AbstractButton) component(d, "params-group")).doClick();
+        PyJav.groupAnswer = null;
+        seen.append("group: ").append(fav == null ? "-" : fav.group).append(", sections ").append(PromptDb.vault().sogniSections("SogniPedit").size()).append('\n');
+      } catch (Exception ex) {
+        throw new RuntimeException(ex);
+      }
     };
     answers.add("Cancel");
     call("openParams");
@@ -15017,7 +15338,8 @@ public final class DesktopBehavior {
     String file = out.isFile() ? new String(Files.readAllBytes(out.toPath()), StandardCharsets.UTF_8) : "";
     this.out.append(seen).append("SogniPadd's Params: ").append(padd).append("\nLoRAs go to: ").append(loraTargets).append("\nfile:\n").append(file);
     String all = this.out.toString();
-    boolean ok = all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
+    boolean ok = all.contains("star before: \u2606 | after: \u2605 favourite true | again: \u2606 favourite false") && all.contains("group: Kites, sections 3")
+        && all.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 \u27a6 Export") && all.contains("copy: Copied the prompt (27 characters)")
         && all.contains("paste, No: other words") && all.contains("paste, Yes: a red kite over green hills (Pasted into the prompt)")
         && all.contains("send, No: SogniPadd not saved") && all.contains("send, Yes: Sent the prompt into SogniPadd's Params")
         && padd != null && padd.contains("--prompt \"a red kite over green hills\"") && all.contains("LoRAs to SogniChat: SogniChat.java takes no LoRAs")

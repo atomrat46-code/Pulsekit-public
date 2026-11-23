@@ -530,12 +530,35 @@ public class BehaviorTest {
       idle();
     }
     out.append("default: kit.sf2 ").append(app.persistence.kitFile().isFile()).append(", selected ").append(pb.kits.kitList.getSelectedItem()).append('\n');
+    // Add zip: a zip of a drum set from a song (DrumMidi --make-set's folder): a new drum set, selected.
+    java.io.File zip = new java.io.File(app.getCacheDir(), "song set.zip");
+    short[] kickWav = new short[11025];
+    for (int i = 0; i < kickWav.length; i++) kickWav[i] = (short) (20000 * Math.sin(i * 2 * Math.PI * 60 / 44100.0) * Math.exp(-i / 4000.0));
+    try (java.util.zip.ZipOutputStream zo = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(zip))) {
+      zo.putNextEntry(new java.util.zip.ZipEntry("Metal-set/set.txt"));
+      zo.write("# A drum set from Metal (DrumMidi --make-set): note, file, hits, clear hits, length (s)\n36\tkick.wav\t95\t2\t0.25\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      zo.closeEntry();
+      zo.putNextEntry(new java.util.zip.ZipEntry("Metal-set/kick.wav"));
+      zo.write(AudioIo.encodeWav(kickWav, 44100));
+      zo.closeEntry();
+    }
+    int setsBefore = app.drumSets.size();
+    PadKits.lastZipSet = null;
+    out.append("Add zip shown: ").append(app.findViewById(android.R.id.content).findViewWithTag("pads-add-zip") != null).append('\n');
+    pb.kits.addedZip(zip, zip.getName());
+    for (int i = 0; i < 200 && PadKits.lastZipSet == null; i++) {
+      Thread.sleep(50);
+      idle();
+    }
+    out.append("from zip: ").append(PadKits.lastZipSet).append(", sets +").append(app.drumSets.size() - setsBefore).append(", selected ").append(pb.activeDrumSet().name).append('\n');
+    boolean zipOk = "New drum set: Metal drums (Kick; the other pads as Original)".equals(PadKits.lastZipSet) && app.drumSets.size() == setsBefore + 1
+        && "Metal drums".equals(pb.activeDrumSet().name);
     write("s13c_drum_sets_kits", out.toString());
     String t = out.toString();
     if (!t.contains("status line shown: false") || !t.contains("new: Heavy, sets 2") || !t.contains("loaded: Heavy kit Rock Kit, crash own true, list Rock Kit")
         || !t.contains("original: crash a second long true, kit Rock Kit") || !t.contains("menu: Rename | Copy into new | Match Original | Match empty from Original | Delete | ")
         || !t.contains("sets: Original/Rock Kit Metal/Rock Kit Metal 2/Rock Kit selected Metal 2") || !t.contains("asked: true") || !t.contains("kept: Original/Rock Kit Metal/Rock Kit \n") || !t.contains("list at first: Default kit of 1")
-        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit"))
+        || !t.contains("adopted: SF2 name unknown (Old Kit), selected SF2 name unknown (Old Kit), kit.sf2 kept true") || !t.contains("default: kit.sf2 false, selected Default kit") || !zipOk || !t.contains("Add zip shown: true"))
       throw new AssertionError(t);
   }
 
@@ -11053,6 +11076,9 @@ public class BehaviorTest {
     };
     JavaRun.Result first = runIt.get();
     int whileOff = Logs.entries(Logs.ALL).size();
+    // Logging off: only a run that failed is written (Robolectric has no Java compiler, so it fails there).
+    int offWanted = first != null && first.code != 0 && first.code != 130 ? 1 : 0;
+    Logs.delete(Logs.entries(Logs.ALL));
     GeneralSettings.show(app);
     idle();
     android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-logging");
@@ -11105,7 +11131,7 @@ public class BehaviorTest {
     write("s173_logs", out.toString());
     // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
     String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
-    boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
+    boolean ok = second != null && whileOff == offWanted && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
         && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
         && text.contains("Output:\n" + second.log)
         && selectable && copied.equals(text) && after == 0 && chip.equals(Logs.RUNS + " (1)") && closeText.equals("Close") && closed;
@@ -11609,7 +11635,23 @@ public class BehaviorTest {
     pulsekit.MusicCompare.chain().next();
     boolean quietCompare = pulsekit.MusicCompare.quietSongs();
     pulsekit.MusicCompare.chain().next();
-    out.append("Make a song asked: random run ").append(!quietRandom).append(", comparison ").append(!quietCompare).append('\n');
+    // A comparison of two tracks (or more, variations too): no question for each file set either.
+    java.util.List<String[]> two = new java.util.ArrayList<String[]>(wavs);
+    two.add(new String[] {"Funk", "/x/a_Variated2.wav"});
+    pulsekit.MusicCompare.startChain(java.util.Arrays.asList("--compare_models", "turbo,sft"), new java.util.ArrayList<String>(), two, "");
+    pulsekit.MusicCompare.chain().next();
+    boolean quietTwo = pulsekit.MusicCompare.quietSongs();
+    // A variation (--variations): a MIDI and file set of its own, not over its run's first.
+    String firstSet = pulsekit.MusicCompare.chain().setNow();
+    java.util.List<String> varArgs = pulsekit.MusicCompare.chain().next();
+    String varSet = pulsekit.MusicCompare.chain().setNow();
+    String varLog = pulsekit.MusicCompare.chain().logName();
+    boolean varNamed = varArgs != null && String.join(" ", varArgs).contains(varSet + ".mid") && varSet.endsWith(" Funk Variated2") && !firstSet.equals(varSet) && varLog.equals(varSet);
+    out.append("variation's set: ").append(varSet).append(" (first ").append(firstSet).append(")\n");
+    pulsekit.MusicCompare.chain().next();
+    boolean afterTwo = pulsekit.MusicCompare.quietSongs();
+    out.append("Make a song asked: random run ").append(!quietRandom).append(", one track's comparison ").append(!quietCompare)
+        .append(", two tracks' ").append(!quietTwo).append(", after them ").append(!afterTwo).append('\n');
     // The file set's whole name (it was cut at 28 signs: "SogniMusic run 1 Melodic Tec").
     String setName = Engine.stemNameFromMidi("SogniMusic run 1 Melodic-Techno-sft.mid");
     // --zip_delete: the files the zip holds deleted, what was made in memory not on disk anyway.
@@ -11623,7 +11665,7 @@ public class BehaviorTest {
     out.append("file set name: ").append(setName).append(" | zip_delete: ").append(rz.deleteAfter).append(", ").append(deleted).append(", gone ").append(!zipped.exists()).append('\n');
     write("s182_sogni_music_random_and_spacing", out.toString());
     boolean ok = gapBrowse > 0 && gapClear > 0 && labels.get("--random") != null && labels.get("--random").startsWith("Random styles")
-        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare
+        && "Duration in seconds: 10 to 600".equals(labels.get("--duration")) && quietRandom && !quietCompare && quietTwo && !afterTwo && varNamed
         && setName.equals("SogniMusic run 1 Melodic Techno sft") && rz.deleteAfter && deleted.startsWith("Deleted the 1 zipped file") && !zipped.exists()
         && labels.get("--seed").startsWith("Random seed") && styles.split("\\|").length == StyleDb.names().length
         && own.get(own.indexOf("--styles") + 1).equals("Funk|Metal") && own.indexOf("--styles") == own.lastIndexOf("--styles") && listed && shown;
@@ -13984,11 +14026,58 @@ public class BehaviorTest {
     JavaRun.Result r = MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
     out.append("run: ").append(r.log.trim().replace("\n", " | ")).append('\n');
     out.append("the program got: ").append(seen.get(0)).append('\n');
+    // The run's two tracks wait for the question (the app asks when the run is done): Add, both ticked.
+    AudioMixerScreen.offer(app);
+    idle();
+    android.app.AlertDialog offer = AudioMixerScreen.lastOffer;
+    String offerButtons = offer == null ? "none" : offer.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText() + " / "
+        + offer.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).getText() + " / neutral " + (offer.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getVisibility() == View.VISIBLE);
+    if (offer != null) offer.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 300 && AudioMix.tracks.size() < 2; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("offer: ").append(offerButtons).append('\n');
+    // The mixer shown after: each row has its waveform; ▶ on one puts the playhead on that row alone.
+    for (int i = 0; i < 300 && (AudioMixerScreen.last == null || !AudioMixerScreen.last.isShowing() || AudioMixerScreen.WAVES.isEmpty()); i++) {
+      Thread.sleep(10);
+      idle();
+    }
+    int waveRows = AudioMixerScreen.WAVES.size();
+    View playOne = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-play:groove");
+    // (Robolectric has no audio output: "No audio output", nothing plays; on a phone the row's playhead moves.)
+    if (playOne != null) playOne.performClick();
+    boolean headOn = false, headOff = true;
+    for (AudioMixerScreen.WaveView w : AudioMixerScreen.WAVES) {
+      if (w.t.name.equals("groove")) headOn = AudioMixerScreen.SOUNDING.contains(w.t);
+      else headOff &= w.playhead() < 0;
+    }
+    AudioMixerScreen.stop();
+    float[] gp = AudioMix.tracks.isEmpty() ? new float[0] : AudioMix.peaks(AudioMix.tracks.get(0), 40);
+    float loud = 0;
+    for (float v : gp) loud = Math.max(loud, v);
+    View st = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-status");
+    out.append("play button: ").append(playOne != null).append(", said: ").append(st == null ? "-" : ((android.widget.TextView) st).getText()).append('\n');
+    out.append("waveforms: ").append(waveRows).append(", playing groove: ").append(headOn).append(", the other's playhead off: ").append(headOff)
+        .append(", sound in the waveform: ").append(loud > 0.01f).append('\n');
     StringBuilder names = new StringBuilder();
     for (AudioMix.Track t : AudioMix.tracks) names.append(t.name).append(' ');
     out.append("tracks: ").append(names.toString().trim()).append('\n');
     JavaRun.Result zip = MixerOut.around("SogniMusic.java", java.util.Arrays.asList("--zip", MixerOut.FLAG), fake);
     JavaRun.Result off = MixerOut.around("CutWav.java", java.util.Arrays.asList(MixerOut.FLAG), fake);
+    // Again, into a mixer with tracks: Replace its tracks takes the earlier ones out.
+    MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
+    AudioMixerScreen.lastOffer = null;
+    AudioMixerScreen.offer(app);
+    idle();
+    android.app.AlertDialog again = AudioMixerScreen.lastOffer;
+    String againSaid = again == null ? "none" : again.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText() + " / " + again.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getText();
+    if (again != null) again.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("again: ").append(againSaid).append(", tracks ").append(AudioMix.tracks.size()).append('\n');
     out.append("zip: ").append(zip.log.contains("Not added to the AudioMixer: the run made a zip")).append(", another program: ").append(seen.get(2).contains(MixerOut.FLAG))
         .append(", tracks ").append(AudioMix.tracks.size()).append('\n');
     // Extract audio: the question after it.
@@ -14018,11 +14107,44 @@ public class BehaviorTest {
       idle();
     }
     out.append("Not now: ").append(before).append(" tracks; Add to AudioMixer: ").append(String.valueOf(AudioExtract.lastSaid).replaceAll("0:0[0-9]", "0:0<n>")).append('\n');
+    // Save project, New project, Open project: the tracks and their settings come back.
+    AudioMix.Track firstT = AudioMix.tracks.get(0);
+    firstT.volume = 40;
+    firstT.solo = true;
+    AudioMix.save();
+    int had = AudioMix.tracks.size();
+    android.widget.TextView pst = new android.widget.TextView(app);
+    AudioMixerScreen.projectAnswer = "Take 1";
+    AudioMixerScreen.saveProject(app, pst);
+    String savedSaid = String.valueOf(pst.getText());
+    AudioMix.clear();
+    int cleared = AudioMix.tracks.size();
+    AudioMixerScreen.openProject(app, pst, () -> {});
+    AudioMixerScreen.projectAnswer = null;
+    AudioMix.Track backT = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    out.append("project: ").append(savedSaid).append(" | cleared ").append(cleared).append(" | ").append(pst.getText()).append(" | ")
+        .append(backT == null ? "none" : backT.name + " volume " + backT.volume + " solo " + backT.solo).append(" | ").append(AudioMixerScreen.title()).append('\n');
+    boolean projectOk = savedSaid.equals("Saved the project Take 1 (" + had + " tracks)") && cleared == 0 && AudioMix.tracks.size() == had
+        && backT != null && backT.volume == 40 && backT.solo && AudioMixerScreen.title().equals("AudioMixer \u00b7 Take 1");
+    // Export project's zip, then Import new track… with it (as on another phone): kept as a project, opened.
+    byte[] pzip = AudioMix.exportZip();
+    File pzf = new File(app.getCacheDir(), AudioMix.exportName());
+    java.nio.file.Files.write(pzf.toPath(), pzip);
+    AudioMix.clear();
+    AudioMixerScreen.importOpen = true;
+    android.widget.TextView ist = new android.widget.TextView(app);
+    AudioMixerScreen.add(app, pzf.getName(), pzf, ist, () -> {});
+    AudioMixerScreen.importOpen = null;
+    AudioMix.Track impT = AudioMix.tracks.isEmpty() ? null : AudioMix.tracks.get(0);
+    String imported = ist.getText() + " | " + (impT == null ? "none" : impT.name + " volume " + impT.volume + " solo " + impT.solo) + " | " + AudioMix.projects();
+    out.append("import: ").append(imported).append('\n');
+    projectOk &= imported.startsWith("Opened the project Take 1 2 (" + had + " tracks) | " + firstT.name + " volume 40 solo true | [Take 1 2, Take 1]");
     AudioMix.clear();
     write("s244_to_mixer", out.toString());
     String text = out.toString();
-    boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
-        && names.toString().trim().equals("groove song") && r.log.contains("Added to the AudioMixer: groove") && r.log.contains("Added to the AudioMixer: song")
+    boolean ok = projectOk && params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
+        && names.toString().trim().equals("groove song") && r.log.contains("For the AudioMixer (asked when the run is done): groove.mid, song.wav")
+        && text.contains("waveforms: 2, playing groove: ") && text.contains("the other's playhead off: true, sound in the waveform: true") && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
         && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
     if (!ok) throw new AssertionError(text);
@@ -14422,8 +14544,37 @@ public class BehaviorTest {
     d.dismiss();
     idle();
     write("s249_params_clip", out.toString());
+    // The prompt's ★: the entries kept as a favourite section; again, not a favourite. G: in a new group.
+    TextView starB = (TextView) dv.findViewWithTag("params-star");
+    String starBefore = starB == null ? "-" : String.valueOf(starB.getText());
+    if (starB != null) starB.performClick();
+    idle();
+    PromptVault.SogniSection favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit",
+        SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    String starAfter = (starB == null ? "-" : String.valueOf(starB.getText())) + " favourite " + (favS != null && favS.favourite);
+    if (starB != null) starB.performClick();
+    idle();
+    favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit", SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    String starAgain = (starB == null ? "-" : String.valueOf(starB.getText())) + " favourite " + (favS != null && favS.favourite);
+    View groupB = dv.findViewWithTag("params-group");
+    if (groupB != null) groupB.performClick();
+    idle();
+    AlertDialog pickG = PyJavParams.lastRowGroupPick;
+    if (pickG != null) {
+      android.widget.ListView lv = pickG.getListView();
+      lv.performItemClick(lv.getChildAt(lv.getCount() - 1), lv.getCount() - 1, 0);
+      idle();
+      android.widget.EditText gname = (android.widget.EditText) PyJavParams.lastGroupName.getWindow().getDecorView().findViewWithTag("section-group-name");
+      gname.setText("Kites");
+      PyJavParams.lastGroupName.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+      idle();
+    }
+    favS = PromptVault.open(app.getFilesDir()).findSogniSection("SogniPedit", SogniSections.text(PyJavParams.sectionFields(PyJavParams.shownParams, PyJavParams.shownFields)));
+    out.append("star before: ").append(starBefore).append(" | after: ").append(starAfter).append(" | again: ").append(starAgain)
+        .append("\ngroup: ").append(favS == null ? "-" : favS.group).append('\n');
     String text = out.toString();
-    boolean ok = text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
+    boolean ok = text.contains("star before: \u2606 | after: \u2605 favourite true | again: \u2606 favourite false\ngroup: Kites")
+        && text.contains("buttons: \u29c9 \u21e9 \u27a6 \u29c9 Export") && text.contains("copy: Copied the prompt (27 characters)")
         && text.contains("paste asks: Replace") && text.contains("pasted: a red kite over green hills") && text.contains("send asks: Send")
         && text.contains("SogniPadd's Params: --prompt \"a red kite over green hills\"") && text.contains("export: Exported the SogniPedit section into exported.txt")
         && text.contains("Prompt: a red kite over green hills\nLoras: kite-style:0.7")

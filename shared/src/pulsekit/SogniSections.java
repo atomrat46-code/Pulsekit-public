@@ -98,6 +98,25 @@ public final class SogniSections {
     return (s.favourite ? STAR_ON + " " : "") + (s.fin ? "F " : "");
   }
 
+  /** The prompt row's ★ and G: the entries now (the prompt and the other rows) as a favourite section, or in a group. */
+  public static final String GROUP_BUTTON = "G";
+  public static final String STAR_TIP = "Favourite: the prompt (with the other rows) kept as a favourite section; again, not a favourite";
+  public static final String GROUP_TIP = "Group: the prompt (with the other rows) kept as a section in a group";
+
+  /** The program's section with these entries: the one saved, or saved now. */
+  public static PromptVault.SogniSection sectionOf(PromptVault vault, String app, Map<String, String> now) throws Exception {
+    String t = text(now);
+    PromptVault.SogniSection s = vault.findSogniSection(app, t);
+    return s != null ? s : vault.addSogniSection(app, t);
+  }
+
+  /** The prompt row's star now: ★ when the entries are a favourite section already. */
+  public static String starNow(PromptVault vault, String app, Map<String, String> now) {
+    if (now == null || now.isEmpty()) return STAR_OFF;
+    PromptVault.SogniSection s = vault.findSogniSection(app, text(now));
+    return s != null && s.favourite ? STAR_ON : STAR_OFF;
+  }
+
   /** The favourite button's text for a section. */
   public static String star(PromptVault.SogniSection s) {
     return s.favourite ? STAR_ON : STAR_OFF;

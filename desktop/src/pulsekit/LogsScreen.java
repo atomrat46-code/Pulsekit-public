@@ -69,7 +69,7 @@ final class LogsScreen {
             model.clear();
             for (Logs.Entry e : Logs.entries(type)) model.addElement(e);
             text.setText(model.isEmpty() ? Logs.EMPTY : "");
-            state.setText(model.size() + " entries" + (Logs.on() ? "" : "  \u2014  Logging is off (General settings > Logging on): nothing new is written"));
+            state.setText(model.size() + " entries" + (Logs.on() ? "" : "  \u2014  Logging is off (General settings > Logging on): only failed runs are written"));
             if (!model.isEmpty()) list.setSelectedIndex(0);
         };
         list.addListSelectionListener(e -> {

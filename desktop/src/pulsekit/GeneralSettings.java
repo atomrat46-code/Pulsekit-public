@@ -182,7 +182,7 @@ final class GeneralSettings {
         logging.addActionListener(e -> {
             AppSettings.setLogging(logging.isSelected());
             if (logging.isSelected()) Logs.started("Pulsekit " + Looks.version() + " (desktop), logging turned on");
-            app.setNow(logging.isSelected() ? "Logging on: File > Logs shows what is written" : "Logging off: no log files are written");
+            app.setNow(logging.isSelected() ? "Logging on: File > Logs shows what is written" : "Logging off: only program runs that fail are logged");
         });
         more.add(logging);
         more.add(note(Logs.SETTING_NOTE.replace("Logs shows", "Logs shows\n")));

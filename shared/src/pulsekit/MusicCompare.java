@@ -100,9 +100,32 @@ public final class MusicCompare {
       return random ? setName(group(label)) : setName(label);
     }
 
+    /**
+     * The file set the track now in DrumMidi goes into: setFor its label, and a variation's
+     * (--variations: "..._Variated2.mp3") its own ("SogniMusic run 4 sft Variated2"), not its run's first.
+     */
+    public synchronized String setNow() {
+      if (at < 0 || at >= tracks.size()) return "";
+      String[] t = tracks.get(at);
+      return random ? setFor(t[0]) : setFor(t[0]) + variation(t[1]);
+    }
+
+    /** The track now in DrumMidi as its log is named in the zip: its label, and a variation's number ("sft Variated2"). */
+    public synchronized String logName() {
+      if (at < 0 || at >= tracks.size()) return "";
+      String[] t = tracks.get(at);
+      return setName(t[0]) + variation(t[1]);
+    }
+
+    /** " Variated2" for a variation's file (sogni-Metal-1a2b3c4d-sft_Variated2.mp3), else "". */
+    static String variation(String file) {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("_Variated(\\d+)(\\(\\d+\\))?\\.[A-Za-z0-9]+$").matcher(file == null ? "" : file);
+      return m.find() ? " Variated" + m.group(1) : "";
+    }
+
     /** DrumMidi_CRT's arguments for the next track, or null when all are done (the chain ends). */
     public synchronized List<String> next() {
-      if (at >= 0 && at < tracks.size() && !made.contains(setFor(tracks.get(at)[0]))) made.add(setFor(tracks.get(at)[0]));
+      if (at >= 0 && at < tracks.size() && !made.contains(setNow())) made.add(setNow());
       at++;
       if (at >= tracks.size()) {
         if (chain == this) chain = null;
@@ -110,7 +133,7 @@ public final class MusicCompare {
       }
       String[] t = tracks.get(at);
       // A session's track: DrumMidi set for its instruments (drums alone, or with bass or guitar).
-      List<String> args = expect.forTrack(t[0]).drumMidiArgs(t[1], setName(t[0]) + ".mid", saved);
+      List<String> args = expect.forTrack(t[0]).drumMidiArgs(t[1], setName(t[0]) + variation(t[1]) + ".mid", saved);
       // A --random track: DrumMidi's grid at the tempo asked for its style (each track draws its own).
       Double asked = askedBpm();
       if (asked != null) {
@@ -183,8 +206,20 @@ public final class MusicCompare {
         }
         sb.append('\n');
       }
+      List<String> mix = new ArrayList<String>(mixer);
+      mix.addAll(MixerOut.saidSince(mixerFrom));
+      if (!mix.isEmpty()) {
+        sb.append("\nAudioMixer:");
+        for (String m : mix) sb.append("\n").append(m);
+      }
       return sb.toString().trim();
     }
+
+    /** The AudioMixer's lines: SogniMusic's run's, and where the DrumMidi runs' start in MixerOut's. */
+    final List<String> mixer = new ArrayList<String>();
+    int mixerFrom;
+    /** SogniMusic's own Add the result to the AudioMixer was on (its DrumMidi runs' switch is then not used). */
+    boolean sogniMixer;
   }
 
   /**
@@ -289,13 +324,20 @@ public final class MusicCompare {
       String m = argv.get(mi + 1).trim().toLowerCase(java.util.Locale.ROOT);
       if (m.matches("turbo|sft|music3")) c.single = m;
     }
+    // The AudioMixer's lines (--to_mixer): SogniMusic's from its log, the DrumMidi runs' as they come.
+    for (String line : (log == null ? "" : log).split("\n")) if (line.contains("AudioMixer")) c.mixer.add(line.trim());
+    c.mixerFrom = MixerOut.saidCount();
+    c.sogniMixer = argv != null && argv.contains(MixerOut.FLAG);
     chain = c;
     return c;
   }
 
-  /** Whether a file set now made is a --random run's (its chain going on): no Make a song question, as No. */
+  /**
+   * Whether a file set now made is one of several a run makes (a --random run's, or a comparison's or
+   * sessions' with two tracks or more, its chain going on): no Make a song question, as No.
+   */
   public static synchronized boolean quietSongs() {
-    return heldImport || chain != null && chain.random && chain.at < chain.tracks.size();
+    return heldImport || chain != null && (chain.random || chain.tracks.size() > 1) && chain.at < chain.tracks.size();
   }
 
   /** While a --random run's file sets a model are made, at the chain's end. */

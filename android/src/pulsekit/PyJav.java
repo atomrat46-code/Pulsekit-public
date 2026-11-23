@@ -962,12 +962,15 @@ final class PyJav {
             final String summary = c.summary();
             app.handler.post(() -> {
                 this.pkChainDone = new android.app.AlertDialog.Builder(app).setTitle("Succeeded").setMessage(summary)
-                    .setPositiveButton("Close", null).show();
+                    .setPositiveButton("Close", null).create();
+                // --to_mixer: once the message is closed, which tracks go into the mixer is asked.
+                this.pkChainDone.setOnDismissListener(d -> AudioMixerScreen.offer(app));
+                this.pkChainDone.show();
             });
             return;
         }
         Double asked = c.askedBpm();
-        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model())
+        this.pkAddLogLine("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setNow()
             + (asked == null ? "" : " at the tempo asked, " + (asked.doubleValue() == Math.rint(asked.doubleValue()) ? Long.toString(asked.longValue()) : asked.toString()) + " BPM"));
         app.handler.post(() -> {
             this.pkPyInputPath = null;
@@ -1497,6 +1500,8 @@ final class PyJav {
         final String subPattern = subOf == null ? "" : subOf.subfolder;
         // Timed out (or the network went away) while the workflow goes on on Sogni: joined again.
         String log = result == null ? null : result.log;
+        // --to_mixer: the AudioMixer opens with the tracks the run added.
+        if (result != null && pulsekit.MixerOut.opensAfter(app.pyName, argv, result.code, result.log)) app.handler.post(() -> AudioMixerScreen.offer(app));
         java.util.List<String> again = this.pkReconnects < pulsekit.JavaRun.RECONNECTS ? pulsekit.JavaRun.reconnectArgs(app.pyName, src, log, argv) : null;
         if (again != null && result != null && result.files != null && !result.files.isEmpty()) {
             boolean media = false;
@@ -1658,7 +1663,9 @@ final class PyJav {
                 app.importLibrary.rebuildImported();
                 app.importLibrary.rebuildImportedFills();
                 app.setNow("Succeeded: " + source);
-                android.widget.Toast.makeText(app, "Succeeded: " + source, 1).show();
+                // A run's chain of file sets (several tracks): the status line and the chain's end say it, no toast each
+                // (queued, they went on long after the run).
+                if (!pulsekit.MusicCompare.quietSongs()) android.widget.Toast.makeText(app, "Succeeded: " + source, 1).show();
                 return "Succeeded: " + source;
             }
             int[][] cells = pulsekit.Engine.parseMidi(data);
@@ -1920,7 +1927,7 @@ final class PyJav {
         // chain stops when it was stopped (Stop).
         if (pulsekit.MusicCompare.chainStep(program)) {
             pulsekit.MusicCompare.Chain chain = pulsekit.MusicCompare.chain();
-            if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.setName(chain.model()), made, madeLog);
+            if (pulsekit.RunZip.current() != null) this.pkZipAdd(pulsekit.RunZip.current(), program, chain == null ? "" : chain.logName(), made, madeLog);
             boolean stopped = made != null && made.code == 130;
             if (ok) this.pkChainNext();
             else if (!stopped) {

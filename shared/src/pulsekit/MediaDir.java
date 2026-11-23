@@ -216,11 +216,11 @@ public final class MediaDir {
   }
 
   /**
-   * The browser's type selectors: A all, I pictures, V videos, S sounds (MIDI too), T text, O other
-   * files. Folders are always shown.
+   * The browser's type selectors: A all, I pictures, V videos, S sounds (MIDI too), T text, Z zips (and
+   * other archives: a run's zip, a drum set's, an SFZ kit's), O other files. Folders are always shown.
    */
-  public static final String[] FILTERS = {"A", "I", "V", "S", "T", "O", FileFavourites.LETTER, FileGroups.LETTER};
-  public static final String[] FILTER_NAMES = {"all", "pictures", "videos", "sounds", "text", "other files", "favourites", "a group"};
+  public static final String[] FILTERS = {"A", "I", "V", "S", "T", "Z", "O", FileFavourites.LETTER, FileGroups.LETTER};
+  public static final String[] FILTER_NAMES = {"all", "pictures", "videos", "sounds", "text", "zips", "other files", "favourites", "a group"};
 
   /** F: a favourite; G: in the group G shows. */
   static boolean marked(Entry e, String f) {
@@ -232,7 +232,7 @@ public final class MediaDir {
     return FileGroups.fileKey(MediaTags.key(e));
   }
 
-  /** The selector a file comes under: "I", "V", "S", "T" or "O". */
+  /** The selector a file comes under: "I", "V", "S", "T", "Z" or "O". */
   public static String filterOf(String name) {
     int k = kind(name);
     if (k == PICTURE) return "I";
@@ -240,6 +240,7 @@ public final class MediaDir {
     if (k == SOUND) return "S";
     String low = name == null ? "" : name.toLowerCase();
     if (low.matches(".+\\.(txt|md|json|prompt|csv|xml|h2song|h2pattern|rpp|py|java|log|srt|lrc)")) return "T";
+    if (low.matches(".+\\.(zip|tar|tgz|gz|7z|rar)")) return "Z";
     return "O";
   }
 

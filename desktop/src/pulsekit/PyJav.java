@@ -43,6 +43,8 @@ final class PyJav {
         TrackRecorder.inputs = AudioMixerWindow.inputs();
         // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: their results become mixer tracks.
         MixerOut.folder = AudioMixerWindow.folder();
+        // A run's tracks wait for the question (which go in, replacing or joining the mixer's) when it is done.
+        MixerOut.ask = true;
         MixerOut.kit = () -> {
             if (app.playback == null) return null;
             app.playback.fillMissingVoices();
@@ -1100,12 +1102,14 @@ final class PyJav {
                     if (musicWav != null) z.add(musicWav.getName(), musicWav);
                     if (!MusicCompare.wanted(name, argv)) this.zipFinish();
                 }
+                // --to_mixer: the AudioMixer opens with the tracks the run added.
+                if (MixerOut.opensAfter(name, argv, result.code, result.log)) SwingUtilities.invokeLater(() -> AudioMixerWindow.offer(app));
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
                 // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
                 if (MusicCompare.chainStep(name)) {
                     MusicCompare.Chain chain = MusicCompare.chain();
-                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.setName(chain.model()), result);
+                    if (RunZip.current() != null) this.zipAdd(RunZip.current(), name, chain == null ? "" : chain.logName(), result);
                     if (result.code == 0 && verdict.startsWith("Succeeded")) this.chainNext();
                     else if (result.code != 130) {
                         // One track that failed is said and passed over; Stop stops the chain.
@@ -1752,6 +1756,60 @@ final class PyJav {
         if (JOptionPane.showConfirmDialog(at, p, SogniSections.ADD_GROUP, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
         Object v = box.getEditor().getItem();
         return v == null ? "" : v.toString().trim();
+    }
+
+    /** The prompt row's ★ and G last made (for the tests). */
+    JButton lastStar, lastGroupButton;
+
+    /** The prompt row's ★ (the entries now as a favourite section; again, not one) and G (as a section in a group). */
+    java.util.List<JButton> markButtons(final String app, final java.util.List<ProgramParams.Param> ps, final JTextField[] fields, final javax.swing.JTextArea[] areas) {
+        final JButton star = new JButton(SogniSections.STAR_OFF);
+        star.setName("params-star");
+        star.setToolTipText(SogniSections.STAR_TIP);
+        star.setMargin(new java.awt.Insets(1, 4, 1, 4));
+        final JButton group = new JButton(SogniSections.GROUP_BUTTON);
+        group.setName("params-group");
+        group.setToolTipText(SogniSections.GROUP_TIP);
+        group.setMargin(new java.awt.Insets(1, 4, 1, 4));
+        // Its mark once the rows are filled (they are made after the label).
+        SwingUtilities.invokeLater(() -> {
+            try {
+                star.setText(SogniSections.starNow(PromptDb.vault(), app, sectionFields(ps, fields, areas)));
+            } catch (Exception ignored) {
+                // ☆
+            }
+        });
+        star.addActionListener(e -> {
+            java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+            if (now.isEmpty()) {
+                this.sectionSay("Nothing to mark: the prompt and the other rows are empty");
+                return;
+            }
+            try {
+                PromptVault.SogniSection sec = SogniSections.sectionOf(PromptDb.vault(), app, now);
+                if (this.markSection(sec, !sec.favourite, sec.fin)) this.sectionSay(this.sectionSaid);
+                star.setText(SogniSections.star(sec));
+            } catch (Exception ex) {
+                this.sectionSay("Could not save the section: " + ex.getMessage());
+            }
+        });
+        group.addActionListener(e -> {
+            java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+            if (now.isEmpty()) {
+                this.sectionSay("Nothing to put in a group: the prompt and the other rows are empty");
+                return;
+            }
+            try {
+                PromptVault.SogniSection sec = SogniSections.sectionOf(PromptDb.vault(), app, now);
+                String name = this.askGroup(group, sec);
+                if (name != null && this.groupSection(sec, name)) this.sectionSay(this.sectionSaid);
+            } catch (Exception ex) {
+                this.sectionSay("Could not save the section: " + ex.getMessage());
+            }
+        });
+        this.lastStar = star;
+        this.lastGroupButton = group;
+        return java.util.Arrays.asList(star, group);
     }
 
     /** A section added to a group by name ("" takes it out); false when it could not be (said). */
@@ -2459,11 +2517,15 @@ final class PyJav {
             this.zipFinish();
             // One message for the whole chain: what it made (after the zip has started, so it does not wait).
             final String summary = c.summary();
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE));
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE);
+                // --to_mixer: once the message is closed, which tracks go into the mixer is asked.
+                AudioMixerWindow.offer(app);
+            });
             return;
         }
         Double asked = c.askedBpm();
-        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setFor(c.model())
+        this.testNote("DrumMidi_CRT " + c.index() + " of " + c.size() + ": " + c.model() + " into the file set " + c.setNow()
             + (asked == null ? "" : " at the tempo asked, " + (asked.doubleValue() == Math.rint(asked.doubleValue()) ? Long.toString(asked.longValue()) : asked.toString()) + " BPM"));
         SwingUtilities.invokeLater(() -> {
             app.pyInputPath = null;
@@ -3571,6 +3633,9 @@ final class PyJav {
                     p.choices = maps[0];
                     p.choiceValues = maps[1];
                 }
+            } else if (p.token.equals("--max_wait")) {
+                // The longest Stop timer times now (Edit settings keeps each plugin's): what an empty field means.
+                p.label = p.label + ". Longest Stop timer now: " + VstLists.longestLoads();
             } else if (p.token.startsWith("--kit_name")) {
                 // Choose there is the pack and set chooser (KitChooser): shown even before any kit was named.
                 String[] kits = VstLists.kitNames();
@@ -3638,9 +3703,11 @@ final class PyJav {
         // A definitions file (ParamDefs) fills several rows: the Params' rows kept for it.
         this.shownParams = ps;
         this.shownFields = fields;
+        this.shownValues = values;
         this.shownAreas = areas;
         // On/off switches (DrumMidi's --no-hpss and --no-cymbals) are checkboxes.
         final javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[ps.size()];
+        this.shownChecks = checks;
         JPanel form = new JPanel(new GridLayout(0, 2, 8, 6));
         // Where each row's label and field start in the form (vst_render's rows then go onto its tabs).
         final int[] rowStarts = new int[ps.size()];
@@ -3654,6 +3721,8 @@ final class PyJav {
                 JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
                 withClip.add(rowLabel);
                 for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
+                // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
+                if (p.token.equals("--prompt")) for (JButton b : this.markButtons(SogniSections.app(program), ps, fields, areas)) withClip.add(b);
                 form.add(withClip);
             } else {
                 form.add(rowLabel);
@@ -3905,6 +3974,7 @@ final class PyJav {
                         // as the Plugins list's Edit settings does, without going there.
                         JButton editSettings = new JButton("Edit settings");
                         rowEdit[0] = editSettings;
+                        this.editButtons.put(p.token, editSettings);
                         editSettings.setName("params-plugin-edit:" + p.token);
                         editSettings.setToolTipText("Opens the plugin's window: its kit or patch is kept for vst_render's runs");
                         // Stop timer: pressed when the kit has loaded (its load time is how long a test waits for it).
@@ -3915,6 +3985,13 @@ final class PyJav {
                                 return;
                             }
                             File plug = new File(values[index]);
+                            this.pluginChecked(p.token);
+                            // No kit name on the row: asked when the window is closed (the kit is picked in the plugin's own
+                            // list), and the settings then kept under it too.
+                            final java.util.List<String> kitNow = rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token);
+                            final boolean nameAfter = kitNow.isEmpty();
+                            // The kit named's settings as they are now: put back if the kit loaded turns out to be another.
+                            final java.util.Map<String, byte[]> kept = nameAfter ? null : keptKitFiles(plug, kitNow.get(1));
                             if (DllInfo.BRIDGED.equals(DllInfo.problem(plug)) || DllInfo.isLv2(plug)) carlaRack();
                             editSettings.setEnabled(false);
                             stopTimer.setEnabled(true);
@@ -3922,11 +3999,14 @@ final class PyJav {
                             app.setNow(PluginsList.testing(plug, true));
                             final javax.swing.Timer tick = PluginsList.ticker(pr -> app.setNow("Edit settings \u00b7 " + plug.getName() + ": " + pr));
                             // The row's kit name: its settings saved for that kit (one plugin, a kit a row).
-                            PluginsList.test(this, plug, true, rowKit(ps, values, p.token), log -> {
+                            PluginsList.test(this, plug, true, rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, p.token), log -> {
                                 tick.stop();
                                 editSettings.setEnabled(true);
                                 stopTimer.setEnabled(false);
                                 app.setNow(PluginsList.summary(log));
+                                // The kit's name, asked now that it was picked in the window: the settings kept under it too.
+                                if (nameAfter) this.nameSavedKit(editSettings, ps, p.token, plug, log);
+                                else this.confirmSavedKit(editSettings, ps, p.token, plug, log, kitNow.get(1), kept);
                                 // What it came to, always in a window: why it did not open (a 32-bit plugin without Carla,
                                 // not a plugin...), else what was saved (and where Carla's project is, for a 32-bit one).
                                 String failed = PluginsList.failed(log);
@@ -4459,7 +4539,13 @@ final class PyJav {
             delete.setEnabled(at > 0);
             if (at <= 0 || at > shown.size()) return;
             VstSessions.Session s = shown.get(at - 1);
+            java.util.Map<String, String> before = this.pluginRows(ps, values, fields);
             this.loadSession(s, ps, values, fields, checks, uses, fileLabels, setters);
+            // Plugins or kits another than the rows had: a check of those rows recommended (said in red on the Plugins tab).
+            java.util.Map<String, String> after = this.pluginRows(ps, values, fields);
+            for (String t : after.keySet()) if (!after.get(t).equals(before.get(t)) && after.get(t).length() > 1) this.pluginCheckRows.add(t);
+            this.pluginCheckSession = s.name;
+            this.showPluginCheck();
             VstSessions.setCurrent(s.name);
             list.setToolTipText(s.description.isEmpty() ? s.label() : s.description);
             app.setNow("Session loaded: " + s.name);
@@ -4479,7 +4565,7 @@ final class PyJav {
             ask.add(name);
             ask.add(new JLabel("Description (optional)"));
             ask.add(about);
-            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins and kit names, Test, the cymbal model comparison and the hit model bench (on or off, and when), the Cymbal model and Hit model tabs' folders and files. The date is added.</body></html>"));
+            ask.add(new JLabel("<html><body style='width:320px'>Kept: the Input and Output tabs' folders, the plugins, kit names and maps, Test, the cymbal model comparison and the hit model bench (on or off, and when), the Cymbal model and Hit model tabs' folders, files and choices, Kits left out too. The date is added.</body></html>"));
             java.awt.Window w = SwingUtilities.getWindowAncestor(save);
             lastSessionAsk = name;
             boolean ok = sessionAnswer != null ? sessionAnswer.test(name, about)
@@ -4966,8 +5052,23 @@ final class PyJav {
         for (java.util.Map.Entry<String, JPanel> e : pages.entrySet()) {
             JPanel holder = new JPanel(new BorderLayout(0, 10));
             holder.add(e.getValue(), BorderLayout.NORTH);
-            if (ProgramParams.PLUGINS.equals(e.getKey())) holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+            if (ProgramParams.PLUGINS.equals(e.getKey())) {
+                holder.add(this.pluginPicks(ps, values, fileLabels, uses), BorderLayout.CENTER);
+                // Plugin check recommended (a session with other plugins or kits loaded): in red at the top.
+                JPanel top = new JPanel(new BorderLayout(0, 6));
+                this.pluginCheckNote = new JLabel();
+                this.pluginCheckNote.setName("params-plugin-check");
+                this.pluginCheckNote.setForeground(new java.awt.Color(0xE5, 0x48, 0x4D));
+                this.pluginCheckRows.clear();
+                this.showPluginCheck();
+                top.add(this.pluginCheckNote, BorderLayout.NORTH);
+                top.add(e.getValue(), BorderLayout.CENTER);
+                holder.remove(e.getValue());
+                holder.add(top, BorderLayout.NORTH);
+            }
             if (ProgramParams.FILES.equals(e.getKey())) holder.add(this.filesPanel(), BorderLayout.CENTER);
+            // The benches' tabs: Delete extracted files (on with Settings' Don't delete the benches' unzipped files).
+            if (ProgramParams.MODEL.equals(e.getKey()) || ProgramParams.HITS.equals(e.getKey())) holder.add(this.deleteExtractedRow(e.getKey(), ps), BorderLayout.CENTER);
             holder.setName("params-tab:" + e.getKey());
             tabs.addTab(e.getKey(), holder);
         }
@@ -5045,15 +5146,173 @@ final class PyJav {
 
     /** The row's kit name as vst_render's --kit_name (its settings are that kit's), or none. */
     static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, String pluginToken) {
+        return rowKit(ps, values, null, pluginToken);
+    }
+
+    /**
+     * The row's kit name as the open Params show it now: its field's text (typed or chosen, not yet OK'd:
+     * values has it only after OK), else values'. Test and Edit settings then use the kit on screen.
+     */
+    static List<String> rowKit(List<ProgramParams.Param> ps, String[] values, JTextField[] fields, String pluginToken) {
         List<String> out = new ArrayList<String>();
         String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
         for (int i = 0; i < ps.size() && i < values.length; i++) {
-            if (ps.get(i).token.equals(kitToken) && values[i] != null && values[i].trim().length() > 0) {
+            if (!ps.get(i).token.equals(kitToken)) continue;
+            String kit = fields != null && i < fields.length && fields[i] != null ? KitPacks.tidy(fields[i].getText()) : values[i];
+            if (kit != null && kit.trim().length() > 0) {
                 out.add("--kit_name");
-                out.add(values[i].trim());
+                out.add(kit.trim());
             }
         }
         return out;
+    }
+
+    /** Tests: the answer the kit name question gets (null: asked; "" the plugin's own settings, no kit name). */
+    static String kitNameAnswer;
+    /** What the kit name question said last (for the tests). */
+    static String lastKitNameAsk;
+
+    /** Tests: the answer to "is the kit loaded the one named?" (null: asked). */
+    static Boolean kitSameAnswer;
+    /** That question as asked last (for the tests). */
+    static String lastKitSameAsk;
+
+    /** A kit's settings file as vst_render names it: ~/.pulsekit/vst/<plugin> [<kit>].state. */
+    static File kitStateFile(File plug, String kit) {
+        String name = plug.getName().replaceAll("(?i)\\.(vst3|dll|clap|lv2|so|component|vst)$", "");
+        return new File(new File(new File(System.getProperty("user.home"), ".pulsekit"), "vst"), name + " [" + kit.replaceAll("[\\\\/:*?\"<>|]", "_") + "].state");
+    }
+
+    /** The kit's settings files as they are (path to bytes; a file not there: null), to put back. */
+    static java.util.Map<String, byte[]> keptKitFiles(File plug, String kit) {
+        java.util.Map<String, byte[]> out = new java.util.LinkedHashMap<String, byte[]>();
+        File f = kitStateFile(plug, kit);
+        for (String end : new String[] {"", ".params.json", ".load"}) {
+            File one = new File(f.getPath() + end);
+            try {
+                out.put(one.getPath(), one.isFile() ? java.nio.file.Files.readAllBytes(one.toPath()) : null);
+            } catch (Exception ex) {
+                out.put(one.getPath(), null);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Edit settings with a kit named on the row, its window closed: is the kit loaded the one named? No: its
+     * name asked (the field set to it), the settings just saved kept as that kit's, and the named kit's own
+     * settings put back as they were (or none, when it had none). Yes, or no name given: as saved.
+     */
+    void confirmSavedKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug, String log, String named, java.util.Map<String, byte[]> kept) {
+        lastKitNamed = null;
+        String wrote = null;
+        for (String l : log.split("\n")) if (l.trim().startsWith("Wrote Plugin settings: ")) wrote = l.trim().substring("Wrote Plugin settings: ".length()).trim();
+        if (wrote == null || !wrote.toLowerCase(java.util.Locale.ROOT).endsWith(".state")) return;
+        lastKitSameAsk = "Is the kit loaded in " + plugName(plug.getPath()) + " now " + named + " (its drum package and kit)? "
+            + "No: you are asked its name, and " + named + " keeps its own settings.";
+        Boolean same = kitSameAnswer;
+        if (same == null) {
+            int got = JOptionPane.showConfirmDialog(at, "<html><body style='width:340px'>" + lastKitSameAsk + "</body></html>", "Kit loaded \u00b7 " + plugName(plug.getPath()),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            same = got != JOptionPane.NO_OPTION;
+        }
+        if (same) return;
+        JTextField field = null;
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        if (this.shownFields != null && this.shownParams == ps)
+            for (int i = 0; i < ps.size() && i < this.shownFields.length; i++) if (ps.get(i).token.equals(kitToken)) field = this.shownFields[i];
+        if (field != null) field.setText("");
+        boolean go = this.askRowKit(at, ps, pluginToken, plug);
+        java.util.List<String> kit = rowKit(ps, new String[ps.size()], this.shownParams == ps ? this.shownFields : null, pluginToken);
+        if (!go || kit.isEmpty() || kit.get(1).equals(named)) {
+            if (field != null && (!go || kit.isEmpty())) field.setText(named);
+            return;
+        }
+        File to = kitStateFile(plug, kit.get(1));
+        try {
+            for (String end : new String[] {"", ".params.json", ".load"}) {
+                File from = new File(wrote + end);
+                if (from.isFile()) java.nio.file.Files.copy(from.toPath(), new File(to.getPath() + end).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            // The named kit's own settings as they were before the window was opened.
+            if (kept != null) for (java.util.Map.Entry<String, byte[]> e : kept.entrySet()) {
+                File f = new File(e.getKey());
+                if (e.getValue() == null) f.delete();
+                else java.nio.file.Files.write(f.toPath(), e.getValue());
+            }
+            lastKitNamed = "Settings kept for " + kit.get(1) + ": " + to.getName() + "; " + named + "'s put back as they were";
+        } catch (Exception ex) {
+            lastKitNamed = "The settings could not be kept for " + kit.get(1) + ": " + ex.getMessage();
+        }
+        app.setNow(lastKitNamed);
+    }
+
+    /** What naming the kit after Edit settings did last (for the tests). */
+    static String lastKitNamed;
+
+    /**
+     * Edit settings run with Kit loaded empty, its settings saved as the plugin's own ("Wrote Plugin settings:
+     * ...\SSDSampler5.state"): the kit's name asked (askRowKit), then those settings copied as that kit's
+     * ("SSDSampler5 [SSD5 Classic Metal_Cracky].state", its .params.json and .load too), so Test and runs of the
+     * row play it. No name: they stay the plugin's own.
+     */
+    void nameSavedKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug, String log) {
+        lastKitNamed = null;
+        String wrote = null;
+        for (String l : log.split("\n")) if (l.trim().startsWith("Wrote Plugin settings: ")) wrote = l.trim().substring("Wrote Plugin settings: ".length()).trim();
+        if (wrote == null || !wrote.toLowerCase(java.util.Locale.ROOT).endsWith(".state") || wrote.contains("[")) return;
+        if (!this.askRowKit(at, ps, pluginToken, plug)) return;
+        java.util.List<String> kit = rowKit(ps, new String[ps.size()], this.shownParams == ps ? this.shownFields : null, pluginToken);
+        if (kit.isEmpty()) return;
+        String safe = kit.get(1).replaceAll("[\\\\/:*?\"<>|]", "_");
+        String base = wrote.substring(0, wrote.length() - ".state".length());
+        File to = new File(base + " [" + safe + "].state");
+        try {
+            for (String end : new String[] {"", ".params.json", ".load"}) {
+                File from = new File(wrote + end);
+                if (from.isFile()) java.nio.file.Files.copy(from.toPath(), new File(to.getPath() + end).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            lastKitNamed = "Settings kept for " + kit.get(1) + ": " + to.getName();
+        } catch (Exception ex) {
+            lastKitNamed = "The settings could not be kept for " + kit.get(1) + ": " + ex.getMessage();
+        }
+        app.setNow(lastKitNamed);
+    }
+
+    /**
+     * Which kit was loaded? Its name (the kits named for the plugin before offered) goes into the row's Kit
+     * loaded. Without a name the settings stay the plugin's own. False: cancelled.
+     */
+    boolean askRowKit(java.awt.Component at, List<ProgramParams.Param> ps, String pluginToken, File plug) {
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        JTextField field = null;
+        if (this.shownFields != null && this.shownParams == ps) {
+            for (int i = 0; i < ps.size() && i < this.shownFields.length; i++) if (ps.get(i).token.equals(kitToken)) field = this.shownFields[i];
+        }
+        if (field == null) return true;
+        lastKitNameAsk = "Which kit did you load in " + plugName(plug.getPath()) + "? Its settings are kept under this name (Kit loaded), "
+            + "so Test and runs of this row play it. Leave it empty to keep them as the plugin's own settings, without a kit name.";
+        String name = kitNameAnswer;
+        if (name == null) {
+            java.util.List<String> known = VstLists.kitsOnlyFor(plug.getPath());
+            javax.swing.JComboBox<String> box = new javax.swing.JComboBox<String>(known.toArray(new String[0]));
+            box.setEditable(true);
+            box.setSelectedItem("");
+            JPanel ask = new JPanel(new BorderLayout(0, 6));
+            ask.add(new JLabel("<html><body style='width:320px'>" + lastKitNameAsk + "</body></html>"), BorderLayout.NORTH);
+            ask.add(box, BorderLayout.CENTER);
+            int got = JOptionPane.showConfirmDialog(at, ask, "Kit loaded \u00b7 " + plugName(plug.getPath()), JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (got != JOptionPane.OK_OPTION) return false;
+            Object v = box.getEditor().getItem();
+            name = v == null ? "" : v.toString();
+        }
+        name = KitPacks.tidy(name.trim());
+        if (name.length() > 0) {
+            field.setText(name);
+            // A new name (its pack and set) onto the kit lists now, for this plugin: Choose and the next question offer it.
+            VstLists.rememberKits("--plugin \"" + plug.getPath() + "\" --kit_name \"" + name + "\"");
+        }
+        return true;
     }
 
     /** A plugin row's Test: vst_render --check with the row's map and DrumMidi's jar (the kit's drums heard or not). */
@@ -5062,6 +5321,7 @@ final class PyJav {
             app.setNow("Choose a plugin first (" + token + ")");
             return;
         }
+        this.pluginChecked(token);
         final File plug = new File(path);
         String problem = DllInfo.problem(plug);
         if (DllInfo.BRIDGED.equals(problem) || DllInfo.isLv2(plug)) carlaRack();
@@ -5077,7 +5337,7 @@ final class PyJav {
             extra.add("--map");
             extra.add(values[i].trim());
         }
-        extra.addAll(rowKit(ps, values, token));
+        extra.addAll(rowKit(ps, values, this.shownParams == ps ? this.shownFields : null, token));
         VstLists.unpackMaps();
         try {
             File jar = new File(new File(PromptDb.dir(), "pyjav-in"), "DrumMidi_CRT.jar");
@@ -5152,6 +5412,108 @@ final class PyJav {
      * clicked: Use as plugin 1 to 4 fills that row (and ticks its Use).
      */
     static final String PICKS_TIP = "Favourites and Recently used: click a plugin to use it as plugin 1 to 4, or drag it onto a plugin row";
+
+    /** The Params' switches as shown (their boxes), for the benches' Delete extracted files. */
+    javax.swing.JCheckBox[] shownChecks;
+    /** The Params' values as typed (folder rows keep theirs here, not in a field). */
+    String[] shownValues;
+    /** The tests' answer to Delete extracted files' question (null: asked), and what it did. */
+    static Boolean deleteExtractedYes;
+    static String deleteExtractedSaid;
+
+    /** A row's text now, by its switch ("" when it is not there or empty). */
+    String shownValue(List<ProgramParams.Param> ps, String token) {
+        for (int i = 0; i < ps.size(); i++) {
+            if (!ps.get(i).token.equals(token)) continue;
+            javax.swing.text.JTextComponent c = this.shownAreas != null && this.shownAreas[i] != null ? this.shownAreas[i] : this.shownFields != null ? this.shownFields[i] : null;
+            if (c != null) return c.getText().trim();
+            return this.shownValues != null && this.shownValues[i] != null ? this.shownValues[i].trim() : "";
+        }
+        return "";
+    }
+
+    /** A folder as vst_render takes it: relative ones under the program files folder. */
+    File benchPath(String path) {
+        File f = new File(path);
+        return f.isAbsolute() ? f : new File(this.programFolder(), path);
+    }
+
+    /**
+     * The benches' unzip folders as vst_render works them out: the cymbal bench's (its Unzip folder, else
+     * kits in its work folder), and for the Hit model tab the hit bench's too (both share the cymbal
+     * bench's when they run together).
+     */
+    List<File> benchUnzipFolders(String tab, List<ProgramParams.Param> ps) {
+        List<File> out = new ArrayList<File>();
+        String outdir = this.shownValue(ps, "--outdir");
+        String cymIn = this.shownValue(ps, "--bench_dir").isEmpty() ? this.shownValue(ps, "--dir") : this.shownValue(ps, "--bench_dir");
+        String cymUnzip = this.shownValue(ps, "--bench_unzip");
+        if (cymUnzip.isEmpty() && !(outdir.isEmpty() && cymIn.isEmpty())) {
+            String work = this.shownValue(ps, "--bench_work");
+            cymUnzip = new File(work.isEmpty() ? new File(outdir.isEmpty() ? cymIn : outdir, "cymbal-bench").getPath() : work, "kits").getPath();
+        }
+        if (!cymUnzip.isEmpty()) out.add(this.benchPath(cymUnzip));
+        if (ProgramParams.HITS.equals(tab)) {
+            String hitUnzip = this.shownValue(ps, "--hit_unzip");
+            String hitIn = this.shownValue(ps, "--hit_dir");
+            if (hitUnzip.isEmpty() && !(outdir.isEmpty() && hitIn.isEmpty())) hitUnzip = new File(new File(outdir.isEmpty() ? hitIn : outdir, "hit-bench"), "kits").getPath();
+            if (!hitUnzip.isEmpty()) {
+                File h = this.benchPath(hitUnzip);
+                if (!out.contains(h)) out.add(0, h);
+            }
+        }
+        return out;
+    }
+
+    /** Delete extracted files: the benches' unzip folders emptied, asked first; on only with Don't delete ticked. */
+    JPanel deleteExtractedRow(final String tab, final List<ProgramParams.Param> ps) {
+        JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 4));
+        final JButton del = new JButton(ProgramParams.DELETE_EXTRACTED);
+        del.setName("params-delete-extracted:" + tab);
+        javax.swing.JCheckBox keep = null;
+        for (int i = 0; i < ps.size(); i++) if (ps.get(i).token.equals("--bench_keep") && this.shownChecks != null) keep = this.shownChecks[i];
+        final javax.swing.JCheckBox keepBox = keep;
+        final Runnable state = () -> {
+            boolean on = keepBox != null && keepBox.isSelected();
+            del.setEnabled(on);
+            del.setToolTipText(on ? "The kits' unpacked renders deleted (DrumMidi's kept results stay)" : ProgramParams.DELETE_EXTRACTED_OFF);
+        };
+        state.run();
+        if (keepBox != null) keepBox.addItemListener(ev -> state.run());
+        del.addActionListener(ev -> {
+            List<File> there = new ArrayList<File>();
+            for (File f : this.benchUnzipFolders(tab, ps)) if (f.isDirectory()) there.add(f);
+            if (there.isEmpty()) {
+                deleteExtractedSaid = "No extracted files to delete";
+                app.setNow(deleteExtractedSaid);
+                return;
+            }
+            StringBuilder list = new StringBuilder();
+            for (File f : there) list.append("\n").append(f.getPath());
+            boolean yes = deleteExtractedYes != null ? deleteExtractedYes.booleanValue()
+                : JOptionPane.showConfirmDialog(del, "Delete the extracted files in:" + list + "\n\nDrumMidi's kept results stay; the next bench unpacks the kits' zips again. Are you sure?",
+                    ProgramParams.DELETE_EXTRACTED, JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION;
+            if (!yes) return;
+            int gone = 0;
+            for (File f : there) {
+                File[] in = f.listFiles();
+                if (in != null) for (File k : in) {
+                    deleteTree(k);
+                    gone++;
+                }
+            }
+            deleteExtractedSaid = "Deleted the extracted files: " + gone + (gone == 1 ? " kit" : " kits") + " in " + there.size() + (there.size() == 1 ? " folder" : " folders");
+            app.setNow(deleteExtractedSaid);
+        });
+        row.add(del);
+        return row;
+    }
+
+    static void deleteTree(File f) {
+        File[] in = f.isDirectory() && !java.nio.file.Files.isSymbolicLink(f.toPath()) ? f.listFiles() : null;
+        if (in != null) for (File k : in) deleteTree(k);
+        f.delete();
+    }
 
     JPanel pluginPicks(final List<ProgramParams.Param> ps, final String[] values, final JLabel[] fileLabels, final javax.swing.JCheckBox[] uses) {
         PluginLibrary.load(PromptDb.dir());
@@ -5824,6 +6186,89 @@ final class PyJav {
     /** The Use as plugin menu shown last (for the tests). */
     static javax.swing.JPopupMenu lastUseMenu;
 
+    /** The plugin rows a session loaded with another plugin or kit (their --plugin tokens): a check recommended. */
+    final java.util.Set<String> pluginCheckRows = new java.util.TreeSet<String>();
+    String pluginCheckSession = "";
+    /** The Plugins tab's red line saying it. */
+    JLabel pluginCheckNote;
+
+    /** Each plugin row's plugin and kit ("path\tkit"), by its --plugin token. */
+    java.util.Map<String, String> pluginRows(List<ProgramParams.Param> ps, String[] values, JTextField[] fields) {
+        java.util.Map<String, String> out = new java.util.TreeMap<String, String>();
+        for (int i = 0; i < ps.size(); i++) {
+            String t = ps.get(i).token;
+            if (!t.matches("--plugin\\d?")) continue;
+            String kit = "";
+            String kt = "--kit_name" + t.substring("--plugin".length());
+            for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(kt)) kit = fields != null && k < fields.length && fields[k] != null ? fields[k].getText().trim() : String.valueOf(values[k] == null ? "" : values[k]).trim();
+            out.put(t, String.valueOf(values[i] == null ? "" : values[i]).trim() + "\t" + KitPacks.tidy(kit));
+        }
+        return out;
+    }
+
+    /** The red line: the rows still to check (Test or Edit settings on a row takes it off), hidden when none. */
+    void showPluginCheck() {
+        if (this.pluginCheckNote == null) return;
+        java.util.List<String> rows = new java.util.ArrayList<String>();
+        for (String t : this.pluginCheckRows) rows.add("plugin " + (t.equals("--plugin") ? "1" : t.substring("--plugin".length())));
+        lastPluginCheck = rows.isEmpty() ? "" : "Plugin check recommended: " + String.join(", ", rows) + (rows.size() == 1 ? " has" : " have") + " another plugin or kit with the session "
+            + this.pluginCheckSession + ". Test " + (rows.size() == 1 ? "it" : "them") + " (or Edit settings) to be sure the kits named are the ones played.";
+        this.pluginCheckNote.setText(lastPluginCheck.isEmpty() ? "" : "<html><body style='width:600px'>" + lastPluginCheck + "</body></html>");
+        this.pluginCheckNote.setVisible(!lastPluginCheck.isEmpty());
+    }
+
+    /** What the red line says now (for the tests). */
+    static String lastPluginCheck = "";
+
+    /** A row tested or its settings edited: off the list of rows to check. */
+    void pluginChecked(String token) {
+        if (this.pluginCheckRows.remove(token)) this.showPluginCheck();
+    }
+
+    /** Each plugin row's Edit settings (by its --plugin token), for the offer to open it. */
+    final java.util.Map<String, JButton> editButtons = new java.util.HashMap<String, JButton>();
+    /** Tests: the answer to the offer (null: asked); what it asked last. */
+    static Boolean editOfferAnswer;
+    static String lastEditOffer;
+
+    /** Whether settings are saved for the kit (the plugin's own without one), a kit's name spaced otherwise too. */
+    static boolean settingsSaved(File plug, String kit) {
+        File want = kit == null || kit.trim().isEmpty()
+            ? new File(kitStateFile(plug, "x").getParentFile(), plug.getName().replaceAll("(?i)\\.(vst3|dll|clap|lv2|so|component|vst)$", "") + ".state")
+            : kitStateFile(plug, kit.trim());
+        if (want.isFile()) return true;
+        String loose = want.getName().replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        File[] all = want.getParentFile().listFiles();
+        if (all != null) for (File f : all) if (f.getName().replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT).equals(loose)) return true;
+        return false;
+    }
+
+    /**
+     * A plugin put on a row (Choose plugin, Favourites, Recently used, the Plugins list, a pack's set): no
+     * settings saved for its kit yet (or for the plugin, no kit named) — Edit settings offered, to load it now.
+     * Saved before: nothing asked.
+     */
+    void offerEdit(java.awt.Component at, String pluginToken, String path) {
+        if (path == null || path.isEmpty() || !new File(path).exists() || !pluginToken.matches("--plugin\\d?")) return;
+        List<ProgramParams.Param> ps = this.shownParams;
+        JTextField[] fields = this.shownFields;
+        String kit = "";
+        String kitToken = "--kit_name" + pluginToken.substring("--plugin".length());
+        if (ps != null && fields != null) for (int i = 0; i < ps.size() && i < fields.length; i++) if (ps.get(i).token.equals(kitToken) && fields[i] != null) kit = KitPacks.tidy(fields[i].getText());
+        File plug = new File(path);
+        if (settingsSaved(plug, kit)) {
+            lastEditOffer = null;
+            return;
+        }
+        lastEditOffer = "No settings are saved for " + (kit.isEmpty() ? plugName(path) : kit + " in " + plugName(path)) + " yet, so it would play "
+            + (kit.isEmpty() ? "as it starts" : "the kit Edit settings saved last") + ". Open Edit settings now to load " + (kit.isEmpty() ? "its kit" : kit) + "?";
+        JButton edit = this.editButtons.get(pluginToken);
+        boolean yes = editOfferAnswer != null ? editOfferAnswer.booleanValue()
+            : JOptionPane.showConfirmDialog(at, "<html><body style='width:340px'>" + lastEditOffer + "</body></html>", "Edit settings \u00b7 " + plugName(path),
+                JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+        if (yes && edit != null && editOfferAnswer == null) edit.doClick();
+    }
+
     /** A plugin put on a row (and its Use ticked). */
     void usePlugin(List<ProgramParams.Param> ps, String[] values, JLabel[] fileLabels, javax.swing.JCheckBox[] uses, String token, String path) {
         for (int i = 0; i < ps.size(); i++) {
@@ -5859,6 +6304,7 @@ final class PyJav {
             }
         }
         app.setNow(plugName(path) + " is " + ProgramParams.useAs(token).substring(7) + ", its Kit loaded " + kit);
+        this.offerEdit(this.editButtons.get(token), token, path);
     }
 
     /** The tests: the kit question's answer (true: the most recently used kit), else asked; its text shown last. */
@@ -5905,6 +6351,7 @@ final class PyJav {
                 app.setNow(plug + ": Kit loaded left blank: name the kit loaded in it (its list has " + kits.size() + ")");
             }
         }
+        this.offerEdit(at, pluginToken, path);
     }
 
     /** Clear beside a list's Choose: shown while something is chosen or typed (SogniMusic's --workflow back to a new run). */

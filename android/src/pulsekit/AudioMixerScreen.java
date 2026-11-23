@@ -46,6 +46,7 @@ final class AudioMixerScreen {
         final Runnable[] fill = new Runnable[1];
         fill[0] = () -> {
             rows.removeAllViews();
+            WAVES.clear();
             if (AudioMix.tracks.isEmpty()) {
                 TextView none = app.text("No tracks yet: " + AudioMix.IMPORT, 14, false);
                 none.setTag("audiomixer-empty");
@@ -81,27 +82,50 @@ final class AudioMixerScreen {
             if (DrumPadScreen.last != null && DrumPadScreen.last.isShowing()) DrumPadScreen.last.dismiss();
             if (DrumGridScreen.last != null && DrumGridScreen.last.isShowing()) DrumGridScreen.last.dismiss();
             if (AudioMix.tracks.isEmpty()) return;
-            new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?")
+            new AlertDialog.Builder(app).setTitle(AudioMix.CLEAR).setMessage("Take every track out of the AudioMixer?"
+                    + (AudioMix.project.isEmpty() ? "" : "\nThe project " + AudioMix.project + " keeps what was saved in it."))
                 .setPositiveButton("Clear", (d, w) -> {
                     AudioMix.clear();
                     fill[0].run();
+                    titled();
                 }).setNegativeButton("Cancel", null).show();
         });
         clear.setTag("audiomixer-clear");
-        more.addView(mix);
-        more.addView(clear, margin(app));
+        // Mixdown beside ▶ Play mix and ■; New project with Save project, Open project with Export project
+        // (fewer rows above the tracks).
+        transport.addView(mix, margin(app));
+        more.addView(clear);
+        // Projects: the tracks and their settings saved under a name, and opened again.
+        LinearLayout projectRow = app.row();
+        TextView saveP = app.pill(AudioMix.SAVE_PROJECT, false, v -> saveProject(app, status));
+        saveP.setTag("audiomixer-save-project");
+        TextView openP = app.pill(AudioMix.OPEN_PROJECT, false, v -> openProject(app, status, fill[0]));
+        openP.setTag("audiomixer-open-project");
+        TextView exportP = app.pill(AudioMix.EXPORT_PROJECT, false, v -> exportProject(app, status));
+        exportP.setTag("audiomixer-export-project");
+        more.addView(saveP, margin(app));
+        projectRow.addView(openP);
+        projectRow.addView(exportP, margin(app));
         col.addView(buttons);
         col.addView(padsRow);
         col.addView(transport);
         col.addView(more);
+        col.addView(projectRow);
         col.addView(status);
         col.addView(rows);
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
         fill[0].run();
         refill = fill[0];
-        if (last != null && last.isShowing()) last.dismiss();
-        last = new AlertDialog.Builder(app).setTitle(AudioMix.TITLE).setView(scroll).setPositiveButton("Close", null).create();
+        // The mixer shown before goes (one of this app's: an earlier app's window is gone with it).
+        if (last != null && last.isShowing() && last.getOwnerActivity() == app) {
+            try {
+                last.dismiss();
+            } catch (RuntimeException ignored) {
+                // gone already
+            }
+        }
+        last = new AlertDialog.Builder(app).setTitle(title()).setView(scroll).setPositiveButton("Close", null).create();
         last.setOnDismissListener(d -> {
             stop();
             TrackRecorder.stop();
@@ -122,6 +146,9 @@ final class AudioMixerScreen {
         box.setPadding(0, app.dp(8), 0, app.dp(4));
         final TextView name = app.text(AudioMix.line(t), 14, true);
         box.addView(name);
+        // Its waveform, with where the playing has got to (▶, Play mix).
+        WaveView wave = new WaveView(app, t);
+        box.addView(wave, new LinearLayout.LayoutParams(-1, app.dp(44)));
         SeekBar vol = new SeekBar(app);
         vol.setTag("audiomixer-volume:" + t.name);
         vol.setMax(AudioMix.MAX_VOLUME);
@@ -179,7 +206,7 @@ final class AudioMixerScreen {
                     l[i] = Math.max(-1, Math.min(1, l[i] * g));
                     rr[i] = Math.max(-1, Math.min(1, rr[i] * g));
                 }
-                play(l, rr, status, t.name);
+                play(l, rr, status, t.name, java.util.Collections.singletonList(t));
             } catch (Exception ex) {
                 say(status, "Could not play " + t.name);
             }
@@ -350,6 +377,10 @@ final class AudioMixerScreen {
 
     /** `file` (named `name`) added as a track, off the main thread; the rows made again. */
     static void add(final MainActivity app, final String name, final File file, final TextView status, final Runnable fill) {
+        if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
+            importProject(app, name, file, status, fill);
+            return;
+        }
         if (!AudioMix.importable(name)) {
             say(status, name + " is not a WAV, an MP3, an M4A or a MIDI file");
             return;
@@ -404,6 +435,308 @@ final class AudioMixerScreen {
         }, "pulsekit-mixdown").start();
     }
 
+    /** The window's title: AudioMixer · its project's name, when it has one. */
+    static String title() {
+        return AudioMix.TITLE + (AudioMix.project.isEmpty() ? "" : " \u00b7 " + AudioMix.project);
+    }
+
+    static void titled() {
+        if (last != null && last.isShowing()) last.setTitle(title());
+    }
+
+    /** The tests' name for Save project and project for Open project (instead of asking). */
+    static String projectAnswer;
+
+    /** Save project: a name asked (the project's own, or Project N), a project of that name replaced when Yes. */
+    static void saveProject(final MainActivity app, final TextView status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to save");
+            return;
+        }
+        String suggest = AudioMix.project;
+        if (suggest.isEmpty()) {
+            int n = 1;
+            while (AudioMix.projectExists("Project " + n)) n++;
+            suggest = "Project " + n;
+        }
+        if (projectAnswer != null) {
+            saveAs(app, status, projectAnswer);
+            return;
+        }
+        final android.widget.EditText name = new android.widget.EditText(app);
+        name.setSingleLine(true);
+        name.setText(suggest);
+        name.setSelectAllOnFocus(true);
+        name.setTag("audiomixer-project-name");
+        new AlertDialog.Builder(app).setTitle(AudioMix.SAVE_PROJECT).setMessage("The tracks and their settings (volume, gain, Mute, Solo) under this name:")
+            .setView(name).setPositiveButton("Save", (d, w) -> {
+                final String n = name.getText().toString().trim();
+                if (n.isEmpty()) return;
+                if (AudioMix.projectExists(n) && !AudioMix.projectFolderName(n).equals(AudioMix.project)) {
+                    new AlertDialog.Builder(app).setTitle(AudioMix.SAVE_PROJECT).setMessage("A project " + n + " is saved already. Replace it?")
+                        .setPositiveButton("Replace", (d2, w2) -> saveAs(app, status, n)).setNegativeButton("Cancel", null).show();
+                } else saveAs(app, status, n);
+            }).setNegativeButton("Cancel", null).show();
+    }
+
+    static void saveAs(MainActivity app, TextView status, String name) {
+        try {
+            AudioMix.saveProject(name);
+            say(status, "Saved the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+            titled();
+        } catch (Exception ex) {
+            say(status, "Could not save the project: " + ex.getMessage());
+        }
+    }
+
+    /** Open project: the saved ones listed (newest first); the mixer's tracks replaced by the one picked. */
+    static void openProject(final MainActivity app, final TextView status, final Runnable fill) {
+        final java.util.List<String> names = AudioMix.projects();
+        if (names.isEmpty()) {
+            say(status, "No projects saved yet: " + AudioMix.SAVE_PROJECT + " keeps the tracks under a name");
+            return;
+        }
+        if (projectAnswer != null) {
+            openNamed(status, fill, projectAnswer);
+            return;
+        }
+        new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT).setItems(names.toArray(new String[0]), (d, w) -> {
+            final String n = names.get(w);
+            if (AudioMix.tracks.isEmpty()) {
+                openNamed(status, fill, n);
+                return;
+            }
+            new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT)
+                .setMessage("Open " + n + "? It takes the place of the AudioMixer's tracks now: what is not saved in a project is lost.")
+                .setPositiveButton("Open", (d2, w2) -> openNamed(status, fill, n)).setNegativeButton("Cancel", null).show();
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    static void openNamed(TextView status, Runnable fill, String name) {
+        stop();
+        TrackRecorder.stop();
+        try {
+            AudioMix.openProject(name);
+            fill.run();
+            titled();
+            say(status, "Opened the project " + AudioMix.project + " (" + AudioMix.tracks.size() + (AudioMix.tracks.size() == 1 ? " track)" : " tracks)"));
+        } catch (Exception ex) {
+            say(status, "Could not open the project: " + ex.getMessage());
+        }
+    }
+
+    /** The tests' answer to opening an imported project now (null: asked), and Export project's file last saved. */
+    static Boolean importOpen;
+    static String lastExport;
+
+    /** An exported project's zip kept as a project; opened now when Yes (it takes the place of the tracks). */
+    static void importProject(final MainActivity app, final String name, final File file, final TextView status, final Runnable fill) {
+        final String kept;
+        try {
+            byte[] zip = AudioMix.read(file);
+            if (!AudioMix.isProjectZip(zip)) {
+                say(status, name + " is not an exported AudioMixer project");
+                return;
+            }
+            kept = AudioMix.importZip(zip, name);
+        } catch (Exception ex) {
+            say(status, "Could not import " + name + ": " + ex.getMessage());
+            return;
+        }
+        final Runnable open = () -> openNamed(status, fill, kept);
+        if (importOpen != null) {
+            if (importOpen.booleanValue()) open.run();
+            else say(status, "Imported the project " + kept + ": " + AudioMix.OPEN_PROJECT + " opens it");
+            return;
+        }
+        new AlertDialog.Builder(app).setTitle(AudioMix.OPEN_PROJECT)
+            .setMessage("Imported the project " + kept + ". Open it now? It takes the place of the AudioMixer's tracks"
+                + (AudioMix.tracks.isEmpty() ? "." : ": what is not saved in a project is lost."))
+            .setPositiveButton("Open", (d, w) -> open.run())
+            .setNegativeButton("Not now", (d, w) -> say(status, "Imported the project " + kept + ": " + AudioMix.OPEN_PROJECT + " opens it")).show();
+    }
+
+    /** Export project: the tracks and their settings in one zip, in Download. */
+    static void exportProject(final MainActivity app, final TextView status) {
+        if (AudioMix.tracks.isEmpty()) {
+            say(status, "No tracks to export");
+            return;
+        }
+        say(status, "Exporting…");
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        new Thread(() -> {
+            String said;
+            String where = null;
+            try {
+                where = ArtJava.publish(app, AudioMix.exportName(), AudioMix.exportZip());
+                if (where == null) throw new java.io.IOException("Download took no file");
+                said = "Exported the project: " + where;
+            } catch (Exception ex) {
+                said = "Could not export the project: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            }
+            lastExport = where;
+            final String shown = said;
+            main.post(() -> {
+                say(status, shown);
+                app.setNow(shown);
+            });
+        }, "pulsekit-mixer-export").start();
+    }
+
+    /** The last run's question (for the tests). */
+    static AlertDialog lastOffer;
+
+    /**
+     * A run's sounds held for the mixer (--to_mixer): one into an empty mixer goes in at once; else asked
+     * which go in (all ticked), and whether they replace the mixer's tracks or join them. Then the mixer.
+     */
+    static void offer(final MainActivity app) {
+        final java.util.List<JavaRun.FileOut> waiting = MixerOut.takeWaiting();
+        if (waiting.isEmpty()) return;
+        if (!MixerOut.needsAsking(waiting.size())) {
+            addRun(app, waiting, false);
+            return;
+        }
+        int has = AudioMix.tracks.size();
+        LinearLayout box = app.col();
+        box.setPadding(app.dp(20), app.dp(8), app.dp(20), 0);
+        box.addView(app.text(MixerOut.askRun(waiting.size(), has), 14, false));
+        final java.util.List<android.widget.CheckBox> ticks = new java.util.ArrayList<android.widget.CheckBox>();
+        for (JavaRun.FileOut f : waiting) {
+            android.widget.CheckBox c = new android.widget.CheckBox(app);
+            c.setText(new File(f.name).getName());
+            // Ticked as its kind was last time (song tracks, drum MIDIs, each stem).
+            c.setChecked(MixerOut.ticked(MixerOut.kindOf(f.name)));
+            c.setTag("audiomixer-offer-track");
+            ticks.add(c);
+            box.addView(c);
+        }
+        ScrollView scroll = new ScrollView(app);
+        scroll.addView(box);
+        final java.util.function.Function<Boolean, Runnable> go = replace -> () -> {
+            java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
+            boolean[] on = new boolean[waiting.size()];
+            for (int i = 0; i < waiting.size(); i++) {
+                on[i] = ticks.get(i).isChecked();
+                if (on[i]) chosen.add(waiting.get(i));
+            }
+            MixerOut.rememberTicks(waiting, on);
+            addRun(app, chosen, replace.booleanValue());
+        };
+        AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(MixerOut.ASK_RUN_TITLE).setView(scroll)
+            .setNegativeButton(MixerOut.SKIP, (d, w) -> app.setNow("Not added to the AudioMixer"));
+        if (has > 0) {
+            b.setPositiveButton(MixerOut.REPLACE, (d, w) -> go.apply(Boolean.TRUE).run());
+            b.setNeutralButton(MixerOut.ADD_TO, (d, w) -> go.apply(Boolean.FALSE).run());
+        } else b.setPositiveButton(MixerOut.ADD_THESE, (d, w) -> go.apply(Boolean.FALSE).run());
+        lastOffer = b.show();
+    }
+
+    /** The chosen sounds into the mixer (in the background), then the mixer shown. */
+    static void addRun(final MainActivity app, final java.util.List<JavaRun.FileOut> chosen, final boolean replace) {
+        if (chosen.isEmpty()) {
+            app.setNow("Nothing added to the AudioMixer");
+            return;
+        }
+        new Thread(() -> {
+            final String said = MixerOut.addChosen(chosen, replace);
+            app.handler.post(() -> {
+                app.setNow(said.split("\n")[0] + (said.contains("\n") ? " …" : ""));
+                show(app);
+            });
+        }, "pulsekit-mixer-run").start();
+    }
+
+    /** The tracks playing now (▶: its own; Play mix: those heard), the frames played, the rows' waveforms. */
+    static final java.util.Set<AudioMix.Track> SOUNDING = new java.util.HashSet<AudioMix.Track>();
+    static int playFrames;
+    static final java.util.List<WaveView> WAVES = new java.util.ArrayList<WaveView>();
+    static android.os.Handler tick;
+
+    /** The main thread's handler for the playheads (made again when the main looper is a new one). */
+    static android.os.Handler tick() {
+        android.os.Looper main = android.os.Looper.getMainLooper();
+        if (tick == null || tick.getLooper() != main) tick = new android.os.Handler(main);
+        return tick;
+    }
+
+    /** Seconds played of what plays now, or -1. */
+    static double playedSeconds() {
+        AudioTrack t = playing;
+        if (t == null) return -1;
+        try {
+            return (t.getPlaybackHeadPosition() & 0xffffffffL) / (double) AudioMix.RATE;
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    /** The playheads moved about 25 times a second while something plays; at its end they go. */
+    static final Runnable TICKER = new Runnable() {
+        public void run() {
+            double at = playedSeconds();
+            if (at < 0 || at * AudioMix.RATE >= playFrames) SOUNDING.clear();
+            for (WaveView w : WAVES) w.invalidate();
+            if (!SOUNDING.isEmpty()) tick().postDelayed(this, 40);
+        }
+    };
+
+    /** A track's waveform (WAV or MP3 alike: the mixer keeps each as a WAV) and the playhead on it. */
+    static final class WaveView extends android.view.View {
+        final AudioMix.Track t;
+        float[] peaks;
+        int loading = -1;
+        final android.graphics.Paint wave = new android.graphics.Paint(), head = new android.graphics.Paint(), base = new android.graphics.Paint();
+
+        WaveView(MainActivity app, AudioMix.Track t) {
+            super(app);
+            this.t = t;
+            setTag("audiomixer-wave:" + t.name);
+            wave.setColor(0xFF8FA89A);
+            head.setColor(0xFFF2D06B);
+            head.setStrokeWidth(app.dp(2));
+            base.setColor(0x33FFFFFF);
+            WAVES.add(this);
+        }
+
+        /** The playhead's place (0 to 1) on this track now, or -1 when it is not playing. */
+        double playhead() {
+            if (!SOUNDING.contains(t) || t.seconds <= 0) return -1;
+            double at = playedSeconds();
+            return at < 0 || at > t.seconds ? -1 : at / t.seconds;
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas c) {
+            int w = getWidth(), h = getHeight();
+            int cols = Math.max(1, w / 3);
+            if ((peaks == null || peaks.length != cols) && loading != cols) {
+                // Read in the background: a long WAV would hold up the screen.
+                loading = cols;
+                final int want = cols;
+                new Thread(() -> {
+                    final float[] p = AudioMix.peaks(t, want);
+                    // Through the view: a window closed meanwhile takes nothing more.
+                    post(() -> {
+                        peaks = p;
+                        invalidate();
+                    });
+                }, "pulsekit-mixer-wave").start();
+            }
+            float mid = h / 2f;
+            c.drawRect(0, mid - 0.5f, w, mid + 0.5f, base);
+            if (peaks != null) {
+                float cw = w / (float) peaks.length;
+                for (int i = 0; i < peaks.length; i++) {
+                    float a = Math.max(0.5f, peaks[i] * (mid - 2));
+                    c.drawRect(i * cw, mid - a, i * cw + Math.max(1f, cw - 1), mid + a, wave);
+                }
+            }
+            double at = playhead();
+            if (at >= 0) c.drawLine((float) (at * w), 0, (float) (at * w), h, head);
+        }
+    }
+
     /** The open screen shows the tracks again (a run added some). */
     static void refresh() {
         if (last != null && last.isShowing() && refill != null) refill.run();
@@ -414,14 +747,20 @@ final class AudioMixerScreen {
         new Thread(() -> {
             try {
                 float[][] m = AudioMix.mix(null);
-                main.post(() -> play(m[0], m[1], status, "the mix"));
+                final java.util.List<AudioMix.Track> heard = AudioMix.heard();
+                main.post(() -> play(m[0], m[1], status, "the mix", heard));
             } catch (Exception ex) {
                 main.post(() -> say(status, "Could not mix: " + ex.getMessage()));
             }
         }, "pulsekit-mixer-play").start();
     }
 
+    /** Plays a sound that is no mixer track's (a pad, a kit's sound): no playhead. */
     static void play(float[] l, float[] r, TextView status, String what) {
+        play(l, r, status, what, java.util.Collections.<AudioMix.Track>emptyList());
+    }
+
+    static void play(float[] l, float[] r, TextView status, String what, java.util.Collection<AudioMix.Track> which) {
         stop();
         if (l.length == 0) {
             say(status, "Nothing to play");
@@ -440,6 +779,10 @@ final class AudioMixerScreen {
             t.write(pcm, 0, pcm.length);
             t.play();
             playing = t;
+            SOUNDING.addAll(which);
+            playFrames = l.length;
+            tick().removeCallbacks(TICKER);
+            tick().post(TICKER);
             say(status, "Playing " + what);
         } catch (Exception ex) {
             say(status, "No audio output for " + what);
@@ -449,6 +792,11 @@ final class AudioMixerScreen {
     static void stop() {
         AudioTrack t = playing;
         playing = null;
+        if (tick != null) tick.removeCallbacks(TICKER);
+        if (!SOUNDING.isEmpty()) {
+            SOUNDING.clear();
+            for (WaveView w : WAVES) w.invalidate();
+        }
         if (t != null) {
             try {
                 t.stop();
@@ -461,7 +809,10 @@ final class AudioMixerScreen {
 
     /** An MP3 read by the phone (MediaExtractor), mono on both sides at its own rate. */
     static AudioIo.StereoPcm decodeMp3(byte[] mp3) throws Exception {
-        File tmp = File.createTempFile("pulsekit-mixer", ".mp3");
+        // In the mixer's own folder: java.io.tmpdir can name a program run's folder that is gone by now.
+        File at = AudioMix.dir;
+        if (at != null && !at.isDirectory()) at.mkdirs();
+        File tmp = File.createTempFile("pulsekit-mixer", ".mp3", at != null && at.isDirectory() ? at : null);
         try {
             java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
             try {

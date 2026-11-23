@@ -93,6 +93,14 @@ for run, (kit, bright) in enumerate((("Bright", 1.6), ("Dark", 0.7))):
     z.writestr("vst-test-%s.txt" % name, "vst_render --test\nPlugin: Fake Drums, kit %s\nNotes mapped (--map, none): none\n" % kit)
     z.writestr("vst-render-run.txt", "vst_render.py --plugin Fake --test --faded-opens\n")
     z.close()
+# A run left out by its date and time: the kit's older run counts instead (a run with silent notes).
+older = os.path.join(work, "older")
+os.makedirs(older, exist_ok=True)
+for stamp in ("20261101-120000", "20261112-120000"):
+    zipfile.ZipFile(os.path.join(older, "vst-render-Fake_Drums_Dark_-%s.zip" % stamp), "w").close()
+left = []
+picked = vr.render_kits(older, False, skip=["20261112-120000"], left=left)
+print("run skipped: %s | left %s | kit skipped: %s" % ([(k[0], k[1]) for k in picked], left, vr.render_kits(older, False, skip=["fake drums dark"])))
 out = os.path.join(work, "out")
 try:
     vr.main(["--cymbal_bench", "--bench_dir", os.path.join(work, "runs"), "--bench_unzip", os.path.join(work, "unzip"), "--outdir", out, "--model_compare",
@@ -171,3 +179,31 @@ print("without alias:", len(vr.render_kits(again, True, {})))
 os.makedirs(os.path.join(work, ".pulsekit", "maps"), exist_ok=True)
 open(os.path.join(work, ".pulsekit", "maps", "kits.txt"), "w").write("[Ugritone Drums]\nSpeed Metal: 1983 Metal = 1983 Metal\n")
 print("with alias:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])
+# Both benches in one run (run separately): one unzip folder, each kit's renders unpacked once and deleted after the cymbal bench.
+import contextlib
+import io
+bout = os.path.join(work, "both-out")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--cymbal_bench", "--model_compare", "--hit_dir", os.path.join(work, "runs"), "--bench_dir", os.path.join(work, "runs"),
+             "--outdir", bout, "--drummidi", jar])
+text = said.getvalue()
+shared = os.path.join(bout, "cymbal-bench", "kits")
+left = [d for d in os.listdir(shared) if os.path.isdir(os.path.join(shared, d)) and any(os.path.isdir(os.path.join(shared, d, s)) for s in ("mp3", "wav"))]
+print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s, renders left %s, cymbal kits %d" % (
+    text.count("unpacking"), "Unzip folder shared with the cymbal model comparison" in text, os.path.isdir(os.path.join(bout, "hit-bench", "kits")), left,
+    text.count("DrumMidi ran on each")))
+# --bench_keep: the renders kept after the bench; a bench run again (its kept results gone, another DrumMidi) unpacks nothing.
+kout = os.path.join(work, "keep-out")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+first = said.getvalue().count("unpacking")
+kunz = os.path.join(kout, "cymbal-bench", "kits")
+kept = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
+import shutil
+shutil.rmtree(os.path.join(kout, "cymbal-bench", "data"))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))

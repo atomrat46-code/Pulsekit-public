@@ -293,6 +293,8 @@ public final class SogniMusic {
     }
     // One session: as if it were the only switch. (--drums_only alone keeps its own prompt.)
     drumsOnly = sessions.size() == 1 && sessions.get(0).equals("drums");
+    // The tracks' names say what plays in them (an instrument session's do already): sogni-Rock-1b198091-drums_bass-turbo.mp3.
+    nameTag = sessions.isEmpty() ? instrumentsTag(drumsOnly, instruments) : sessions.size() == 1 ? sessions.get(0) : "";
     // --test makes drum MIDI from the track and checks it: a track without drums has nothing to find.
     if (testing && sessions.isEmpty() && !(instruments != null && instruments.toLowerCase().matches("(?s).*(drum|kit|percussion).*"))) {
       say("Warning: --test checks the drums DrumMidi finds in the track; add --drums_only, or drums in --instruments (\"drums, bass\")");
@@ -406,10 +408,6 @@ public final class SogniMusic {
     }
     SogniApi api = new SogniApi(apiBase, key);
     // --random, --compare_models and --multi_session each make one track a run (their steps after need one).
-    if (SogniApi.variations > 1 && (randomCount > 0 || sessions.size() > 1 || compareModels != null && compareModels.trim().length() > 0)) {
-      say("Note: --variations is for one track's run; --random, --compare_models and --multi_session make one track a run");
-      SogniApi.variations = 1;
-    }
     if (randomCount > 0) {
       return random(api, randomCount, styles, seed, userPrompt, drumsOnly, instruments, sessions, randomModels, durationGiven ? duration : -1, bpmGiven ? bpm : -1,
           keyGiven ? keyscale : null, timesigGiven ? timesig : -1, lyrics, confirm, maxCost, deleteFromSogni);
@@ -452,7 +450,7 @@ public final class SogniMusic {
         String mime = SogniApi.str(keep.get(v).get("mimeType"));
         String ext = SogniApi.extension(url, SogniApi.extension(mime, ".mp3"));
         // By default the track is named for its genre and run: sogni-Rock-Ballad-6f1262f1.mp3.
-        File one = inWork(out != null ? out : trackName(genre, id) + ext);
+        File one = inWork(out != null ? out : trackName(genre, id) + (nameTag.isEmpty() ? "" : "-" + nameTag) + ext);
         // The file is named for what Sogni sent (an .mp3 is not written as .wav), and nothing is overwritten.
         String given = SogniApi.extension(one.getName(), null);
         if (given != null && !given.equals(ext)) one = new File(one.getPath().substring(0, one.getPath().length() - given.length()) + ext);
@@ -640,6 +638,8 @@ public final class SogniMusic {
     int next = 0;
     int waited = 0;
     int done = 0;
+    // Runs that made nothing (did not start, or no audio).
+    int lost = 0;
     // Sogni's start rate limit (429): the waits in a row for one run, and when the next start may be tried.
     int rateWaits = 0;
     long rateUntil = 0;
@@ -658,7 +658,7 @@ public final class SogniMusic {
           ids.set(next, id);
           active.add(next);
           // One name for all of them, from the first run (sogni-Rock-6f1262f1-turbo.mp3, sogni-Rock-6f1262f1-sft.mp3).
-          if (shared[0] == null) shared[0] = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], id);
+          if (shared[0] == null) shared[0] = out != null ? out.replaceAll("\\.[A-Za-z0-9]{2,4}$", "") : trackName(jobs.get(0)[3], id) + (nameTag.isEmpty() || jobs.get(0)[0].startsWith(nameTag) ? "" : "-" + nameTag);
           next++;
           waited = 0;
           rateWaits = 0;
@@ -686,17 +686,20 @@ public final class SogniMusic {
             failed[next] = true;
             next++;
             done++;
+            lost++;
           }
         }
       }
       if (active.isEmpty()) continue;
       // The oldest run going on: waited for, downloaded, and its place given to the next.
       int i = active.remove(0);
-      String file = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
-      if (file != null) made.add(file);
+      // Each run's variations (--variations): every one saved, under the run's label.
+      List<String> files = finishRun(api, jobs.get(i), ids.get(i), oneName, shared[0], deleteFromSogni);
+      if (files.isEmpty()) lost++;
+      made.addAll(files);
       // The count so far (PyJav shows it on the status line: 12/300).
       done++;
-      if (jobs.size() > 1) say("Tracks: " + done + " of " + jobs.size() + " done (" + made.size() + " made" + (done - made.size() > 0 ? ", " + (done - made.size()) + " failed" : "") + ")");
+      if (jobs.size() > 1) say("Tracks: " + done + " of " + jobs.size() + " done (" + made.size() + " made" + (lost > 0 ? ", " + lost + " failed" : "") + ")");
     }
     if (made.isEmpty()) {
       say("Failed: no track was made");
@@ -738,8 +741,8 @@ public final class SogniMusic {
     return m.contains("Too many active") || m.contains("409") && m.toLowerCase(java.util.Locale.ROOT).contains("active");
   }
 
-  /** A run's track: waited for, downloaded and written; its file's name, or null when it made none. */
-  static String finishRun(SogniApi api, String[] job, String id, boolean oneName, String shared, boolean deleteFromSogni) {
+  /** A run's tracks (each variation): waited for, downloaded and written; their files' names, none when it made none. */
+  static List<String> finishRun(SogniApi api, String[] job, String id, boolean oneName, String shared, boolean deleteFromSogni) {
     String label = job[0];
     String what = kindOf(oneName, label) + label;
     try {
@@ -749,30 +752,39 @@ public final class SogniMusic {
         }
       });
       List<Map<String, Object>> audio = SogniApi.audioArtifacts(wf);
+      List<String> names = new ArrayList<String>();
       if (audio.isEmpty()) {
         say(what + " made no audio: " + why(api, id, wf));
-        return null;
+        return names;
       }
-      String url = SogniApi.str(audio.get(0).get("url"));
-      String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(audio.get(0).get("mimeType")), ".mp3"));
-      String base = oneName ? shared + "-" + label : trackName(job[3], id) + (job.length > 8 && job[8].length() > 0 ? "-" + job[8] : "");
-      File file = inWork(base + ext);
-      for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
-      byte[] data = api.download(url);
-      FileOutputStream fos = new FileOutputStream(file);
-      try {
-        fos.write(data);
-      } finally {
-        fos.close();
+      List<Map<String, Object>> keep = SogniApi.variationsOf(wf, audio);
+      String first = oneName ? shared + "-" + label : trackName(job[3], id) + (job.length > 8 && job[8].length() > 0 ? "-" + job[8] : nameTag.isEmpty() ? "" : "-" + nameTag);
+      for (int v = 0; v < keep.size(); v++) {
+        String url = SogniApi.str(keep.get(v).get("url"));
+        String ext = SogniApi.extension(url, SogniApi.extension(SogniApi.str(keep.get(v).get("mimeType")), ".mp3"));
+        // The first as named, then <name>_Variated2, _Variated3...
+        String base = SogniApi.variationName(first, v);
+        File file = inWork(base + ext);
+        for (int n = 1; file.exists(); n++) file = inWork(base + "(" + n + ")" + ext);
+        byte[] data = api.download(url);
+        FileOutputStream fos = new FileOutputStream(file);
+        try {
+          fos.write(data);
+        } finally {
+          fos.close();
+        }
+        say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
+        // PyJav's line for each track (its file sets, the comparison): "Track:" when nothing is compared.
+        // A variation keeps its run's label (model, style, session), so it goes where its run goes.
+        say((noCompare ? "Track: " : "Compared: ") + label + " " + file.getName());
+        names.add(file.getName());
       }
-      say("Wrote " + file.getName() + " (" + (data.length / 1024) + " KB)");
-      // PyJav's line for each track (its file sets, the comparison): "Track:" when nothing is compared.
-      say((noCompare ? "Track: " : "Compared: ") + label + " " + file.getName());
+      if (keep.size() > 1) say(what + ": " + keep.size() + " variations");
       if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
-      return file.getName();
+      return names;
     } catch (Exception ex) {
       say(what + " failed: " + ex.getMessage() + " (workflow " + id + ": --workflow " + id + " downloads it later)");
-      return null;
+      return new ArrayList<String>();
     }
   }
 
@@ -905,6 +917,24 @@ public final class SogniMusic {
   }
 
   /** sogni-<genre>-<first 8 signs of the run's id>: each run's track gets its own name. */
+  /** What plays in the tracks, for their names ("" when the prompt alone says it). */
+  static String nameTag = "";
+
+  /** --drums_only: "drums"; --instruments "Drums, bass": "drums_bass" (at most 40 characters); else "". */
+  static String instrumentsTag(boolean drumsOnly, String instruments) {
+    if (drumsOnly) return "drums";
+    if (instruments == null || instruments.trim().isEmpty()) return "";
+    StringBuilder sb = new StringBuilder();
+    for (String part : instruments.split("[,;/+&]")) {
+      String w = part.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+      if (w.isEmpty()) continue;
+      if (sb.length() > 0) sb.append('_');
+      sb.append(w);
+    }
+    String t = sb.toString();
+    return t.length() > 40 ? t.substring(0, 40).replaceAll("[_-]+$", "") : t;
+  }
+
   static String trackName(String genre, String workflowId) {
     String id = workflowId == null ? "" : workflowId;
     int us = id.lastIndexOf('_');

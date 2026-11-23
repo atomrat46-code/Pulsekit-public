@@ -412,12 +412,17 @@ public final class ProgramParams {
     // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
       p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: setup_demucs.py in PyJav's Python menu, once); without it, the whole song with fewer, less sure hits";
+    // DrumMidi --keep-stems: --separate's four stems kept as WAVs beside the MIDI (AudioMixer tracks, with its switch).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--keep-stems")) {
+      p.label = "Keep the separated stems: drums, bass, vocals and the rest (guitars, keys) as WAVs beside the MIDI (<song>-bass.wav...); with Add the result to the AudioMixer they are offered as tracks";
+      p.showWhen = "--separate";
+    }
     // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
     // DrumMidi --make-set: a drum set from the song's own drums (a clean hit of each drum cut out).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--make-set"))
-      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first";
+      p.label = "Make a drum set from the song's drums: a clean hit of each drum cut out (beside the MIDI, <name>-set), and on a computer a new drum set on the Pads page; best with Separate drums first. On a folder (Dir): the songs' sets also made one, each drum from the song where it is clearest";
     // DrumMidi --set-hits: several hits of each drum kept (vst_render's Pads set plays them as velocity layers).
     if (drumMidi && p.flag && p.takesValue && p.token.equals("--set-hits")) {
       p.label = "Hits kept of each drum (several: the best first on the pad, and vst_render's Pads set plays them all as velocity layers, its hits varying)";
@@ -845,6 +850,9 @@ public final class ProgramParams {
   /** vst_render's hit model bench (--hit_bench: DrumMidi's kicks, snares and toms on the kits' tests). */
   public static final String HITS = "Hit model";
   public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL, HITS};
+  /** The Cymbal model and Hit model tabs' button: the benches' unzipped files deleted (asked first). */
+  public static final String DELETE_EXTRACTED = "Delete extracted files";
+  public static final String DELETE_EXTRACTED_OFF = "On with Settings' Don't delete the benches' unzipped files (else each bench deletes them itself)";
 
   static String vstTab(Param p) {
     String t = p.token;
@@ -857,7 +865,7 @@ public final class ProgramParams {
     if (t.equals("--wav") || t.startsWith("--dir") || t.equals("--recursive") || t.startsWith("--bpm") || t.equals("--skip_existing")) return INPUT;
     if (t.equals("--outdir") || t.equals("--rate") || t.equals("--tail") || t.equals("--volume") || t.equals("--bits") || t.equals("--mp3")
         || t.equals("--keep_wav") || t.startsWith("--zip") || t.startsWith("--results_")) return OUTPUT;
-    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
+    if (t.startsWith("--plugin") || t.equals("--padset") || t.equals("--vary") || t.equals("--max_wait") || t.equals("--wait_rounds") || t.equals("--parts") || t.equals("--carla") || t.startsWith("--clap") || t.equals("--drumgizmo") || t.equals("--midimap") || t.equals("--state")
         || t.startsWith("--effect") || t.startsWith("--kit_name") || t.equals("--edit") || t.equals("--check") || t.equals("--scan")) return PLUGINS;
     return SETTINGS;
   }
@@ -1047,6 +1055,12 @@ public final class ProgramParams {
     } else if (p.token.equals("--parts")) {
       p.label = "Parts: the drums split between the plugin rows, played in one run and mixed into one WAV (kick=2: the kick by plugin 2)";
       p.hint = "kick=2,snare=1,toms=1,cymbals=3 (also hats); the notes not named: plugin 1; empty: each plugin its own run";
+    } else if (p.token.equals("--max_wait")) {
+      p.label = "Maximum plugin wait (seconds): how long a test waits for a plugin's silent notes (a kit still loading), when the longest Stop timer time is shorter";
+      p.hint = "empty or 0: the longest Stop timer time; less than it: that time";
+    } else if (p.token.equals("--wait_rounds")) {
+      p.label = "Wait rounds: when notes are still silent after the whole wait, it is waited again, up to this many rounds in all (a virus scan or an update slowing the computer as a kit loads)";
+      p.hint = "empty or 0: one round";
     } else if (p.token.equals("--vary")) {
       p.label = "Vary each hit of a Pads set or SoundFont: level, pitch and brightness a little different every hit, as a drummer's (0 none, 50 light, 100 the most)";
       p.hint = "empty: none";
@@ -1103,8 +1117,8 @@ public final class ProgramParams {
       p.label = "Unzip folder: the kits' zips unpacked here (a drive with room, not the zips' cloud drive); each kit's renders deleted once DrumMidi's results are kept";
       p.hint = "empty: the kits folder in the bench's folder (below)";
     } else if (p.token.equals("--bench_skip")) {
-      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; the summary's kits.txt lists the kits found";
-      p.hint = "Riot Default kit, Cardinal; empty: every kit found";
+      p.label = "Kits left out (a bad run, another plugin's test): parts of their zips' names, comma-separated; a run's date and time (20261121-135203) leaves only that run out, the kit's newest other run counts; the summary's kits.txt lists the kits found";
+      p.hint = "Riot Default kit, Cardinal, 20261121-135203; empty: every kit found (each kit's newest run)";
       p.importList = true;
     } else if (p.token.equals("--hit_dir")) {
       p.dir = true;
@@ -1128,6 +1142,8 @@ public final class ProgramParams {
       p.choices = new String[] {"Run separately: the tests' zips in the Hit model tab's input folder (no plugin played)",
           "Run last: after the run's renders and tests (and the cymbal model comparison, when it runs last too), on the tests' zips the run made"};
       p.choiceValues = new String[] {"", "last"};
+    } else if (p.token.equals("--bench_keep")) {
+      p.label = "Don't delete the benches' unzipped files automatically (a bench run again does not unpack the kits' zips again; the Cymbal model and Hit model tabs' Delete extracted files deletes them)";
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
     } else if (p.token.equals("--hit_model_file")) {

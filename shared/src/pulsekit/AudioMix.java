@@ -75,9 +75,15 @@ public final class AudioMix {
     if (!dir.isDirectory()) dir.mkdirs();
     tracks.clear();
     toDb = false;
+    project = "";
     try {
       File s = new File(dir, SETTINGS);
-      if (s.isFile()) for (String line : new String(read(s), StandardCharsets.UTF_8).split("\n")) if (line.trim().equals("toDb=1")) toDb = true;
+      if (s.isFile()) {
+        for (String line : new String(read(s), StandardCharsets.UTF_8).split("\n")) {
+          if (line.trim().equals("toDb=1")) toDb = true;
+          if (line.startsWith("project=")) project = line.substring(8).trim();
+        }
+      }
       File f = new File(dir, LIST);
       if (!f.isFile()) return;
       for (String line : new String(read(f), StandardCharsets.UTF_8).split("\n")) {
@@ -110,7 +116,7 @@ public final class AudioMix {
     }
     try {
       write(new File(dir, LIST), sb.toString().getBytes(StandardCharsets.UTF_8));
-      write(new File(dir, SETTINGS), ("toDb=" + (toDb ? 1 : 0) + "\n").getBytes(StandardCharsets.UTF_8));
+      write(new File(dir, SETTINGS), ("toDb=" + (toDb ? 1 : 0) + "\nproject=" + clean(project) + "\n").getBytes(StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // kept for this session
     }
@@ -196,9 +202,158 @@ public final class AudioMix {
     save();
   }
 
-  /** New project: every track taken out. */
+  /** New project: every track taken out (no project's name any more). */
   public static synchronized void clear() {
     for (Track t : new ArrayList<Track>(tracks)) remove(t);
+    project = "";
+    save();
+  }
+
+  /** The project the tracks were saved as or opened from ("": none yet). */
+  public static String project = "";
+  public static final String SAVE_PROJECT = "Save project", OPEN_PROJECT = "Open project";
+
+  /** Where saved projects are kept: a folder each, beside the mixer's own. */
+  public static File projectsDir() {
+    return new File(dir == null ? new File(".") : dir.getParentFile(), "audiomixer-projects");
+  }
+
+  /** A name made safe as a folder's. */
+  public static String projectFolderName(String name) {
+    String n = name == null ? "" : name.trim().replaceAll("[\\\\/:*?\"<>|]+", "_");
+    return n.isEmpty() || n.equals(".") || n.equals("..") ? "Project" : n;
+  }
+
+  /** The saved projects, newest first. */
+  public static synchronized List<String> projects() {
+    File[] in = projectsDir().listFiles(File::isDirectory);
+    List<File> got = new ArrayList<File>();
+    if (in != null) for (File f : in) if (new File(f, LIST).isFile()) got.add(f);
+    java.util.Collections.sort(got, (a, b) -> Long.compare(new File(b, LIST).lastModified(), new File(a, LIST).lastModified()));
+    List<String> out = new ArrayList<String>();
+    for (File f : got) out.add(f.getName());
+    return out;
+  }
+
+  /** Whether a project of that name is saved already. */
+  public static boolean projectExists(String name) {
+    return new File(new File(projectsDir(), projectFolderName(name)), LIST).isFile();
+  }
+
+  /**
+   * Save project: the tracks (their WAVs, DrumPad hits) and their settings (volume, gain, Mute, Solo,
+   * input) copied into the project's folder, replacing what it had. The project's name is kept.
+   */
+  public static synchronized void saveProject(String name) throws Exception {
+    String n = projectFolderName(name);
+    File to = new File(projectsDir(), n);
+    if (to.isDirectory()) {
+      File[] old = to.listFiles();
+      if (old != null) for (File f : old) if (f.isFile()) f.delete();
+    }
+    to.mkdirs();
+    project = n;
+    save();
+    File[] in = dir.listFiles();
+    if (in != null) for (File f : in) if (f.isFile()) java.nio.file.Files.copy(f.toPath(), new File(to, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  public static final String EXPORT_PROJECT = "Export project";
+
+  /** Export project's zip name: "AudioMixer <project> 071126-1530.zip" (the project's name, else "mix"). */
+  public static String exportName() {
+    String p = project == null || project.isEmpty() ? "mix" : projectFolderName(project);
+    return "AudioMixer " + p + " " + new java.text.SimpleDateFormat("ddMMyy-HHmm", Locale.ROOT).format(new java.util.Date()) + ".zip";
+  }
+
+  /**
+   * Export project: the tracks' sounds (WAVs, DrumPad hits) and their settings in one zip, in a folder
+   * named after the project, for another computer or phone's Import new track… (or Open project).
+   */
+  public static synchronized byte[] exportZip() throws Exception {
+    save();
+    String folder = project == null || project.isEmpty() ? "AudioMixer project" : projectFolderName(project);
+    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+    java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(bos);
+    File[] in = dir.listFiles();
+    if (in != null) {
+      java.util.Arrays.sort(in);
+      for (File f : in) {
+        if (!f.isFile()) continue;
+        z.putNextEntry(new java.util.zip.ZipEntry(folder + "/" + f.getName()));
+        z.write(read(f));
+        z.closeEntry();
+      }
+    }
+    z.close();
+    return bos.toByteArray();
+  }
+
+  /** Whether a zip is an exported AudioMixer project (its mixer.txt in it). */
+  public static boolean isProjectZip(byte[] zip) {
+    try {
+      java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+      for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+        String n = e.getName().replace('\\', '/');
+        if (!e.isDirectory() && (n.equals(LIST) || n.endsWith("/" + LIST))) {
+          z.close();
+          return true;
+        }
+      }
+      z.close();
+    } catch (Exception ignored) {
+      // not a zip
+    }
+    return false;
+  }
+
+  /**
+   * An exported project's zip kept as a saved project (its own name, numbered when that is taken); the
+   * name, for Open project. Only plain files: no folders, nothing outside the project's folder.
+   */
+  public static synchronized String importZip(byte[] zip, String zipName) throws Exception {
+    String base = null;
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip));
+    for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+      if (e.isDirectory()) continue;
+      String n = e.getName().replace('\\', '/');
+      String[] parts = n.split("/");
+      String file = parts[parts.length - 1];
+      if (file.isEmpty() || file.startsWith(".") || n.contains("..")) continue;
+      if (parts.length > 1 && base == null) base = parts[parts.length - 2];
+      java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+      byte[] buf = new byte[65536];
+      for (int k; (k = z.read(buf)) > 0; ) b.write(buf, 0, k);
+      files.put(file, b.toByteArray());
+    }
+    z.close();
+    if (!files.containsKey(LIST)) throw new java.io.IOException((zipName == null ? "The zip" : zipName) + " is not an AudioMixer project (no " + LIST + " in it)");
+    String name = projectFolderName(base != null && !base.equals("AudioMixer project") ? base
+        : (zipName == null ? "Imported" : zipName.replaceAll("(?i)\\.zip$", "")));
+    String n = name;
+    for (int k = 2; new File(projectsDir(), n).exists(); k++) n = name + " " + k;
+    File to = new File(projectsDir(), n);
+    to.mkdirs();
+    for (java.util.Map.Entry<String, byte[]> e : files.entrySet()) write(new File(to, e.getKey()), e.getValue());
+    // Its settings name it as it is kept here.
+    File st = new File(to, SETTINGS);
+    String settings = st.isFile() ? new String(read(st), StandardCharsets.UTF_8).replaceAll("(?m)^project=.*\\n?", "") : "";
+    write(st, (settings + (settings.isEmpty() || settings.endsWith("\n") ? "" : "\n") + "project=" + n + "\n").getBytes(StandardCharsets.UTF_8));
+    return n;
+  }
+
+  /** Open project: the mixer's tracks replaced by the saved project's. */
+  public static synchronized void openProject(String name) throws Exception {
+    File from = new File(projectsDir(), projectFolderName(name));
+    if (!new File(from, LIST).isFile()) throw new java.io.FileNotFoundException("No project " + name);
+    File[] here = dir.listFiles();
+    if (here != null) for (File f : here) if (f.isFile()) f.delete();
+    File[] in = from.listFiles();
+    if (in != null) for (File f : in) if (f.isFile()) java.nio.file.Files.copy(f.toPath(), new File(dir, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    open(dir);
+    project = from.getName();
+    save();
   }
 
   /** The file's sound, in stereo. */
@@ -280,6 +435,46 @@ public final class AudioMix {
       r[i] = (float) (p.right[a] * (1 - f) + p.right[b] * f);
     }
     return new AudioIo.StereoPcm(l, r, rate);
+  }
+
+  /** Waveforms read (the file, its length and time, the columns): kept until the file changes. */
+  static final java.util.Map<String, float[]> PEAKS = new java.util.HashMap<String, float[]>();
+
+  /**
+   * A track's waveform for its row: `columns` peaks from 0 to 1 (the louder side in each column), read
+   * from its WAV; empty (all 0) when it has no sound yet. Not under the class's lock: the screens
+   * read it while a mix is made.
+   */
+  public static float[] peaks(Track t, int columns) {
+    if (columns <= 0 || dir == null || t == null) return new float[Math.max(0, columns)];
+    File f = new File(dir, t.file);
+    String key = f.getPath() + "|" + f.length() + "|" + f.lastModified() + "|" + columns;
+    synchronized (PEAKS) {
+      float[] had = PEAKS.get(key);
+      if (had != null) return had;
+    }
+    float[] out = new float[columns];
+    try {
+      AudioIo.StereoPcm p = parseStereo(read(f));
+      int n = p.left.length;
+      if (n > 0) {
+        for (int c = 0; c < columns; c++) {
+          int a = (int) ((long) n * c / columns), b = (int) Math.max(a + 1, (long) n * (c + 1) / columns);
+          float m = 0;
+          // Every sample of short columns, a stride through long ones (a long track stays quick to draw).
+          int step = Math.max(1, (b - a) / 2000);
+          for (int i = a; i < b && i < n; i += step) m = Math.max(m, Math.max(Math.abs(p.left[i]), Math.abs(p.right[i])));
+          out[c] = Math.min(1f, m);
+        }
+      }
+    } catch (Exception ignored) {
+      // no sound to show
+    }
+    synchronized (PEAKS) {
+      if (PEAKS.size() > 200) PEAKS.clear();
+      PEAKS.put(key, out);
+    }
+    return out;
   }
 
   /** The tracks heard: the soloed ones when any is, else every track not muted. */

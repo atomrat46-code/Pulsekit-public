@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--bench_keep] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -132,6 +132,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --vary N        a Pads set or a SoundFont: each hit a little different (0-100: its level up to
                   +-1.5 dB, pitch up to +-1.5% and brightness, at 100), as a drummer's hits are; the
                   same every run. A song's drum set (one sample a drum) sounds less mechanical.
+  --max_wait N    how long (seconds) a plugin's silent notes are waited for (a kit still loading) when
+                  the longest Stop timer time measured for it is shorter; 0 or less than that: that time.
+  --wait_rounds N when notes are still silent after that wait, it is waited again, up to N rounds in all
+                  (a virus scan or an update slowing the computer as a kit loads); empty or 0: one.
   --chokes notes  with --test or --check: the plugin's choke notes, a cymbal's note = its choked one
                   (built in for x42 AVL Drumkits 49=50,51=52,57=58, Ugritone 49=50,57=58, Northern
                   Artillery 49=50,57=58,51=62,59=64, Riot and Anarchy 49=54,57=56,52=50; their hats
@@ -209,7 +213,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   drive's folder): once a kit's DrumMidi results are kept its renders there are deleted,
                   its MIDI and report stay. Not given: --bench_work's kits folder.
   --bench_skip    kits left out (a bad run, another plugin's test): parts of their zips' names, comma-
-                  separated (Riot Default kit, Cardinal); nothing of theirs is unpacked or run.
+                  separated (Riot Default kit, Cardinal); nothing of theirs is unpacked or run. A run's
+                  date and time (20261121-135203) leaves only that run out: the kit's newest other run
+                  counts (a run with silent notes, its kit tested again or not).
   --model_compare two models, each kit's cymbals right with both and the change, the new kits' and the
                   others' totals (cymbal-compare-<A>-vs-<B>-<date>.zip: summary, every drum's score, the
                   models learned).
@@ -235,6 +241,9 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
                   or last (the run as it is set: --dir, --dir2, --outdir, the plugins, with --test and
                   --zip on; then the cymbal model comparison if it is run last too; then the bench on the
                   tests' zips the run made).
+  --bench_keep    the benches do not delete the kits' unpacked renders (the Cymbal model and Hit model
+                  tabs' Delete extracted files does): a bench run again, with another DrumMidi, does not
+                  unpack the zips again.
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
@@ -679,6 +688,8 @@ def carla_edit(path, rack):
         fail("the project %s has no plugin now: open %s in Carla, save the project with it and try again" % (project, os.path.basename(path)))
     with open(os.path.splitext(state_home(path))[0] + ".state.load", "w") as f:
         f.write("%.1f\n" % took)
+    if stopped:
+        note_longest_load(path, took)
     print("Wrote Plugin settings: %s (Carla project)" % project)
     print("Kit load time: %.1f s (%s): a test waits at most this long for the kit" % (took, "Stop timer" if stopped else "until Carla closed"))
     return project
@@ -1100,6 +1111,24 @@ def kit_state(plugin):
     return path
 
 
+def saved_kits(plugin):
+    """The kits this plugin has settings saved for ("<plugin> [<kit>].state"), as their files name them."""
+    folder = os.path.join(os.path.expanduser("~"), ".pulsekit", "vst")
+    head = stem(plugin) + " ["
+    out = []
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            if name.startswith(head) and name.endswith("].state"):
+                out.append(name[len(head):-len("].state")].replace("_", ":", 1) if ":" not in name else name[len(head):-len("].state")])
+    return out
+
+
+def saved_kits_said(plugin):
+    """" Kits with settings saved for it: ..." (a kit's settings saved on another row show there), or ""."""
+    kits = saved_kits(plugin)
+    return (" Kits with settings saved for it: %s (if the kit was loaded with Edit settings on another row, it was saved under that row's kit name)" % ", ".join(kits)) if kits else ""
+
+
 def state_home(plugin):
     """The settings a run plays with: the kit's own (--kit_name), else the plugin's (said once: they are the
     kit Edit settings loaded last, which may be another kit)."""
@@ -1110,7 +1139,7 @@ def state_home(plugin):
     if kit and os.path.isfile(base) and (plugin, CURRENT_KIT[0]) not in KIT_STATE_SAID:
         KIT_STATE_SAID.add((plugin, CURRENT_KIT[0]))
         print("Kit settings: none saved for %s yet; %s plays with its last saved settings (the kit Edit settings loaded last, "
-              "maybe another one). Edit settings on its row saves this kit's." % (CURRENT_KIT[0], stem(plugin)))
+              "maybe another one). Edit settings on its row saves this kit's.%s" % (CURRENT_KIT[0], stem(plugin), saved_kits_said(plugin)))
     return base
 
 
@@ -2391,6 +2420,8 @@ def edit(proc, plugin, given, label):
     print("Wrote %s settings: %s" % (label, path))
     with open(path + ".load", "w") as f:
         f.write("%.1f\n" % took)
+    if timer["stopped"]:
+        note_longest_load(plugin, took)
     # The kit's settings are the plugin's last too (a row without a kit name plays them).
     if not given and path != plugin_state(plugin):
         import shutil
@@ -2405,6 +2436,68 @@ WINDOW_SHUT = 1.5
 
 # Without a kit load time (Edit settings' timer), a test waits at most this long for a slow kit.
 LOAD_WAIT = 30.0
+
+
+def longest_load(plugin):
+    """The longest kit load time measured with Stop timer for this plugin, any kit (0 when none): a kit's own
+    load time can be short of it (a kit saved before its timer, a slow day), so silent notes wait this long."""
+    try:
+        with open(plugin_state(plugin) + ".load-max") as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def note_longest_load(plugin, took):
+    """Stop timer's load time kept as the plugin's longest when it is longer (<plugin>.state.load-max)."""
+    if took <= longest_load(plugin):
+        return
+    path = plugin_state(plugin) + ".load-max"
+    if not os.path.isdir(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
+    with open(path, "w") as f:
+        f.write("%.1f\n" % took)
+
+
+def heard_path(plugin):
+    """The notes this kit has played before (Test's beat, a run's notes check): "<kit settings>.heard"."""
+    return (kit_state(plugin) or plugin_state(plugin)) + ".heard"
+
+
+def heard_before(plugin):
+    """The notes the kit (this run's --kit_name) played in an earlier Test or run: a set, empty when none."""
+    try:
+        with open(heard_path(plugin)) as f:
+            return set(int(x) for x in f.read().split())
+    except (OSError, ValueError):
+        return set()
+
+
+def note_heard(plugin, notes):
+    """The notes heard now added to the kit's (heard_before)."""
+    got = heard_before(plugin) | set(int(n) for n in notes)
+    path = heard_path(plugin)
+    try:
+        if not os.path.isdir(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path))
+        with open(path, "w") as f:
+            f.write(" ".join(str(n) for n in sorted(got)) + "\n")
+    except OSError:
+        pass
+
+
+# --max_wait (seconds): the most silent notes are waited for, when it is longer than the Stop timer's longest.
+MAX_WAIT = [0.0]
+# --wait_rounds: how many times that wait is repeated in all while notes stay silent.
+WAIT_ROUNDS = [1]
+
+
+def silent_wait(chain):
+    """How long silent notes are waited for (the kit still loading): the longest of the kit's load time, the
+    plugin's longest Stop timer time and --max_wait; 0 for a Pads set or SoundFont (no kit to load)."""
+    if not hasattr(chain, "load_limit"):
+        return 0.0
+    return max(chain.load_limit if getattr(chain, "load_measured", False) else 0.0, getattr(chain, "longest_load", 0.0), MAX_WAIT[0])
 
 
 def load_limit(plugin, given):
@@ -2814,16 +2907,52 @@ def drum_notes_check(chain, np, rate, nmap):
     sys.stdout.flush()
     # Each note in a render of its own (a crash still ringing would hide a quiet ride after it).
     loud = {}
-    for n in notes:
+
+    def measure(n):
         midi = notes_midi(os.path.join(folder, "note-%d.mid" % n), [(0.2, n, 110)])
-        try:
-            audio, _, _ = chain.render(np, midi=midi, tail=NOTES_CHECK_GAP)
-        except ValueError as e:
-            return ["Notes check: it did not play (%s)" % e], set()
+        audio, _, _ = chain.render(np, midi=midi, tail=NOTES_CHECK_GAP)
         mono = np.max(np.abs(audio), axis=0) if audio.size else audio
         loud[n] = float(np.max(mono[int(0.15 * rate):])) if mono.size > int(0.15 * rate) else 0.0
+
+    for n in notes:
+        try:
+            measure(n)
+        except ValueError as e:
+            return ["Notes check: it did not play (%s)" % e], set()
     # Silent: under a thousandth of the loudest note (-60 dB); a quiet cymbal is still heard (its hits count).
     peak = max(loud.values()) if loud else 0.0
+    # Some silent: maybe the kit is still loading (SSD5's crashes and a tom, once): played again every 5 s for up to
+    # the longest load time measured for the plugin, before they count as silent.
+    first = [n for n in notes if not (peak > 1e-6 and loud[n] > peak * 0.001)]
+    one = silent_wait(chain)
+    limit = one * WAIT_ROUNDS[0]
+    early = []
+    if first and peak > 1e-6 and limit > 0:
+        import time
+        waited = 0.0
+        quiet = list(first)
+        print("Notes check: %s silent at first (the kit still loading?): played again every 5 s, for up to %.0f s%s" % (
+            ", ".join(str(n) for n in quiet), limit, " (%d rounds of %.0f s)" % (WAIT_ROUNDS[0], one) if WAIT_ROUNDS[0] > 1 else ""))
+        sys.stdout.flush()
+        round_end = one
+        while quiet and waited < limit and not STOP["asked"]:
+            if waited >= round_end:
+                print("Notes check: %s still silent after %.0f s: round %d of %d" % (", ".join(str(n) for n in quiet), waited, int(round_end // one) + 1, WAIT_ROUNDS[0]))
+                sys.stdout.flush()
+                round_end += one
+            step = min(5.0, limit - waited)
+            time.sleep(step)
+            waited += step
+            for n in quiet:
+                try:
+                    measure(n)
+                except ValueError:
+                    pass
+            quiet = [n for n in quiet if not loud[n] > peak * 0.001]
+        late = [n for n in first if n not in quiet]
+        early.append("Notes check: %s silent at first; %s after %.0f s (waited at most %.0f s: the longest kit load time measured for the plugin%s)" % (
+            ", ".join(str(n) for n in first), "all heard" if not quiet else ("%s heard, %s still silent" % (", ".join(str(n) for n in late) or "none", ", ".join(str(n) for n in quiet))),
+            waited, limit, ", %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else ""))
     level, heard, silent = {}, [], []
     for n in notes:
         if peak > 1e-6 and loud[n] > peak * 0.001:
@@ -2831,7 +2960,7 @@ def drum_notes_check(chain, np, rate, nmap):
             level[n] = 20 * np.log10(loud[n])
         else:
             silent.append(n)
-    lines = []
+    lines = list(early)
     if silent:
         lines.append("Notes check: silent in this plugin: %s; their hits are left out of the scores (no sound to find; a note map can send them to "
                      "the plugin's own notes)" % ", ".join("%d (%s)" % (n, NOTE_LABELS.get(n, "note")) for n in silent))
@@ -3602,8 +3731,26 @@ class Chain(object):
             edit(self.main, self.plugin, opts["--state"], "Plugin")
         else:
             print(apply_state(self.main, self.plugin, opts["--state"], "Plugin"))
+        # A kit named with no settings saved for it yet: the plugin plays the kit Edit settings saved last, so a
+        # run would make hours of another kit's sound under this kit's name: it stops (Test only says it).
+        if "--edit" not in switches and "--check" not in switches and not opts["--state"] and not opts["--carla"] and not bridged:
+            own = kit_state(clap or self.plugin)
+            if own and not os.path.isfile(own):
+                fail("no settings saved for the kit %s yet, so %s would play the kit Edit settings saved last under its name: press Edit settings "
+                     "on its row, load %s in the plugin's window, press Stop timer when it has loaded and close the window; then run again"
+                     % (CURRENT_KIT[0], os.path.basename(os.path.normpath(self.plugin)), CURRENT_KIT[0]))
         # How long a test waits for a slow kit (the load time Edit settings measured).
         self.load_limit = load_limit(clap or self.plugin, opts["--state"])
+        self.load_measured = self.load_limit != LOAD_WAIT
+        # The plugin's longest Stop timer time (any kit): silent notes are waited for at least this long.
+        self.longest_load = longest_load(clap or self.plugin)
+        if "--test" in switches or "--check" in switches:
+            # How long silent notes are waited for, and where that comes from.
+            wait = silent_wait(self)
+            print("Silent notes: waited for up to %.0f s%s, tried again every 5 s (the longest Stop timer time %s%s%s)" % (
+                wait, " a round, %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else "", "%.0f s" % self.longest_load if self.longest_load else "not measured yet",
+                ", the kit's own %.0f s" % self.load_limit if self.load_measured else "",
+                ", Maximum plugin wait %.0f s" % MAX_WAIT[0] if MAX_WAIT[0] else ""))
         self.fx = None
         effect = opts["--effect"]
         if effect:
@@ -4316,10 +4463,15 @@ def kit_aliases(home=None):
     return out
 
 
-def render_kits(folder, recursive, aliases=None):
+def render_kits(folder, recursive, aliases=None, skip=None, left=None):
     """The test renders' zips (vst-render-<plugin>_<kit>_-<date>-<time>[-partNofM].zip) in the folder:
     [(key, stamp, [zips], their folder)], oldest first. A kit tested in several runs: its newest run's
-    zips (the same zip in two folders counts once)."""
+    zips (the same zip in two folders counts once). `skip` (--bench_skip's parts): a zip whose whole name
+    has one in it is left out first, case, spaces and punctuation aside: a kit's name leaves the kit out, a
+    run's date and time (20261121-135203) only that run, so the kit's newest other run counts. `left`: the
+    runs left out, (name, stamp), added to it."""
+    plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    parts = [plain(p) for p in (skip or []) if plain(p)]
     # A kit's zips by its name in them, case, spaces and punctuation aside: a kit named again ("KVLT_Mexico
     # 1998", then "KVLT: Mexico 1998") is one kit, its newest run's (and its name then). So is a kit renamed
     # in Pulsekit's kit list (its aliases: Speed Metal: 1983 Metal = 1983 Metal).
@@ -4336,6 +4488,10 @@ def render_kits(folder, recursive, aliases=None):
         dirs.sort()
         for n in sorted(names):
             m = RENDER_ZIP.match(n)
+            if m and parts and any(p in plain(n) for p in parts):
+                if left is not None and (m.group(1), m.group(2)) not in left:
+                    left.append((m.group(1), m.group(2)))
+                continue
             if m:
                 same = resolved(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
                 at = runs.setdefault(same, {}).setdefault(m.group(2), {})
@@ -4357,12 +4513,53 @@ def bench_sig(zips):
     return hashlib.sha1("\n".join("%s %d" % (os.path.basename(z), os.path.getsize(z)) for z in zips).encode("utf-8")).hexdigest()[:10]
 
 
-def bench_unpack(key, zips, root, audio):
+# The benches' scratch folders for each DrumMidi run: under their own work folder, not the system's
+# temp folder (a temp cleaner deleting it mid-run left DrumMidi's results unwritten and the song out).
+BENCH_TMP = [None]
+
+
+def bench_tmp(work):
+    """Sets (and makes) the benches' scratch folder under `work`, emptied of what an earlier run left."""
+    import shutil
+    t = os.path.join(work, "tmp")
+    shutil.rmtree(t, ignore_errors=True)
+    os.makedirs(t, exist_ok=True)
+    BENCH_TMP[0] = t
+    return t
+
+
+def bench_map(fn, songs, jobs, label):
+    """fn on each song (`jobs` at a time), the results in order; the count said every half minute or
+    so (Pulsekit stops a run that says nothing for 10 minutes, and a kit's songs can take longer)."""
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    print("%sDrumMidi on %d song%s…" % (label, len(songs), "" if len(songs) == 1 else "s"), flush=True)
+    count = [0, time.time()]
+    lock = threading.Lock()
+
+    def one(song):
+        r = fn(song)
+        # A song whose results went missing is run once more (a busy machine, a file taken away).
+        if isinstance(r, str) and ("wrote no" in r or "failed" in r):
+            r = fn(song)
+        with lock:
+            count[0] += 1
+            if time.time() - count[1] > 30:
+                count[1] = time.time()
+                print("%sDrumMidi done on %d of %d songs" % (label, count[0], len(songs)), flush=True)
+        return r
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(one, songs))
+
+
+def bench_unpack(key, zips, root, audio, label=""):
     """A kit's zips unpacked into <root>/<key> (--bench_unzip): its MIDI, report, run line and kit profile,
     and with `audio` its MP3s or WAVs too (not its dm/ MIDI: the bench runs DrumMidi itself). Once: what
     is there already is kept. The folder."""
     import zipfile
     import shutil
+    import time
     into = os.path.join(root, key)
     sig = bench_sig(zips)
     mark = os.path.join(into, "unpacked.txt")
@@ -4372,7 +4569,13 @@ def bench_unpack(key, zips, root, audio):
     if os.path.isdir(into):
         shutil.rmtree(into, ignore_errors=True)
     os.makedirs(into)
-    for z in zips:
+    # Big runs are dozens of zips: said as it goes (Pulsekit stops a run that says nothing for 10 minutes).
+    print("%sunpacking %d zip%s…" % (label, len(zips), "" if len(zips) == 1 else "s"), flush=True)
+    last = time.time()
+    for zn, z in enumerate(zips):
+        if time.time() - last > 30:
+            print("%sunpacked %d of %d zips" % (label, zn, len(zips)), flush=True)
+            last = time.time()
         with zipfile.ZipFile(z) as f:
             for info in f.infolist():
                 n = info.filename
@@ -4428,23 +4631,28 @@ def bench_kit_info(folder):
 
 
 def bench_songs(folder):
-    """[(audio, its MIDI)]: each render under mp3/ (or wav/) and the MIDI it was played from under midi/."""
+    """[(audio, its MIDI)]: each render under mp3/ (or wav/), at any depth (a --recursive run keeps its
+    folders: mp3/<run>/<sub>/.../x.mp3), and the MIDI it was played from in the same place under midi/."""
     import glob
     out = []
-    # mp3/<run>/ and midi/<run>/, or (a folder's files at its top) mp3/ and midi/ alone.
-    for audio in sorted(glob.glob(os.path.join(folder, "mp3", "*", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*", "*.wav"))
-                        + glob.glob(os.path.join(folder, "mp3", "*.mp3")) + glob.glob(os.path.join(folder, "wav", "*.wav"))):
-        top = os.path.basename(os.path.dirname(audio)) in ("mp3", "wav") and os.path.dirname(os.path.dirname(audio)) == folder.rstrip(os.sep)
-        sub = "" if top else os.path.basename(os.path.dirname(audio))
-        base = os.path.splitext(os.path.basename(audio))[0]
-        mid = None
-        # "<stem>-<Plugin> (<kit>)": the longest MIDI name the render's name starts with.
-        for c in glob.glob(os.path.join(folder, "midi", sub, "*.mid")):
-            s = os.path.basename(c)[:-4]
-            if base.startswith(s + "-") and (mid is None or len(s) > len(os.path.basename(mid)) - 4):
-                mid = c
-        if mid:
-            out.append((audio, mid))
+    for kind, ext in (("mp3", ".mp3"), ("wav", ".wav")):
+        root = os.path.join(folder, kind)
+        for here, dirs, files in sorted(os.walk(root)):
+            dirs.sort()
+            rel = os.path.relpath(here, root)
+            mids = glob.glob(os.path.join(folder, "midi", glob.escape(rel) if rel != "." else "", "*.mid"))
+            for name in sorted(files):
+                if not name.lower().endswith(ext):
+                    continue
+                base = os.path.splitext(name)[0]
+                mid = None
+                # "<stem>-<Plugin> (<kit>)": the longest MIDI name the render's name starts with.
+                for c in mids:
+                    s = os.path.basename(c)[:-4]
+                    if base.startswith(s + "-") and (mid is None or len(s) > len(os.path.basename(mid)) - 4):
+                        mid = c
+                if mid:
+                    out.append((os.path.join(here, name), mid))
     return out
 
 
@@ -4454,7 +4662,7 @@ def bench_dump(java, jar, audio, extra, kit):
     import subprocess
     import tempfile
     import shutil
-    where = tempfile.mkdtemp(prefix="pulsekit-bench-")
+    where = tempfile.mkdtemp(prefix="pulsekit-bench-", dir=BENCH_TMP[0])
     try:
         feats = os.path.join(where, "inputs.txt")
         argv = [java, "-Ddm.cymFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "dm.mid", "--no-cymbal-model"] + list(extra)
@@ -4487,21 +4695,24 @@ def bench_dump(java, jar, audio, extra, kit):
         shutil.rmtree(where, ignore_errors=True)
 
 
+# The benches' kept results' version: a new one when what goes into them changes (2: renders found in a
+# --recursive run's subfolders; before, only one folder deep, so such kits were scored on almost nothing).
+BENCH_DATA = "v2"
+
+
 def bench_cache(work, sig, kit, zips):
-    """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>.npz."""
-    return os.path.join(work, "data", sig, "%s-%s.npz" % (kit, bench_sig(zips)))
+    """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>-v2.npz."""
+    return os.path.join(work, "data", sig, "%s-%s-%s.npz" % (kit, bench_sig(zips), BENCH_DATA))
 
 
-def bench_data(cache, folder, info, java, jar, jobs):
+def bench_data(cache, folder, info, java, jar, jobs, label=""):
     """The kit's songs run through DrumMidi once (kept in `cache` for later runs): their hits, cymbals'
     inputs and the MIDI each was played from; the built-in model with it."""
     import numpy as np
-    from concurrent.futures import ThreadPoolExecutor
     if os.path.isfile(cache):
         return np.load(cache, allow_pickle=False), 0
     songs = bench_songs(folder)
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        done = list(pool.map(lambda s: bench_dump(java, jar, s[0], info["extra"], info["kit"]), songs))
+    done = bench_map(lambda s: bench_dump(java, jar, s[0], info["extra"], info["kit"]), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -4769,6 +4980,37 @@ def bench_args(argv):
     return out
 
 
+def busy(what, fn, *args):
+    """fn(*args) with "Still working: <what>" said every 4 minutes while it runs: the benches' own long
+    steps (learning models, leave one out) say nothing for a long time, and Pulsekit stops a script
+    silent for 10 minutes. Only around the benches: a plugin that hangs while rendering is still
+    caught by that stop."""
+    import threading
+    import time
+    started = time.time()
+    done = threading.Event()
+
+    def beat():
+        while not done.wait(240):
+            print("Still working: %s (%d min so far)" % (what, int((time.time() - started) // 60)), flush=True)
+    t = threading.Thread(target=beat, daemon=True)
+    t.start()
+    try:
+        return fn(*args)
+    finally:
+        done.set()
+
+
+def cymbal_unzip(opts):
+    """The cymbal bench's unzip folder, as model_bench works it out (None without its input folder)."""
+    folder = opts["--bench_dir"] or opts["--dir"]
+    if not folder:
+        return None
+    outdir = opts["--outdir"] or folder
+    work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
+    return opts["--bench_unzip"] or os.path.join(work, "kits")
+
+
 def model_bench(opts, switches):
     """--model_compare and --leave_one_out: the test renders' zips in --dir (with --recursive, its
     subfolders too) scored with DrumMidi's cymbal model as it is and as learned from the kits found;
@@ -4790,21 +5032,24 @@ def model_bench(opts, switches):
     outdir = opts["--outdir"] or folder
     os.makedirs(outdir, exist_ok=True)
     work = opts["--bench_work"] or os.path.join(outdir, "cymbal-bench")
+    bench_tmp(work)
     unzip = opts["--bench_unzip"] or os.path.join(work, "kits")
     print("Unzip folder: %s; DrumMidi's results kept in %s" % (unzip, os.path.join(work, "data")))
-    found = render_kits(folder, True)
     # Kits left out (--bench_skip: a bad run, another plugin's test): by parts of their zips' names, before
-    # any of their work. A part that names no kit is said, not a stop.
-    # (Commas or lines between them; # comments left out: Params' Import puts a file's lines in.)
+    # any of their work; a run's date and time leaves only that run out (the kit's newest other run counts).
+    # A part that names no zip is said, not a stop. (Commas or lines between them; # comments left out:
+    # Params' Import puts a file's lines in.)
     skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
+    left = []
+    found = render_kits(folder, True, skip=skip, left=left)
     if skip:
         plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-        out = [k for k in found if any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
         for p in skip:
-            if not any(plain(p) and plain(p) in plain(k[0]) for k in found):
+            if not any(plain(p) and plain(p) in plain("%s-%s" % k) for k in left):
                 print("Kits left out: no kit's zip name has %s in it" % p)
-        found = [k for k in found if k not in out]
-        print("Kits left out (%d): %s" % (len(out), ", ".join(k[0][len("vst-render-"):].strip("_") for k in out) or "none"))
+        kept = set(k[0] for k in found)
+        print("Runs left out (%d): %s" % (len(left), ", ".join("%s %s%s" % (n[len("vst-render-"):].strip("_"), st, " (an older run of it counts)" if n in kept else "")
+                                                             for n, st in left) or "none"))
     if len(found) < 2:
         fail("The cymbal model bench needs the zips of two kits' tests or more (vst-render-*.zip) in %s or its subfolders (found %d)" % (folder, len(found)))
     newest = found[-1][3]
@@ -4815,15 +5060,17 @@ def model_bench(opts, switches):
     reports = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         reports.append(info["report"])
-        d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs)
+        d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
-        if ran:
+        # (Shared with the hit bench before it: the renders it kept for this bench go now too.)
+        # (--bench_keep: kept for the next bench; the tabs' Delete extracted files deletes them.)
+        if "--bench_keep" not in switches and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -4973,7 +5220,7 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
     import subprocess
     import tempfile
     import shutil
-    where = tempfile.mkdtemp(prefix="pulsekit-hits-")
+    where = tempfile.mkdtemp(prefix="pulsekit-hits-", dir=BENCH_TMP[0])
     try:
         feats = os.path.join(where, "inputs.txt")
         more = list(extra) + (["--kit", os.path.abspath(kit)] if kit else [])
@@ -4999,17 +5246,15 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
         shutil.rmtree(where, ignore_errors=True)
 
 
-def hit_data(cache, folder, info, java, jar, jobs, model_file):
+def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
     """The kit's songs through DrumMidi (kept in `cache` for later benches): each onset's inputs and what was
     played there (kick, snare, tom: the labels a model learns), and per family (played, found, matched) with
     the rules alone and with the hit model."""
     import numpy as np
-    from concurrent.futures import ThreadPoolExecutor
     if os.path.isfile(cache):
         return np.load(cache, allow_pickle=False), 0
     songs = bench_songs(folder)
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        done = list(pool.map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs))
+    done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -5158,19 +5403,22 @@ def hit_bench(opts, switches):
     os.makedirs(outdir, exist_ok=True)
     # (Its own work folder: the Cymbal model tab's folders are not used.)
     work = os.path.join(outdir, "hit-bench")
-    unzip = opts["--hit_unzip"] or os.path.join(work, "kits")
+    bench_tmp(work)
+    # Run with the cymbal comparison after it: one unzip folder for both, the renders kept for it.
+    shared = opts.get("_share_unzip")
+    unzip = shared or opts["--hit_unzip"] or os.path.join(work, "kits")
+    if shared:
+        print("Unzip folder shared with the cymbal model comparison after this bench: %s (each kit unpacked once; the renders deleted after it)" % shared)
+    # --bench_skip: kits, or single runs by their date and time, left out (as the cymbal bench does).
+    skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
     if only:
         # (This run's zips: each from its own folder, nothing else there.)
         mine = set(os.path.normcase(os.path.abspath(z)) for z in only)
         found = []
         for d in sorted(set(os.path.dirname(os.path.abspath(z)) for z in only)):
-            found += [k for k in render_kits(d, False) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
+            found += [k for k in render_kits(d, False, skip=skip) if any(os.path.normcase(os.path.abspath(z)) in mine for z in k[2])]
     else:
-        found = render_kits(folder, True)
-    skip = [p.strip() for line in (opts["--bench_skip"] or "").splitlines() for p in line.split("#")[0].split(",") if p.strip()]
-    if skip:
-        plain = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-        found = [k for k in found if not any(plain(p) and plain(p) in plain(k[0]) for p in skip)]
+        found = render_kits(folder, True, skip=skip)
     if not found:
         fail("The hit model bench found no tests' zips (vst-render-*.zip) in %s or its subfolders. It reads the zips a run with Test and "
              "Zip makes (renders and the MIDI played), not a zip of MIDI files: put that folder on the Input tab, the plugins on the Plugins tab, "
@@ -5180,14 +5428,14 @@ def hit_bench(opts, switches):
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
     for n, (key, stamp, zips, where) in enumerate(found):
-        cache = os.path.join(work, "hits", sig, "%s-%s.npz" % (key, bench_sig(zips)))
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
+        cache = os.path.join(work, "hits", sig, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
-        d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file)
-        if ran:
+        d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
+        if ran and not shared and "--bench_keep" not in switches:
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5372,7 +5620,7 @@ def main(argv):
     opts = {"--plugin": None, "--carla": None, "--clap": None, "--clap_id": None, "--drumgizmo": None, "--midimap": None, "--state": None, "--wav": None, "--effect": None, "--effect_state": None,
             "--bpm": None, "--rate": "44100", "--tail": "2", "--volume": "100", "--bits": "16", "--dir": None, "--outdir": None,
             "--drummidi": None, "--java": "java", "--zip_mb": None, "--zip_outdir": None, "--mp3": None, "--map": None,
-            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
+            "--plugin2": None, "--plugin3": None, "--plugin4": None, "--padset": None, "--padset_name": None, "--vary": None, "--max_wait": None, "--wait_rounds": None, "--parts": None, "--dir2": None, "--map2": None, "--map3": None, "--map4": None, "--note_map": None, "--chokes": None,
             "--kit_name": None, "--kit_name2": None, "--kit_name3": None, "--kit_name4": None,
             "--bench_dir": None, "--bench_unzip": None, "--bench_skip": None, "--cymbal_bench_when": None, "--model_a": None, "--model_a_kits": None, "--model_b": None, "--model_b_kits": None,
             "--loo_kits": None, "--loo_names": None, "--new_kits": None, "--new_runs": None, "--new_names": None, "--bench_work": None, "--hit_model_file": None, "--hit_dir": None, "--hit_unzip": None, "--hit_zip_outdir": None, "--hit_bench_when": None}
@@ -5388,7 +5636,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--preflight", "--bench_keep"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)
@@ -5399,6 +5647,16 @@ def main(argv):
         scan()
         return
     CURRENT_KIT[0] = (opts.get("--kit_name") or "").strip()
+    # --max_wait: silent notes waited for at least this long (0, empty or not a number: the Stop timer's longest).
+    try:
+        MAX_WAIT[0] = max(0.0, float(opts.get("--max_wait") or 0))
+    except ValueError:
+        MAX_WAIT[0] = 0.0
+    # --wait_rounds: the wait for silent notes repeated up to this many rounds in all (empty, 0 or not a number: one).
+    try:
+        WAIT_ROUNDS[0] = max(1, int(float(opts.get("--wait_rounds") or 1)))
+    except ValueError:
+        WAIT_ROUNDS[0] = 1
     # --hit_model_file: DrumMidi's hit model from a file (the Hit model tab's bench learned it) in the tests too.
     HIT_MODEL_FILE[0] = None
     if opts["--hit_model_file"]:
@@ -5412,11 +5670,14 @@ def main(argv):
             fail("Hit model bench not run: the run made no tests' zips (it failed above)")
         opts["_hit_zips"] = list(RUN_TEST_ZIPS)
         print("Hit model bench: this run's %d tests' zip%s" % (len(RUN_TEST_ZIPS), "" if len(RUN_TEST_ZIPS) == 1 else "s"))
-        hit_bench(opts, switches)
+        busy("the hit model bench", hit_bench, opts, switches)
         return
     if "--hit_bench" in switches and BENCH_STAGE[0] is None:
-        # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on).
-        hit_bench(opts, switches)
+        # Run separately: the bench alone, no plugin played (then the cymbal comparison, if on: the two
+        # share the cymbal bench's unzip folder, so each kit's renders are unpacked once).
+        if "--cymbal_bench" in switches and ("--model_compare" in switches or "--leave_one_out" in switches):
+            opts["_share_unzip"] = cymbal_unzip(opts)
+        busy("the hit model bench", hit_bench, opts, switches)
         if "--cymbal_bench" not in switches:
             return
     # The cymbal model comparison (Settings' switch; the Cymbal model tab's parts): run on its own (no
@@ -5425,7 +5686,7 @@ def main(argv):
     if BENCH_STAGE[0] == "bench" or "--cymbal_bench" in switches and BENCH_STAGE[0] is None:
         if not parts_ticked:
             fail("Cymbal model comparison: tick Compare two cymbal models or Leave one out (or both) on the Cymbal model tab")
-        model_bench(opts, switches)
+        busy("the cymbal model comparison", model_bench, opts, switches)
         return
     if parts_ticked and "--cymbal_bench" not in switches:
         print("Cymbal model comparison is off (Settings): the Cymbal model tab's Compare and Leave one out are not run")
@@ -5476,6 +5737,23 @@ def main(argv):
             fail("--edit opens one plugin's window: save each plugin's settings with its own run first")
         runs = plugin_runs(argv, opts)
         done = []
+        # A test of several plugins: each checked first (it plays, its notes as before, the longest load
+        # time waited), so a plugin that is not right stops the run now, not hours on at its turn.
+        if "--test" in switches and len(runs) > 1 and "--preflight" not in switches:
+            bad = []
+            for k, (plug, one) in enumerate(runs):
+                print("== Preflight %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
+                sys.stdout.flush()
+                try:
+                    main(one + ["--preflight"])
+                except SystemExit as e:
+                    if e.code:
+                        bad.append(os.path.basename(os.path.normpath(plug)))
+                print("")
+            if bad:
+                fail("preflight: %s not ready (above), so nothing was rendered; fix it, or untick its Use, and run again" % ", ".join(bad))
+            print("Preflight: all %d plugins ready; the run starts" % len(runs))
+            print("")
         for k, (plug, one) in enumerate(runs):
             print("== Plugin %d of %d: %s" % (k + 1, len(runs), os.path.basename(os.path.normpath(plug))))
             try:
@@ -5801,6 +6079,40 @@ def main(argv):
         # Notes the note map leaves out (=none) are silent on purpose.
         off = [n for n in silent if chain.note_map and n in chain.note_map and chain.note_map[n] is None]
         silent = [n for n in silent if n not in off]
+        # Some notes silent: maybe the kit is still loading (SSD5's crashes and a tom, once): the test beat again
+        # every 5 s for up to the plugin's longest load time measured, before they count as silent.
+        one_round = silent_wait(chain)
+        wait_max = one_round * WAIT_ROUNDS[0]
+        if silent and wait_max > 0 and not gizmo:
+            import time
+            first_silent = list(silent)
+            waited = 0.0
+            print("Notes: %s silent at first (the kit still loading?): the test beat again every 5 s, for up to %.0f s%s" % (
+                named_list(first_silent), wait_max, " (%d rounds of %.0f s)" % (WAIT_ROUNDS[0], one_round) if WAIT_ROUNDS[0] > 1 else ""))
+            sys.stdout.flush()
+            round_end = one_round
+            while silent and waited < wait_max and not STOP["asked"]:
+                if waited >= round_end:
+                    print("Notes: %s still silent after %.0f s: round %d of %d" % (named_list(silent), waited, int(round_end // one_round) + 1, WAIT_ROUNDS[0]))
+                    sys.stdout.flush()
+                    round_end += one_round
+                step = min(5.0, wait_max - waited)
+                time.sleep(step)
+                waited += step
+                try:
+                    again, _, _ = chain.render(np, midi=beat, tail=1.0)
+                except ValueError:
+                    break
+                again, again_note = finish(np, again, volume)
+                h2, s2 = notes_heard(np, again, rate, [(t, n) for t, n, _, tag in kit_events() if tag == ""])
+                s2 = [n for n in s2 if n not in off]
+                if len(s2) < len(silent):
+                    heard, silent, check_audio = h2, s2, again
+            print("Notes: %s after %.0f s (waited at most %.0f s: the longest kit load time measured for the plugin%s)" % (
+                "all heard" if not silent else "%s still silent" % named_list(silent), waited, wait_max, ", %d rounds" % WAIT_ROUNDS[0] if WAIT_ROUNDS[0] > 1 else ""))
+        # The notes this kit plays, kept: a later run with one of them silent stops before its renders.
+        if heard and not gizmo:
+            note_heard(opts.get("--bridged") or opts["--clap"] or plugin or name, heard)
         if off:
             print("Notes left out by the note map: %s" % named_list(off))
         if silent:
@@ -5904,6 +6216,22 @@ def main(argv):
             for line in note_lines:
                 print(line)
             choke_lines = list(choke_lines) + note_lines
+            # A note this kit played before (Test, an earlier run) silent now, after the wait: the kit did not
+            # load as it did (or its settings changed): the run stops here, before hours of renders without it.
+            kit_key = opts.get("--bridged") or opts["--clap"] or plugin or name
+            before = heard_before(kit_key)
+            lost = sorted(set(quiet) & before)
+            if lost:
+                fail("%s: %s silent now, though this kit played %s before (Test or an earlier run): the kit did not load as it did "
+                     "(wait for it in Edit settings and press Stop timer when it has loaded, then Test it), so the run stopped before its renders"
+                     % (os.path.basename(os.path.normpath(name)), named_list(lost), "it" if len(lost) == 1 else "them"))
+            played = [n for n in sorted(set(n for _, ns in FAMILIES for n in ns if nmap.get(n, n) is not None)) if n not in quiet]
+            note_heard(kit_key, played)
+        # --preflight: the plugin checked (it plays, its notes as before), nothing rendered: a run of several
+        # plugins checks them all first, so one that is not right stops it at the start, not hours on.
+        if "--preflight" in switches:
+            print("Preflight: %s ready" % os.path.basename(os.path.normpath(name)))
+            return
         # The cymbal check: the crashes and rides, each struck alone and with a kick, as the songs play them.
         if test and "--no-cymbal-check" not in switches and opts["--drummidi"] and os.path.isfile(opts["--drummidi"]) and not gizmo:
             extra = (["--no-toms"] if "--no-toms" in switches else []) + (["--snare-leak"] if "--snare-leak" in switches else []) + (["--faded-opens"] if "--faded-opens" in switches else [])

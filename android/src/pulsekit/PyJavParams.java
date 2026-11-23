@@ -137,6 +137,8 @@ public final class PyJavParams {
         withClip.setGravity(android.view.Gravity.CENTER_VERTICAL);
         withClip.addView(label);
         for (View b : clipButtons(activity, name, p.token, () -> fields[index])) withClip.addView(b);
+        // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
+        if (p.token.equals("--prompt")) for (View b : markButtons(activity, SogniSections.app(name), ps, fields)) withClip.addView(b);
         box.addView(withClip);
       } else {
         box.addView(label);
@@ -1187,6 +1189,89 @@ public final class PyJavParams {
           })
           .setNegativeButton("Cancel", (d2, w2) -> browseSections(activity, program, ps, fields)).show();
     }).setNegativeButton("Cancel", (d, w) -> browseSections(activity, program, ps, fields)).show();
+  }
+
+  /** The prompt row's ★ and G last made, and G's group list (for the tests). */
+  static android.widget.Button lastStar, lastGroupButton;
+  static AlertDialog lastRowGroupPick;
+
+  /** The prompt row's ★ (the entries now as a favourite section; again, not one) and G (as a section in a group). */
+  static List<View> markButtons(final Activity activity, final String app, final List<ProgramParams.Param> ps, final EditText[] fields) {
+    final android.widget.Button star = clipButton(activity, SogniSections.STAR_OFF, "params-star");
+    final android.widget.Button group = clipButton(activity, SogniSections.GROUP_BUTTON, "params-group");
+    // Its mark once the rows are filled (they are made after the label).
+    star.post(() -> {
+      try {
+        star.setText(SogniSections.starNow(PromptVault.open(activity.getFilesDir()), app, sectionFields(ps, fields)));
+      } catch (Exception ignored) {
+        // ☆
+      }
+    });
+    star.setOnClickListener(v -> {
+      java.util.Map<String, String> now = sectionFields(ps, fields);
+      if (now.isEmpty()) {
+        sectionSay(activity, "Nothing to mark: the prompt and the other rows are empty");
+        return;
+      }
+      try {
+        PromptVault.SogniSection sec = SogniSections.sectionOf(PromptVault.open(activity.getFilesDir()), app, now);
+        markSection(activity, sec, !sec.favourite, sec.fin);
+        star.setText(SogniSections.star(sec));
+        sectionSay(activity, sectionSaid);
+      } catch (Exception ex) {
+        sectionSay(activity, "Could not save the section: " + ex.getMessage());
+      }
+    });
+    group.setOnClickListener(v -> {
+      java.util.Map<String, String> now = sectionFields(ps, fields);
+      if (now.isEmpty()) {
+        sectionSay(activity, "Nothing to put in a group: the prompt and the other rows are empty");
+        return;
+      }
+      final PromptVault.SogniSection sec;
+      final List<String> names;
+      try {
+        PromptVault vault = PromptVault.open(activity.getFilesDir());
+        sec = SogniSections.sectionOf(vault, app, now);
+        names = SogniSections.groupNames(vault.sogniSections(app));
+      } catch (Exception ex) {
+        sectionSay(activity, "Could not save the section: " + ex.getMessage());
+        return;
+      }
+      final List<String> rows = new ArrayList<String>(names);
+      rows.remove(sec.group == null ? "" : sec.group);
+      rows.add(SogniSections.NEW_GROUP);
+      if (sec.group != null && sec.group.length() > 0) rows.add(SogniSections.UNGROUP);
+      lastRowGroupPick = new AlertDialog.Builder(activity).setTitle(SogniSections.ADD_GROUP).setItems(rows.toArray(new String[0]), (d, w) -> {
+        String pick = rows.get(w);
+        if (pick.equals(SogniSections.UNGROUP)) {
+          groupSection(activity, sec, "");
+          sectionSay(activity, sectionSaid);
+        } else if (!pick.equals(SogniSections.NEW_GROUP)) {
+          groupSection(activity, sec, pick);
+          sectionSay(activity, sectionSaid);
+        } else {
+          final EditText nameBox = new EditText(activity);
+          nameBox.setTag("section-group-name");
+          nameBox.setSingleLine(true);
+          nameBox.setHint(SogniSections.GROUP_NAME);
+          LinearLayout boxL = new LinearLayout(activity);
+          boxL.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+          boxL.addView(nameBox, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+          lastGroupName = new AlertDialog.Builder(activity).setTitle(SogniSections.NEW_GROUP).setView(boxL)
+              .setPositiveButton("Add", (d2, w2) -> {
+                String n = nameBox.getText().toString().trim();
+                if (n.length() > 0) {
+                  groupSection(activity, sec, n);
+                  sectionSay(activity, sectionSaid);
+                }
+              }).setNegativeButton("Cancel", null).show();
+        }
+      }).setNegativeButton("Cancel", null).show();
+    });
+    lastStar = star;
+    lastGroupButton = group;
+    return java.util.Arrays.<View>asList(star, group);
   }
 
   /** A section added to a group by name ("" takes it out). */
