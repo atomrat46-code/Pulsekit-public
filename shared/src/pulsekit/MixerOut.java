@@ -92,8 +92,8 @@ public final class MixerOut {
         break;
       }
       both.addAll(r.files);
-      said = add(both);
-    } else said = add(r.files);
+      said = ask ? hold(both) : add(both);
+    } else said = ask ? hold(r.files) : add(r.files);
     note(said);
     return new JavaRun.Result(r.log + (r.log.endsWith("\n") || r.log.isEmpty() ? "" : "\n") + said + "\n", r.files, r.code);
   }
@@ -122,9 +122,84 @@ public final class MixerOut {
     }
   }
 
-  /** Whether a run's log says a track went into the mixer. */
+  /** Whether a run's log says a track went into the mixer, or waits for the question. */
   public static boolean addedIn(String log) {
-    return log != null && log.contains("Added to the AudioMixer");
+    return log != null && (log.contains("Added to the AudioMixer") || log.contains(HELD));
+  }
+
+  /**
+   * Set by the apps: a run's sounds are held, not added, and the app asks when the run (or its file sets
+   * chain) is done which go in and whether they replace the mixer's tracks. Unset: added at once.
+   */
+  public static volatile boolean ask;
+  static final String HELD = "For the AudioMixer (asked when the run is done): ";
+  static final List<JavaRun.FileOut> pending = new ArrayList<JavaRun.FileOut>();
+
+  /** The sounds kept for the question; what it says. */
+  static String hold(List<JavaRun.FileOut> files) {
+    List<JavaRun.FileOut> sounds = sounds(files);
+    if (sounds.isEmpty()) return "Not added to the AudioMixer: the run made no WAV, MP3 or MIDI";
+    StringBuilder names = new StringBuilder();
+    synchronized (pending) {
+      for (JavaRun.FileOut f : sounds) {
+        pending.add(f);
+        names.append(names.length() == 0 ? "" : ", ").append(new File(f.name).getName());
+      }
+    }
+    return HELD + names;
+  }
+
+  /** Whether sounds wait for the question. */
+  public static boolean waiting() {
+    synchronized (pending) {
+      return !pending.isEmpty();
+    }
+  }
+
+  /** The sounds waiting (the question's list), taken: the next run starts afresh. */
+  public static List<JavaRun.FileOut> takeWaiting() {
+    synchronized (pending) {
+      List<JavaRun.FileOut> out = new ArrayList<JavaRun.FileOut>(pending);
+      pending.clear();
+      return out;
+    }
+  }
+
+  /** The question's title and text: how many wait, and what the mixer has now. */
+  public static final String ASK_RUN_TITLE = "Add to the AudioMixer";
+  public static final String REPLACE = "Replace its tracks", ADD_TO = "Add to them", ADD_THESE = "Add", SKIP = "Don't add";
+
+  public static String askRun(int waiting, int has) {
+    return "The run made " + waiting + (waiting == 1 ? " track" : " tracks") + " for the AudioMixer: tick the ones to add."
+        + (has > 0 ? "\nThe AudioMixer has " + has + (has == 1 ? " track" : " tracks") + " already (earlier runs): replace them, or add to them?" : "");
+  }
+
+  /** Whether the question is needed: more than one track, or the mixer has some already. */
+  public static boolean needsAsking(int waiting) {
+    synchronized (AudioMix.class) {
+      try {
+        if (AudioMix.dir == null || (folder != null && !folder.equals(AudioMix.dir))) AudioMix.open(folder);
+      } catch (Exception ignored) {
+        // asked
+      }
+      return waiting > 1 || !AudioMix.tracks.isEmpty();
+    }
+  }
+
+  /** The question answered: the ticked sounds in (`replace`: the mixer's tracks taken out first); what it says. */
+  public static String addChosen(List<JavaRun.FileOut> chosen, boolean replace) {
+    if (chosen == null || chosen.isEmpty()) return "Nothing added to the AudioMixer";
+    if (replace) {
+      synchronized (AudioMix.class) {
+        try {
+          if (AudioMix.dir == null || (folder != null && !folder.equals(AudioMix.dir))) AudioMix.open(folder);
+          AudioMix.clear();
+        } catch (Exception ex) {
+          return "Not added to the AudioMixer: " + ex.getMessage();
+        }
+      }
+    }
+    return add(chosen);
   }
 
   /**
@@ -138,6 +213,13 @@ public final class MixerOut {
 
   /** The sounds of `files` added as tracks; what it says. */
   public static String add(List<JavaRun.FileOut> files) {
+    List<JavaRun.FileOut> sounds = sounds(files);
+    if (sounds.isEmpty()) return "Not added to the AudioMixer: the run made no WAV, MP3 or MIDI";
+    return addSounds(sounds);
+  }
+
+  /** The files a mixer takes: WAVs, MP3s, and MIDIs that have no WAV or MP3 of their own. */
+  static List<JavaRun.FileOut> sounds(List<JavaRun.FileOut> files) {
     List<JavaRun.FileOut> sounds = new ArrayList<JavaRun.FileOut>();
     for (JavaRun.FileOut f : files) {
       String low = f.name.toLowerCase(Locale.ROOT);
@@ -150,7 +232,10 @@ public final class MixerOut {
       }
       sounds.add(f);
     }
-    if (sounds.isEmpty()) return "Not added to the AudioMixer: the run made no WAV, MP3 or MIDI";
+    return sounds;
+  }
+
+  static String addSounds(List<JavaRun.FileOut> sounds) {
     StringBuilder sb = new StringBuilder();
     try {
       synchronized (AudioMix.class) {

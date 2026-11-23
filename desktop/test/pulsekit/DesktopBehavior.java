@@ -517,9 +517,30 @@ public final class DesktopBehavior {
     AudioMix.Track sound = null;
     for (AudioMix.Track t : AudioMix.tracks) if (t.name.equals("walk-audio")) sound = t;
     out.append(String.format(java.util.Locale.ROOT, "walk-audio: %s%n", sound == null ? "none" : String.format(java.util.Locale.ROOT, "%.1f s", sound.seconds)));
+    // The mixer has tracks now: the next run's track is asked about (Replace its tracks; then Don't add).
+    String[] asked = new String[2];
+    int[] after = new int[2];
+    String[] answersRun = {MixerOut.REPLACE, MixerOut.SKIP};
+    for (int k = 0; k < 2; k++) {
+      AudioMixerWindow.offerAnswer = answersRun[k];
+      AudioMixerWindow.lastOffer = null;
+      edt(() -> log.setText(""));
+      edt(() -> ((javax.swing.text.JTextComponent) get("pyExtra")).setText("beat.mid --style rock --bars 2 " + MixerOut.FLAG));
+      edt(() -> call("runPython"));
+      for (int i = 0; i < 1200 && AudioMixerWindow.lastOffer == null; i++) Thread.sleep(50);
+      Thread.sleep(1500);
+      idle();
+      asked[k] = AudioMixerWindow.lastOffer;
+      after[k] = AudioMix.tracks.size();
+    }
+    AudioMixerWindow.offerAnswer = null;
+    out.append("asked: ").append(String.valueOf(asked[0]).replace("\n", " ")).append("\nafter ").append(MixerOut.REPLACE).append(": ").append(after[0])
+        .append(" tracks; after ").append(MixerOut.SKIP).append(": ").append(after[1]).append('\n');
     String text = out.toString();
     boolean vlc = VlcPlayer.available();
-    boolean ok = inParams && lines.toString().contains("Added to the AudioMixer: beat") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+    boolean ok = inParams && lines.toString().contains("For the AudioMixer (asked when the run is done): beat.mid") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
+        && asked[0] != null && asked[0].contains("The AudioMixer has ") && asked[0].endsWith(MixerOut.REPLACE + ", " + MixerOut.ADD_TO + ", " + MixerOut.SKIP)
+        && after[0] == 1 && after[1] == 1
         && beat != null && beat.seconds > 1
         && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
     if (!ok) throw new AssertionError(text);

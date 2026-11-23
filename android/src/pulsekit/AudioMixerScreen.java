@@ -404,6 +404,64 @@ final class AudioMixerScreen {
         }, "pulsekit-mixdown").start();
     }
 
+    /** The last run's question (for the tests). */
+    static AlertDialog lastOffer;
+
+    /**
+     * A run's sounds held for the mixer (--to_mixer): one into an empty mixer goes in at once; else asked
+     * which go in (all ticked), and whether they replace the mixer's tracks or join them. Then the mixer.
+     */
+    static void offer(final MainActivity app) {
+        final java.util.List<JavaRun.FileOut> waiting = MixerOut.takeWaiting();
+        if (waiting.isEmpty()) return;
+        if (!MixerOut.needsAsking(waiting.size())) {
+            addRun(app, waiting, false);
+            return;
+        }
+        int has = AudioMix.tracks.size();
+        LinearLayout box = app.col();
+        box.setPadding(app.dp(20), app.dp(8), app.dp(20), 0);
+        box.addView(app.text(MixerOut.askRun(waiting.size(), has), 14, false));
+        final java.util.List<android.widget.CheckBox> ticks = new java.util.ArrayList<android.widget.CheckBox>();
+        for (JavaRun.FileOut f : waiting) {
+            android.widget.CheckBox c = new android.widget.CheckBox(app);
+            c.setText(new File(f.name).getName());
+            c.setChecked(true);
+            c.setTag("audiomixer-offer-track");
+            ticks.add(c);
+            box.addView(c);
+        }
+        ScrollView scroll = new ScrollView(app);
+        scroll.addView(box);
+        final java.util.function.Function<Boolean, Runnable> go = replace -> () -> {
+            java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
+            for (int i = 0; i < waiting.size(); i++) if (ticks.get(i).isChecked()) chosen.add(waiting.get(i));
+            addRun(app, chosen, replace.booleanValue());
+        };
+        AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(MixerOut.ASK_RUN_TITLE).setView(scroll)
+            .setNegativeButton(MixerOut.SKIP, (d, w) -> app.setNow("Not added to the AudioMixer"));
+        if (has > 0) {
+            b.setPositiveButton(MixerOut.REPLACE, (d, w) -> go.apply(Boolean.TRUE).run());
+            b.setNeutralButton(MixerOut.ADD_TO, (d, w) -> go.apply(Boolean.FALSE).run());
+        } else b.setPositiveButton(MixerOut.ADD_THESE, (d, w) -> go.apply(Boolean.FALSE).run());
+        lastOffer = b.show();
+    }
+
+    /** The chosen sounds into the mixer (in the background), then the mixer shown. */
+    static void addRun(final MainActivity app, final java.util.List<JavaRun.FileOut> chosen, final boolean replace) {
+        if (chosen.isEmpty()) {
+            app.setNow("Nothing added to the AudioMixer");
+            return;
+        }
+        new Thread(() -> {
+            final String said = MixerOut.addChosen(chosen, replace);
+            app.handler.post(() -> {
+                app.setNow(said.split("\n")[0] + (said.contains("\n") ? " …" : ""));
+                show(app);
+            });
+        }, "pulsekit-mixer-run").start();
+    }
+
     /** The open screen shows the tracks again (a run added some). */
     static void refresh() {
         if (last != null && last.isShowing() && refill != null) refill.run();

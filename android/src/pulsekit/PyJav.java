@@ -961,10 +961,11 @@ final class PyJav {
             this.pkZipFinish();
             final String summary = c.summary();
             app.handler.post(() -> {
-                // --to_mixer: the mixer with the tracks, the message over it.
-                if (pulsekit.MixerOut.addedIn(summary)) AudioMixerScreen.show(app);
                 this.pkChainDone = new android.app.AlertDialog.Builder(app).setTitle("Succeeded").setMessage(summary)
-                    .setPositiveButton("Close", null).show();
+                    .setPositiveButton("Close", null).create();
+                // --to_mixer: once the message is closed, which tracks go into the mixer is asked.
+                this.pkChainDone.setOnDismissListener(d -> AudioMixerScreen.offer(app));
+                this.pkChainDone.show();
             });
             return;
         }
@@ -1500,7 +1501,7 @@ final class PyJav {
         // Timed out (or the network went away) while the workflow goes on on Sogni: joined again.
         String log = result == null ? null : result.log;
         // --to_mixer: the AudioMixer opens with the tracks the run added.
-        if (result != null && pulsekit.MixerOut.opensAfter(app.pyName, argv, result.code, result.log)) app.handler.post(() -> AudioMixerScreen.show(app));
+        if (result != null && pulsekit.MixerOut.opensAfter(app.pyName, argv, result.code, result.log)) app.handler.post(() -> AudioMixerScreen.offer(app));
         java.util.List<String> again = this.pkReconnects < pulsekit.JavaRun.RECONNECTS ? pulsekit.JavaRun.reconnectArgs(app.pyName, src, log, argv) : null;
         if (again != null && result != null && result.files != null && !result.files.isEmpty()) {
             boolean media = false;

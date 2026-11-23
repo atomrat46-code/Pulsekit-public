@@ -364,6 +364,8 @@ public class MainActivity extends UiKit {
         TrackRecorder.inputs = AudioMixerScreen.inputs(this);
         // SogniMusic, MidiDrumGen, DrumMidi_CRT --to_mixer: their results become mixer tracks.
         MixerOut.folder = AudioMixerScreen.folder(this);
+        // A run's tracks wait for the question (which go in, replacing or joining the mixer's) when it is done.
+        MixerOut.ask = true;
         MixerOut.kit = () -> {
             if (this.playback == null) return null;
             this.playback.fillMissingVoices();

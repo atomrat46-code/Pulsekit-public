@@ -48,6 +48,68 @@ final class AudioMixerWindow {
         return new File(PromptDb.dir(), "audiomixer");
     }
 
+    /** The tests' answer to a run's question (a button's text; the tracks ticked as they are), and what was asked. */
+    static String offerAnswer;
+    static String lastOffer;
+
+    /**
+     * A run's sounds held for the mixer (--to_mixer): one into an empty mixer goes in at once; else asked
+     * which go in (all ticked), and whether they replace the mixer's tracks or join them. Then the mixer.
+     */
+    static void offer(final Pulsekit app) {
+        final java.util.List<JavaRun.FileOut> waiting = MixerOut.takeWaiting();
+        if (waiting.isEmpty()) return;
+        if (!MixerOut.needsAsking(waiting.size())) {
+            addRun(app, waiting, false);
+            return;
+        }
+        int has = AudioMix.tracks.size();
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+        String text = MixerOut.askRun(waiting.size(), has);
+        for (String line : text.split("\n")) box.add(new JLabel(line));
+        final java.util.List<javax.swing.JCheckBox> ticks = new java.util.ArrayList<javax.swing.JCheckBox>();
+        for (JavaRun.FileOut f : waiting) {
+            javax.swing.JCheckBox c = new javax.swing.JCheckBox(new File(f.name).getName(), true);
+            c.setName("audiomixer-offer-track");
+            ticks.add(c);
+            box.add(c);
+        }
+        String[] options = has > 0 ? new String[] {MixerOut.REPLACE, MixerOut.ADD_TO, MixerOut.SKIP} : new String[] {MixerOut.ADD_THESE, MixerOut.SKIP};
+        lastOffer = text + " | " + String.join(", ", options);
+        String picked;
+        if (offerAnswer != null) {
+            picked = offerAnswer;
+        } else {
+            int i = javax.swing.JOptionPane.showOptionDialog(app, box, MixerOut.ASK_RUN_TITLE, javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            picked = i < 0 ? MixerOut.SKIP : options[i];
+        }
+        if (MixerOut.SKIP.equals(picked)) {
+            app.setNow("Not added to the AudioMixer");
+            return;
+        }
+        java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
+        for (int i = 0; i < waiting.size(); i++) if (ticks.get(i).isSelected()) chosen.add(waiting.get(i));
+        addRun(app, chosen, MixerOut.REPLACE.equals(picked));
+    }
+
+    /** The chosen sounds into the mixer (in the background), then the mixer shown. */
+    static void addRun(final Pulsekit app, final java.util.List<JavaRun.FileOut> chosen, final boolean replace) {
+        if (chosen.isEmpty()) {
+            app.setNow("Nothing added to the AudioMixer");
+            return;
+        }
+        new Thread(() -> {
+            final String said = MixerOut.addChosen(chosen, replace);
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                app.setNow(said.split("\n")[0] + (said.contains("\n") ? " \u2026" : ""));
+                show(app);
+                refresh();
+            });
+        }, "pulsekit-mixer-run").start();
+    }
+
     static void show(final Pulsekit app) {
         if (last != null && last.isDisplayable()) {
             last.toFront();

@@ -14026,11 +14026,36 @@ public class BehaviorTest {
     JavaRun.Result r = MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
     out.append("run: ").append(r.log.trim().replace("\n", " | ")).append('\n');
     out.append("the program got: ").append(seen.get(0)).append('\n');
+    // The run's two tracks wait for the question (the app asks when the run is done): Add, both ticked.
+    AudioMixerScreen.offer(app);
+    idle();
+    android.app.AlertDialog offer = AudioMixerScreen.lastOffer;
+    String offerButtons = offer == null ? "none" : offer.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText() + " / "
+        + offer.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).getText() + " / neutral " + (offer.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getVisibility() == View.VISIBLE);
+    if (offer != null) offer.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 300 && AudioMix.tracks.size() < 2; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("offer: ").append(offerButtons).append('\n');
     StringBuilder names = new StringBuilder();
     for (AudioMix.Track t : AudioMix.tracks) names.append(t.name).append(' ');
     out.append("tracks: ").append(names.toString().trim()).append('\n');
     JavaRun.Result zip = MixerOut.around("SogniMusic.java", java.util.Arrays.asList("--zip", MixerOut.FLAG), fake);
     JavaRun.Result off = MixerOut.around("CutWav.java", java.util.Arrays.asList(MixerOut.FLAG), fake);
+    // Again, into a mixer with tracks: Replace its tracks takes the earlier ones out.
+    MixerOut.around("MidiDrumGen.java", java.util.Arrays.asList("--style", "rock", MixerOut.FLAG), fake);
+    AudioMixerScreen.lastOffer = null;
+    AudioMixerScreen.offer(app);
+    idle();
+    android.app.AlertDialog again = AudioMixerScreen.lastOffer;
+    String againSaid = again == null ? "none" : again.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText() + " / " + again.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getText();
+    if (again != null) again.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+    for (int i = 0; i < 100; i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    out.append("again: ").append(againSaid).append(", tracks ").append(AudioMix.tracks.size()).append('\n');
     out.append("zip: ").append(zip.log.contains("Not added to the AudioMixer: the run made a zip")).append(", another program: ").append(seen.get(2).contains(MixerOut.FLAG))
         .append(", tracks ").append(AudioMix.tracks.size()).append('\n');
     // Extract audio: the question after it.
@@ -14064,7 +14089,8 @@ public class BehaviorTest {
     write("s244_to_mixer", out.toString());
     String text = out.toString();
     boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
-        && names.toString().trim().equals("groove song") && r.log.contains("Added to the AudioMixer: groove") && r.log.contains("Added to the AudioMixer: song")
+        && names.toString().trim().equals("groove song") && r.log.contains("For the AudioMixer (asked when the run is done): groove.mid, song.wav")
+        && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
         && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
     if (!ok) throw new AssertionError(text);
