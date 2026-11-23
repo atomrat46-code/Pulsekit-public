@@ -2658,7 +2658,26 @@ final class PyJav {
             return;
         }
         final java.util.List<String> run = args;
+        final String sectionParams = q.bySections() && program.equals(q.program) ? q.params.get(q.next - 1) : null;
         SwingUtilities.invokeLater(() -> {
+            if (sectionParams != null) {
+                // Run sections: the run reads the Params with the section's entries; they are put back as they were at once.
+                app.programMenus.selectListedProgram("Java", program);
+                String was = this.loadParams(program);
+                // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
+                if (runSectionsBefore != null) runSectionsBefore.run();
+                String line = this.pyExtra != null ? this.pyExtra.getText() : null;
+                if (line != null) this.pyExtra.setText(ProgramParams.strip(q.ps, line));
+                this.saveParams(program, sectionParams);
+                this.batchStep = true;
+                try {
+                    this.runPython();
+                } finally {
+                    this.saveParams(program, was == null ? "" : was);
+                    if (line != null) this.pyExtra.setText(line);
+                }
+                return;
+            }
             app.pyInputPath = null;
             app.programMenus.selectListedProgram("Java", program);
             this.forcedArgs = run;
@@ -2667,10 +2686,91 @@ final class PyJav {
         });
     }
 
+    /** Run sections… picked in the Params, started once they close. */
+    java.util.List<PromptVault.SogniSection> runSectionsPending;
+    /** The tests' Run sections answer: the picker's sections in, the indexes to run out (null: asked). */
+    static java.util.function.Function<java.util.List<PromptVault.SogniSection>, int[]> runSectionsAnswer;
+    /** What Run sections said at the end (its summary), for the tests; what they do before each run starts. */
+    static String runSectionsSaid;
+    static Runnable runSectionsBefore;
+
+    /** Run sections…' picker: the program's sections ticked by hand, or by favourites or a group. Null: cancelled. */
+    java.util.List<PromptVault.SogniSection> pickRunSections(java.awt.Component at, String appName) {
+        java.util.List<PromptVault.SogniSection> all;
+        try {
+            all = PromptVault.open(PromptDb.dir()).sogniSections(appName);
+        } catch (Exception ex) {
+            app.setNow("Could not read the sections: " + ex.getMessage());
+            return null;
+        }
+        if (all.isEmpty()) {
+            if (runSectionsAnswer == null) JOptionPane.showMessageDialog(at, SogniSections.RUN_NONE, SogniSections.RUN, JOptionPane.PLAIN_MESSAGE);
+            runSectionsSaid = SogniSections.RUN_NONE;
+            return null;
+        }
+        java.util.List<PromptVault.SogniSection> out = new java.util.ArrayList<PromptVault.SogniSection>();
+        if (runSectionsAnswer != null) {
+            int[] idx = runSectionsAnswer.apply(all);
+            if (idx == null) return null;
+            for (int i : idx) if (i >= 0 && i < all.size()) out.add(all.get(i));
+            return out;
+        }
+        JPanel list = new JPanel();
+        list.setLayout(new javax.swing.BoxLayout(list, javax.swing.BoxLayout.Y_AXIS));
+        final javax.swing.JCheckBox[] ticks = new javax.swing.JCheckBox[all.size()];
+        for (int i = 0; i < ticks.length; i++) {
+            PromptVault.SogniSection sec = all.get(i);
+            String g = sec.group == null || sec.group.trim().isEmpty() ? "" : "  [" + sec.group.trim() + "]";
+            ticks[i] = new javax.swing.JCheckBox(SogniSections.marks(sec) + SogniSections.label(sec) + g);
+            ticks[i].setName("run-section:" + i);
+            list.add(ticks[i]);
+        }
+        javax.swing.JComboBox<String> picks = new javax.swing.JComboBox<String>(SogniSections.runPicks(all).toArray(new String[0]));
+        picks.addActionListener(e -> {
+            boolean[] on = SogniSections.runPicked(all, (String) picks.getSelectedItem());
+            for (int i = 0; i < ticks.length; i++) ticks[i].setSelected(on[i]);
+        });
+        JPanel box = new JPanel(new BorderLayout(0, 6));
+        box.add(new JLabel("<html><body style='width:420px'>" + SogniSections.RUN_ASK + "</body></html>"), BorderLayout.NORTH);
+        javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(list);
+        scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(360, list.getPreferredSize().height + 12)));
+        box.add(scroll, BorderLayout.CENTER);
+        box.add(picks, BorderLayout.SOUTH);
+        Object[] options = {"Run", "Cancel"};
+        int ans = JOptionPane.showOptionDialog(at, box, SogniSections.RUN + " \u00b7 " + appName, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+        if (ans != 0) return null;
+        for (int i = 0; i < ticks.length; i++) if (ticks[i].isSelected()) out.add(all.get(i));
+        if (out.isEmpty()) app.setNow("Run sections: no section ticked");
+        return out;
+    }
+
+    /** Run sections: the program run with each picked section in turn (a batch: Stop batch ends it after the run in progress). */
+    void runSections(String program, java.util.List<ProgramParams.Param> ps, java.util.List<PromptVault.SogniSection> picked) {
+        if (BatchQueue.current() != null) {
+            app.setNow("A batch is running: Run sections waits until it is over");
+            return;
+        }
+        BatchQueue q = BatchQueue.sections(program, this.loadParams(program), ps, picked);
+        if (q == null) return;
+        this.testNote("Sections: " + picked.size() + " run" + (picked.size() == 1 ? "" : "s") + " of " + SogniSections.app(program) + ", one after another");
+        this.batchNext(q);
+    }
+
     void batchOver(BatchQueue q) {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+        // Run sections: what each section's run made, in a window too.
+        if (q.bySections()) {
+            runSectionsSaid = q.summary();
+            if (runSectionsAnswer == null) {
+                javax.swing.JTextArea text = new javax.swing.JTextArea(q.summary(), Math.min(16, q.said.size() + 2), 60);
+                text.setEditable(false);
+                text.setLineWrap(true);
+                text.setWrapStyleWord(true);
+                JOptionPane.showMessageDialog(app, new javax.swing.JScrollPane(text), SogniSections.RUN + " \u00b7 " + SogniSections.app(q.program), JOptionPane.PLAIN_MESSAGE);
+            }
+        }
     }
 
     javax.swing.JComponent pyScriptStop;
@@ -4410,9 +4510,21 @@ final class PyJav {
             JButton exportSection = new JButton(ParamsClip.EXPORT);
             exportSection.setName("params-export-section");
             exportSection.addActionListener(e -> this.exportSection(exportSection, SogniSections.app(program), ps, fields, areas));
+            // Run sections…: several sections (or a group) picked, the program run with each in turn; the Params close as with OK.
+            JButton runSections = new JButton(SogniSections.RUN);
+            runSections.setName("params-run-sections");
+            runSections.setToolTipText(SogniSections.RUN_TIP);
+            runSections.addActionListener(e -> {
+                java.util.List<PromptVault.SogniSection> picked = this.pickRunSections(runSections, SogniSections.app(program));
+                if (picked == null || picked.isEmpty()) return;
+                this.runSectionsPending = picked;
+                JOptionPane pane = (JOptionPane) SwingUtilities.getAncestorOfClass(JOptionPane.class, runSections);
+                if (pane != null) pane.setValue(JOptionPane.OK_OPTION);
+            });
             JPanel south = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
             south.add(saveSection);
             south.add(exportSection);
+            south.add(runSections);
             box.add(south, BorderLayout.SOUTH);
         }
         if (back != null) {
@@ -4455,6 +4567,8 @@ final class PyJav {
             return;
         }
         // Closed with the window's X: what was picked is kept, as with OK; Cancel leaves it all as it was.
+        final java.util.List<PromptVault.SogniSection> runSecs = this.runSectionsPending;
+        this.runSectionsPending = null;
         if (ans != JOptionPane.OK_OPTION && ans != JOptionPane.CLOSED_OPTION) return;
         for (int i = 0; i < fields.length; i++) if (fields[i] != null) values[i] = fields[i].getText();
         // vst_render's kit names: no spaces around the pack's colon or at the ends.
@@ -4468,6 +4582,8 @@ final class PyJav {
         this.saveParams(program + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         this.saveParams(program, ProgramParams.build(ps, values));
+        // Run sections…: the runs start once the Params are saved (each the Params with a section's entries).
+        if (runSecs != null) SwingUtilities.invokeLater(() -> this.runSections(program, ps, runSecs));
         // The prompt kept among the program's six last (Recent prompts).
         for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(PromptDb.dir(), program, values[i]);
         // Another program loaded meanwhile (ImageUpscaler from the Media browser Choose file opened):

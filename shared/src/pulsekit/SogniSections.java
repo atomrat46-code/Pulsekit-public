@@ -26,6 +26,32 @@ public final class SogniSections {
   /** Add to group…: an existing group of the program's or a new one by name; Take out of the group. */
   public static final String ADD_GROUP = "Add to group\u2026", NEW_GROUP = "New group\u2026", UNGROUP = "Take out of the group";
   public static final String GROUP_NAME = "The group's name";
+  /** Run sections…: several sections picked (or a group), the program run once with each, one after another. */
+  public static final String RUN = "Run sections\u2026";
+  public static final String RUN_TIP = "Run the program once for each section picked, one after another (the other Params as they are now)";
+  public static final String RUN_ASK = "Pick the sections to run, one after another. Each run has the Params as they are now, with the section's entries.";
+  public static final String RUN_ALL = "Pick: none", RUN_FAVOURITES = "Pick: favourites \u2605";
+  public static final String RUN_NONE = "No sections saved for this program yet: Save keeps the entries as one.";
+
+  /** Run sections' pick list: "none", "favourites", then "group: <name>" for each group. */
+  public static java.util.List<String> runPicks(java.util.List<PromptVault.SogniSection> all) {
+    java.util.List<String> out = new java.util.ArrayList<String>();
+    out.add(RUN_ALL);
+    out.add(RUN_FAVOURITES);
+    for (String g : groupNames(all)) out.add("Pick group: " + g);
+    return out;
+  }
+
+  /** Which sections a pick ticks (by index in `all`). */
+  public static boolean[] runPicked(java.util.List<PromptVault.SogniSection> all, String pick) {
+    boolean[] out = new boolean[all.size()];
+    for (int i = 0; i < out.length; i++) {
+      PromptVault.SogniSection s = all.get(i);
+      if (RUN_FAVOURITES.equals(pick)) out[i] = s.favourite;
+      else if (pick != null && pick.startsWith("Pick group: ")) out[i] = s.group != null && s.group.trim().equalsIgnoreCase(pick.substring(12).trim());
+    }
+    return out;
+  }
 
   /** Browse sections' search: the button, its two ways and the term's hint. */
   public static final String SEARCH = "Search", CONTAINS = "Contains", NOT_CONTAINS = "Doesn't contain";

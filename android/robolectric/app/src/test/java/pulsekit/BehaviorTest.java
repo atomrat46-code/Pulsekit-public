@@ -15746,6 +15746,68 @@ public class BehaviorTest {
   }
 
   /** 19112026_2: Video ready starts at the volume the last one was left at. */
+  /**
+   * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
+   * with OK and SogniPadd runs with each section's prompt in turn (the key file as it was), one
+   * failing (no compiler here) not stopping the next; the Params are as they were after.
+   */
+  @Test
+  public void s271_run_sections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    vault.addSogniSection("SogniPadd", "Prompt: A red kite over hills.\nLoras: none\n");
+    Thread.sleep(20);
+    vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(20);
+    vault.addSogniSection("SogniPadd", "Prompt: Not this one.\n");
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPadd.java");
+    PyJavParams.store(app, "SogniPadd.java", "--prompt \"The prompt now\" --seed 42 --key_file /k/key.txt");
+    call("pkOpenParams");
+    idle();
+    AlertDialog d = (AlertDialog) ShadowDialog.getLatestDialog();
+    View dv = d.getWindow().getDecorView();
+    View button = dv.findViewWithTag("params-run-sections");
+    out.append("button: ").append(button instanceof TextView ? ((TextView) button).getText() : "none").append('\n');
+    PyJav.runSectionsSaid = null;
+    PyJavParams.runSectionsAnswer = all -> {
+      java.util.List<Integer> idx = new java.util.ArrayList<Integer>();
+      for (int i = 0; i < all.size(); i++) if (!all.get(i).text.contains("Not this")) idx.add(i);
+      int[] o = new int[idx.size()];
+      for (int i = 0; i < o.length; i++) o[i] = idx.get(i);
+      return o;
+    };
+    try {
+      button.performClick();
+      idle();
+      out.append("params closed: ").append(!d.isShowing()).append('\n');
+      BatchQueue q = BatchQueue.current();
+      out.append("batch: ").append(q == null ? "none" : q.runs.size() + " runs by sections " + q.bySections()).append('\n');
+      // Each run's arguments are made (the program cannot be compiled here: each run fails, the next one starts all the same).
+      for (int k = 0; k < 150 && PyJav.runSectionsSaid == null; k++) {
+        Thread.sleep(100);
+        idle();
+      }
+      java.util.List<PyJavRecent.Item> recent = PyJavRecent.runsOf(PyJavRecent.load(app.getFilesDir()), "SogniPadd.java");
+      for (PyJavRecent.Item it : recent) out.append("run: ").append(it.extra).append('\n');
+      out.append("said: ").append(PyJav.runSectionsSaid).append('\n');
+      out.append("params after: ").append(PyJavParams.load(app, "SogniPadd.java")).append('\n');
+    } finally {
+      PyJavParams.runSectionsAnswer = null;
+      BatchQueue.stop();
+      for (android.app.Dialog dd : ShadowDialog.getShownDialogs()) if (dd.isShowing()) dd.dismiss();
+    }
+    write("s271_run_sections", out.toString());
+    String g = out.toString();
+    org.junit.Assert.assertTrue(g, g.contains("button: Run sections") && g.contains("params closed: true") && g.contains("batch: 2 runs by sections true")
+        && g.contains("run: --prompt \"Zebra at noon.\" --key_file /k/key.txt") && g.contains("run: --prompt \"A red kite over hills.\" --loras none --key_file /k/key.txt")
+        && !g.contains("Not this one") && g.contains("Sections done: 0 of 2 runs succeeded, 2 failed")
+        && g.contains("params after: --prompt \"The prompt now\" --seed 42 --key_file /k/key.txt"));
+  }
+
   @Test
   public void s268_video_ready_volume_kept() throws Exception {
     StringBuilder out = new StringBuilder();

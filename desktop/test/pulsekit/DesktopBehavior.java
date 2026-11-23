@@ -9976,6 +9976,108 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
+   * with OK and SogniPadd runs once with each section's prompt and LoRAs (the other rows, the key file,
+   * as they were), one after another; the Params are as they were after; the summary names each.
+   */
+  void s271_run_sections() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wf_a1")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    StringBuilder got = new StringBuilder();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      PromptVault vault = PromptDb.vault();
+      vault.addSogniSection("SogniPadd", "Prompt: A red kite over hills.\nLoras: none\n");
+      Thread.sleep(20);
+      vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+      Thread.sleep(20);
+      vault.addSogniSection("SogniPadd", "Prompt: Not this one.\n");
+      final PyJav pj = (PyJav) get("pyJav");
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPadd.java");
+      pj.saveParams("SogniPadd.java", "--prompt \"The prompt now\" --seed 42 --key_file \"" + key.getAbsolutePath() + "\"");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "--api_base http://127.0.0.1:" + port;
+      // (The Params' OK writes the argument line again: the stand-in server's address put back before the runs.)
+      final javax.swing.text.JTextComponent extraField = (javax.swing.text.JTextComponent) get("pyExtra");
+      PyJav.runSectionsBefore = () -> extraField.setText(extra);
+      PyJav.runSectionsSaid = null;
+      PyJav.runSectionsAnswer = all -> {
+        java.util.List<Integer> idx = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < all.size(); i++) if (!all.get(i).text.contains("Not this")) idx.add(i);
+        int[] o = new int[idx.size()];
+        for (int i = 0; i < o.length; i++) o[i] = idx.get(i);
+        return o;
+      };
+      final boolean[] button = {false};
+      inspectNext = d -> {
+        Component c = component(d, "params-run-sections");
+        button[0] = c instanceof javax.swing.JButton;
+        if (c instanceof javax.swing.JButton) ((javax.swing.JButton) c).doClick();
+      };
+      call("openParams");
+      for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+      Thread.sleep(500);
+      idle();
+      got.append("button: ").append(button[0]).append('\n');
+      got.append("said: ").append(PyJav.runSectionsSaid).append('\n');
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+          got.append("run: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append(" | loras ").append(SogniApi.toJson(a.get("loras"))).append('\n');
+        }
+      }
+      got.append("params after: ").append(pj.loadParams("SogniPadd.java")).append('\n');
+    } finally {
+      PyJav.runSectionsAnswer = null;
+      PyJav.runSectionsBefore = null;
+      server.stop(0);
+    }
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("button: true") && g.contains("Sections done: 2 of 2 runs succeeded")
+        && g.contains("run: A red kite over hills. | seed null | loras null") && g.contains("run: Zebra at noon. | seed null | loras [\"krea2")
+        && !g.contains("Not this one") && !g.contains("run: The prompt now")
+        && g.contains("params after: --prompt \"The prompt now\" --seed 42 --key_file")
+        && g.matches("(?s).*Zebra at noon\\. \u00b7 [^\n]*: Succeeded \u2192 sogni-padd-zebra-at-noon\\.png\n.*")
+        && g.matches("(?s).*A red kite over hills\\. \u00b7 loras \u00b7 [^\n]*: Succeeded \u2192 sogni-padd-a-red-kite-over-hills\\.png\n.*");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /**
    * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
    * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
    * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's

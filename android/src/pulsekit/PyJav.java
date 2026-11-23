@@ -2287,7 +2287,25 @@ final class PyJav {
             return;
         }
         final java.util.List<String> run = args;
+        final String sectionParams = q.bySections() && program.equals(q.program) ? q.params.get(q.next - 1) : null;
         app.handler.post(() -> {
+            if (sectionParams != null) {
+                // Run sections: the run reads the Params with the section's entries; they are put back as they were at once.
+                app.programMenus.selectProgram("Java", program);
+                String was = pulsekit.PyJavParams.load(app, program);
+                // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
+                String line = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : null;
+                if (line != null) this.pkPyArgs.setText(pulsekit.ProgramParams.strip(q.ps, line));
+                pulsekit.PyJavParams.store(app, program, sectionParams);
+                this.pkRunConfirmed = true;
+                try {
+                    this.pkRunPyJav();
+                } finally {
+                    pulsekit.PyJavParams.store(app, program, was == null ? "" : was);
+                    if (line != null) this.pkPyArgs.setText(line);
+                }
+                return;
+            }
             this.pkPyInputPath = null;
             app.programMenus.selectProgram("Java", program);
             this.pkForcedArgs = run;
@@ -2301,6 +2319,32 @@ final class PyJav {
         pulsekit.BatchQueue.stop();
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
         this.pkAddLogLine(q.summary());
+        // Run sections: what each section's run made, in a window too.
+        if (q.bySections()) {
+            runSectionsSaid = q.summary();
+            try {
+                lastRunSections = new android.app.AlertDialog.Builder(app).setTitle(pulsekit.SogniSections.RUN + " \u00b7 " + pulsekit.SogniSections.app(q.program))
+                    .setMessage(q.summary()).setPositiveButton("OK", null).show();
+            } catch (Exception ignored) {
+                // the log has it
+            }
+        }
+    }
+
+    /** Run sections' summary shown last (the tests). */
+    static String runSectionsSaid;
+    static android.app.AlertDialog lastRunSections;
+
+    /** Run sections: the program run with each picked section in turn (a batch: Stop batch ends it after the run in progress). */
+    public void pkRunSections(String program, java.util.List<pulsekit.ProgramParams.Param> ps, java.util.List<pulsekit.PromptVault.SogniSection> picked) {
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: Run sections waits until it is over");
+            return;
+        }
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.sections(program, pulsekit.PyJavParams.load(app, program), ps, picked);
+        if (q == null) return;
+        this.pkAddLogLine("Sections: " + picked.size() + " run" + (picked.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(program) + ", one after another");
+        this.pkBatchNext(q);
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
