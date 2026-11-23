@@ -11076,6 +11076,9 @@ public class BehaviorTest {
     };
     JavaRun.Result first = runIt.get();
     int whileOff = Logs.entries(Logs.ALL).size();
+    // Logging off: only a run that failed is written (Robolectric has no Java compiler, so it fails there).
+    int offWanted = first != null && first.code != 0 && first.code != 130 ? 1 : 0;
+    Logs.delete(Logs.entries(Logs.ALL));
     GeneralSettings.show(app);
     idle();
     android.widget.CheckBox box = (android.widget.CheckBox) GeneralSettings.last.getWindow().getDecorView().findViewWithTag("settings-logging");
@@ -11128,7 +11131,7 @@ public class BehaviorTest {
     write("s173_logs", out.toString());
     // The run's exit code as it ran (Robolectric has no Java compiler: it fails there, and is logged the same).
     String title = second == null ? "" : second.code == 0 ? "Hello.java finished" : "Hello.java failed (exit code " + second.code + ")";
-    boolean ok = second != null && whileOff == 0 && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
+    boolean ok = second != null && whileOff == offWanted && unticked && runs.size() == 1 && runs.get(0).title.equals(title)
         && state.startsWith("1 entries") && text.startsWith("Type: Program runs") && text.contains("Arguments: --x 1") && text.contains("Exit code: " + second.code)
         && text.contains("Output:\n" + second.log)
         && selectable && copied.equals(text) && after == 0 && chip.equals(Logs.RUNS + " (1)") && closeText.equals("Close") && closed;
