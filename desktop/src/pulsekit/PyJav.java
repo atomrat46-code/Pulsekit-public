@@ -1100,6 +1100,8 @@ final class PyJav {
                     if (musicWav != null) z.add(musicWav.getName(), musicWav);
                     if (!MusicCompare.wanted(name, argv)) this.zipFinish();
                 }
+                // --to_mixer: the AudioMixer opens with the tracks the run added.
+                if (MixerOut.opensAfter(name, argv, result.code, result.log)) SwingUtilities.invokeLater(() -> AudioMixerWindow.show(app));
                 // Midi2Wav's and SogniMusic's tests go on (DrumMidi, CompareHits) instead of offering the audio.
                 boolean testing = this.testStep(name, argv, verdict, madeMidi, musicWav != null ? musicWav : made == null ? null : savedAudio.get(made), result.log);
                 // A comparison's DrumMidi run ended: the next track's, or the chain stops on a failure.
@@ -2459,7 +2461,11 @@ final class PyJav {
             this.zipFinish();
             // One message for the whole chain: what it made (after the zip has started, so it does not wait).
             final String summary = c.summary();
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE));
+            SwingUtilities.invokeLater(() -> {
+                // --to_mixer: the mixer with the tracks, the message over it.
+                if (MixerOut.addedIn(summary)) AudioMixerWindow.show(app);
+                JOptionPane.showMessageDialog(app, summary, "Succeeded", JOptionPane.INFORMATION_MESSAGE);
+            });
             return;
         }
         Double asked = c.askedBpm();

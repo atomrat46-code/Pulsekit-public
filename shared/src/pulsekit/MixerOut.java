@@ -122,6 +122,20 @@ public final class MixerOut {
     }
   }
 
+  /** Whether a run's log says a track went into the mixer. */
+  public static boolean addedIn(String log) {
+    return log != null && log.contains("Added to the AudioMixer");
+  }
+
+  /**
+   * Whether the AudioMixer opens after this run: it added tracks, and nothing follows it (a file sets
+   * chain opens it at its end, with its message; the chain's DrumMidi runs do not).
+   */
+  public static boolean opensAfter(String program, List<String> argv, int code, String log) {
+    return code == 0 && addedIn(log) && !MusicCompare.chainStep(program)
+        && !(argv != null && argv.contains(MusicCompare.TO_FILE_SETS) && MusicCompare.wanted(program, argv));
+  }
+
   /** The sounds of `files` added as tracks; what it says. */
   public static String add(List<JavaRun.FileOut> files) {
     List<JavaRun.FileOut> sounds = new ArrayList<JavaRun.FileOut>();
