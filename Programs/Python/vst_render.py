@@ -4510,12 +4510,35 @@ def bench_sig(zips):
     return hashlib.sha1("\n".join("%s %d" % (os.path.basename(z), os.path.getsize(z)) for z in zips).encode("utf-8")).hexdigest()[:10]
 
 
-def bench_unpack(key, zips, root, audio):
+def bench_map(fn, songs, jobs, label):
+    """fn on each song (`jobs` at a time), the results in order; the count said every half minute or
+    so (Pulsekit stops a run that says nothing for 10 minutes, and a kit's songs can take longer)."""
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    print("%sDrumMidi on %d song%s…" % (label, len(songs), "" if len(songs) == 1 else "s"), flush=True)
+    count = [0, time.time()]
+    lock = threading.Lock()
+
+    def one(song):
+        r = fn(song)
+        with lock:
+            count[0] += 1
+            if time.time() - count[1] > 30:
+                count[1] = time.time()
+                print("%sDrumMidi done on %d of %d songs" % (label, count[0], len(songs)), flush=True)
+        return r
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(one, songs))
+
+
+def bench_unpack(key, zips, root, audio, label=""):
     """A kit's zips unpacked into <root>/<key> (--bench_unzip): its MIDI, report, run line and kit profile,
     and with `audio` its MP3s or WAVs too (not its dm/ MIDI: the bench runs DrumMidi itself). Once: what
     is there already is kept. The folder."""
     import zipfile
     import shutil
+    import time
     into = os.path.join(root, key)
     sig = bench_sig(zips)
     mark = os.path.join(into, "unpacked.txt")
@@ -4525,7 +4548,13 @@ def bench_unpack(key, zips, root, audio):
     if os.path.isdir(into):
         shutil.rmtree(into, ignore_errors=True)
     os.makedirs(into)
-    for z in zips:
+    # Big runs are dozens of zips: said as it goes (Pulsekit stops a run that says nothing for 10 minutes).
+    print("%sunpacking %d zip%s…" % (label, len(zips), "" if len(zips) == 1 else "s"), flush=True)
+    last = time.time()
+    for zn, z in enumerate(zips):
+        if time.time() - last > 30:
+            print("%sunpacked %d of %d zips" % (label, zn, len(zips)), flush=True)
+            last = time.time()
         with zipfile.ZipFile(z) as f:
             for info in f.infolist():
                 n = info.filename
@@ -4645,16 +4674,14 @@ def bench_cache(work, sig, kit, zips):
     return os.path.join(work, "data", sig, "%s-%s.npz" % (kit, bench_sig(zips)))
 
 
-def bench_data(cache, folder, info, java, jar, jobs):
+def bench_data(cache, folder, info, java, jar, jobs, label=""):
     """The kit's songs run through DrumMidi once (kept in `cache` for later runs): their hits, cymbals'
     inputs and the MIDI each was played from; the built-in model with it."""
     import numpy as np
-    from concurrent.futures import ThreadPoolExecutor
     if os.path.isfile(cache):
         return np.load(cache, allow_pickle=False), 0
     songs = bench_songs(folder)
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        done = list(pool.map(lambda s: bench_dump(java, jar, s[0], info["extra"], info["kit"]), songs))
+    done = bench_map(lambda s: bench_dump(java, jar, s[0], info["extra"], info["kit"]), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -4970,13 +4997,13 @@ def model_bench(opts, switches):
     reports = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         reports.append(info["report"])
-        d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs)
+        d, ran = bench_data(cache, into, info, opts["--java"], jar, jobs, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         if ran:
             bench_drop_audio(into, zips)
@@ -5154,17 +5181,15 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
         shutil.rmtree(where, ignore_errors=True)
 
 
-def hit_data(cache, folder, info, java, jar, jobs, model_file):
+def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
     """The kit's songs through DrumMidi (kept in `cache` for later benches): each onset's inputs and what was
     played there (kick, snare, tom: the labels a model learns), and per family (played, found, matched) with
     the rules alone and with the hit model."""
     import numpy as np
-    from concurrent.futures import ThreadPoolExecutor
     if os.path.isfile(cache):
         return np.load(cache, allow_pickle=False), 0
     songs = bench_songs(folder)
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        done = list(pool.map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs))
+    done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -5334,12 +5359,12 @@ def hit_bench(opts, switches):
     kits = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = os.path.join(work, "hits", sig, "%s-%s.npz" % (key, bench_sig(zips)))
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
-        d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file)
+        d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
         if ran:
             bench_drop_audio(into, zips)
         if isinstance(d, str):

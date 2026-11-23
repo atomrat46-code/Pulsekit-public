@@ -53,7 +53,7 @@ final class LogsScreen {
         }
         col.addView(app.chipStrip(chips));
         final List<Logs.Entry> entries = Logs.entries(type);
-        TextView state = app.text(entries.size() + " entries" + (Logs.on() ? "" : " \u2014 Logging is off (General settings > Logging on): nothing new is written"), 12, false);
+        TextView state = app.text(entries.size() + " entries" + (Logs.on() ? "" : " \u2014 Logging is off (General settings > Logging on): only failed runs are written"), 12, false);
         state.setTag("logs-state");
         state.setPadding(0, app.dp(6), 0, app.dp(6));
         col.addView(state);

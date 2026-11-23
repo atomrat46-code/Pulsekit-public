@@ -13791,6 +13791,13 @@ public final class DesktopBehavior {
     };
     runIt.run();
     int whileOff = Logs.entries(Logs.ALL).size();
+    // Logging off: a run that failed is written all the same; one that finished, or was stopped (130), is not.
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 0, "fine", System.currentTimeMillis());
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 130, "Stopped", System.currentTimeMillis());
+    Logs.run("Off.java", java.util.Arrays.asList("--x"), 1, "Failed: no output for 600 s", System.currentTimeMillis());
+    java.util.List<Logs.Entry> offRuns = Logs.entries(Logs.RUNS);
+    String offLogged = offRuns.size() + (offRuns.isEmpty() ? "" : " (" + offRuns.get(0).title + ")");
+    Logs.delete(offRuns);
     // General settings > Logging on (another dialog first, the MIDI synth's message, is let go).
     final boolean[] box = new boolean[2];
     final boolean[] shown = new boolean[2];
@@ -13819,6 +13826,7 @@ public final class DesktopBehavior {
     java.util.List<Logs.Entry> starts = Logs.entries(Logs.STARTS);
     String runText = runs.size() > 1 ? Logs.text(runs.get(1)) : "";
     String secretText = runs.size() > 0 ? Logs.text(runs.get(0)) : "";
+    this.out.append("failed run while off, logged: ").append(offLogged).append('\n');
     this.out.append("while off: ").append(whileOff).append(" entries | box unticked first: ").append(box[0]).append(", on after a click: ").append(box[1])
         .append("\nruns: ").append(runs.size()).append(" (newest: ").append(runs.isEmpty() ? "-" : runs.get(0).title).append("), starts: ").append(starts.size())
         .append("\nsecret run args: ").append(secretText.replaceAll("(?s).*?(Arguments:[^\n]*).*", "$1")).append('\n');
@@ -13859,7 +13867,7 @@ public final class DesktopBehavior {
     String exportedText = exported.isFile() ? new String(Files.readAllBytes(exported.toPath()), StandardCharsets.UTF_8) : "";
     this.out.append("window: ").append(seen[0]).append(" | after Delete: ").append(seen[2]).append(" | ").append(seen[3])
         .append("\nshown: ").append(seen[1].split("\n")[0]).append(" / ").append(seen[1].contains("Exit code: 0")).append(" | exported: ").append(exportedText.contains("Program: Wav2Mp3.java")).append('\n');
-    boolean ok = whileOff == 0 && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
+    boolean ok = whileOff == 0 && offLogged.equals("1 (Off.java failed (exit code 1))") && box[0] && box[1] && runs.size() == 2 && runs.get(0).title.startsWith("Secret.java failed") && runs.get(1).title.equals("Wav2Mp3.java finished")
         && runText.contains("Exit code: 0") && runText.contains("Output:") && starts.size() >= 1 && secretText.contains("--password (hidden)") && !secretText.contains("hunter2")
         && secretText.contains("\"a b.txt\"") && seen[1].startsWith("Type: Program runs") && seen[1].contains("Program: Wav2Mp3.java") && exportedText.contains("Program: Wav2Mp3.java")
         && "1".equals(seen[2]) && seen[3].startsWith("1 entries");

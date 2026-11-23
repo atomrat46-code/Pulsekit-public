@@ -33,8 +33,8 @@ public final class Logs {
   public static final String ALL = "All logs";
   public static final String SETTING = "Logging on (File > Logs)";
   public static final String SETTING_NOTE = "Ticked, Pulsekit writes logs (program runs, errors, sound devices, kits, its starts) that File > Logs "
-      + "shows, exports and copies; unticked, no log files are written.";
-  public static final String EMPTY = "No logs yet. Tick General settings > Logging on, then run what you want logged.";
+      + "shows, exports and copies; unticked, only program runs that failed are written.";
+  public static final String EMPTY = "No logs yet. Program runs that fail are logged always; tick General settings > Logging on to log everything.";
   static final int KEEP = 200;
   /** A run's output longer than this is cut in the middle. */
   static final int MAX_CHARS = 400000;
@@ -192,7 +192,9 @@ public final class Logs {
 
   /** A program run: its arguments, exit code, how long it took and its output. */
   public static File run(String name, List<String> argv, int code, String log, long started) {
-    if (!on()) return null;
+    // A run that failed is written even when logging is off (130: stopped with Stop, not a failure).
+    boolean failed = code != 0 && code != 130;
+    if (!on() && !failed) return null;
     long took = System.currentTimeMillis() - started;
     StringBuilder sb = new StringBuilder();
     sb.append("Program: ").append(name).append('\n');
@@ -208,7 +210,8 @@ public final class Logs {
     sb.append("Exit code: ").append(code).append('\n');
     sb.append("Took: ").append(took / 1000.0).append(" s\n");
     sb.append("Started: ").append(time(started)).append("\n\nOutput:\n").append(log == null ? "" : log);
-    return write(RUNS, name + (code == 0 ? " finished" : " failed (exit code " + code + ")"), sb.toString());
+    String title = name + (code == 0 ? " finished" : " failed (exit code " + code + ")");
+    return failed ? put(RUNS, title, sb.toString()) : write(RUNS, title, sb.toString());
   }
 
   /** An error with its stack trace. */

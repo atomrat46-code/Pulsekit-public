@@ -157,7 +157,7 @@ final class GeneralSettings {
         logging.setOnCheckedChangeListener((b, on) -> {
             AppSettings.setLogging(on);
             if (on) Logs.started("Pulsekit " + app.appVersion() + " (Android), logging turned on");
-            app.setNow(on ? "Logging on: File > Logs shows what is written" : "Logging off: no log files are written");
+            app.setNow(on ? "Logging on: File > Logs shows what is written" : "Logging off: only program runs that fail are logged");
         });
         col.addView(logging);
         controls.add(logging);
