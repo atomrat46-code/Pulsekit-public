@@ -93,7 +93,7 @@ public final class MixerOut {
       }
       both.addAll(r.files);
       said = ask ? hold(both) : add(both);
-    } else said = ask ? hold(r.files) : add(r.files);
+    } else said = ask ? hold(namedForChain(name, r.files)) : add(namedForChain(name, r.files));
     note(said);
     return new JavaRun.Result(r.log + (r.log.endsWith("\n") || r.log.isEmpty() ? "" : "\n") + said + "\n", r.files, r.code);
   }
@@ -134,6 +134,82 @@ public final class MixerOut {
   public static volatile boolean ask;
   static final String HELD = "For the AudioMixer (asked when the run is done): ";
   static final List<JavaRun.FileOut> pending = new ArrayList<JavaRun.FileOut>();
+
+  /**
+   * A file's kind for the question's ticks: "midi" (a drum MIDI), "stem-drums" ... "stem-other" (Demucs's,
+   * DrumMidi --keep-stems), or "audio" (a song's track, a WAV or an MP3).
+   */
+  public static String kindOf(String name) {
+    String low = new File(name == null ? "" : name).getName().toLowerCase(Locale.ROOT);
+    if (low.endsWith(".mid") || low.endsWith(".midi")) return "midi";
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile(".*-(drums|bass|vocals|other)\\.wav$").matcher(low);
+    if (m.matches()) return "stem-" + m.group(1);
+    return "audio";
+  }
+
+  static final String TICKS = "offer-ticks.txt";
+
+  /** Whether the question ticks a file of this kind first: as it was ticked last time (ticked when never asked). */
+  public static boolean ticked(String kind) {
+    File f = folder == null ? null : new File(folder, TICKS);
+    if (f == null || !f.isFile()) return true;
+    try {
+      for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        if (line.startsWith(kind + "=")) return !line.substring(kind.length() + 1).trim().equals("0");
+      }
+    } catch (Exception ignored) {
+      // ticked
+    }
+    return true;
+  }
+
+  /** The question's ticks kept by kind (a kind ticked when any of its files was), for the next question. */
+  public static void rememberTicks(List<JavaRun.FileOut> files, boolean[] on) {
+    if (folder == null || files == null || on == null) return;
+    java.util.Map<String, Boolean> kinds = new java.util.LinkedHashMap<String, Boolean>();
+    File f = new File(folder, TICKS);
+    try {
+      if (f.isFile()) for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        int eq = line.indexOf('=');
+        if (eq > 0) kinds.put(line.substring(0, eq), Boolean.valueOf(!line.substring(eq + 1).trim().equals("0")));
+      }
+      java.util.Map<String, Boolean> now = new java.util.HashMap<String, Boolean>();
+      for (int i = 0; i < files.size() && i < on.length; i++) {
+        String k = kindOf(files.get(i).name);
+        now.put(k, Boolean.valueOf(on[i] || (now.containsKey(k) && now.get(k).booleanValue())));
+      }
+      kinds.putAll(now);
+      StringBuilder sb = new StringBuilder();
+      for (java.util.Map.Entry<String, Boolean> e : kinds.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue().booleanValue() ? 1 : 0).append('\n');
+      folder.mkdirs();
+      java.nio.file.Files.write(f.toPath(), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // asked as ticked next time
+    }
+  }
+
+  /**
+   * A file sets chain's drum MIDI named after its Sogni track ("sogni-Rock-1b198091-turbo drums.mid"),
+   * not the file set's run number; other files as they are.
+   */
+  static List<JavaRun.FileOut> namedForChain(String program, List<JavaRun.FileOut> files) {
+    if (!MusicCompare.chainStep(program)) return files;
+    MusicCompare.Chain c = MusicCompare.chain();
+    String track;
+    try {
+      track = c == null ? null : c.tracks.get(c.at)[1];
+    } catch (Exception ex) {
+      track = null;
+    }
+    if (track == null || track.isEmpty()) return files;
+    String stem = new File(track).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    List<JavaRun.FileOut> out = new ArrayList<JavaRun.FileOut>();
+    for (JavaRun.FileOut f : files) {
+      String low = f.name.toLowerCase(Locale.ROOT);
+      out.add(low.endsWith(".mid") || low.endsWith(".midi") ? new JavaRun.FileOut(stem + " drums.mid", f.bytes) : f);
+    }
+    return out;
+  }
 
   /** The sounds kept for the question; what it says. */
   static String hold(List<JavaRun.FileOut> files) {

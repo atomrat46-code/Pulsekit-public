@@ -130,7 +130,8 @@ final class AudioMixerWindow {
         for (String line : text.split("\n")) box.add(new JLabel(line));
         final java.util.List<javax.swing.JCheckBox> ticks = new java.util.ArrayList<javax.swing.JCheckBox>();
         for (JavaRun.FileOut f : waiting) {
-            javax.swing.JCheckBox c = new javax.swing.JCheckBox(new File(f.name).getName(), true);
+            // Ticked as its kind was last time (song tracks, drum MIDIs, each stem).
+            javax.swing.JCheckBox c = new javax.swing.JCheckBox(new File(f.name).getName(), MixerOut.ticked(MixerOut.kindOf(f.name)));
             c.setName("audiomixer-offer-track");
             ticks.add(c);
             box.add(c);
@@ -150,7 +151,12 @@ final class AudioMixerWindow {
             return;
         }
         java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
-        for (int i = 0; i < waiting.size(); i++) if (ticks.get(i).isSelected()) chosen.add(waiting.get(i));
+        boolean[] on = new boolean[waiting.size()];
+        for (int i = 0; i < waiting.size(); i++) {
+            on[i] = ticks.get(i).isSelected();
+            if (on[i]) chosen.add(waiting.get(i));
+        }
+        MixerOut.rememberTicks(waiting, on);
         addRun(app, chosen, MixerOut.REPLACE.equals(picked));
     }
 

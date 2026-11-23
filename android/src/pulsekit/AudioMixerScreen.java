@@ -605,7 +605,8 @@ final class AudioMixerScreen {
         for (JavaRun.FileOut f : waiting) {
             android.widget.CheckBox c = new android.widget.CheckBox(app);
             c.setText(new File(f.name).getName());
-            c.setChecked(true);
+            // Ticked as its kind was last time (song tracks, drum MIDIs, each stem).
+            c.setChecked(MixerOut.ticked(MixerOut.kindOf(f.name)));
             c.setTag("audiomixer-offer-track");
             ticks.add(c);
             box.addView(c);
@@ -614,7 +615,12 @@ final class AudioMixerScreen {
         scroll.addView(box);
         final java.util.function.Function<Boolean, Runnable> go = replace -> () -> {
             java.util.List<JavaRun.FileOut> chosen = new java.util.ArrayList<JavaRun.FileOut>();
-            for (int i = 0; i < waiting.size(); i++) if (ticks.get(i).isChecked()) chosen.add(waiting.get(i));
+            boolean[] on = new boolean[waiting.size()];
+            for (int i = 0; i < waiting.size(); i++) {
+                on[i] = ticks.get(i).isChecked();
+                if (on[i]) chosen.add(waiting.get(i));
+            }
+            MixerOut.rememberTicks(waiting, on);
             addRun(app, chosen, replace.booleanValue());
         };
         AlertDialog.Builder b = new AlertDialog.Builder(app).setTitle(MixerOut.ASK_RUN_TITLE).setView(scroll)
