@@ -91,8 +91,10 @@ final class AudioMixerScreen {
                 }).setNegativeButton("Cancel", null).show();
         });
         clear.setTag("audiomixer-clear");
-        more.addView(mix);
-        more.addView(clear, margin(app));
+        // Mixdown beside ▶ Play mix and ■; New project with Save project, Open project with Export project
+        // (fewer rows above the tracks).
+        transport.addView(mix, margin(app));
+        more.addView(clear);
         // Projects: the tracks and their settings saved under a name, and opened again.
         LinearLayout projectRow = app.row();
         TextView saveP = app.pill(AudioMix.SAVE_PROJECT, false, v -> saveProject(app, status));
@@ -101,16 +103,14 @@ final class AudioMixerScreen {
         openP.setTag("audiomixer-open-project");
         TextView exportP = app.pill(AudioMix.EXPORT_PROJECT, false, v -> exportProject(app, status));
         exportP.setTag("audiomixer-export-project");
-        projectRow.addView(saveP);
-        projectRow.addView(openP, margin(app));
-        LinearLayout exportRow = app.row();
-        exportRow.addView(exportP);
+        more.addView(saveP, margin(app));
+        projectRow.addView(openP);
+        projectRow.addView(exportP, margin(app));
         col.addView(buttons);
         col.addView(padsRow);
         col.addView(transport);
         col.addView(more);
         col.addView(projectRow);
-        col.addView(exportRow);
         col.addView(status);
         col.addView(rows);
         ScrollView scroll = new ScrollView(app);
