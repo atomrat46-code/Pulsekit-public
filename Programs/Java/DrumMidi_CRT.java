@@ -977,7 +977,7 @@ public class DrumMidi_CRT{
         }
         if (args.length < 2) {
             note("Usage: java DrumMidi <input.wav> <output.mid> "
-                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
+                    + "[--sens N] [--hat N] [--tom N] [--ride N] [--crash N] [--bpm N] [--quantize N] [--no-hpss] [--no-cymbals] [--no-toms] [--snare-leak] [--faded-opens] [--no-cymbal-model] [--no-hit-model] [--hit-model <file>] [--drums-only] [--separate] [--keep-stems] [--drum-stem] [--make-set] [--set-hits N] [--chokes <notes>] [--kit <file.kit>] [--library <file.kit>] [--log <logfile>] [--dir <folder>] [--recursive] [--zip] [--zip_mb N] [--zip_outdir <folder>]");
             finish("Failed: need an input wav and an output mid");
             return;
         }
@@ -995,6 +995,8 @@ public class DrumMidi_CRT{
         boolean hitModel = !"0".equals(System.getProperty("dm.hitModel", "1"));
         drumsOnly = false;
         separate = false;
+        keepStems = false;
+        keptStems = null;
         drumStem = false;
         makeSet = false;
         setHits = 1;
@@ -1028,6 +1030,8 @@ public class DrumMidi_CRT{
             else if ("--drums-only".equals(opt)) drumsOnly = true;
             // The drums separated from the song first (Demucs, on a computer: setup_demucs.py), then told apart.
             else if ("--separate".equals(opt)) separate = true;
+            // --separate's stems kept as WAVs beside the MIDI (drums, bass, vocals, other): an old song's parts.
+            else if ("--keep-stems".equals(opt)) keepStems = true;
             // A drums stem already (Demucs's drums.wav, or another separation): the drum-stem mode below.
             else if ("--drum-stem".equals(opt)) drumStem = true;
             // A drum set from the song's own drums: a clean hit of each drum cut out (SetMaker), beside the MIDI.
@@ -1066,13 +1070,34 @@ public class DrumMidi_CRT{
         if (library != null && kit != null) note("Library " + library.name + " not used: the kit profile " + kit.name + " is this kit's own");
         else if (library != null) note("Library " + library.name + ": kick and toms from " + library.said + " (its cymbals are not used)");
         File heard = inFile;
-        if (separate) {
+        if (separate && keepStems) {
+            // All four stems (kept beside the MIDI once it is written); DrumMidi listens to a copy of the drums.
+            java.util.Map<String, File> st = Demucs.stems(inFile, false, "Separate the stems", "the drums, bass, vocals and the rest");
+            File stem = null;
+            if (st != null && st.get("drums") != null) {
+                try {
+                    stem = File.createTempFile("dm-heard", ".wav");
+                    java.nio.file.Files.copy(st.get("drums").toPath(), stem.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (Exception ex) {
+                    stem = null;
+                }
+            }
+            if (stem != null) {
+                keptStems = st;
+                note("Separated the song with Demucs (drums, bass, vocals, other): DrumMidi listens to the drums alone");
+                heard = stem;
+                drumStem = true;
+            } else {
+                if (st != null) for (File f : st.values()) f.delete();
+                note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
+            }
+        } else if (separate) {
             File stem = Demucs.drums(inFile);
             if (stem != null) {
                 heard = stem;
                 drumStem = true;
             } else note("Without the separation: the whole song, its other instruments heard as they are (fewer and less sure hits)");
-        }
+        } else if (keepStems) note("--keep-stems keeps --separate's stems: without --separate there are none");
         if (drumStem) note("Drum-stem mode: the drums alone (no bass, guitar or keys guards)");
         Audio audio = readAudio(heard);
         if (heard != inFile) heard.delete();
@@ -1594,6 +1619,7 @@ public class DrumMidi_CRT{
             return;
         }
         made.add(written);
+        keepStemsBeside(written, inFile);
         note(String.format(java.util.Locale.ROOT, "Wrote %s: %d kicks, %d snares, %d closed hats, %d pedal hats, %d open hats, %d rides, %d crashes, %d rack toms, %d mid toms, %d floor toms",
                 written.getName(), kicks, snares, closed, pedals, open, rides, crashes, racks, mids, floors) + (chokesWritten > 0 ? ", " + chokesWritten + " chokes (aftertouch)" : "") + (writeToms ? "" : " (--no-toms: toms not written)"));
         // (A folder's run zipped: "MIDI written", so PyJav on the phone does not keep each one beside the zip.)
@@ -1741,6 +1767,34 @@ public class DrumMidi_CRT{
 
     /** --separate: the drums told apart from a song's other instruments and vocals before DrumMidi listens. */
     static boolean separate;
+
+    /** --keep-stems (with --separate): Demucs's four stems kept beside the MIDI; the temporary ones until then. */
+    static boolean keepStems;
+    static java.util.Map<String, File> keptStems;
+
+    /** The stems kept beside the MIDI: <song>-drums.wav, -bass.wav, -vocals.wav, -other.wav; the temporary ones deleted. */
+    static void keepStemsBeside(File written, File song) {
+        java.util.Map<String, File> st = keptStems;
+        keptStems = null;
+        if (st == null) return;
+        String base = song.getName().replaceAll("\\.[^.]+$", "");
+        File dir = written.getAbsoluteFile().getParentFile();
+        StringBuilder names = new StringBuilder();
+        for (String n : new String[] {"drums", "bass", "vocals", "other"}) {
+            File f = st.get(n);
+            if (f == null || !f.isFile()) continue;
+            File to = new File(dir, base + "-" + n + ".wav");
+            try {
+                java.nio.file.Files.copy(f.toPath(), to.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                made.add(to.getAbsoluteFile());
+                names.append(names.length() == 0 ? "" : ", ").append(to.getName());
+            } catch (Exception ex) {
+                note("Stem " + n + " not kept: " + ex.getMessage());
+            }
+        }
+        for (File f : st.values()) f.delete();
+        if (names.length() > 0) note("Kept the stems: " + names);
+    }
 
     /** --make-set: a drum set from the song's own drums (SetMaker), beside the MIDI. */
     static boolean makeSet;

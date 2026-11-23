@@ -412,6 +412,11 @@ public final class ProgramParams {
     // DrumMidi --separate: Demucs takes the drums out of the song first (a computer with setup_demucs.py run).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--separate"))
       p.label = "Separate drums first: Demucs takes the drums out of the whole song (vocals, bass, guitars, keys), then DrumMidi listens to them alone in drum-stem mode (computer only: setup_demucs.py in PyJav's Python menu, once); without it, the whole song with fewer, less sure hits";
+    // DrumMidi --keep-stems: --separate's four stems kept as WAVs beside the MIDI (AudioMixer tracks, with its switch).
+    if (drumMidi && p.flag && !p.takesValue && p.token.equals("--keep-stems")) {
+      p.label = "Keep the separated stems: drums, bass, vocals and the rest (guitars, keys) as WAVs beside the MIDI (<song>-bass.wav...); with Add the result to the AudioMixer they are offered as tracks";
+      p.showWhen = "--separate";
+    }
     // DrumMidi --drum-stem: the input is drums separated already (the drum-stem mode --separate turns on itself).
     if (drumMidi && p.flag && !p.takesValue && p.token.equals("--drum-stem"))
       p.label = "Drums separated already (Demucs's drums.wav or another separation): no bass, guitar or keys guards";
