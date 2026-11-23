@@ -4700,6 +4700,26 @@ def bench_dump(java, jar, audio, extra, kit):
 BENCH_DATA = "v2"
 
 
+# DrumMidi_CRT.jar builds that find the same hits as earlier ones (only other switches changed): their
+# kept bench results are used as they are, not made again. 48f6adb3d23a (v546: --keep-stems) = 7f03164539be.
+SAME_DRUMMIDI = {"48f6adb3d23a": ["7f03164539be"]}
+
+
+def bench_reuse(cache, sig, alt_of):
+    """A kit's kept results made with an earlier DrumMidi that finds the same hits, copied as this one's
+    (no DrumMidi run, no unpacking); True when there were some."""
+    import shutil
+    if os.path.isfile(cache):
+        return True
+    for old in SAME_DRUMMIDI.get(sig, []):
+        alt = alt_of(old)
+        if os.path.isfile(alt):
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            shutil.copyfile(alt, cache)
+            return True
+    return False
+
+
 def bench_cache(work, sig, kit, zips):
     """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>-v2.npz."""
     return os.path.join(work, "data", sig, "%s-%s-%s.npz" % (kit, bench_sig(zips), BENCH_DATA))
@@ -5060,6 +5080,7 @@ def model_bench(opts, switches):
     reports = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
+        bench_reuse(cache, sig, lambda old: bench_cache(work, old, key, zips))
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
@@ -5429,6 +5450,9 @@ def hit_bench(opts, switches):
     kits = []
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = os.path.join(work, "hits", sig, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
+        # (Its own hit model file changes what it finds: no earlier results then.)
+        if not model_file:
+            bench_reuse(cache, sig, lambda old: os.path.join(work, "hits", old, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA)))
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
