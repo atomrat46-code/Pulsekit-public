@@ -534,13 +534,20 @@ public final class DesktopBehavior {
       after[k] = AudioMix.tracks.size();
     }
     AudioMixerWindow.offerAnswer = null;
+    // Each row's waveform: the beat's has sound in it.
+    float[] beatPeaks = AudioMix.tracks.isEmpty() ? new float[0] : AudioMix.peaks(AudioMix.tracks.get(0), 50);
+    float loudest = 0;
+    for (float v : beatPeaks) loudest = Math.max(loudest, v);
+    final int[] waves = new int[1];
+    edt(() -> waves[0] = AudioMixerWindow.WAVES.size());
+    out.append("waveforms: ").append(waves[0]).append(" for ").append(AudioMix.tracks.size()).append(" tracks, sound in the first: ").append(loudest > 0.05f).append('\n');
     out.append("asked: ").append(String.valueOf(asked[0]).replace("\n", " ")).append("\nafter ").append(MixerOut.REPLACE).append(": ").append(after[0])
         .append(" tracks; after ").append(MixerOut.SKIP).append(": ").append(after[1]).append('\n');
     String text = out.toString();
     boolean vlc = VlcPlayer.available();
     boolean ok = inParams && lines.toString().contains("For the AudioMixer (asked when the run is done): beat.mid") && lines.toString().contains("Not added to the AudioMixer: the run made a zip")
         && asked[0] != null && asked[0].contains("The AudioMixer has ") && asked[0].endsWith(MixerOut.REPLACE + ", " + MixerOut.ADD_TO + ", " + MixerOut.SKIP)
-        && after[0] == 1 && after[1] == 1
+        && after[0] == 1 && after[1] == 1 && waves[0] == AudioMix.tracks.size() && loudest > 0.05f
         && beat != null && beat.seconds > 1
         && (vlc ? sound != null && sound.seconds > 0.5 && added.startsWith("Added to the AudioMixer: walk-audio") : added.contains("Could not add"));
     if (!ok) throw new AssertionError(text);

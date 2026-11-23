@@ -129,6 +129,7 @@ final class AudioMixerWindow {
         final Runnable[] fill = new Runnable[1];
         fill[0] = () -> {
             rows.removeAll();
+            WAVES.clear();
             if (AudioMix.tracks.isEmpty()) {
                 JLabel none = new JLabel("No tracks yet: File > " + AudioMix.IMPORT);
                 none.setName("audiomixer-empty");
@@ -275,7 +276,7 @@ final class AudioMixerWindow {
                     l[i] = Math.max(-1, Math.min(1, l[i] * g));
                     rr[i] = Math.max(-1, Math.min(1, rr[i] * g));
                 }
-                play(l, rr, status, t.name);
+                play(l, rr, status, t.name, java.util.Collections.singletonList(t));
             } catch (Exception ex) {
                 status.setText("Could not play " + t.name);
             }
@@ -294,6 +295,8 @@ final class AudioMixerWindow {
         });
         r.add(out);
         box.add(r);
+        // Its waveform, with where the playing has got to (▶, Play mix).
+        box.add(new WaveView(t));
         box.add(t.pads ? padsRow(app, t, name) : recordRow(t, name, status));
         return box;
     }
@@ -465,18 +468,107 @@ final class AudioMixerWindow {
         if (last != null && last.isDisplayable() && refill != null) refill.run();
     }
 
+    /** The tracks playing now (▶: its own; Play mix: those heard), the frames played, the rows' waveforms. */
+    static final java.util.Set<AudioMix.Track> SOUNDING = new java.util.HashSet<AudioMix.Track>();
+    static int playFrames;
+    static final java.util.List<WaveView> WAVES = new java.util.ArrayList<WaveView>();
+
+    /** Seconds played of what plays now, or -1. */
+    static double playedSeconds() {
+        javax.sound.sampled.Clip c = playing;
+        if (c == null) return -1;
+        try {
+            return c.getLongFramePosition() / (double) AudioMix.RATE;
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    /** The playheads moved about 25 times a second while something plays; at its end they go. */
+    static final javax.swing.Timer TICKER = new javax.swing.Timer(40, e -> {
+        double at = playedSeconds();
+        if (at < 0 || at * AudioMix.RATE >= playFrames) SOUNDING.clear();
+        for (WaveView w : WAVES) w.repaint();
+        if (SOUNDING.isEmpty()) ((javax.swing.Timer) e.getSource()).stop();
+    });
+
+    /** A track's waveform (WAV or MP3 alike: the mixer keeps each as a WAV) and the playhead on it. */
+    static final class WaveView extends javax.swing.JComponent {
+        final AudioMix.Track t;
+        float[] peaks;
+        int loading = -1;
+
+        WaveView(AudioMix.Track t) {
+            this.t = t;
+            setName("audiomixer-wave:" + t.name);
+            setAlignmentX(0.0f);
+            setPreferredSize(new java.awt.Dimension(560, 40));
+            setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 40));
+            WAVES.add(this);
+        }
+
+        /** The playhead's place (0 to 1) on this track now, or -1 when it is not playing. */
+        double playhead() {
+            if (!SOUNDING.contains(t) || t.seconds <= 0) return -1;
+            double at = playedSeconds();
+            return at < 0 || at > t.seconds ? -1 : at / t.seconds;
+        }
+
+        @Override
+        protected void paintComponent(java.awt.Graphics g0) {
+            java.awt.Graphics2D g = (java.awt.Graphics2D) g0;
+            int w = getWidth(), h = getHeight();
+            int cols = Math.max(1, w / 3);
+            if ((peaks == null || peaks.length != cols) && loading != cols) {
+                // Read in the background: a long WAV would hold up the window.
+                loading = cols;
+                final int want = cols;
+                new Thread(() -> {
+                    final float[] p = AudioMix.peaks(t, want);
+                    SwingUtilities.invokeLater(() -> {
+                        peaks = p;
+                        repaint();
+                    });
+                }, "pulsekit-mixer-wave").start();
+            }
+            float mid = h / 2f;
+            g.setColor(new java.awt.Color(128, 128, 128, 80));
+            g.fillRect(0, (int) mid, w, 1);
+            if (peaks != null) {
+                g.setColor(new java.awt.Color(0x8F, 0xA8, 0x9A));
+                float cw = w / (float) peaks.length;
+                for (int i = 0; i < peaks.length; i++) {
+                    int a = Math.max(1, Math.round(peaks[i] * (mid - 2)));
+                    g.fillRect(Math.round(i * cw), Math.round(mid - a), Math.max(1, Math.round(cw) - 1), 2 * a);
+                }
+            }
+            double at = playhead();
+            if (at >= 0) {
+                g.setColor(new java.awt.Color(0xE0, 0xA8, 0x20));
+                int x = (int) Math.round(at * w);
+                g.fillRect(x - 1, 0, 2, h);
+            }
+        }
+    }
+
     static void playMix(final JLabel status) {
         new Thread(() -> {
             try {
                 float[][] m = AudioMix.mix(null);
-                SwingUtilities.invokeLater(() -> play(m[0], m[1], status, "the mix"));
+                final java.util.List<AudioMix.Track> heard = AudioMix.heard();
+                SwingUtilities.invokeLater(() -> play(m[0], m[1], status, "the mix", heard));
             } catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> say(status, "Could not mix: " + ex.getMessage()));
             }
         }, "pulsekit-mixer-play").start();
     }
 
+    /** Plays a sound that is no mixer track's (a pad, a kit's sound): no playhead. */
     static void play(float[] l, float[] r, JLabel status, String what) {
+        play(l, r, status, what, java.util.Collections.<AudioMix.Track>emptyList());
+    }
+
+    static void play(float[] l, float[] r, JLabel status, String what, java.util.Collection<AudioMix.Track> which) {
         stop();
         if (l.length == 0) {
             say(status, "Nothing to play");
@@ -489,6 +581,9 @@ final class AudioMixerWindow {
             SoundOut.volume(c);
             c.start();
             playing = c;
+            SOUNDING.addAll(which);
+            playFrames = l.length;
+            TICKER.restart();
             say(status, "Playing " + what);
         } catch (Exception ex) {
             say(status, "No audio output for " + what);
@@ -498,6 +593,10 @@ final class AudioMixerWindow {
     static void stop() {
         javax.sound.sampled.Clip c = playing;
         playing = null;
+        if (!SOUNDING.isEmpty()) {
+            SOUNDING.clear();
+            for (WaveView w : WAVES) w.repaint();
+        }
         if (c != null) {
             try {
                 c.stop();

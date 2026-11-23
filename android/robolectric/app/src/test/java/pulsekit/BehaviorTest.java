@@ -14038,6 +14038,25 @@ public class BehaviorTest {
       idle();
     }
     out.append("offer: ").append(offerButtons).append('\n');
+    // The mixer shown after: each row has its waveform; ▶ on one puts the playhead on that row alone.
+    idle();
+    int waveRows = AudioMixerScreen.WAVES.size();
+    View playOne = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-play:groove");
+    // (Robolectric has no audio output: "No audio output", nothing plays; on a phone the row's playhead moves.)
+    if (playOne != null) playOne.performClick();
+    boolean headOn = false, headOff = true;
+    for (AudioMixerScreen.WaveView w : AudioMixerScreen.WAVES) {
+      if (w.t.name.equals("groove")) headOn = AudioMixerScreen.SOUNDING.contains(w.t);
+      else headOff &= w.playhead() < 0;
+    }
+    AudioMixerScreen.stop();
+    float[] gp = AudioMix.tracks.isEmpty() ? new float[0] : AudioMix.peaks(AudioMix.tracks.get(0), 40);
+    float loud = 0;
+    for (float v : gp) loud = Math.max(loud, v);
+    View st = AudioMixerScreen.last == null ? null : AudioMixerScreen.last.getWindow().getDecorView().findViewWithTag("audiomixer-status");
+    out.append("play button: ").append(playOne != null).append(", said: ").append(st == null ? "-" : ((android.widget.TextView) st).getText()).append('\n');
+    out.append("waveforms: ").append(waveRows).append(", playing groove: ").append(headOn).append(", the other's playhead off: ").append(headOff)
+        .append(", sound in the waveform: ").append(loud > 0.01f).append('\n');
     StringBuilder names = new StringBuilder();
     for (AudioMix.Track t : AudioMix.tracks) names.append(t.name).append(' ');
     out.append("tracks: ").append(names.toString().trim()).append('\n');
@@ -14090,7 +14109,7 @@ public class BehaviorTest {
     String text = out.toString();
     boolean ok = params.toString().equals("SogniMusic true, MidiDrumGen true, DrumMidi_CRT true, CutWav false, ") && !seen.get(0).contains(MixerOut.FLAG)
         && names.toString().trim().equals("groove song") && r.log.contains("For the AudioMixer (asked when the run is done): groove.mid, song.wav")
-        && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
+        && text.contains("waveforms: 2, playing groove: ") && text.contains("the other's playhead off: true, sound in the waveform: true") && text.contains("offer: " + MixerOut.ADD_THESE + " / " + MixerOut.SKIP + " / neutral false") && text.contains("again: " + MixerOut.REPLACE + " / " + MixerOut.ADD_TO + ", tracks 2")
         && text.contains("zip: true, another program: true, tracks 2") && message.equals(MixerOut.ask("walk-audio.m4a")) && before == 2
         && String.valueOf(AudioExtract.lastSaid).startsWith("Added to the AudioMixer: take-audio");
     if (!ok) throw new AssertionError(text);

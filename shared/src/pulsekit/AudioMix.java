@@ -282,6 +282,46 @@ public final class AudioMix {
     return new AudioIo.StereoPcm(l, r, rate);
   }
 
+  /** Waveforms read (the file, its length and time, the columns): kept until the file changes. */
+  static final java.util.Map<String, float[]> PEAKS = new java.util.HashMap<String, float[]>();
+
+  /**
+   * A track's waveform for its row: `columns` peaks from 0 to 1 (the louder side in each column), read
+   * from its WAV; empty (all 0) when it has no sound yet. Not under the class's lock: the screens
+   * read it while a mix is made.
+   */
+  public static float[] peaks(Track t, int columns) {
+    if (columns <= 0 || dir == null || t == null) return new float[Math.max(0, columns)];
+    File f = new File(dir, t.file);
+    String key = f.getPath() + "|" + f.length() + "|" + f.lastModified() + "|" + columns;
+    synchronized (PEAKS) {
+      float[] had = PEAKS.get(key);
+      if (had != null) return had;
+    }
+    float[] out = new float[columns];
+    try {
+      AudioIo.StereoPcm p = parseStereo(read(f));
+      int n = p.left.length;
+      if (n > 0) {
+        for (int c = 0; c < columns; c++) {
+          int a = (int) ((long) n * c / columns), b = (int) Math.max(a + 1, (long) n * (c + 1) / columns);
+          float m = 0;
+          // Every sample of short columns, a stride through long ones (a long track stays quick to draw).
+          int step = Math.max(1, (b - a) / 2000);
+          for (int i = a; i < b && i < n; i += step) m = Math.max(m, Math.max(Math.abs(p.left[i]), Math.abs(p.right[i])));
+          out[c] = Math.min(1f, m);
+        }
+      }
+    } catch (Exception ignored) {
+      // no sound to show
+    }
+    synchronized (PEAKS) {
+      if (PEAKS.size() > 200) PEAKS.clear();
+      PEAKS.put(key, out);
+    }
+    return out;
+  }
+
   /** The tracks heard: the soloed ones when any is, else every track not muted. */
   public static synchronized List<Track> heard() {
     boolean anySolo = false;

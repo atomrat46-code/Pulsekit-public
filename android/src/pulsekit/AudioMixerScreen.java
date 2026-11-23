@@ -46,6 +46,7 @@ final class AudioMixerScreen {
         final Runnable[] fill = new Runnable[1];
         fill[0] = () -> {
             rows.removeAllViews();
+            WAVES.clear();
             if (AudioMix.tracks.isEmpty()) {
                 TextView none = app.text("No tracks yet: " + AudioMix.IMPORT, 14, false);
                 none.setTag("audiomixer-empty");
@@ -122,6 +123,9 @@ final class AudioMixerScreen {
         box.setPadding(0, app.dp(8), 0, app.dp(4));
         final TextView name = app.text(AudioMix.line(t), 14, true);
         box.addView(name);
+        // Its waveform, with where the playing has got to (▶, Play mix).
+        WaveView wave = new WaveView(app, t);
+        box.addView(wave, new LinearLayout.LayoutParams(-1, app.dp(44)));
         SeekBar vol = new SeekBar(app);
         vol.setTag("audiomixer-volume:" + t.name);
         vol.setMax(AudioMix.MAX_VOLUME);
@@ -179,7 +183,7 @@ final class AudioMixerScreen {
                     l[i] = Math.max(-1, Math.min(1, l[i] * g));
                     rr[i] = Math.max(-1, Math.min(1, rr[i] * g));
                 }
-                play(l, rr, status, t.name);
+                play(l, rr, status, t.name, java.util.Collections.singletonList(t));
             } catch (Exception ex) {
                 say(status, "Could not play " + t.name);
             }
@@ -462,6 +466,88 @@ final class AudioMixerScreen {
         }, "pulsekit-mixer-run").start();
     }
 
+    /** The tracks playing now (▶: its own; Play mix: those heard), the frames played, the rows' waveforms. */
+    static final java.util.Set<AudioMix.Track> SOUNDING = new java.util.HashSet<AudioMix.Track>();
+    static int playFrames;
+    static final java.util.List<WaveView> WAVES = new java.util.ArrayList<WaveView>();
+    static final android.os.Handler TICK = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Seconds played of what plays now, or -1. */
+    static double playedSeconds() {
+        AudioTrack t = playing;
+        if (t == null) return -1;
+        try {
+            return (t.getPlaybackHeadPosition() & 0xffffffffL) / (double) AudioMix.RATE;
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    /** The playheads moved about 25 times a second while something plays; at its end they go. */
+    static final Runnable TICKER = new Runnable() {
+        public void run() {
+            double at = playedSeconds();
+            if (at < 0 || at * AudioMix.RATE >= playFrames) SOUNDING.clear();
+            for (WaveView w : WAVES) w.invalidate();
+            if (!SOUNDING.isEmpty()) TICK.postDelayed(this, 40);
+        }
+    };
+
+    /** A track's waveform (WAV or MP3 alike: the mixer keeps each as a WAV) and the playhead on it. */
+    static final class WaveView extends android.view.View {
+        final AudioMix.Track t;
+        float[] peaks;
+        int loading = -1;
+        final android.graphics.Paint wave = new android.graphics.Paint(), head = new android.graphics.Paint(), base = new android.graphics.Paint();
+
+        WaveView(MainActivity app, AudioMix.Track t) {
+            super(app);
+            this.t = t;
+            setTag("audiomixer-wave:" + t.name);
+            wave.setColor(0xFF8FA89A);
+            head.setColor(0xFFF2D06B);
+            head.setStrokeWidth(app.dp(2));
+            base.setColor(0x33FFFFFF);
+            WAVES.add(this);
+        }
+
+        /** The playhead's place (0 to 1) on this track now, or -1 when it is not playing. */
+        double playhead() {
+            if (!SOUNDING.contains(t) || t.seconds <= 0) return -1;
+            double at = playedSeconds();
+            return at < 0 || at > t.seconds ? -1 : at / t.seconds;
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas c) {
+            int w = getWidth(), h = getHeight();
+            int cols = Math.max(1, w / 3);
+            if ((peaks == null || peaks.length != cols) && loading != cols) {
+                // Read in the background: a long WAV would hold up the screen.
+                loading = cols;
+                final int want = cols;
+                new Thread(() -> {
+                    final float[] p = AudioMix.peaks(t, want);
+                    TICK.post(() -> {
+                        peaks = p;
+                        invalidate();
+                    });
+                }, "pulsekit-mixer-wave").start();
+            }
+            float mid = h / 2f;
+            c.drawRect(0, mid - 0.5f, w, mid + 0.5f, base);
+            if (peaks != null) {
+                float cw = w / (float) peaks.length;
+                for (int i = 0; i < peaks.length; i++) {
+                    float a = Math.max(0.5f, peaks[i] * (mid - 2));
+                    c.drawRect(i * cw, mid - a, i * cw + Math.max(1f, cw - 1), mid + a, wave);
+                }
+            }
+            double at = playhead();
+            if (at >= 0) c.drawLine((float) (at * w), 0, (float) (at * w), h, head);
+        }
+    }
+
     /** The open screen shows the tracks again (a run added some). */
     static void refresh() {
         if (last != null && last.isShowing() && refill != null) refill.run();
@@ -472,14 +558,20 @@ final class AudioMixerScreen {
         new Thread(() -> {
             try {
                 float[][] m = AudioMix.mix(null);
-                main.post(() -> play(m[0], m[1], status, "the mix"));
+                final java.util.List<AudioMix.Track> heard = AudioMix.heard();
+                main.post(() -> play(m[0], m[1], status, "the mix", heard));
             } catch (Exception ex) {
                 main.post(() -> say(status, "Could not mix: " + ex.getMessage()));
             }
         }, "pulsekit-mixer-play").start();
     }
 
+    /** Plays a sound that is no mixer track's (a pad, a kit's sound): no playhead. */
     static void play(float[] l, float[] r, TextView status, String what) {
+        play(l, r, status, what, java.util.Collections.<AudioMix.Track>emptyList());
+    }
+
+    static void play(float[] l, float[] r, TextView status, String what, java.util.Collection<AudioMix.Track> which) {
         stop();
         if (l.length == 0) {
             say(status, "Nothing to play");
@@ -498,6 +590,10 @@ final class AudioMixerScreen {
             t.write(pcm, 0, pcm.length);
             t.play();
             playing = t;
+            SOUNDING.addAll(which);
+            playFrames = l.length;
+            TICK.removeCallbacks(TICKER);
+            TICK.post(TICKER);
             say(status, "Playing " + what);
         } catch (Exception ex) {
             say(status, "No audio output for " + what);
@@ -507,6 +603,10 @@ final class AudioMixerScreen {
     static void stop() {
         AudioTrack t = playing;
         playing = null;
+        if (!SOUNDING.isEmpty()) {
+            SOUNDING.clear();
+            for (WaveView w : WAVES) w.invalidate();
+        }
         if (t != null) {
             try {
                 t.stop();
