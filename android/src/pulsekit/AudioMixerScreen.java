@@ -112,7 +112,14 @@ final class AudioMixerScreen {
         scroll.addView(col);
         fill[0].run();
         refill = fill[0];
-        if (last != null && last.isShowing()) last.dismiss();
+        // The mixer shown before goes (one of this app's: an earlier app's window is gone with it).
+        if (last != null && last.isShowing() && last.getOwnerActivity() == app) {
+            try {
+                last.dismiss();
+            } catch (RuntimeException ignored) {
+                // gone already
+            }
+        }
         last = new AlertDialog.Builder(app).setTitle(title()).setView(scroll).setPositiveButton("Close", null).create();
         last.setOnDismissListener(d -> {
             stop();
@@ -571,7 +578,14 @@ final class AudioMixerScreen {
     static final java.util.Set<AudioMix.Track> SOUNDING = new java.util.HashSet<AudioMix.Track>();
     static int playFrames;
     static final java.util.List<WaveView> WAVES = new java.util.ArrayList<WaveView>();
-    static final android.os.Handler TICK = new android.os.Handler(android.os.Looper.getMainLooper());
+    static android.os.Handler tick;
+
+    /** The main thread's handler for the playheads (made again when the main looper is a new one). */
+    static android.os.Handler tick() {
+        android.os.Looper main = android.os.Looper.getMainLooper();
+        if (tick == null || tick.getLooper() != main) tick = new android.os.Handler(main);
+        return tick;
+    }
 
     /** Seconds played of what plays now, or -1. */
     static double playedSeconds() {
@@ -590,7 +604,7 @@ final class AudioMixerScreen {
             double at = playedSeconds();
             if (at < 0 || at * AudioMix.RATE >= playFrames) SOUNDING.clear();
             for (WaveView w : WAVES) w.invalidate();
-            if (!SOUNDING.isEmpty()) TICK.postDelayed(this, 40);
+            if (!SOUNDING.isEmpty()) tick().postDelayed(this, 40);
         }
     };
 
@@ -629,7 +643,8 @@ final class AudioMixerScreen {
                 final int want = cols;
                 new Thread(() -> {
                     final float[] p = AudioMix.peaks(t, want);
-                    TICK.post(() -> {
+                    // Through the view: a window closed meanwhile takes nothing more.
+                    post(() -> {
                         peaks = p;
                         invalidate();
                     });
@@ -693,8 +708,8 @@ final class AudioMixerScreen {
             playing = t;
             SOUNDING.addAll(which);
             playFrames = l.length;
-            TICK.removeCallbacks(TICKER);
-            TICK.post(TICKER);
+            tick().removeCallbacks(TICKER);
+            tick().post(TICKER);
             say(status, "Playing " + what);
         } catch (Exception ex) {
             say(status, "No audio output for " + what);
@@ -704,6 +719,7 @@ final class AudioMixerScreen {
     static void stop() {
         AudioTrack t = playing;
         playing = null;
+        if (tick != null) tick.removeCallbacks(TICKER);
         if (!SOUNDING.isEmpty()) {
             SOUNDING.clear();
             for (WaveView w : WAVES) w.invalidate();
