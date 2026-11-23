@@ -94,7 +94,32 @@ public final class MixerOut {
       both.addAll(r.files);
       said = add(both);
     } else said = add(r.files);
+    note(said);
     return new JavaRun.Result(r.log + (r.log.endsWith("\n") || r.log.isEmpty() ? "" : "\n") + said + "\n", r.files, r.code);
+  }
+
+  /** What the runs' mixer steps said, oldest first (a file sets chain shows its own at its end). */
+  static final List<String> said = new ArrayList<String>();
+
+  static void note(String lines) {
+    synchronized (said) {
+      for (String l : lines.split("\n")) if (l.trim().length() > 0) said.add(l.trim());
+      while (said.size() > 200) said.remove(0);
+    }
+  }
+
+  /** How many lines were said so far. */
+  public static int saidCount() {
+    synchronized (said) {
+      return said.size();
+    }
+  }
+
+  /** The lines said since `from` (saidCount() then). */
+  public static List<String> saidSince(int from) {
+    synchronized (said) {
+      return new ArrayList<String>(said.subList(Math.max(0, Math.min(from, said.size())), said.size()));
+    }
   }
 
   /** The sounds of `files` added as tracks; what it says. */

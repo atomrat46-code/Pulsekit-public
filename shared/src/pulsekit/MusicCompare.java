@@ -206,8 +206,18 @@ public final class MusicCompare {
         }
         sb.append('\n');
       }
+      List<String> mix = new ArrayList<String>(mixer);
+      mix.addAll(MixerOut.saidSince(mixerFrom));
+      if (!mix.isEmpty()) {
+        sb.append("\nAudioMixer:");
+        for (String m : mix) sb.append("\n").append(m);
+      }
       return sb.toString().trim();
     }
+
+    /** The AudioMixer's lines: SogniMusic's run's, and where the DrumMidi runs' start in MixerOut's. */
+    final List<String> mixer = new ArrayList<String>();
+    int mixerFrom;
   }
 
   /**
@@ -312,6 +322,9 @@ public final class MusicCompare {
       String m = argv.get(mi + 1).trim().toLowerCase(java.util.Locale.ROOT);
       if (m.matches("turbo|sft|music3")) c.single = m;
     }
+    // The AudioMixer's lines (--to_mixer): SogniMusic's from its log, the DrumMidi runs' as they come.
+    for (String line : (log == null ? "" : log).split("\n")) if (line.contains("AudioMixer")) c.mixer.add(line.trim());
+    c.mixerFrom = MixerOut.saidCount();
     chain = c;
     return c;
   }
