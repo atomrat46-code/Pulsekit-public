@@ -3105,7 +3105,9 @@ final class PyJav {
         body.setName("text-ready:text");
         body.setLineWrap(true);
         body.setWrapStyleWord(true);
-        body.setEditable(false);
+        // Editable: the text as it will be copied, saved or sent (a new cut, delimiter or text after makes it again).
+        body.setEditable(true);
+        TextMenu.attach(body);
         panel.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
         // Text after: Select text takes it from a file or a saved section (the dropdown); it goes after the answer.
         JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));

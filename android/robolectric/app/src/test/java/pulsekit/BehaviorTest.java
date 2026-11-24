@@ -16072,6 +16072,7 @@ public class BehaviorTest {
   @Test
   public void s273_document_ready() throws Exception {
     StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
     new java.io.File(app.getFilesDir(), "text-ready.txt").delete();
     String chat = "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n";
     java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
@@ -16149,6 +16150,16 @@ public class BehaviorTest {
     ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
     idle();
     out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
+    // The text edited before saving: Save writes it as edited.
+    ((android.widget.EditText) body2).setText("My own words.");
+    java.io.File edited = new java.io.File(app.getCacheDir(), "edited-text.txt");
+    TextOffer.saveTo = edited;
+    try {
+      ((android.widget.Button) r2.findViewWithTag("text-ready:save")).performClick();
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    out.append("edited save: ").append(new String(java.nio.file.Files.readAllBytes(edited.toPath()), "UTF-8")).append('\n');
     TextOffer.last.dismiss();
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
@@ -16162,7 +16173,7 @@ public class BehaviorTest {
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From sections",
-        "cleared: A red kite over a grey sea. | kept ''", "cuts: c / a / a > b"};
+        "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

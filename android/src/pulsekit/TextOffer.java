@@ -117,9 +117,12 @@ final class TextOffer {
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2);
         ap.topMargin = app.dp(6);
         col.addView(acts, ap);
-        final TextView body = app.text("", 15, false);
+        // The text as it will be copied, saved or sent: editable (a new cut, delimiter or text after makes it again).
+        final EditText body = new EditText(app);
+        body.setTextSize(15);
         body.setTag("text-ready:text");
-        body.setTextIsSelectable(true);
+        body.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        body.setMinLines(3);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
         bp.topMargin = app.dp(8);
         col.addView(body, bp);
