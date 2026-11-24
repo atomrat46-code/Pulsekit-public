@@ -2085,6 +2085,23 @@ public class BehaviorTest {
     boolean left = false;
     for (java.io.File f : made) if (f.exists()) left = true;
     out.append("copies left after the run: ").append(left).append('\n');
+    // On the phone java.io.tmpdir can name a program run's folder that is gone: the copy goes beside the picture.
+    String tmp = System.getProperty("java.io.tmpdir");
+    System.setProperty("java.io.tmpdir", new java.io.File(dir, "gone-" + System.nanoTime()).getAbsolutePath());
+    try {
+      java.util.List<String> notes = new java.util.ArrayList<String>();
+      made.clear();
+      java.util.List<String> got2 = PictureCopies.withCopies(new java.util.ArrayList<String>(
+          java.util.Arrays.asList("--file", wide.getAbsolutePath())), made, notes);
+      int at = got2.indexOf("--seen_copy");
+      java.io.File copy = at < 0 ? null : new java.io.File(got2.get(at + 1));
+      out.append("temp folder gone: copy ").append(copy != null && copy.isFile() ? "made" : "missing")
+          .append(", beside the picture: ").append(copy != null && dir.equals(copy.getParentFile().getParentFile()))
+          .append(", notes: ").append(notes).append('\n');
+      PictureCopies.clean(made);
+    } finally {
+      System.setProperty("java.io.tmpdir", tmp);
+    }
     write("s57_picture_copies", out.toString());
   }
 

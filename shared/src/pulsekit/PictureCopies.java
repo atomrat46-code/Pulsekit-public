@@ -79,9 +79,16 @@ public final class PictureCopies {
           continue;
         }
         if (dir == null) {
-          dir = File.createTempFile("pulsekit-seen-", "");
-          dir.delete();
-          if (!dir.mkdirs()) {
+          // Beside the picture (its folder is there for sure); the system's temp folder only when that is not
+          // writable: on the phone it can name a folder that is gone ("No such file or directory").
+          File parent = f.getAbsoluteFile().getParentFile();
+          dir = parent != null && parent.canWrite() ? new File(parent, "pulsekit-seen-" + System.nanoTime()) : null;
+          if (dir == null || !dir.mkdirs()) {
+            // mkdirs, not createTempFile: it makes the temp folder again when it is gone.
+            dir = new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-seen-" + System.nanoTime());
+            dir.mkdirs();
+          }
+          if (!dir.isDirectory() && !dir.mkdirs()) {
             if (notes != null) notes.add("Note: no smaller copy of " + f.getName() + ": could not make a folder for it (" + dir + ")");
             return argv;
           }
