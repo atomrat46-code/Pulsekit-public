@@ -91,8 +91,9 @@ final class TextOffer {
         final EditText after = new EditText(app);
         after.setTag("text-ready:after");
         after.setHint("Added after the answer (Select file, Browse sections)");
-        after.setMaxLines(4);
         after.setText(set[2]);
+        // Up to 4 lines, scrolled inside when longer.
+        typed(after, 4);
         col.addView(after, new LinearLayout.LayoutParams(-1, -2));
         // Copy, Save and Send as prompt (Close is the dialog's button).
         LinearLayout acts = new LinearLayout(app);
@@ -109,6 +110,8 @@ final class TextOffer {
         body.setTag("text-ready:text");
         body.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         body.setMinLines(3);
+        // Editable: a cursor and the keyboard; scrolled inside when longer than 14 lines.
+        typed(body, 14);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
         bp.topMargin = app.dp(8);
         col.addView(body, bp);
@@ -171,7 +174,35 @@ final class TextOffer {
         save.setOnClickListener(v -> save(app, TextReady.savedName(fileName), body.getText().toString()));
         send.setOnClickListener(v -> send(app, body.getText().toString()));
         dialog.show();
+        // Its text boxes take the keyboard (a dialog's window can be set not to).
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         last = dialog;
+    }
+
+    /**
+     * A text box typed in: several lines with a cursor and the keyboard, at most `lines` tall, its text
+     * scrolled inside it when longer (the dialog's own scrolling left alone while a finger moves in it).
+     */
+    static void typed(final EditText box, int lines) {
+        box.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        box.setSingleLine(false);
+        box.setHorizontallyScrolling(false);
+        box.setFocusable(true);
+        box.setFocusableInTouchMode(true);
+        box.setCursorVisible(true);
+        box.setMaxLines(lines);
+        box.setVerticalScrollBarEnabled(true);
+        box.setScrollBarStyle(android.view.View.SCROLLBARS_INSIDE_INSET);
+        box.setOnTouchListener((v, e) -> {
+            if (v.canScrollVertically(1) || v.canScrollVertically(-1)) {
+                v.getParent().requestDisallowInterceptTouchEvent(e.getActionMasked() != android.view.MotionEvent.ACTION_UP
+                    && e.getActionMasked() != android.view.MotionEvent.ACTION_CANCEL);
+            }
+            return false;
+        });
     }
 
     /** The tests: From sections' pick (its index; else a list is shown), and the list shown last. */

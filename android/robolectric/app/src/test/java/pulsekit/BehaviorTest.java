@@ -16137,6 +16137,11 @@ public class BehaviorTest {
     View r2 = TextOffer.last.getWindow().getDecorView();
     out.append("buttons: ").append(r2.findViewWithTag("text-ready:select-file") != null).append(' ').append(r2.findViewWithTag("text-ready:browse-sections") != null)
         .append(", note shown ").append(r2.findViewWithTag("text-ready:note").getVisibility() == View.VISIBLE).append('\n');
+    android.widget.EditText bodyBox = (android.widget.EditText) r2.findViewWithTag("text-ready:text"), afterBox = (android.widget.EditText) r2.findViewWithTag("text-ready:after");
+    int flags = TextOffer.last.getWindow().getAttributes().flags;
+    out.append("typed in: ").append(bodyBox.isFocusableInTouchMode() && bodyBox.isCursorVisible() && (bodyBox.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0)
+        .append(", after ").append(afterBox.isFocusableInTouchMode() && afterBox.getMaxLines() == 4 && (afterBox.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0)
+        .append(", keyboard ").append((flags & (android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM | android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)) == 0).append('\n');
     TextOffer.sectionPick = Integer.valueOf(texts.indexOf("Moody light, film grain."));
     try {
       ((android.widget.Button) r2.findViewWithTag("text-ready:browse-sections")).performClick();
@@ -16172,7 +16177,7 @@ public class BehaviorTest {
         "remembered: Cut after >  From file", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
-        "buttons: true true, note shown false", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
+        "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
