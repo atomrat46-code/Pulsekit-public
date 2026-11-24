@@ -15847,6 +15847,7 @@ public class BehaviorTest {
     ((android.widget.EditText) ev.findViewWithTag("sc-new-name")).setText("Zebra");
     ((android.widget.EditText) ev.findViewWithTag("sc-new-note")).setText("Striped");
     out.append("edit name buttons: ").append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
+        .append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_NEUTRAL).getText()).append(" / ")
         .append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
     SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
@@ -15957,6 +15958,16 @@ public class BehaviorTest {
     PromptVault.SogniSection owl = null;
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owl = x;
     out.append("owl: ").append(owl == null ? "none" : owl.text.trim().replace("\n", " / ")).append('\n');
+    // Save as: the same entries again only under another name; the owl itself stays.
+    PromptVault ov = PromptVault.open(app.getFilesDir());
+    SectionCollection.Form copy = SectionCollection.formOf(owl);
+    String sameName = SectionCollection.saveAs(ov, owl, copy);
+    copy.name = "Owl copy";
+    String other = SectionCollection.saveAs(ov, owl, copy);
+    int owlsNow = 0;
+    for (PromptVault.SogniSection x : ov.sogniSections("SogniPadd")) if (x.text.contains("Owl")) owlsNow++;
+    out.append("save as: same name ").append(sameName).append(" | other name ").append(other).append(", owls ").append(owlsNow).append('\n');
+    for (PromptVault.SogniSection x : ov.sogniSections("SogniPadd")) if ("Owl copy".equals(x.name)) ov.deleteSogniSection(x.id);
     PyJavParams.pickRunSections(app, "SogniPadd", picked -> { });
     idle();
     android.widget.ListView rl = PyJavParams.lastRunPick.getListView();
@@ -16006,7 +16017,7 @@ public class BehaviorTest {
         "section menu: Save | Cut | Copy | Send to other program\u2026 | Send to other program's group\u2026 | Delete | Move into group\u2026 | Edit data",
         "move to: Animals | Weather",
         "full: Saved <when> /  / Prompt: Zebra at noon.",
-        "edit data: prompt Prompt: Zebra at noon., group Animals".replace("Prompt: ", ""), "edit name buttons: Save / Exit",
+        "edit data: prompt Prompt: Zebra at noon., group Animals".replace("Prompt: ", ""), "edit name buttons: Save / Save as / Exit",
         "group menu: Delete | Rename",
         "renamed left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | \u22ee | +",
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
@@ -16016,7 +16027,7 @@ public class BehaviorTest {
         "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
-        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7", "buttons: export in bar after Save true, run sections above variations true | held: true",
+        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7", "save as: same name Save as: give the copy another name (or change an entry) | other name null, owls 2", "buttons: export in bar after Save true, run sections above variations true | held: true",
         "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7",
         "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>"};
     boolean ok = true;

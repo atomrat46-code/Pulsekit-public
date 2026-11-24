@@ -216,10 +216,12 @@ public final class SectionCollectionWindow {
     JScrollPane sp = new JScrollPane(p);
     sp.setPreferredSize(new Dimension(520, Math.min(620, p.getPreferredSize().height + 20)));
     boolean edit = SectionCollection.EDIT_NAME.equals(title);
-    Object[] options = {edit ? SectionCollection.SAVE : "OK", edit ? SectionCollection.EXIT : "Cancel"};
+    // Edit data: Save, Save as (a new section, the one edited kept) and Exit.
+    Object[] options = edit ? new Object[] {SectionCollection.SAVE, SectionCollection.SAVE_AS, SectionCollection.EXIT} : new Object[] {"OK", "Cancel"};
     int ans = JOptionPane.showOptionDialog(at, sp, title, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-    if (ans != 0) return null;
+    if (ans != 0 && !(edit && ans == 1)) return null;
     SectionCollection.Form f = new SectionCollection.Form();
+    f.asNew = edit && ans == 1;
     f.name = name.getText();
     f.note = note.getText();
     f.prompt = prompt.getText();
@@ -276,7 +278,7 @@ public final class SectionCollectionWindow {
       } else f = form(this.dialog, SectionCollection.EDIT_NAME, init, SectionCollection.lorasFor(this.vault(), this.app, this.lorasNow, init),
           SectionCollection.groupPicks(this.vault(), this.app), this.extras);
       if (f == null) return;
-      String bad = SectionCollection.update(this.vault(), s, f);
+      String bad = f.asNew ? SectionCollection.saveAs(this.vault(), s, f) : SectionCollection.update(this.vault(), s, f);
       if (bad != null) this.say(bad);
     } catch (Exception ex) {
       this.say("Could not save the section: " + ex.getMessage());

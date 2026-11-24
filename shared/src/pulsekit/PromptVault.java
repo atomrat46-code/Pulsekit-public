@@ -1501,7 +1501,12 @@ public final class PromptVault {
 
   /** The entries kept as the program's new section; null when the same is saved already. */
   public synchronized SogniSection addSogniSection(String app, String text) throws Exception {
-    if (findSogniSection(app, text) != null) return null;
+    return addSogniSection(app, text, false);
+  }
+
+  /** As above; `copy`: kept even when a section has the same entries (Edit data's Save as, under another name). */
+  public synchronized SogniSection addSogniSection(String app, String text, boolean copy) throws Exception {
+    if (!copy && findSogniSection(app, text) != null) return null;
     SogniSection sec = new SogniSection();
     sec.id = nextId++;
     sec.app = app;

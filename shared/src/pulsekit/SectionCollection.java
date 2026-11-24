@@ -127,7 +127,12 @@ public final class SectionCollection {
   public static final class Form {
     public String name = "", note = "", prompt = "", loras = NO_LORAS, group = NO_GROUP_PICK;
     public final java.util.LinkedHashMap<String, String> extra = new java.util.LinkedHashMap<String, String>();
+    /** Edit data's Save as: kept as a new section (the one edited stays as it was). */
+    public boolean asNew;
   }
+
+  /** Edit data's third button. */
+  public static final String SAVE_AS = "Save as";
 
   /** The program's rows a section keeps besides the prompt and the LoRAs (Aspect, Width, Height, Seed...). */
   public static List<ProgramParams.Param> extraRows(List<ProgramParams.Param> ps) {
@@ -183,8 +188,29 @@ public final class SectionCollection {
 
   /** Add new section (or Save's new one): the form kept as a section. Null when it was made, else what is wrong. */
   public static String add(PromptVault vault, String app, Form f) throws Exception {
+    return add(vault, app, f, null);
+  }
+
+  /**
+   * Edit data's Save as: the form kept as a new section beside `from` (it stays). The same entries are
+   * kept again only under another name.
+   */
+  public static String saveAs(PromptVault vault, PromptVault.SogniSection from, Form f) throws Exception {
+    return add(vault, from.app, f, from);
+  }
+
+  static String add(PromptVault vault, String app, Form f, PromptVault.SogniSection from) throws Exception {
     if (f.prompt == null || f.prompt.trim().isEmpty()) return "A section needs its prompt";
-    PromptVault.SogniSection s = vault.addSogniSection(app, textOf(f));
+    String t = textOf(f);
+    boolean copy = false;
+    if (from != null) {
+      PromptVault.SogniSection same = vault.findSogniSection(app, t);
+      if (same != null) {
+        if (tidy(f.name).isEmpty() || tidy(f.name).equalsIgnoreCase(tidy(same.name))) return "Save as: give the copy another name (or change an entry)";
+        copy = true;
+      }
+    }
+    PromptVault.SogniSection s = vault.addSogniSection(app, t, copy);
     if (s == null) return "The same section is saved already";
     if (tidy(f.name).length() > 0 || (f.note != null && f.note.trim().length() > 0)) vault.nameSogniSection(s.id, f.name, f.note);
     String g = f.group == null || NO_GROUP_PICK.equals(f.group) ? "" : tidy(f.group);

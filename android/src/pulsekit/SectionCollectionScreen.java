@@ -201,7 +201,21 @@ final class SectionCollectionScreen {
     ScrollView sv = new ScrollView(activity);
     sv.addView(box);
     boolean edit = SectionCollection.EDIT_NAME.equals(title);
-    lastNew = new AlertDialog.Builder(activity).setTitle(title).setView(sv)
+    final java.util.function.Function<Boolean, SectionCollection.Form> read = asNew -> {
+      SectionCollection.Form f = new SectionCollection.Form();
+      f.asNew = asNew;
+      f.name = name.getText().toString();
+      f.note = note.getText().toString();
+      f.prompt = prompt.getText().toString();
+      f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
+      f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
+      for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
+      return f;
+    };
+    AlertDialog.Builder b = new AlertDialog.Builder(activity).setTitle(title).setView(sv);
+    // Edit data: Save as too (a new section, the one edited kept).
+    if (edit) b.setNeutralButton(SectionCollection.SAVE_AS, (d, w) -> done.accept(read.apply(true)));
+    lastNew = b
         .setPositiveButton(edit ? SectionCollection.SAVE : "OK", (d, w) -> {
           SectionCollection.Form f = new SectionCollection.Form();
           f.name = name.getText().toString();
@@ -240,7 +254,7 @@ final class SectionCollectionScreen {
       form(this.activity, SectionCollection.EDIT_NAME, init, SectionCollection.lorasFor(this.vault(), this.app, this.lorasNow, init),
           SectionCollection.groupPicks(this.vault(), this.app), this.extras, f -> {
             try {
-              String bad = SectionCollection.update(this.vault(), s, f);
+              String bad = f.asNew ? SectionCollection.saveAs(this.vault(), s, f) : SectionCollection.update(this.vault(), s, f);
               if (bad != null) this.say(bad);
             } catch (Exception ex) {
               this.say("Could not save the section: " + ex.getMessage());
