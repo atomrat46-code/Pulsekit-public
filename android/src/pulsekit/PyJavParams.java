@@ -113,9 +113,16 @@ public final class PyJavParams {
     });
     // Where each row's views start in the page (vst_render's rows then go onto its tabs).
     final int[] rowStarts = new int[ps.size()];
+    // Run sections… (Sogni programs): above Variations; what it does is set once the Params' OK is made, below.
+    final Runnable[] runPick = new Runnable[1];
+    boolean runPlaced = false;
     for (int i = 0; i < ps.size(); i++) {
       final ProgramParams.Param p = ps.get(i);
       final int index = i;
+      if (SogniSections.shown(name) && !runPlaced && p.token.equals("--variations")) {
+        box.addView(runSectionsButton(activity, runPick));
+        runPlaced = true;
+      }
       rowStarts[i] = box.getChildCount();
       if (p.flag && !p.takesValue) {
         android.widget.CheckBox check = new android.widget.CheckBox(activity);
@@ -641,15 +648,6 @@ public final class PyJavParams {
       });
       box.addView(backButton, 0);
     }
-    if (SogniSections.shown(name)) {
-      // Export (Save is the window's button): the rows Save keeps, written into a file picked.
-      android.widget.Button export = new android.widget.Button(activity);
-      export.setText(ParamsClip.EXPORT);
-      export.setTag("params-export-section");
-      export.setAllCaps(false);
-      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
-      box.addView(export);
-    }
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
@@ -693,16 +691,13 @@ public final class PyJavParams {
     };
     if (SogniSections.shown(name)) {
       // Run sections…: several sections (or a group) picked, the program run with each in turn; the Params close as with OK.
-      android.widget.Button runSections = new android.widget.Button(activity);
-      runSections.setText(SogniSections.RUN);
-      runSections.setTag("params-run-sections");
-      runSections.setAllCaps(false);
-      runSections.setOnClickListener(v -> pickRunSections(activity, SogniSections.app(name), picked -> {
+      runPick[0] = () -> pickRunSections(activity, SogniSections.app(name), picked -> {
         save.onClick(self[0], android.content.DialogInterface.BUTTON_POSITIVE);
         if (self[0] != null) self[0].dismiss();
         if (activity instanceof MainActivity && ((MainActivity) activity).pyJav != null) ((MainActivity) activity).pyJav.pkRunSections(name, ps, picked);
-      }));
-      box.addView(runSections);
+      });
+      // (A program without Variations: at the end.)
+      if (!runPlaced) box.addView(runSectionsButton(activity, runPick));
     }
     // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
     // (A folder row's Use box counts as its tick: Add to the AudioMixer and DrumMidi's folder untick each other.)
@@ -741,6 +736,15 @@ public final class PyJavParams {
     self[0] = shown;
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
     if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+    // Export: in the window's buttons, between Save and Cancel (the rows Save keeps, written into a file picked).
+    if (saveSection != null && SogniSections.shown(name) && saveSection.getParent() instanceof android.view.ViewGroup) {
+      android.widget.Button export = new android.widget.Button(activity, null, android.R.attr.buttonBarButtonStyle);
+      export.setText(ParamsClip.EXPORT);
+      export.setTag("params-export-section");
+      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
+      android.view.ViewGroup bar = (android.view.ViewGroup) saveSection.getParent();
+      bar.addView(export, bar.indexOfChild(saveSection) + 1);
+    }
   }
 
   /** The tests: Export's file (else the system's save dialog), Paste's answer (true: replace), Send's program and answer. */
@@ -1447,8 +1451,20 @@ public final class PyJavParams {
     sectionSay(activity, "Loaded: " + SogniSections.label(sec));
   }
 
+  /** Run sections… as a button: what `run` holds when pressed. */
+  static android.widget.Button runSectionsButton(Activity activity, final Runnable[] run) {
+    android.widget.Button b = new android.widget.Button(activity);
+    b.setText(SogniSections.RUN);
+    b.setTag("params-run-sections");
+    b.setAllCaps(false);
+    b.setOnClickListener(v -> {
+      if (run[0] != null) run[0].run();
+    });
+    return b;
+  }
+
   /** Run sections…' picker shown last, and the tests' answer (the sections in, the indexes to run out; null: asked). */
-  static AlertDialog lastRunPick;
+  static AlertDialog lastRunPick, lastRunFull;
   static java.util.function.Function<List<PromptVault.SogniSection>, int[]> runSectionsAnswer;
 
   /** Run sections…' picker: the program's sections ticked by hand, or by favourites or a group; `go` gets the ones ticked. */
@@ -1492,6 +1508,12 @@ public final class PyJavParams {
         .setNeutralButton("Pick\u2026", null)
         .setNegativeButton("Cancel", null).show();
     lastRunPick = dlg[0];
+    // Held: the section shown whole.
+    dlg[0].getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+      lastRunFull = new AlertDialog.Builder(activity).setTitle(SogniSections.label(all.get(position))).setMessage(SogniSections.full(all.get(position)))
+          .setPositiveButton("Close", null).show();
+      return true;
+    });
     // Pick…: none, the favourites or a group ticked at once.
     dlg[0].getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> new AlertDialog.Builder(activity).setTitle(SogniSections.RUN_ASK)
         .setItems(picks.toArray(new String[0]), (d2, w2) -> {

@@ -2775,6 +2775,8 @@ final class PyJav {
             String g = sec.group == null || sec.group.trim().isEmpty() ? "" : "  [" + sec.group.trim() + "]";
             ticks[i] = new javax.swing.JCheckBox(SogniSections.marks(sec) + SogniSections.label(sec) + g);
             ticks[i].setName("run-section:" + i);
+            // Pointed at: the section whole.
+            ticks[i].setToolTipText("<html>" + SogniSections.full(sec).replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br>") + "</html>");
             list.add(ticks[i]);
         }
         javax.swing.JComboBox<String> picks = new javax.swing.JComboBox<String>(SogniSections.runPicks(all).toArray(new String[0]));

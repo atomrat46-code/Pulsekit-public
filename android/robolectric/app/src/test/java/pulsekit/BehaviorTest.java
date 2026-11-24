@@ -15926,6 +15926,21 @@ public class BehaviorTest {
     AlertDialog pd = (AlertDialog) ShadowDialog.getLatestDialog();
     View psc = pd.getWindow().getDecorView().findViewWithTag("params-collection");
     String pscText = psc == null ? "none" : String.valueOf(((TextView) psc).getText());
+    // Export in the window's buttons after Save; Run sections… above Variations; held in its list, a section shown whole.
+    View pdv = pd.getWindow().getDecorView();
+    View exp = pdv.findViewWithTag("params-export-section");
+    android.widget.Button neutral = pd.getButton(DialogInterface.BUTTON_NEUTRAL);
+    boolean exportInBar = exp != null && exp.getParent() == neutral.getParent()
+        && ((android.view.ViewGroup) exp.getParent()).indexOfChild(exp) == ((android.view.ViewGroup) neutral.getParent()).indexOfChild(neutral) + 1;
+    View runB = pdv.findViewWithTag("params-run-sections");
+    View vars = pdv.findViewWithTag("params-field:--variations");
+    int[] at1 = new int[2], at2 = new int[2];
+    runB.getLocationInWindow(at1);
+    vars.getLocationInWindow(at2);
+    android.view.ViewGroup form = (android.view.ViewGroup) runB.getParent();
+    int runAt = form.indexOfChild(runB), varsAt = -1;
+    for (int k = 0; k < form.getChildCount(); k++) if (form.getChildAt(k) == vars || (form.getChildAt(k) instanceof android.view.ViewGroup && ((android.view.ViewGroup) form.getChildAt(k)).findViewWithTag("params-field:--variations") != null)) varsAt = k;
+
     if (psc != null) psc.performClick();
     idle();
     out.append("params SC: ").append(pscText).append(", opens ").append(SectionCollectionScreen.last != null && SectionCollectionScreen.last.dialog.isShowing() && SectionCollectionScreen.last != w).append('\n');
@@ -15942,6 +15957,15 @@ public class BehaviorTest {
     PromptVault.SogniSection owl = null;
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owl = x;
     out.append("owl: ").append(owl == null ? "none" : owl.text.trim().replace("\n", " / ")).append('\n');
+    PyJavParams.pickRunSections(app, "SogniPadd", picked -> { });
+    idle();
+    android.widget.ListView rl = PyJavParams.lastRunPick.getListView();
+    rl.getOnItemLongClickListener().onItemLongClick(rl, null, 0, 0);
+    idle();
+    String whole = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastRunFull).getMessage()).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ");
+    PyJavParams.lastRunFull.dismiss();
+    PyJavParams.lastRunPick.dismiss();
+    out.append("buttons: export in bar after Save ").append(exportInBar).append(", run sections above variations ").append(runAt >= 0 && varsAt > runAt).append(" | held: ").append(whole.length() > 0 && whole.contains("Saved <when>")).append('\n');
     SectionCollectionScreen.last.dialog.dismiss();
     idle();
     // Save after loading the owl and changing its prompt: Overwrite or Save as new.
@@ -15992,7 +16016,7 @@ public class BehaviorTest {
         "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
-        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7",
+        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7", "buttons: export in bar after Save true, run sections above variations true | held: true",
         "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7",
         "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>"};
     boolean ok = true;
