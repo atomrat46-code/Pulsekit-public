@@ -116,7 +116,7 @@ public final class SogniSections {
 
   /** Whether a group row opens a list (several sections, or a group added to by name) rather than one section. */
   public static boolean opens(Group g) {
-    return g.named || g.sections.size() != 1;
+    return g.named || g.none || g.sections.size() != 1;
   }
 
   /** A section's marks before its label: "★ " for a favourite, "F " for a final one. */
@@ -225,6 +225,8 @@ public final class SogniSections {
     public String lead = "";
     /** A group sections were added to by name (Add to group…), not one their prompt makes. */
     public boolean named;
+    /** "No group": the sections in no group, listed last. */
+    public boolean none;
     /** Its sections, the newest first. */
     public final java.util.List<PromptVault.SogniSection> sections = new java.util.ArrayList<PromptVault.SogniSection>();
   }
@@ -248,17 +250,20 @@ public final class SogniSections {
   }
 
   /** The sections grouped by their lead (case aside), the groups in A to Z order, each group's newest first. */
+  public static final String NO_GROUP = "No group";
+
+  /** Browse sections' list as Section Collection has it: the groups A to Z, each with its sections; then "No group". */
   public static java.util.List<Group> groups(java.util.List<PromptVault.SogniSection> all) {
     Map<String, Group> by = new LinkedHashMap<String, Group>();
     for (PromptVault.SogniSection s : all) {
-      String name = s.group == null ? "" : s.group.trim();
-      String lead = name.length() > 0 ? name : lead(s);
-      String key = (name.length() > 0 ? "g:" : "p:") + lead.toLowerCase(java.util.Locale.ROOT);
+      String name = s.group == null ? "" : s.group.replaceAll("\\s+", " ").trim();
+      String key = name.length() > 0 ? "g:" + name.toLowerCase(java.util.Locale.ROOT) : "none";
       Group g = by.get(key);
       if (g == null) {
         g = new Group();
-        g.lead = lead;
+        g.lead = name.length() > 0 ? name : NO_GROUP;
         g.named = name.length() > 0;
+        g.none = name.isEmpty();
         by.put(key, g);
       }
       g.sections.add(s);
@@ -266,10 +271,7 @@ public final class SogniSections {
     java.util.List<Group> out = new java.util.ArrayList<Group>(by.values());
     for (Group g : out) java.util.Collections.sort(g.sections, (a, b) -> Long.compare(b.created, a.created));
     java.util.Collections.sort(out, (a, b) -> {
-      // The groups added to by name first, then the prompts' ones; "(no prompt)" last.
-      if (a.named != b.named) return a.named ? -1 : 1;
-      boolean na = a.lead.equals("(no prompt)"), nb = b.lead.equals("(no prompt)");
-      if (na != nb) return na ? 1 : -1;
+      if (a.none != b.none) return a.none ? 1 : -1;
       return a.lead.compareToIgnoreCase(b.lead);
     });
     return out;
@@ -295,11 +297,18 @@ public final class SogniSections {
   /** A section shown fully: when it was saved, then its entries, a line each. */
   public static String full(PromptVault.SogniSection s) {
     String when = new java.text.SimpleDateFormat("d.M.yyyy HH:mm", java.util.Locale.ROOT).format(new java.util.Date(s.created));
-    return "Saved " + when + "\n\n" + s.text.trim();
+    String named = (s.name != null && s.name.length() > 0 ? s.name + "\n" : "") + (s.note != null && s.note.length() > 0 ? s.note + "\n" : "");
+    return (named.length() > 0 ? named + "\n" : "") + "Saved " + when + "\n\n" + s.text.trim();
   }
 
   /** A section in a list: its prompt's start and what else it sets ("a portrait in soft light… · loras, skin_detail"). */
   public static String label(PromptVault.SogniSection s) {
+    // A section with a name (Section Collection's Edit name): the name first.
+    if (s.name != null && s.name.length() > 0) return s.name + ": " + unnamedLabel(s);
+    return unnamedLabel(s);
+  }
+
+  private static String unnamedLabel(PromptVault.SogniSection s) {
     Map<String, String> f = read(s.text);
     String prompt = f.containsKey("--prompt") ? f.get("--prompt").replaceAll("\\s+", " ").trim() : "(no prompt)";
     if (prompt.length() > 50) prompt = prompt.substring(0, 50) + "…";

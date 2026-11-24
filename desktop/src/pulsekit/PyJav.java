@@ -1851,8 +1851,9 @@ final class PyJav {
             // The sections shown: all, or those the search above the list kept.
             final java.util.List<PromptVault.SogniSection> shownSecs = new java.util.ArrayList<PromptVault.SogniSection>(all);
             final java.util.List<SogniSections.Group> groups = SogniSections.groups(shownSecs);
-            // The groups open (by their name: Add to group… makes the groups again).
-            final java.util.Set<String> open = new java.util.HashSet<String>();
+            // The groups closed (by their name: Add to group… makes the groups again); the others are open,
+            // each with its sections under it, as Section Collection lists them.
+            final java.util.Set<String> closed = new java.util.HashSet<String>();
             final java.util.function.Function<SogniSections.Group, String> key = g -> (g.named ? "g:" : "p:") + g.lead.toLowerCase(java.util.Locale.ROOT);
             final java.util.List<Object> rows = new java.util.ArrayList<Object>();
             final javax.swing.DefaultListModel<String> model = new javax.swing.DefaultListModel<String>();
@@ -1861,8 +1862,9 @@ final class PyJav {
                 model.clear();
                 for (SogniSections.Group g : groups) {
                     rows.add(g);
-                    model.addElement(open.contains(key.apply(g)) ? "\u25be " + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")" : SogniSections.groupLabel(g));
-                    if (!open.contains(key.apply(g))) continue;
+                    boolean shut = closed.contains(key.apply(g));
+                    model.addElement((shut ? "\u25b8 " : "\u25be ") + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")");
+                    if (shut) continue;
                     for (PromptVault.SogniSection sec : g.sections) {
                         rows.add(sec);
                         model.addElement("      " + SogniSections.label(sec));
@@ -1872,14 +1874,19 @@ final class PyJav {
             fill.run();
             final javax.swing.JList<String> list = new javax.swing.JList<String>(model);
             list.setName("sections-list");
-            list.setSelectedIndex(0);
+            // The first section selected (the first row is its group's).
+            final Runnable selectFirst = () -> {
+                int first = 0;
+                while (first < rows.size() && !(rows.get(first) instanceof PromptVault.SogniSection)) first++;
+                list.setSelectedIndex(first < rows.size() ? first : 0);
+            };
+            selectFirst.run();
             list.setVisibleRowCount(Math.min(12, Math.max(4, rows.size())));
             this.lastSectionsList = list;
             final java.util.function.IntConsumer toggle = i -> {
                 if (i < 0 || i >= rows.size() || !(rows.get(i) instanceof SogniSections.Group)) return;
                 SogniSections.Group g = (SogniSections.Group) rows.get(i);
-                if (!SogniSections.opens(g)) return;
-                if (!open.remove(key.apply(g))) open.add(key.apply(g));
+                if (!closed.remove(key.apply(g))) closed.add(key.apply(g));
                 fill.run();
                 list.setSelectedIndex(rows.indexOf(g));
             };
@@ -1888,14 +1895,14 @@ final class PyJav {
                 Object r = rows.get(i);
                 if (r instanceof PromptVault.SogniSection) return (PromptVault.SogniSection) r;
                 SogniSections.Group g = (SogniSections.Group) r;
-                return SogniSections.opens(g) ? null : g.sections.get(0);
+                return null;
             };
             final Runnable regroup = () -> {
                 // The groups made again (a section may be in another one now), its group opened, it selected.
                 PromptVault.SogniSection was = sectionAt.apply(list.getSelectedIndex());
                 groups.clear();
                 groups.addAll(SogniSections.groups(shownSecs));
-                for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was) && SogniSections.opens(g)) open.add(key.apply(g));
+                for (SogniSections.Group g : groups) if (was != null && g.sections.contains(was)) closed.remove(key.apply(g));
                 fill.run();
                 int pos = rows.indexOf(was);
                 for (int i = 0; pos < 0 && i < rows.size(); i++) if (rows.get(i) instanceof SogniSections.Group && ((SogniSections.Group) rows.get(i)).sections.contains(was)) pos = i;
@@ -1977,11 +1984,10 @@ final class PyJav {
                 shownSecs.addAll(SogniSections.search(all, term.getText(), contains));
                 groups.clear();
                 groups.addAll(SogniSections.groups(shownSecs));
-                // A search opens the groups it found sections in: every match is on show.
-                open.clear();
-                if (SogniSections.searchPattern(term.getText()) != null) for (SogniSections.Group g : groups) if (SogniSections.opens(g)) open.add(key.apply(g));
+                // A search opens the groups again: every match is on show.
+                closed.clear();
                 fill.run();
-                if (!rows.isEmpty()) list.setSelectedIndex(0);
+                if (!rows.isEmpty()) selectFirst.run();
                 found.setText(SogniSections.searchSaid(shownSecs.size(), all.size(), term.getText(), contains) + SogniSections.groupsNote(all));
             };
             search.addActionListener(e -> doSearch.run());
@@ -1992,6 +1998,21 @@ final class PyJav {
             searchLeft.add(how);
             searchRow.add(searchLeft, java.awt.BorderLayout.WEST);
             searchRow.add(term, java.awt.BorderLayout.CENTER);
+            // SC: Section Collection (the sections in groups); the list as it is after it closes.
+            final JButton sc = new JButton(SectionCollection.BUTTON);
+            sc.setName("sections-collection");
+            sc.setToolTipText(SectionCollection.BUTTON_TIP);
+            sc.addActionListener(e -> {
+                SectionCollectionWindow.show(sc, program);
+                try {
+                    all.clear();
+                    all.addAll(PromptDb.vault().sogniSections(program));
+                } catch (Exception ignored) {
+                    // the list as it was
+                }
+                doSearch.run();
+            });
+            searchRow.add(sc, java.awt.BorderLayout.EAST);
             javax.swing.JPanel north = new javax.swing.JPanel(new java.awt.BorderLayout(0, 2));
             north.add(searchRow, java.awt.BorderLayout.NORTH);
             north.add(found, java.awt.BorderLayout.SOUTH);
@@ -2013,9 +2034,9 @@ final class PyJav {
                 int i = list.getSelectedIndex();
                 sec = sectionAt.apply(i);
                 if (sec != null) break;
-                // A group of several picked: its sections open under it, to pick one.
+                // A group picked: its sections open under it (when it was closed), to pick one.
                 if (i < 0) return;
-                toggle.accept(i);
+                if (rows.get(i) instanceof SogniSections.Group && closed.contains(key.apply((SogniSections.Group) rows.get(i)))) toggle.accept(i);
             }
             chosen = all.indexOf(sec);
             if (ans == 1) edit = true;

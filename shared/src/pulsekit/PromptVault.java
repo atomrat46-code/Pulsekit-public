@@ -78,6 +78,13 @@ public final class PromptVault {
     public boolean favourite, fin;
     /** The group it was added to (Add to group…), or "" for the one its prompt's start makes. */
     public String group = "";
+    /** Section Collection's Edit name: its name and description ("" when it has none). */
+    public String name = "", note = "";
+  }
+
+  /** A group of a Sogni program's sections (Section Collection's Add new): kept even while it has no sections. */
+  public static final class SectionGroup {
+    public String app = "", name = "", note = "";
   }
 
   private static final int MAGIC = 0x504B4442;
@@ -90,6 +97,7 @@ public final class PromptVault {
   private final List<Version> versions = new ArrayList<Version>();
   private final List<LibraryFile> library = new ArrayList<LibraryFile>();
   private final List<SogniSection> sogniSections = new ArrayList<SogniSection>();
+  private final List<SectionGroup> sectionGroups = new ArrayList<SectionGroup>();
   /** The collections (MediaCollections: containers and their links), as their text. */
   private String collections = "";
   private long nextId = 1;
@@ -1277,6 +1285,22 @@ public final class PromptVault {
       out.writeInt((sec.favourite ? 1 : 0) | (sec.fin ? 2 : 0));
       writeUtf(out, sec.group == null ? "" : sec.group);
     }
+    // After them, the sections' names and descriptions, then the groups kept (Section Collection): an older library has none.
+    int named = 0;
+    for (SogniSection sec : sogniSections) if (!empty(sec.name) || !empty(sec.note)) named++;
+    out.writeInt(named);
+    for (SogniSection sec : sogniSections) {
+      if (empty(sec.name) && empty(sec.note)) continue;
+      out.writeLong(sec.id);
+      writeUtf(out, sec.name == null ? "" : sec.name);
+      writeUtf(out, sec.note == null ? "" : sec.note);
+    }
+    out.writeInt(sectionGroups.size());
+    for (SectionGroup g : sectionGroups) {
+      writeUtf(out, g.app);
+      writeUtf(out, g.name);
+      writeUtf(out, g.note == null ? "" : g.note);
+    }
     out.flush();
     byte[] cipher = seal(plain.toByteArray());
     File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
@@ -1425,6 +1449,29 @@ public final class PromptVault {
             }
           }
         }
+        if (data.available() >= 4) {
+          int nnamed = data.readInt();
+          for (int i = 0; i < nnamed && data.available() >= 12; i++) {
+            long id = data.readLong();
+            String name = readUtf(data);
+            String note = readUtf(data);
+            for (SogniSection sec : sogniSections) {
+              if (sec.id != id) continue;
+              sec.name = name;
+              sec.note = note;
+            }
+          }
+        }
+        if (data.available() >= 4) {
+          int ngroups = data.readInt();
+          for (int i = 0; i < ngroups && data.available() >= 6; i++) {
+            SectionGroup g = new SectionGroup();
+            g.app = readUtf(data);
+            g.name = readUtf(data);
+            g.note = readUtf(data);
+            sectionGroups.add(g);
+          }
+        }
       }
     }
   }
@@ -1499,10 +1546,99 @@ public final class PromptVault {
     for (SogniSection sec : sogniSections) {
       if (sec.id != id) continue;
       sec.group = group == null ? "" : group.replaceAll("\\s+", " ").trim();
+      // A group used by name is kept from then on (Section Collection lists it while it is empty too).
+      if (!sec.group.isEmpty() && keptGroup(sec.app, sec.group) == null) {
+        SectionGroup g = new SectionGroup();
+        g.app = sec.app;
+        g.name = sec.group;
+        sectionGroups.add(g);
+      }
       save();
       return true;
     }
     return false;
+  }
+
+  private static boolean empty(String s) {
+    return s == null || s.isEmpty();
+  }
+
+  private static String tidy(String s) {
+    return s == null ? "" : s.replaceAll("\\s+", " ").trim();
+  }
+
+  /** Edit name: a section's name and description; false when it is gone. */
+  public synchronized boolean nameSogniSection(long id, String name, String note) throws Exception {
+    for (SogniSection sec : sogniSections) {
+      if (sec.id != id) continue;
+      sec.name = tidy(name);
+      sec.note = note == null ? "" : note.trim();
+      save();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * The program's groups, A to Z: the ones kept (Section Collection's Add new) and the ones its sections
+   * were put in by name (Add to group…), which are kept from now on too (with no description).
+   */
+  public synchronized List<SectionGroup> sectionGroups(String app) {
+    java.util.TreeMap<String, SectionGroup> by = new java.util.TreeMap<String, SectionGroup>();
+    for (SectionGroup g : sectionGroups) if (g.app.equalsIgnoreCase(app)) by.put(g.name.toLowerCase(java.util.Locale.ROOT), g);
+    for (SogniSection sec : sogniSections) {
+      String n = tidy(sec.group);
+      if (!sec.app.equalsIgnoreCase(app) || n.isEmpty() || by.containsKey(n.toLowerCase(java.util.Locale.ROOT))) continue;
+      SectionGroup g = new SectionGroup();
+      g.app = app;
+      g.name = n;
+      by.put(n.toLowerCase(java.util.Locale.ROOT), g);
+    }
+    return new ArrayList<SectionGroup>(by.values());
+  }
+
+  private SectionGroup keptGroup(String app, String name) {
+    for (SectionGroup g : sectionGroups) if (g.app.equalsIgnoreCase(app) && g.name.equalsIgnoreCase(tidy(name))) return g;
+    return null;
+  }
+
+  /** Add new: a group of the program's (its description changed when it is there already). */
+  public synchronized SectionGroup addSectionGroup(String app, String name, String note) throws Exception {
+    SectionGroup g = keptGroup(app, name);
+    if (g == null) {
+      g = new SectionGroup();
+      g.app = app;
+      g.name = tidy(name);
+      sectionGroups.add(g);
+    }
+    g.note = note == null ? "" : note.trim();
+    save();
+    return g;
+  }
+
+  /** Rename: the group and its sections under the new name (with a group of that name already, they join it). */
+  public synchronized void renameSectionGroup(String app, String old, String now) throws Exception {
+    String to = tidy(now);
+    SectionGroup g = keptGroup(app, old);
+    SectionGroup there = keptGroup(app, to);
+    if (g != null && there != null && g != there) sectionGroups.remove(g);
+    else if (g != null) g.name = to;
+    else if (there == null) {
+      g = new SectionGroup();
+      g.app = app;
+      g.name = to;
+      sectionGroups.add(g);
+    }
+    for (SogniSection sec : sogniSections) if (sec.app.equalsIgnoreCase(app) && tidy(sec.group).equalsIgnoreCase(tidy(old))) sec.group = to;
+    save();
+  }
+
+  /** Delete: the group goes; its sections stay, in no group. */
+  public synchronized void deleteSectionGroup(String app, String name) throws Exception {
+    SectionGroup g = keptGroup(app, name);
+    if (g != null) sectionGroups.remove(g);
+    for (SogniSection sec : sogniSections) if (sec.app.equalsIgnoreCase(app) && tidy(sec.group).equalsIgnoreCase(tidy(name))) sec.group = "";
+    save();
   }
 
   public synchronized boolean deleteSogniSection(long id) throws Exception {
@@ -1985,7 +2121,16 @@ public final class PromptVault {
         n.favourite = sec.favourite;
         n.fin = sec.fin;
         n.group = sec.group;
+        n.name = sec.name;
+        n.note = sec.note;
         to.sogniSections.add(n);
+      }
+      for (SectionGroup g : from.sectionGroups) {
+        SectionGroup n = new SectionGroup();
+        n.app = g.app;
+        n.name = g.name;
+        n.note = g.note;
+        to.sectionGroups.add(n);
       }
       for (LibraryFile f : from.library) {
         LibraryFile n = new LibraryFile();

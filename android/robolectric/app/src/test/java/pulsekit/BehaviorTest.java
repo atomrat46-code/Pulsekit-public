@@ -46,6 +46,8 @@ public class BehaviorTest {
   public void boot() {
     // The Params dialog an earlier scenario left open belongs to its torn-down window: not closed from here.
     PyJavParams.shown = null;
+    // Browse sections' groups all open (a tap on a group closes it while the app runs).
+    PyJavParams.closedGroups.clear();
     // The Prompts page starts on its Prompts & Categories tab.
     PromptsTabs.tab = PromptsTabs.PROMPTS;
     // A long press opens a file's menu (a drag never ends here).
@@ -12359,8 +12361,9 @@ public class BehaviorTest {
     idle();
     if (PyJavParams.lastSections == null) throw new AssertionError("save: " + first + " | again: " + again + " | browse: " + PyJavParams.sectionSaid);
     int listed = PyJavParams.lastSections.getListView().getAdapter().getCount();
-    String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(0));
-    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    // (Row 0 is its group, No group; the section under it.)
+    String row = String.valueOf(PyJavParams.lastSections.getListView().getAdapter().getItem(1)).trim();
+    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(1);
     idle();
     // A tap shows the section fully; Load there.
     PyJavParams.lastSectionShown.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
@@ -12379,7 +12382,7 @@ public class BehaviorTest {
         .append("\nin the DB after reading it again: ").append(kept.size()).append(kept.isEmpty() ? "" : " " + kept.get(0).text.replace("\n", " / ")).append('\n');
     write("s191_sogni_sections", out.toString());
     boolean ok = "Save".equals(saveText) && browseButton && first.startsWith("Saved a SogniPedit section: a portrait in soft window light, film grain \u00b7 loras")
-        && again.startsWith("This section is saved already") && stillOpen && listed == 1 && asked.equals(SogniSections.ASK)
+        && again.startsWith("This section is saved already") && stillOpen && listed == 2 && asked.equals(SogniSections.ASK)
         && loaded.equals("a portrait in soft window light, film grain | skin-detail:0.8") && kept.size() == 1
         && kept.get(0).text.equals("Prompt: a portrait in soft window light, film grain\nLoras: skin-detail:0.8\n");
     if (!ok) throw new AssertionError(out.toString());
@@ -12693,8 +12696,9 @@ public class BehaviorTest {
     PyJavParams.lastGroupName.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     String grouped = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
-    // A group of its own opens as a list even with one section.
-    org.robolectric.Shadows.shadowOf(PyJavParams.lastSections).clickOnItem(0);
+    // A group held lists its sections apart.
+    android.widget.ListView glv = PyJavParams.lastSections.getListView();
+    glv.getOnItemLongClickListener().onItemLongClick(glv, null, 0, 0);
     idle();
     String inGroup = PyJavParams.lastGroup == null ? "none" : PyJavParams.lastGroup.isShowing() + " " + listItems(PyJavParams.lastGroup).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
     PyJavParams.lastGroup.dismiss();
@@ -12713,8 +12717,8 @@ public class BehaviorTest {
     for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
     boolean ok = afterEdit && before.equals("\u2606") && star.getText().toString().equals("\u2605")
         && menu.equals("Load | Edit section | Remove section | Mark as final | Remove from favourites | Add to group\u2026")
-        && rows.equals("\u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>") && picks.equals("New group\u2026")
-        && grouped.equals("\u25b8 \u2605 F Portraits (1) | Zebra at noon. \u00b7 <when>") && inGroup.equals("true \u2605 F A red kite. \u00b7 <when>")
+        && rows.equals("\u25be \u2605 F No group (2) |       \u2605 F A red kite. \u00b7 <when> |       Zebra at noon. \u00b7 <when>") && picks.equals("New group\u2026")
+        && grouped.equals("\u25be \u2605 F Portraits (1) |       \u2605 F A red kite. \u00b7 <when> | \u25be No group (1) |       Zebra at noon. \u00b7 <when>") && inGroup.equals("true \u2605 F A red kite. \u00b7 <when>")
         && menu2.endsWith("Add to group\u2026 | Take out of the group") && back.favourite && back.fin && back.group.equals("Portraits");
     if (!ok) throw new AssertionError(out.toString());
   }
@@ -12750,7 +12754,7 @@ public class BehaviorTest {
     write("s224_sections_grouped", out.toString());
     for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
     boolean ok = lead.equals("One. Two! | No end here | (no prompt)")
-        && rows.startsWith("\u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
+        && rows.startsWith("\u25be No group (3) |       a red kite. over hills. Stormy sky.")
         && group.startsWith("a red kite. over hills. Stormy sky.") && group.contains(" | A red kite. Over hills. Blue sky. · loras")
         && shown.replace("\n", " / ").equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && loadThere;
     if (!ok) throw new AssertionError(out.toString());
@@ -15732,20 +15736,183 @@ public class BehaviorTest {
     String not = listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
     // A matched section held: its menu (Add to group… there).
     android.widget.ListView lv = PyJavParams.lastSections.getListView();
-    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 1, 0);
     idle();
     String menu = listItems(PyJavParams.lastSectionMenu);
     PyJavParams.lastSectionMenu.dismiss();
     PyJavParams.searchTerm = "";
     PyJavParams.searchContains = true;
     String out = "no groups (" + noGroups + ") keyboard " + keyboard + " | parts " + parts + " | all " + all + " | kite*sky " + kite + " (" + found + ") | not st?rmy " + not + " | menu " + menu;
-    boolean ok = noGroups.equals("3 sections \u00b7 No groups yet: a section's menu has Add to group\u2026") && keyboard && parts.equals("true true true") && all.equals("\u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>")
-        && kite.equals("Weather \u203a A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 <when>") && found.equals("2 of 3 sections contain \"kite*sky\"")
-        && not.equals("A red kite. Over hills. Blue sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>") && menu.endsWith("Add to group\u2026");
+    boolean ok = noGroups.equals("3 sections \u00b7 No groups yet: a section's menu has Add to group\u2026") && keyboard && parts.equals("true true true") && all.equals("\u25be Weather (1) |       A red kite. Over hills. Stormy sky. \u00b7 <when> | \u25be No group (2) |       A red kite. Over hills. Blue sky. \u00b7 <when> |       Zebra at noon. Wide shot. \u00b7 <when>")
+        && kite.equals("\u25be Weather (1) |       A red kite. Over hills. Stormy sky. \u00b7 <when> | \u25be No group (1) |       A red kite. Over hills. Blue sky. \u00b7 <when>") && found.equals("2 of 3 sections contain \"kite*sky\"")
+        && not.equals("\u25be No group (2) |       A red kite. Over hills. Blue sky. \u00b7 <when> |       Zebra at noon. Wide shot. \u00b7 <when>") && menu.endsWith("Add to group\u2026");
     if (!ok) throw new AssertionError(out);
   }
 
   /** 19112026_2: Video ready starts at the volume the last one was left at. */
+  /**
+   * 24112026: Browse sections' SC opens Section Collection: the groups on the left ((n), + opens their
+   * sections), a line, the sections in no group on the right (their text in a box, a ☰ to drag, a name
+   * above). Add new and Add new section; a section dropped on a group; held menus (Save, Delete, Move
+   * into group, Edit name; a group's Delete and Rename); Close lists Browse sections again, groups first.
+   */
+  @Test
+  public void s272_section_collection() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    PromptVault.SogniSection zebra = vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection kite = vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    Thread.sleep(5);
+    PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: Stormy sky.\n");
+    vault.groupSogniSection(storm.id, "Weather");
+    java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
+    android.widget.EditText[] noFields = new android.widget.EditText[0];
+    PyJavParams.browseSections(app, "SogniPadd", none, noFields);
+    idle();
+    View sc = PyJavParams.lastSections.getWindow().getDecorView().findViewWithTag("sections-collection");
+    out.append("SC button: ").append(sc == null ? "none" : ((TextView) sc).getText()).append('\n');
+    sc.performClick();
+    idle();
+    SectionCollectionScreen w = SectionCollectionScreen.last;
+    out.append("shown: ").append(w.dialog.isShowing()).append(", browse closed ").append(!PyJavParams.lastSections.isShowing()).append('\n');
+    out.append("left: ").append(viewTexts(w.left)).append('\n').append("right: ").append(viewTexts(w.right)).append('\n');
+    // Add new: a group with a description.
+    w.dialog.getWindow().getDecorView().findViewWithTag("sc-add-group").performClick();
+    idle();
+    View ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Animals");
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("Four legs");
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    // Add new section: a name and plain text (the prompt).
+    w.dialog.getWindow().getDecorView().findViewWithTag("sc-add-section").performClick();
+    idle();
+    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Blue one");
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("A blue kite over the sea");
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("added left: ").append(viewTexts(w.left)).append('\n').append("added right: ").append(viewTexts(w.right)).append('\n');
+    // The zebra's ☰ dropped on Animals (what the group's drop reads).
+    out.append("drag handle: ").append(w.right.findViewWithTag("sc-drag:" + zebra.id) != null).append(", drop target: ").append(w.left.findViewWithTag("sc-group:Animals") != null).append('\n');
+    w.dropOn("Animals", SectionCollection.dragText(zebra));
+    idle();
+    w.left.findViewWithTag("sc-open:Animals").performClick();
+    idle();
+    out.append("dropped left: ").append(viewTexts(w.left)).append('\n').append("dropped right: ").append(viewTexts(w.right)).append('\n');
+    // The kite's text edited; held, its menu: Save.
+    ((android.widget.EditText) w.right.findViewWithTag("sc-text:" + kite.id)).setText("Prompt: A red kite at dusk.");
+    w.right.findViewWithTag("sc-text:" + kite.id).performLongClick();
+    idle();
+    out.append("section menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
+    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.SAVE);
+    idle();
+    // The zebra (under Animals, on the left) held: Edit name.
+    w.left.findViewWithTag("sc-in:" + zebra.id).performLongClick();
+    idle();
+    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.EDIT_NAME);
+    idle();
+    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Zebra");
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("Striped");
+    out.append("edit name buttons: ").append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
+        .append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    // Weather held: Rename to Sky, then Delete (its section to the right).
+    w.left.findViewWithTag("sc-group-name:Weather").performLongClick();
+    idle();
+    out.append("group menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
+    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.RENAME);
+    idle();
+    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
+    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Sky");
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("renamed left: ").append(viewTexts(w.left)).append('\n');
+    w.left.findViewWithTag("sc-group-name:Sky").performLongClick();
+    idle();
+    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.DELETE);
+    idle();
+    out.append("delete asks: ").append(String.valueOf(org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastAsk).getMessage()).replace("\n", " / ")).append('\n');
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("deleted left: ").append(viewTexts(w.left)).append('\n').append("deleted right: ").append(viewTexts(w.right)).append('\n');
+    // Close: Browse sections again, the groups first.
+    w.dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("closed: ").append(!w.dialog.isShowing()).append(" | browse: ").append(listItems(PyJavParams.lastSections).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+    PyJavParams.lastSections.dismiss();
+    PromptVault.forget();
+    PromptVault back = PromptVault.open(app.getFilesDir());
+    StringBuilder kept = new StringBuilder();
+    for (PromptVault.SectionGroup g : back.sectionGroups("SogniPadd")) kept.append(g.name).append(" (").append(g.note).append(") ");
+    for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
+    out.append("kept: ").append(kept.toString().trim()).append('\n');
+    for (PromptVault.SogniSection old : back.sogniSections("SogniPadd")) back.deleteSogniSection(old.id);
+    write("s272_section_collection", out.toString());
+    String t = out.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    String[] want = {
+        "SC button: SC", "shown: true, browse closed true", "left: Weather (1) | +", "right: \u2630 |  | Prompt: Stormy sky.".substring(0, 0) + "right: \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
+        "added left: Animals | Four legs | Weather (1) | +",
+        "added right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
+        "drag handle: true, drop target: true",
+        "dropped left: Animals (1) | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | Weather (1) | +",
+        "dropped right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite.",
+        "section menu: Save, Delete, Move into group [Animals, Weather], Edit name", "edit name buttons: Save / Exit", "group menu: Delete, Rename",
+        "renamed left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | +",
+        "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
+        "deleted left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when>",
+        "deleted right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: Stormy sky. | \u2630 |  | Prompt: A red kite at dusk.",
+        "closed: true | browse: \u25be Animals (1) |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (3) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when> |       A red kite at dusk. \u00b7 <when>",
+        "kept: Animals (Four legs) | Blue one///Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
+  private static String viewTexts(View v) {
+    StringBuilder sb = new StringBuilder();
+    collectTexts(v, sb);
+    return sb.toString();
+  }
+
+  private static void collectTexts(View v, StringBuilder sb) {
+    if (v instanceof TextView) {
+      sb.append(sb.length() == 0 ? "" : " | ").append(((TextView) v).getText());
+      return;
+    }
+    if (v instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) v).getChildCount(); i++) collectTexts(((android.view.ViewGroup) v).getChildAt(i), sb);
+  }
+
+  /** A menu's items ("Move into group [Animals, Weather]" for a submenu). */
+  private static String menuTitles(android.view.Menu m) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < m.size(); i++) {
+      android.view.MenuItem it = m.getItem(i);
+      sb.append(i == 0 ? "" : ", ").append(it.getTitle());
+      if (it.hasSubMenu()) sb.append(" [").append(menuTitles(it.getSubMenu())).append("]");
+    }
+    return sb.toString();
+  }
+
+  /** The menu's item with this title picked (its own click listener). */
+  private static void clickMenu(android.view.Menu m, String title) throws Exception {
+    for (int i = 0; i < m.size(); i++) {
+      android.view.MenuItem it = m.getItem(i);
+      if (title.contentEquals(it.getTitle())) {
+        java.lang.reflect.Method inv = it.getClass().getMethod("invoke");
+        inv.invoke(it);
+        return;
+      }
+    }
+    throw new AssertionError("no menu item " + title + " in " + menuTitles(m));
+  }
+
   /**
    * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
    * with OK and SogniPadd runs with each section's prompt in turn (the key file as it was), one
@@ -15878,7 +16045,7 @@ public class BehaviorTest {
     PyJavParams.browseSections(app, "SogniPedit", none, noFields);
     idle();
     android.widget.ListView lv = PyJavParams.lastSections.getListView();
-    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 1, 0);
     idle();
     String menu = listItems(PyJavParams.lastSectionMenu);
     org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(1);
@@ -15891,7 +16058,7 @@ public class BehaviorTest {
     PyJavParams.browseSections(app, "SogniPedit", none, noFields);
     idle();
     lv = PyJavParams.lastSections.getListView();
-    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 0, 0);
+    lv.getOnItemLongClickListener().onItemLongClick(lv, null, 1, 0);
     idle();
     org.robolectric.Shadows.shadowOf(PyJavParams.lastSectionMenu).clickOnItem(2);
     idle();

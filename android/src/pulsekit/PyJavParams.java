@@ -952,23 +952,21 @@ public final class PyJavParams {
       sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
       return;
     }
-    // Search (the header): the sections that contain the term, or don't (* and ? wildcards), listed by
-    // their groups, each on its own row; no term, the groups as before.
-    final boolean searching = SogniSections.searchPattern(searchTerm) != null;
+    // Search (the header): the sections that contain the term, or don't (* and ? wildcards).
     final List<PromptVault.SogniSection> kept = SogniSections.search(all, searchTerm, searchContains);
-    // Grouped by the prompt's first sentences, A to Z: a group's long press (or tap) lists its sections.
+    // As Section Collection has them: each group (A to Z, then No group) and its sections under it; a tap on a
+    // group closes it (or opens it again), held it lists its sections apart.
     final List<SogniSections.Group> groups = SogniSections.groups(kept);
     final List<Object> items = new ArrayList<Object>();
     List<String> labels = new ArrayList<String>();
     for (SogniSections.Group g : groups) {
-      if (!searching || !SogniSections.opens(g)) {
-        items.add(g);
-        labels.add(SogniSections.groupLabel(g));
-        continue;
-      }
+      boolean shut = closedGroups.contains(groupKey(g));
+      items.add(g);
+      labels.add((shut ? "\u25b8 " : "\u25be ") + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")");
+      if (shut) continue;
       for (PromptVault.SogniSection sec : g.sections) {
         items.add(sec);
-        labels.add((g.named ? g.lead : SogniSections.lead(sec).length() > 30 ? SogniSections.lead(sec).substring(0, 30) + "\u2026" : SogniSections.lead(sec)) + " \u203a " + SogniSections.label(sec));
+        labels.add("      " + SogniSections.label(sec));
       }
     }
     String[] rows = labels.toArray(new String[0]);
@@ -980,8 +978,8 @@ public final class PyJavParams {
             return;
           }
           SogniSections.Group g = (SogniSections.Group) r;
-          if (!SogniSections.opens(g)) showSection(activity, program, ps, fields, g.sections.get(0));
-          else groupSections(activity, program, ps, fields, g);
+          if (!closedGroups.remove(groupKey(g))) closedGroups.add(groupKey(g));
+          browseSections(activity, program, ps, fields);
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
@@ -1001,11 +999,16 @@ public final class PyJavParams {
         sectionMenu(activity, program, ps, fields, (PromptVault.SogniSection) r);
         return true;
       }
-      SogniSections.Group g = (SogniSections.Group) r;
-      if (!SogniSections.opens(g)) sectionMenu(activity, program, ps, fields, g.sections.get(0));
-      else groupSections(activity, program, ps, fields, g);
+      groupSections(activity, program, ps, fields, (SogniSections.Group) r);
       return true;
     });
+  }
+
+  /** Browse sections' groups closed (a tap on one), by name, while the app runs: the others are open. */
+  static final java.util.Set<String> closedGroups = new java.util.HashSet<String>();
+
+  static String groupKey(SogniSections.Group g) {
+    return g.none ? "" : g.lead.toLowerCase(java.util.Locale.ROOT);
   }
 
   /** Browse sections' search: its term and way (Contains or Doesn't contain), kept while the app runs. */
@@ -1023,7 +1026,22 @@ public final class PyJavParams {
     TextView title = new TextView(activity);
     title.setText(SogniSections.BROWSE + " \u00b7 " + program);
     title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
-    box.addView(title);
+    // SC: Section Collection (the sections in groups); Browse sections lists them again after it closes.
+    LinearLayout top = new LinearLayout(activity);
+    top.setOrientation(LinearLayout.HORIZONTAL);
+    top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    top.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    android.widget.Button sc = new android.widget.Button(activity);
+    sc.setText(SectionCollection.BUTTON);
+    sc.setTag("sections-collection");
+    sc.setAllCaps(false);
+    sc.setContentDescription(SectionCollection.BUTTON_TIP);
+    sc.setOnClickListener(v -> {
+      if (lastSections != null) lastSections.dismiss();
+      SectionCollectionScreen.show(activity, program, () -> browseSections(activity, program, ps, fields));
+    });
+    top.addView(sc);
+    box.addView(top);
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(android.view.Gravity.CENTER_VERTICAL);
