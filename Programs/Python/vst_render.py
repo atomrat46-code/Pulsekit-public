@@ -4810,6 +4810,10 @@ class BenchKit(object):
     def __init__(self, name, key, stamp, where, folder, info, d):
         import numpy as np
         self.name, self.key, self.stamp, self.where = name, key, stamp, where
+        # Each array read once: d["..."] of a kept .npz unpacks the whole array again at every reading
+        # (once a hit and a cymbal made a big kit take hours).
+        if hasattr(d, "files"):
+            d = dict((f, d[f]) for f in d.files)
         self.X = d["X"].astype(np.float64)
         # Cymbals whose inputs DrumMidi left undefined (not a number): no model moves them (left as written).
         self.undefined = int((~np.isfinite(self.X)).any(1).sum()) if len(self.X) else 0
@@ -4821,11 +4825,16 @@ class BenchKit(object):
         self.songs = []
         label = np.zeros(len(self.cym_i), int)
         cym_of = {}
-        for j, i in enumerate(self.cym_i):
-            cym_of.setdefault(int(d["hit_s"][i]), []).append(j)
+        hit_s, hit_t = d["hit_s"], d["hit_t"]
+        for j, s in enumerate(hit_s[self.cym_i].tolist()):
+            cym_of.setdefault(int(s), []).append(j)
+        # Each song's hits (their indices, in order), by one sort rather than a search a song.
+        order = np.argsort(hit_s, kind="stable")
+        bounds = np.searchsorted(hit_s[order], np.arange(len(d["song_midi"]) + 1))
+        times, kinds = hit_t.tolist(), notes.tolist()
         for s, mid in enumerate(d["song_midi"]):
-            at = np.where(d["hit_s"] == s)[0]
-            found = [(float(d["hit_t"][i]), int(notes[i])) for i in at]
+            at = order[bounds[s]:bounds[s + 1]]
+            found = [(float(times[i]), int(kinds[i])) for i in at.tolist()]
             length, played = midi_notes(os.path.join(folder, str(mid)))
             played = mapped(played, info["map"])
             end = length + 0.05
@@ -4836,7 +4845,7 @@ class BenchKit(object):
             pc = sorted((t, BENCH_KIND[n]) for t, n in played if n in BENCH_KIND)
             ptimes = np.array([t for t, _ in pc])
             for j in cym_of.get(s, []):
-                t = float(d["hit_t"][self.cym_i[j]])
+                t = float(times[int(self.cym_i[j])])
                 if len(ptimes):
                     k = int(np.argmin(np.abs(ptimes - (t + shift))))
                     if abs(ptimes[k] - (t + shift)) <= 0.03:

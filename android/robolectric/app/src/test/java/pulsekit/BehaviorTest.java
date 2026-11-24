@@ -16055,6 +16055,70 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * Document ready after a SogniChat run: its text cut after "=== Sogni ===" (SogniChat's default),
+   * another delimiter and Cut before (remembered), Copy, and Send as prompt into SogniPadd's Params.
+   */
+  @Test
+  public void s273_document_ready() throws Exception {
+    StringBuilder out = new StringBuilder();
+    new java.io.File(app.getFilesDir(), "text-ready.txt").delete();
+    String chat = "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("answer.txt", chat.getBytes("UTF-8")));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: answer.txt", files, 0);
+    out.append("other program: ").append(TextOffer.offer(app, "SogniPadd.java", r)).append('\n');
+    out.append("offered: ").append(TextOffer.offer(app, "SogniChat.java", r)).append('\n');
+    idle();
+    AlertDialog d = TextOffer.last;
+    View root = d.getWindow().getDecorView();
+    out.append("title shown: ").append(d.isShowing()).append('\n');
+    TextView body = (TextView) root.findViewWithTag("text-ready:text");
+    android.widget.Spinner mode = (android.widget.Spinner) root.findViewWithTag("text-ready:mode");
+    android.widget.EditText delim = (android.widget.EditText) root.findViewWithTag("text-ready:delimiter");
+    TextView note = (TextView) root.findViewWithTag("text-ready:note");
+    out.append("cut: ").append(mode.getSelectedItem()).append(" [").append(delim.getText()).append("] ").append(body.getText()).append(" / ").append(note.getText()).append('\n');
+    delim.setText("Describe");
+    mode.setSelection(1);
+    idle();
+    out.append("before: ").append(body.getText().toString().replace('\n', '|')).append('\n');
+    delim.setText("nothing like it");
+    idle();
+    out.append("missing: ").append(note.getText()).append('\n');
+    delim.setText(">");
+    mode.setSelection(0);
+    idle();
+    out.append("remembered: ").append(String.join(" ", TextReady.setting(app.getFilesDir(), "SogniChat.java"))).append('\n');
+    delim.setText("=== Sogni ===");
+    idle();
+    d.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    android.content.ClipboardManager clip = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    out.append("copy: ").append(TextOffer.said).append(" | clipboard ").append(clip.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    TextOffer.sendTo = "SogniPadd.java";
+    TextOffer.sendYes = Boolean.TRUE;
+    try {
+      d.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+    } finally {
+      TextOffer.sendTo = null;
+      TextOffer.sendYes = null;
+    }
+    String padd = PyJavParams.load(app, "SogniPadd.java");
+    out.append("send: ").append(TextOffer.said).append(" | in SogniPadd ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+    out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
+        .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
+    d.dismiss();
+    String t = out.toString();
+    write("s273_document_ready", t);
+    String[] want = {"other program: false", "offered: true", "title shown: true",
+        "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
+        "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
+        "remembered: Cut after >", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "cuts: c / a / a > b"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
   private static String viewTexts(View v) {
     StringBuilder sb = new StringBuilder();

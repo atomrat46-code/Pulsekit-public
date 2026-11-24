@@ -954,6 +954,7 @@ final class PyJav {
                 java.util.List<File> savedVideos = new java.util.ArrayList<File>();
                 StringBuilder status = new StringBuilder();
                 PythonRun.FileOut madeMidi = null;
+                PythonRun.FileOut madeText = null;
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
                     boolean midi = f.bytes != null && f.bytes.length >= 4
@@ -998,6 +999,7 @@ final class PyJav {
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) texts++;
+                        madeText = f;
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {
@@ -1145,6 +1147,8 @@ final class PyJav {
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
+                // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
+                if (!inBatch && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes));
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -2988,6 +2992,117 @@ final class PyJav {
      * through the active drum set), as a file set plays its source MIDI. Play / Stop and Close; the
      * MIDI is already imported as a file set. Nothing is shown when it has no drums for the kit.
      */
+    /** The tests: Document ready's buttons pressed in turn (0 Copy, 1 Send as prompt, 2 Close), and the panel shown last. */
+    static java.util.Deque<Integer> textReadyAnswers;
+    static JPanel lastTextReady;
+
+    /**
+     * Document ready (TextReady): the text a run wrote, cut at a delimiter (Cut after, Cut before or No
+     * cut; remembered for the program), with Copy, Send as prompt (into a Sogni program's Params) and Close.
+     */
+    void offerText(String program, String fileName, String whole) {
+        File dir = PromptDb.dir();
+        String[] set = TextReady.setting(dir, program);
+        JPanel panel = new JPanel(new java.awt.BorderLayout(0, 6));
+        JPanel top = new JPanel(new java.awt.BorderLayout(6, 4));
+        top.add(new JLabel(fileName), java.awt.BorderLayout.NORTH);
+        final javax.swing.JComboBox<String> mode = new javax.swing.JComboBox<String>(TextReady.MODES);
+        mode.setName("text-ready:mode");
+        mode.setSelectedItem(set[0]);
+        final javax.swing.JTextField delim = new javax.swing.JTextField(set[1], 18);
+        delim.setName("text-ready:delimiter");
+        delim.setToolTipText(TextReady.HINT);
+        top.add(mode, java.awt.BorderLayout.WEST);
+        top.add(delim, java.awt.BorderLayout.CENTER);
+        final JLabel note = new JLabel();
+        note.setName("text-ready:note");
+        top.add(note, java.awt.BorderLayout.SOUTH);
+        panel.add(top, java.awt.BorderLayout.NORTH);
+        final javax.swing.JTextArea body = new javax.swing.JTextArea(14, 52);
+        body.setName("text-ready:text");
+        body.setLineWrap(true);
+        body.setWrapStyleWord(true);
+        body.setEditable(false);
+        panel.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
+        panel.add(new JLabel(TextReady.HINT), java.awt.BorderLayout.SOUTH);
+        final Runnable cut = () -> {
+            String m = String.valueOf(mode.getSelectedItem());
+            String d = delim.getText();
+            body.setText(TextReady.cut(whole, d, m));
+            body.setCaretPosition(0);
+            note.setText(TextReady.note(whole, d, m));
+            TextReady.remember(dir, program, m, d);
+        };
+        mode.addActionListener(e -> cut.run());
+        delim.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
+        cut.run();
+        lastTextReady = panel;
+        Object[] options = {TextReady.COPY, TextReady.SEND, TextReady.CLOSE};
+        while (true) {
+            int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 2 : textReadyAnswers.poll().intValue())
+                : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
+            if (ans == 0) {
+                String t = body.getText();
+                if (t.trim().length() > 0) {
+                    try {
+                        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(t), null);
+                    } catch (Exception ignored) {
+                        // no clipboard (headless)
+                    }
+                }
+                this.clipSay(TextReady.copied(t));
+            } else if (ans == 1) {
+                if (this.sendText(body.getText())) return;
+            } else {
+                return;
+            }
+        }
+    }
+
+    /** Send as prompt: the text into a Sogni program's Params as its prompt (picked, then asked); true when sent. */
+    boolean sendText(String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to send");
+            return false;
+        }
+        java.util.List<String> targets = TextReady.targets(PyJav::programTextOf);
+        if (targets.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return false;
+        }
+        String target = sendTo;
+        if (target == null) {
+            Object[] rows = new Object[targets.size()];
+            for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.app(targets.get(i));
+            Object got = JOptionPane.showInputDialog(app, "Put the text into which program's Params, as its prompt?", TextReady.SEND_TITLE,
+                JOptionPane.QUESTION_MESSAGE, null, rows, rows[0]);
+            if (got == null) return false;
+            target = targets.get(java.util.Arrays.asList(rows).indexOf(got));
+        } else if (!targets.contains(target)) {
+            this.clipSay(target + " takes no prompt");
+            return false;
+        }
+        boolean yes = sendYes != null ? sendYes.booleanValue()
+            : JOptionPane.showConfirmDialog(app, ParamsClip.sendAsk("--prompt", target, text), TextReady.SEND_TITLE + " " + SogniSections.app(target), JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+        if (!yes) return false;
+        java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(target));
+        this.saveParams(target, ParamsClip.put(theirs, this.loadParams(target), "--prompt", text));
+        this.clipSay(ParamsClip.sent("--prompt", target));
+        return true;
+    }
+
     void offerMidi(String midiName, byte[] midi) {
         short[] pcm;
         try {

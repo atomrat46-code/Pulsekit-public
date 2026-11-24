@@ -1954,6 +1954,8 @@ final class PyJav {
         this.pkOffer("the pictures", ok && !upscaling && !inBatch, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         this.pkOffer("the video", ok && !inBatch, () -> VideoOffer.offer(app, made));
+        // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
+        this.pkOffer("the text", ok && !inBatch, () -> TextOffer.offer(app, program, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
