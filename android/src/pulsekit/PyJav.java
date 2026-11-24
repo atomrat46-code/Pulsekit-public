@@ -1954,8 +1954,13 @@ final class PyJav {
         this.pkOffer("the pictures", ok && !upscaling && !inBatch, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         this.pkOffer("the video", ok && !inBatch, () -> VideoOffer.offer(app, made));
+        // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
+        // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
+        final boolean chatFolder = ok && pulsekit.ChatFolder.folderRun(program, argv);
+        this.pkOffer("the answers", ok && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
+            () -> TextOffer.saveAnswers(app, program, argv, made, this::pkAddLogLine));
         // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-        this.pkOffer("the text", ok && !inBatch, () -> TextOffer.offer(app, program, made));
+        this.pkOffer("the text", ok && !inBatch && !chatFolder, () -> TextOffer.offer(app, program, made));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);

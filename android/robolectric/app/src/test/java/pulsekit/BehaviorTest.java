@@ -16133,6 +16133,40 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * SogniChat --input_dir: the folder's files SogniChat reads, at most --max_files by name, given as
+   * --dir_file; after the run each answer is cut at Document ready's delimiter and saved into --output_dir.
+   */
+  @Test
+  public void s274_chat_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    new java.io.File(app.getFilesDir(), "text-ready.txt").delete();
+    java.io.File dir = new java.io.File(app.getCacheDir(), "chat-folder-test");
+    dir.mkdirs();
+    for (String n : new String[] {"b.txt", "A.jpg", "c.mid", "skip.bin", ".hidden.txt"}) java.nio.file.Files.write(new java.io.File(dir, n).toPath(), new byte[] {1});
+    java.util.List<String> notes = new java.util.ArrayList<String>();
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Describe", "--input_dir", dir.getAbsolutePath(), "--max_files", "2",
+        "--output_dir", "answers"));
+    java.util.List<String> got = ChatFolder.expand(argv, notes);
+    StringBuilder files = new StringBuilder();
+    for (int i = 0; i + 1 < got.size(); i++) if ("--dir_file".equals(got.get(i))) files.append(new java.io.File(got.get(i + 1)).getName()).append(' ');
+    out.append("files: ").append(files.toString().trim()).append(" | ").append(notes).append('\n');
+    out.append("folder run: ").append(ChatFolder.folderRun("SogniChat.java", argv)).append(", other program ").append(ChatFolder.folderRun("SogniPadd.java", argv)).append('\n');
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<JavaRun.FileOut>();
+    for (String n : new String[] {"chat-A.txt", "chat-b.txt"})
+      made.add(new JavaRun.FileOut(n, ("SogniChat conversation\n\n=== You ===\nDescribe\n\n=== Sogni ===\nAnswer for " + n + "\n").getBytes("UTF-8")));
+    int n = TextOffer.saveAnswers(app, "SogniChat.java", argv, new JavaRun.Result("Succeeded", made, 0), null);
+    out.append("saved: ").append(n).append(" | ").append(TextOffer.said).append('\n');
+    out.append("names: ").append(ChatFolder.cutName("chat-A.txt", true)).append(", without a folder ").append(ChatFolder.cutName("chat-A.txt", false)).append('\n');
+    String t = out.toString();
+    write("s274_chat_folder", t);
+    String[] want = {"files: A.jpg b.txt | [Note: 3 files in chat-folder-test; the first 2 by name are asked about (Max files)]",
+        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt"};
+    boolean ok = t.matches("(?s).*\nsaved: 2 \\| Answers saved \\(cut after \u201c=== Sogni ===\u201d\\): 2 files in [^\n]*answers\n.*");
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
   private static String viewTexts(View v) {
     StringBuilder sb = new StringBuilder();

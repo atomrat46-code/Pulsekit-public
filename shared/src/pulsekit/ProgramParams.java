@@ -504,6 +504,22 @@ public final class ProgramParams {
       p.label = "Output name";
       p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
     }
+    // SogniChat --input_dir: the same question about each file of a folder (ChatFolder).
+    if (p.flag && p.takesValue && chat && p.token.equals("--input_dir")) {
+      p.dir = true;
+      p.label = "Input folder: the same question about each of its files, one after another";
+      p.hint = "each its own chat: <output name>-<file>.txt (%f: the file's name), else <file>.txt";
+    }
+    if (p.flag && p.takesValue && chat && p.token.equals("--max_files")) {
+      p.label = "Max files (the first by name; in case of a big folder)";
+      p.hint = "20";
+    }
+    if (p.flag && p.takesValue && chat && p.token.equals("--output_dir")) {
+      p.dir = true;
+      p.typed = true;
+      p.label = "Output folder: each answer cut at Document ready's delimiter (the one used last) and saved there";
+      p.hint = "empty: an input folder's answers beside the chats as <name>-trimmed.txt; % codes: answers%ddmmyy";
+    }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
       p.hint = "a run id from an earlier log, e.g. after a time-out";

@@ -1147,8 +1147,12 @@ final class PyJav {
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
+                // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
+                // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
+                boolean chatFolder = ChatFolder.folderRun(name, argv);
+                if (result.code == 0 && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
                 // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-                if (!inBatch && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes));
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes));
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -2992,6 +2996,41 @@ final class PyJav {
      * through the active drum set), as a file set plays its source MIDI. Play / Stop and Close; the
      * MIDI is already imported as a file set. Nothing is shown when it has no drums for the kit.
      */
+    /** What saveAnswers said last (the tests). */
+    static volatile String answersSaid = "";
+
+    /**
+     * SogniChat --input_dir / --output_dir: each answer it wrote cut at the delimiter Document ready used
+     * last for it, saved into --output_dir (% codes filled in, made when missing) with the chat's name, else
+     * beside the chats as <name>-trimmed.txt; the run's log says where.
+     */
+    void saveAnswers(String program, java.util.List<String> argv, java.util.List<PythonRun.FileOut> files) {
+        java.util.List<JavaRun.FileOut> all = new java.util.ArrayList<JavaRun.FileOut>();
+        for (PythonRun.FileOut f : files) all.add(new JavaRun.FileOut(f.name, f.bytes));
+        java.util.List<JavaRun.FileOut> answers = ChatFolder.answers(all);
+        if (answers.isEmpty()) return;
+        String[] set = TextReady.setting(PromptDb.dir(), program);
+        String given = ChatFolder.arg(argv, "--output_dir");
+        File dir = given != null ? ProgramFolder.outdir(given, this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
+        dir.mkdirs();
+        int n = 0;
+        for (JavaRun.FileOut f : answers) {
+            String name = ChatFolder.cutName(f.name, given != null);
+            File to = new File(dir, name);
+            String stem = name.replaceAll("\\.txt$", "");
+            for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
+            try {
+                Files.write(to.toPath(), TextReady.cut(TextReady.text(f.bytes), set[1], set[0]).getBytes(StandardCharsets.UTF_8));
+                n++;
+            } catch (Exception ex) {
+                if (app.pyLog != null) app.pyLog.append("\nCould not save " + name + ": " + ex.getMessage());
+            }
+        }
+        answersSaid = ChatFolder.saved(n, dir.getPath(), set);
+        if (app.pyLog != null) app.pyLog.append("\n" + answersSaid);
+        app.setNow(answersSaid);
+    }
+
     /** The tests: Document ready's buttons pressed in turn (0 Copy, 1 Save, 2 Send as prompt, 3 Close), the panel shown last,
      *  Save's file (else one picked) and the program whose Params Send as prompt opened. */
     static java.util.Deque<Integer> textReadyAnswers;

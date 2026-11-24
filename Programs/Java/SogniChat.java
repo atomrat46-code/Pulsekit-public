@@ -41,6 +41,12 @@ import java.util.Map;
  * first (kit-ideas) names everything a run saves: kit-ideas.txt, and any tool results
  * kit-ideas-1.png, kit-ideas-2.mp3...; the extensions come from what Sogni sends.
  *
+ * --input_dir asks the same question about each file in a folder, one after another (by name; at
+ * most --max_files, 20 when not given, in case the folder is a big one): each is its own chat, saved
+ * as <output name>-<file>.txt, or with %f in the output name the file's name there (notes-%f), else
+ * <file>.txt. --output_dir is Pulsekit's: it cuts each answer at Document ready's delimiter (the one
+ * used last) and saves it there; Params' Select file then puts one into a prompt.
+ *
  * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
  * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
  * text under the question), with the saved chat as its result file: Pulsekit keeps it in the prompt
@@ -110,9 +116,13 @@ public final class SogniChat {
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
     work = System.getProperty("pulsekit.work");
+    String[] given = tidy(typed);
+    for (String a : given) if (a.equals("--input_dir") || a.equals("--dir_file")) return runFolder(given);
     System.out.println(VERSION);
-    String[] args = tidy(typed);
+    String[] args = given;
+    lastMade = new ArrayList<String>();
     String out = null;
+    String nameFor = null;
     String prompt = null;
     String system = null;
     List<String> files = new ArrayList<String>();
@@ -151,6 +161,9 @@ public final class SogniChat {
         if (!copies.isEmpty() && c.length() > 0) copies.set(copies.size() - 1, c);
       }
       else if (a.equals("--continue") && i + 1 < args.length) earlier = args[++i];
+      // A folder run's file (runFolder): the output name's %f, or after it.
+      else if (a.equals("--name_for") && i + 1 < args.length) nameFor = args[++i];
+      else if (a.equals("--output_dir") && i + 1 < args.length) i++;
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -176,13 +189,17 @@ public final class SogniChat {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
+      } else if (!a.startsWith("--") && out == null) out = a;
       else {
         System.out.println("Unknown argument: " + a);
         usage();
         return 2;
       }
     }
+    // %f: the folder run's file (its name without the extension); without %f the name goes after the output name.
+    if (nameFor != null) out = out == null || out.trim().isEmpty() ? nameFor : out.contains("%f") ? out.replace("%f", nameFor) : out.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-" + nameFor;
+    else if (out != null) out = out.replace("%f", "");
+    if (out != null) out = SogniApi.fillName(out, inWork("x").getParentFile());
     if (Double.isNaN(maxTokens) || Double.isNaN(maxCost)) return 2;
     if (maxTokens < 0 || maxTokens > 32000) {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
@@ -429,6 +446,7 @@ public final class SogniChat {
       } else if (offered) {
         System.out.println("No tool calls: the model answered in text");
       }
+      lastMade = made;
       System.out.println(made.isEmpty() ? "Succeeded" : "Succeeded: " + join(made));
     } catch (SogniApi.ApiException ex) {
       boolean picture = false;
@@ -448,9 +466,107 @@ public final class SogniChat {
     return 0;
   }
 
+  /** The files the last run() saved (its "Succeeded:" line), for a folder run's summary. */
+  static List<String> lastMade = new ArrayList<String>();
+
+  /** The files SogniChat reads in a folder (--input_dir): as Pulsekit's ChatFolder.KINDS. */
+  static final List<String> FOLDER_KINDS = java.util.Arrays.asList("txt", "md", "csv", "json", "log", "prompt", "mid", "midi", "png", "jpg", "jpeg", "webp",
+      "gif", "mp3", "wav", "flac", "m4a", "mp4", "mov", "webm");
+
+  /**
+   * --input_dir: the same question about each of the folder's files (by name, at most --max_files,
+   * 20 when not given), one after another, each its own chat saved as <output name>-<file>.txt (%f in
+   * the output name: the file's name there), else <file>.txt. Pulsekit lists the folder before the run
+   * and gives each file as --dir_file (with --seen_copy for a big JPEG); on its own SogniChat lists it.
+   */
+  static int runFolder(String[] args) throws Exception {
+    System.out.println(VERSION);
+    String dir = null;
+    int max = 20;
+    List<String[]> items = new ArrayList<String[]>();
+    List<String> rest = new ArrayList<String>();
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i];
+      if (a.equals("--input_dir") && i + 1 < args.length) dir = args[++i].trim();
+      else if (a.equals("--max_files") && i + 1 < args.length) {
+        double n = number(a, args[++i]);
+        if (Double.isNaN(n) || n < 1) {
+          System.out.println("Failed: --max_files is 1 or more");
+          return 2;
+        }
+        max = (int) n;
+      } else if (a.equals("--dir_file") && i + 1 < args.length) {
+        String f = args[++i];
+        String copy = null;
+        if (i + 2 < args.length && args[i + 1].equals("--seen_copy")) {
+          copy = args[i + 2];
+          i += 2;
+        }
+        items.add(new String[] {f, copy});
+      } else rest.add(a);
+    }
+    String where = dir == null || dir.isEmpty() ? "the files given" : new File(dir).getName();
+    if (items.isEmpty()) {
+      File d = dir == null || dir.isEmpty() ? null : new File(dir);
+      if (d == null || !d.isDirectory()) {
+        System.out.println("Failed: --input_dir needs a folder" + (d == null ? "" : " (" + dir + " is not one)"));
+        return 2;
+      }
+      List<File> all = new ArrayList<File>();
+      File[] got = d.listFiles();
+      if (got != null) for (File f : got) {
+        String n = f.getName();
+        int dot = n.lastIndexOf('.');
+        if (f.isFile() && dot > 0 && !n.startsWith(".") && FOLDER_KINDS.contains(n.substring(dot + 1).toLowerCase(java.util.Locale.ROOT))) all.add(f);
+      }
+      java.util.Collections.sort(all, new java.util.Comparator<File>() {
+        public int compare(File x, File y) {
+          int c = x.getName().compareToIgnoreCase(y.getName());
+          return c != 0 ? c : x.getName().compareTo(y.getName());
+        }
+      });
+      if (all.size() > max) System.out.println("Note: " + all.size() + " files in " + where + "; the first " + max + " by name are asked about (--max_files)");
+      for (int i = 0; i < all.size() && i < max; i++) items.add(new String[] {all.get(i).getPath(), null});
+    }
+    if (items.isEmpty()) {
+      System.out.println("Failed: no file SogniChat reads in " + where + " (text, MIDI, pictures, audio, video)");
+      return 1;
+    }
+    System.out.println("Folder " + where + ": " + items.size() + " file" + (items.size() == 1 ? "" : "s") + ", the same question about each, one after another");
+    List<String> made = new ArrayList<String>();
+    List<String> failed = new ArrayList<String>();
+    for (int k = 0; k < items.size(); k++) {
+      File f = new File(items.get(k)[0].trim());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "").replaceAll("[\\\\/:*?\"<>|]", "_");
+      List<String> one = new ArrayList<String>(rest);
+      one.add("--file");
+      one.add(f.getPath());
+      if (items.get(k)[1] != null) {
+        one.add("--seen_copy");
+        one.add(items.get(k)[1]);
+      }
+      one.add("--name_for");
+      one.add(stem);
+      System.out.println();
+      System.out.println("=== File " + (k + 1) + " of " + items.size() + ": " + f.getName() + " ===");
+      lastMade = new ArrayList<String>();
+      int code = run(one.toArray(new String[0]));
+      if (code == 0 && !lastMade.isEmpty()) made.addAll(lastMade);
+      else failed.add(f.getName());
+    }
+    System.out.println();
+    System.out.println("Folder done: " + made.size() + " of " + items.size() + " answered" + (failed.isEmpty() ? "" : "; not answered: " + join(failed)));
+    if (made.isEmpty()) {
+      System.out.println("Failed: none of the " + items.size() + " files was answered");
+      return 1;
+    }
+    System.out.println("Succeeded: " + join(made));
+    return 0;
+  }
+
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--output_dir folder]");
   }
 
   /**

@@ -1764,6 +1764,15 @@ public final class DesktopBehavior {
       Files.write(sideways.toPath(), photo);
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
+      // A folder asked about file by file (--input_dir): at most --max_files by name, a file it cannot read left out.
+      File chatDir = new File(home, "chat folder");
+      chatDir.mkdirs();
+      Files.write(new File(chatDir, "1-notes.txt").toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+      Files.copy(wide.toPath(), new File(chatDir, "2-wide.jpg").toPath());
+      Files.write(new File(chatDir, "3-more.txt").toPath(), "Snare on 2 and 4.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(chatDir, "4-left-out.txt").toPath(), "Not asked.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(chatDir, "skip.bin").toPath(), new byte[] {1, 2, 3});
+      File answersDir = new File(home, "answers");
       String[] runs = {
         "--prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\"",
         // The saved conversation goes on: its system text and earlier turns are sent again.
@@ -1787,6 +1796,7 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --output_dir \"" + answersDir.getAbsolutePath() + "\"",
         "--prompt \"Filter on\" --filter_on",
         // A chat run started earlier (one that timed out here) is followed again by its id.
         "--run run2",
@@ -1799,6 +1809,9 @@ public final class DesktopBehavior {
         // A run that makes a picture shows it; Close the dialog.
         if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
+        if (extra.contains("--input_dir")) {
+          for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Answers saved"); i++) Thread.sleep(50);
+        }
         for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
@@ -1818,6 +1831,14 @@ public final class DesktopBehavior {
         }
         out.append("chat requests with the filter off: ").append(off).append(", on: ").append(on).append('\n');
       }
+      String[] answered = answersDir.list();
+      java.util.Arrays.sort(answered == null ? new String[0] : answered);
+      for (String a : answered == null ? new String[0] : answered) {
+        out.append("answer saved ").append(a).append(": ").append(new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8)).append('\n');
+      }
+      if (answered == null || answered.length != 3 || !answered[0].equals("chat-1-notes.txt") || !answered[1].equals("chat-2-wide.txt") || !answered[2].equals("chat-3-more.txt"))
+        throw new AssertionError("folder answers: " + java.util.Arrays.toString(answered) + "\n" + out);
+      for (String a : answered) if (new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8).contains("===")) throw new AssertionError("not cut: " + a);
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
           String shown = f.toString().endsWith(".txt") ? new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim() : Files.size(f) + " bytes";

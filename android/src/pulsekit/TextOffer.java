@@ -30,6 +30,32 @@ final class TextOffer {
         return true;
     }
 
+    /**
+     * SogniChat --input_dir / --output_dir: each answer it wrote cut at the delimiter Document ready
+     * used last for it, saved into --output_dir (under Download, or a picked folder; % codes filled in)
+     * with the chat's name, else beside the chats as <name>-trimmed.txt; `log` gets a line saying so.
+     */
+    static int saveAnswers(MainActivity app, String program, java.util.List<String> argv, JavaRun.Result result, java.util.function.Consumer<String> log) {
+        java.util.List<JavaRun.FileOut> answers = ChatFolder.answers(result == null ? null : result.files);
+        if (answers.isEmpty()) return 0;
+        String[] set = TextReady.setting(app.getFilesDir(), program);
+        String given = ChatFolder.arg(argv, "--output_dir");
+        String sub = given == null ? null : ArtJava.subOf(given);
+        int n = 0;
+        String where = null;
+        for (JavaRun.FileOut f : answers) {
+            String text = TextReady.cut(TextReady.text(f.bytes), set[1], set[0]);
+            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
+            if (got == null) continue;
+            n++;
+            where = got.contains("/") ? got.substring(0, got.lastIndexOf('/')) : "Download";
+        }
+        String line = n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set);
+        said = line;
+        if (log != null) log.accept(line);
+        return n;
+    }
+
     static void show(final MainActivity app, final String program, String name, final String whole) {
         final java.io.File dir = app.getFilesDir();
         String[] set = TextReady.setting(dir, program);

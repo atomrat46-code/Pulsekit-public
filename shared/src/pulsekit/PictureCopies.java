@@ -44,7 +44,7 @@ public final class PictureCopies {
 
   /** As above; `notes` gets why a big JPEG got no smaller copy (for the run's log). */
   public static List<String> withCopies(List<String> argv, List<File> made, List<String> notes) {
-    if (argv == null || !argv.contains("--file")) return argv;
+    if (argv == null || !(argv.contains("--file") || argv.contains("--dir_file"))) return argv;
     Shrinker s = shrinker;
     if (s == null) {
       // Not set yet (the app sets it at start): the platform's own one, by name.
@@ -61,7 +61,8 @@ public final class PictureCopies {
     for (int i = 0; i < argv.size(); i++) {
       String a = argv.get(i);
       out.add(a);
-      if (!"--file".equals(a) || i + 1 >= argv.size()) continue;
+      // (--dir_file: a file of --input_dir's folder, ChatFolder.)
+      if (!("--file".equals(a) || "--dir_file".equals(a)) || i + 1 >= argv.size()) continue;
       String path = argv.get(++i);
       out.add(path);
       if (i + 1 < argv.size() && "--seen_copy".equals(argv.get(i + 1))) continue;

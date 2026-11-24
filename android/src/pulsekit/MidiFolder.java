@@ -79,6 +79,65 @@ final class MidiFolder {
         return n;
     }
 
+    /**
+     * SogniChat --input_dir with a picked folder: its files SogniChat reads (ChatFolder.KINDS; not its
+     * subfolders'), the first --max_files by name, copied into the work folder (SogniChat cannot read the
+     * picker's folder). --output_dir stays as it is: the app saves the answers there after the run.
+     */
+    static List<String> forSogniChat(Context ctx, List<String> argv, File work, StringBuilder note) {
+        if (argv == null) return null;
+        int at = argv.indexOf("--input_dir");
+        if (at < 0 || at + 1 >= argv.size() || !argv.get(at + 1).startsWith("content://")) return argv;
+        List<String> out = new ArrayList<String>(argv);
+        String v = out.get(at + 1);
+        Uri tree = Uri.parse(v);
+        File dest = new File(work, "chat-folder");
+        deleteAll(dest);
+        List<String[]> kids = new ArrayList<String[]>();
+        Cursor c = null;
+        try {
+            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
+                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String name = c.getString(1) == null ? "" : c.getString(1);
+                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2)) && ChatFolder.kind(name)) kids.add(new String[] {c.getString(0), name});
+            }
+        } catch (Exception ex) {
+            note.append("Could not read ").append(MediaDir.label(v)).append(": ").append(ex.getMessage());
+        } finally {
+            if (c != null) c.close();
+        }
+        java.util.Collections.sort(kids, (a, b) -> {
+            int d = a[1].compareToIgnoreCase(b[1]);
+            return d != 0 ? d : a[1].compareTo(b[1]);
+        });
+        int max = ChatFolder.max(argv), n = 0;
+        dest.mkdirs();
+        for (int i = 0; i < kids.size() && i < max; i++) {
+            try {
+                InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, kids.get(i)[0]));
+                if (in == null) continue;
+                FileOutputStream o = new FileOutputStream(new File(dest, safe(kids.get(i)[1])));
+                try {
+                    byte[] b = new byte[8192];
+                    for (int r; (r = in.read(b)) > 0; ) o.write(b, 0, r);
+                } finally {
+                    o.close();
+                    in.close();
+                }
+                n++;
+            } catch (Exception ignored) {
+                // left out; the others are asked about
+            }
+        }
+        if (note.length() > 0) note.append("; ");
+        note.append(n).append(n == 1 ? " file" : " files").append(" from ").append(MediaDir.label(v))
+            .append(kids.size() > max ? " (the first " + max + " of " + kids.size() + " by name: Max files)" : "");
+        out.set(at + 1, dest.getAbsolutePath());
+        return out;
+    }
+
     private static String safe(String name) {
         String s = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         return s.length() == 0 ? "_" : s;
@@ -94,6 +153,7 @@ final class MidiFolder {
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
         argv = withPls(ctx, program, argv, work, note);
         if (ProgramFolder.isDrumMidi(program)) return forDrumMidi(ctx, argv, work, note);
+        if (PictureCopies.wants(program)) return forSogniChat(ctx, argv, work, note);
         boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program) || "Wav2Mp3.java".equals(program);
         if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);

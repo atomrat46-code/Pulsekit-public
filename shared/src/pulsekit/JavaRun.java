@@ -642,7 +642,8 @@ public final class JavaRun {
         List<File> made = new ArrayList<File>();
         List<String> notes = new ArrayList<String>();
         try {
-          Result r = runJava(n, source, bytes, PictureCopies.withCopies(argv, made, notes));
+          // --input_dir: the folder's files given one by one (--dir_file), at most --max_files (ChatFolder).
+          Result r = runJava(n, source, bytes, PictureCopies.withCopies(ChatFolder.expand(argv, notes), made, notes));
           // Why a big JPEG got no smaller copy, first in the log.
           if (notes.isEmpty() || r == null) return r;
           StringBuilder sb = new StringBuilder();
