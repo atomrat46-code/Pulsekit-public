@@ -4811,6 +4811,8 @@ class BenchKit(object):
         import numpy as np
         self.name, self.key, self.stamp, self.where = name, key, stamp, where
         self.X = d["X"].astype(np.float64)
+        # Cymbals whose inputs DrumMidi left undefined (not a number): no model moves them (left as written).
+        self.undefined = int((~np.isfinite(self.X)).any(1).sum()) if len(self.X) else 0
         self.cym_i = d["cym_i"]
         notes = d["hit_n"]
         self.wrote = np.array([BENCH_KIND.get(int(n), 1) for n in notes[self.cym_i]], int)
@@ -4923,9 +4925,11 @@ def bench_ride_share(model, X):
     import numpy as np
     mu, sd, W, b = model
     z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
-    z -= z.max(1, keepdims=True)
-    p = np.exp(z)
-    return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
+    # (Undefined inputs: their cymbals' shares are not numbers, and DrumMidi's runs leave them as they are.)
+    with np.errstate(invalid="ignore"):
+        z -= z.max(1, keepdims=True)
+        p = np.exp(z)
+        return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
 
 
 def bench_runs(notes, cyms):
@@ -4956,12 +4960,14 @@ def bench_relabel(model, X, wrote, margin):
     import numpy as np
     mu, sd, W, b = model
     z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
-    z -= z.max(1, keepdims=True)
-    p = np.exp(z)
-    p /= p.sum(1, keepdims=True)
-    best = p.argmax(1) + 1
-    mine = p[np.arange(len(p)), wrote - 1]
-    return np.where(p.max(1) - mine > margin, best, wrote)
+    # (Undefined inputs: their cymbals' chances are not numbers, so they stay as DrumMidi wrote them.)
+    with np.errstate(invalid="ignore"):
+        z -= z.max(1, keepdims=True)
+        p = np.exp(z)
+        p /= p.sum(1, keepdims=True)
+        best = p.argmax(1) + 1
+        mine = p[np.arange(len(p)), wrote - 1]
+        return np.where(p.max(1) - mine > margin, best, wrote)
 
 
 def bench_fit(kits, reg=1e-2, it=400, lr=0.5, even=False, context=False, cap=None, start=None):
@@ -5430,8 +5436,10 @@ def model_bench(opts, switches):
         lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 5)),
                   "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 5)),
                   "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 5)),
-                  "Gated: the model on %d of %d songs." % tuple(gate_songs)]
-        print("\n".join(lines[-4:]))
+                  "Gated: the model on %d of %d songs." % tuple(gate_songs),
+                  "Cymbals whose inputs DrumMidi left undefined (no model moves them; left as DrumMidi wrote them): %d of %d."
+                  % (sum(k.undefined for k in which), sum(len(k.X) for k in which))]
+        print("\n".join(lines[-5:]))
         # The models learned from all the kits, for DrumMidi (as Compare writes its models): even, song-aware
         # (its inputs: the cymbal's, then its song's look) and the gate with the even model.
         files = {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list}
