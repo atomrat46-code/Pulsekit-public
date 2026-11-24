@@ -168,6 +168,29 @@ public final class SogniSections {
     return program == null ? "" : program.replaceAll("(?i)\\.(java|py|jar)$", "");
   }
 
+  /** Save in the Params: the section the Params have now (loaded or saved last there), by program; null: none. */
+  private static final Map<String, Long> CURRENT = new java.util.HashMap<String, Long>();
+
+  public static synchronized void current(String app, PromptVault.SogniSection s) {
+    if (s == null) CURRENT.remove(app(app).toLowerCase(java.util.Locale.ROOT));
+    else CURRENT.put(app(app).toLowerCase(java.util.Locale.ROOT), s.id);
+  }
+
+  /** The program's current section, when it is still saved. */
+  public static synchronized PromptVault.SogniSection current(PromptVault vault, String app) {
+    Long id = CURRENT.get(app(app).toLowerCase(java.util.Locale.ROOT));
+    if (id == null) return null;
+    for (PromptVault.SogniSection s : vault.sogniSections(app(app))) if (s.id == id) return s;
+    return null;
+  }
+
+  /** Save's question when the entries differ from the section the Params have now. */
+  public static String overwriteAsk(PromptVault.SogniSection s) {
+    return "The entries differ from the section loaded:\n\n" + label(s) + "\n\nSave over it, or keep them as a new section?";
+  }
+
+  public static final String OVERWRITE = "Overwrite", SAVE_NEW = "Save as new\u2026";
+
   /** Whether a row is one a section keeps. */
   public static boolean kept(ProgramParams.Param p) {
     // A switch with a value (an on/off one takes none), not a file, folder, plugin or the output name.

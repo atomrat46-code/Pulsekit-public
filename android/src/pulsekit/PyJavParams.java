@@ -147,7 +147,7 @@ public final class PyJavParams {
           sc.setOnClickListener(v -> {
             String loras = "";
             for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals("--loras") && fields[k] != null) loras = ProgramParams.oneLine(fields[k].getText().toString());
-            SectionCollectionScreen.show(activity, SogniSections.app(name), loras, null);
+            SectionCollectionScreen.show(activity, SogniSections.app(name), loras, ps, null);
           });
           withClip.addView(sc);
         }
@@ -929,21 +929,61 @@ public final class PyJavParams {
   }
 
   /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
-  static boolean saveSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
-    java.util.Map<String, String> now = sectionFields(ps, fields);
+  /** Save's overwrite question shown last (the tests). */
+  static AlertDialog lastOverwrite;
+
+  static boolean saveSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, EditText[] fields) {
+    final java.util.Map<String, String> now = sectionFields(ps, fields);
     if (now.isEmpty()) {
       sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
       return false;
     }
     try {
-      PromptVault vault = PromptVault.open(activity.getFilesDir());
-      String text = SogniSections.text(now);
+      final PromptVault vault = PromptVault.open(activity.getFilesDir());
+      final String text = SogniSections.text(now);
       PromptVault.SogniSection same = vault.findSogniSection(program, text);
       if (same != null) {
+        SogniSections.current(program, same);
         sectionSay(activity, "This section is saved already: " + SogniSections.label(same));
         return true;
       }
+      // Entries that differ from the section loaded (or saved last): saved over it, or a new one through the section form.
+      final PromptVault.SogniSection cur = SogniSections.current(vault, program);
+      if (cur != null) {
+        lastOverwrite = new AlertDialog.Builder(activity).setTitle(SogniSections.SAVE).setMessage(SogniSections.overwriteAsk(cur))
+            .setPositiveButton(SogniSections.OVERWRITE, (d, w) -> {
+              try {
+                PromptVault.open(activity.getFilesDir()).updateSogniSection(cur.id, text);
+                sectionSay(activity, "Saved over: " + SogniSections.label(cur));
+              } catch (Exception ex) {
+                sectionSay(activity, "Could not save the section: " + ex.getMessage());
+              }
+            })
+            .setNeutralButton(SogniSections.SAVE_NEW, (d, w) -> {
+              try {
+                SectionCollection.Form init = SectionCollection.formOf(now);
+                SectionCollectionScreen.form(activity, SectionCollection.ADD_SECTION, init, SectionCollection.lorasFor(vault, program, "", init),
+                    SectionCollection.groupPicks(vault, program), ps, f -> {
+                      try {
+                        String bad = SectionCollection.add(PromptVault.open(activity.getFilesDir()), program, f);
+                        if (bad != null) sectionSay(activity, bad);
+                        else {
+                          SogniSections.current(program, SectionCollection.lastAdded);
+                          sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
+                        }
+                      } catch (Exception ex) {
+                        sectionSay(activity, "Could not save the section: " + ex.getMessage());
+                      }
+                    });
+              } catch (Exception ex) {
+                sectionSay(activity, "Could not save the section: " + ex.getMessage());
+              }
+            })
+            .setNegativeButton("Cancel", null).show();
+        return false;
+      }
       PromptVault.SogniSection sec = vault.addSogniSection(program, text);
+      SogniSections.current(program, sec);
       sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(sec));
       return true;
     } catch (Exception ex) {
@@ -1051,7 +1091,8 @@ public final class PyJavParams {
     sc.setContentDescription(SectionCollection.BUTTON_TIP);
     sc.setOnClickListener(v -> {
       if (lastSections != null) lastSections.dismiss();
-      SectionCollectionScreen.show(activity, program, () -> browseSections(activity, program, ps, fields));
+      SectionCollectionScreen.show(activity, program, load(activity, program + ".java") == null ? "" : SectionCollection.lorasIn(load(activity, program + ".java")), ps,
+          () -> browseSections(activity, program, ps, fields));
     });
     top.addView(sc);
     box.addView(top);
@@ -1402,6 +1443,7 @@ public final class PyJavParams {
       String v = f.get(ps.get(i).token);
       fields[i].setText(v == null ? "" : v);
     }
+    SogniSections.current(sec.app, sec);
     sectionSay(activity, "Loaded: " + SogniSections.label(sec));
   }
 

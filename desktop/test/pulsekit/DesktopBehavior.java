@@ -10158,6 +10158,34 @@ public final class DesktopBehavior {
       for (PromptVault.SectionGroup g : back.sectionGroups("SogniPadd")) kept.append(g.name).append(" (").append(g.note).append(") ");
       for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
       seen.append("kept: ").append(kept.toString().trim()).append('\n');
+      // The Params' Save after a section was loaded and its prompt changed: Overwrite, then Save as new (the form, its rows filled).
+      java.util.List<ProgramParams.Param> ps = ProgramParams.parse(PyJavHints.programText("SogniPadd.java", ProgramFiles.bundledSource("SogniPadd.java"), null));
+      final JTextField[] fields = new JTextField[ps.size()];
+      final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
+      for (int k = 0; k < ps.size(); k++) {
+        if (ps.get(k).token.equals("--prompt")) areas[k] = new javax.swing.JTextArea("Zebra at dusk.");
+        else if (ps.get(k).token.equals("--aspect")) fields[k] = new JTextField("4:7");
+      }
+      PromptVault.SogniSection z = null;
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.text.contains("Zebra")) z = x;
+      SogniSections.current("SogniPadd", z);
+      final PromptVault.SogniSection zz = z;
+      PyJav.overwriteAnswer = 0;
+      final PyJav pj2 = (PyJav) get("pyJav");
+      edt(() -> pj2.saveSection(frame, "SogniPadd", ps, fields, areas));
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.id == zz.id) seen.append("overwritten: ").append(x.text.trim().replace("\n", " / ")).append(" | ").append(x.name).append('\n');
+      areas[0 < ps.size() ? indexOf(ps, "--prompt") : 0].setText("Zebra at night.");
+      PyJav.overwriteAnswer = 1;
+      final StringBuilder formSeen = new StringBuilder();
+      SectionCollectionWindow.formAnswer = f0 -> {
+        formSeen.append(f0.prompt).append(", aspect ").append(f0.extra.get("--aspect"));
+        f0.name = "Night zebra";
+        return f0;
+      };
+      edt(() -> pj2.saveSection(frame, "SogniPadd", ps, fields, areas));
+      SectionCollectionWindow.formAnswer = null;
+      PyJav.overwriteAnswer = null;
+      seen.append("as new: form ").append(formSeen).append(" | said ").append(PyJav.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
       // Add new section with LoRAs and a group picked: in that group, its LoRAs line written.
       String bad = SectionCollection.addSection(back, "SogniPadd", "", "", "Owl at night", "kite 0.4", "Animals");
       for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.text.contains("Owl")) seen.append("picked: ").append(bad).append(" | ").append(x.group).append(" | ").append(x.text.trim().replace("\n", " / ")).append('\n');
@@ -10182,7 +10210,7 @@ public final class DesktopBehavior {
         "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
         "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "full: Saved <when> /  / Prompt: Zebra at noon.", "add group button: Add new group",
-        "section menu: Save, Cut, Copy, Send to other program\u2026, Send to other program's group\u2026, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
+        "section menu: Save, Cut, Copy, Send to other program\u2026, Send to other program's group\u2026, Delete, Move into group, Edit data, Cancel | move to: Animals, Weather",
         "named: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "group menu: Delete, Rename, Cancel",
         "renamed: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Sky (1) [+] Up there",
@@ -10194,10 +10222,17 @@ public final class DesktopBehavior {
         "pasted: In Animals: A red kite at dusk. \u00b7 <when>", "sent: Added to SogniVideo \u203a Night: A red kite at dusk. \u00b7 <when>",
         "browse: \u25be Animals (2) | A red kite at dusk. \u00b7 <when> | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (1) | Stormy sky. \u00b7 <when>",
         "picked: null | Animals | Prompt: Owl at night / Loras: kite 0.4",
+        "overwritten: Prompt: Zebra at dusk. / aspect: 4:7 | Zebra",
+        "as new: form Zebra at night., aspect 4:7 | said Saved a SogniPadd section: Night zebra: Zebra at night. \u00b7 aspect \u00b7 <when>",
         "kept: Animals (Four legs) | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
     boolean ok = true;
     for (String w : want) ok &= ("\n" + t).contains("\n" + w + "\n");
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  private static int indexOf(java.util.List<ProgramParams.Param> ps, String token) {
+    for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(token)) return k;
+    return -1;
   }
 
   private static String rowsOf(javax.swing.JList<?> l) {

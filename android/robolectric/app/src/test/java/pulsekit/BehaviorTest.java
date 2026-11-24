@@ -15840,12 +15840,15 @@ public class BehaviorTest {
     idle();
     org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(6);
     idle();
-    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Zebra");
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("Striped");
-    out.append("edit name buttons: ").append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
-        .append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
-    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    // Edit data: every field, filled (its group picked); the name and description set.
+    View ev = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("edit data: prompt ").append(((android.widget.EditText) ev.findViewWithTag("sc-new-prompt")).getText()).append(", group ")
+        .append(((android.widget.Spinner) ev.findViewWithTag("sc-new-group")).getSelectedItem()).append('\n');
+    ((android.widget.EditText) ev.findViewWithTag("sc-new-name")).setText("Zebra");
+    ((android.widget.EditText) ev.findViewWithTag("sc-new-note")).setText("Striped");
+    out.append("edit name buttons: ").append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
+        .append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     // Weather held: Rename to Sky, then Delete (its section to the right).
     w.left.findViewWithTag("sc-group-name:Weather").performLongClick();
@@ -15926,7 +15929,42 @@ public class BehaviorTest {
     if (psc != null) psc.performClick();
     idle();
     out.append("params SC: ").append(pscText).append(", opens ").append(SectionCollectionScreen.last != null && SectionCollectionScreen.last.dialog.isShowing() && SectionCollectionScreen.last != w).append('\n');
-    if (SectionCollectionScreen.last != null) SectionCollectionScreen.last.dialog.dismiss();
+    // Its Add new section has the program's other rows (Aspect, Width, Height, Seed).
+    SectionCollectionScreen.last.dialog.getWindow().getDecorView().findViewWithTag("sc-add-section").performClick();
+    idle();
+    View fv = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("rows: aspect ").append(fv.findViewWithTag("sc-new-row:--aspect") != null).append(", width ").append(fv.findViewWithTag("sc-new-row:--width") != null)
+        .append(", height ").append(fv.findViewWithTag("sc-new-row:--height") != null).append(", seed ").append(fv.findViewWithTag("sc-new-row:--seed") != null).append('\n');
+    ((android.widget.EditText) fv.findViewWithTag("sc-new-prompt")).setText("Owl at night");
+    ((android.widget.EditText) fv.findViewWithTag("sc-new-row:--aspect")).setText("4:7");
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    PromptVault.SogniSection owl = null;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owl = x;
+    out.append("owl: ").append(owl == null ? "none" : owl.text.trim().replace("\n", " / ")).append('\n');
+    SectionCollectionScreen.last.dialog.dismiss();
+    idle();
+    // Save after loading the owl and changing its prompt: Overwrite or Save as new.
+    View pv = pd.getWindow().getDecorView();
+    // (As Load does: the owl is the Params' section now, its entries in the rows.)
+    SogniSections.current("SogniPadd", owl);
+    ((android.widget.EditText) pv.findViewWithTag("params-field:--prompt")).setText("Owl at dawn");
+    ((android.widget.EditText) pv.findViewWithTag("params-field:--aspect")).setText("4:7");
+    pd.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("save asks: ").append(PyJavParams.lastOverwrite != null && PyJavParams.lastOverwrite.isShowing()).append(" | ")
+        .append(PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ").append(PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_NEUTRAL).getText()).append('\n');
+    PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    View nv2 = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("as new: prompt ").append(((android.widget.EditText) nv2.findViewWithTag("sc-new-prompt")).getText()).append(", aspect ")
+        .append(((android.widget.EditText) nv2.findViewWithTag("sc-new-row:--aspect")).getText()).append('\n');
+    ((android.widget.EditText) nv2.findViewWithTag("sc-new-name")).setText("Dawn owl");
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    int owls = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owls++;
+    out.append("owls: ").append(owls).append(", said ").append(PyJavParams.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
     pd.dismiss();
     write("s272_section_collection", out.toString());
     String t = out.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
@@ -15941,10 +15979,10 @@ public class BehaviorTest {
         "drop target: true",
         "dropped left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra at noon. \u00b7 <when> | Weather (1) | \u22ee | +",
         "dropped right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: A red kite.",
-        "section menu: Save | Cut | Copy | Send to other program\u2026 | Send to other program's group\u2026 | Delete | Move into group\u2026 | Edit name",
+        "section menu: Save | Cut | Copy | Send to other program\u2026 | Send to other program's group\u2026 | Delete | Move into group\u2026 | Edit data",
         "move to: Animals | Weather",
         "full: Saved <when> /  / Prompt: Zebra at noon.",
-        "edit name buttons: Save / Exit",
+        "edit data: prompt Prompt: Zebra at noon., group Animals".replace("Prompt: ", ""), "edit name buttons: Save / Exit",
         "group menu: Delete | Rename",
         "renamed left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | \u22ee | +",
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
@@ -15954,7 +15992,9 @@ public class BehaviorTest {
         "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
-        "params SC: SC, opens true"};
+        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7",
+        "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7",
+        "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

@@ -35,9 +35,13 @@ final class SectionCollectionScreen {
   static AlertDialog lastMenu, lastFull;
   static AlertDialog lastAsk;
 
-  private SectionCollectionScreen(Activity activity, String app, String lorasNow, final Runnable closed) {
+  /** The program's other rows a section keeps (Aspect, Width, Height...), from its Params; may be none. */
+  private final List<ProgramParams.Param> extras;
+
+  private SectionCollectionScreen(Activity activity, String app, String lorasNow, List<ProgramParams.Param> ps, final Runnable closed) {
     this.activity = activity;
     this.app = app;
+    this.extras = SectionCollection.extraRows(ps);
     this.lorasNow = lorasNow == null ? "" : lorasNow;
     LinearLayout root = new LinearLayout(activity);
     root.setOrientation(LinearLayout.HORIZONTAL);
@@ -83,12 +87,17 @@ final class SectionCollectionScreen {
 
   /** Shows the program's Section Collection; `closed` runs when it closes (Browse sections listed again). */
   static SectionCollectionScreen show(Activity activity, String app, Runnable closed) {
-    return show(activity, app, PyJavParams.load(activity, app + ".java") == null ? "" : SectionCollection.lorasIn(PyJavParams.load(activity, app + ".java")), closed);
+    return show(activity, app, PyJavParams.load(activity, app + ".java") == null ? "" : SectionCollection.lorasIn(PyJavParams.load(activity, app + ".java")), null, closed);
+  }
+
+  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, Runnable closed) {
+    return show(activity, app, lorasNow, null, closed);
   }
 
   /** Shows it with the LoRAs the Params have now (Add new section's list has them first). */
-  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, Runnable closed) {
-    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, lorasNow, closed);
+  /** Shows it with the Params' LoRAs now and the program's rows (Add new section and Edit data have its other rows). */
+  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, List<ProgramParams.Param> ps, Runnable closed) {
+    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, lorasNow, ps, closed);
     last = sc;
     sc.dialog.show();
     // Most of the screen: both sides have room for their lists.
@@ -164,71 +173,116 @@ final class SectionCollectionScreen {
     });
   }
 
-  /** Add new section's dialog shown last (the tests). */
+  /** The section form shown last (the tests). */
   static AlertDialog lastNew;
 
-  /** Add new section: name, description, prompt, LoRAs (a list of recent ones) and group (a list). */
-  void addSection() {
-    final List<String> loras, groups;
-    try {
-      loras = SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow);
-      groups = SectionCollection.groupPicks(this.vault(), this.app);
-    } catch (Exception ex) {
-      this.say("Could not read the sections: " + ex.getMessage());
-      return;
-    }
-    LinearLayout box = new LinearLayout(this.activity);
+  /**
+   * The section form (Add new section, Edit data, the Params' Save as new): name, description, prompt,
+   * LoRAs (a list), group (a list) and the program's other rows; `done` gets the form as OK left it.
+   */
+  static void form(final Activity activity, String title, SectionCollection.Form init, final List<String> loras, final List<String> groups,
+      List<ProgramParams.Param> extras, final java.util.function.Consumer<SectionCollection.Form> done) {
+    final float dpx = activity.getResources().getDisplayMetrics().density;
+    LinearLayout box = new LinearLayout(activity);
     box.setOrientation(LinearLayout.VERTICAL);
-    box.setPadding(dp(20), dp(8), dp(20), 0);
-    final EditText name = this.field(box, SectionCollection.SECTION_NAME, "sc-new-name", 1);
-    final EditText note = this.field(box, SectionCollection.DESCRIPTION, "sc-new-note", 2);
-    final EditText prompt = this.field(box, SectionCollection.PROMPT, "sc-new-prompt", 4);
-    final android.widget.Spinner lp = this.pick(box, SectionCollection.LORAS, "sc-new-loras", loras);
-    final android.widget.Spinner gp = this.pick(box, SectionCollection.GROUP, "sc-new-group", groups);
-    ScrollView sv = new ScrollView(this.activity);
+    box.setPadding(Math.round(20 * dpx), Math.round(8 * dpx), Math.round(20 * dpx), 0);
+    final EditText name = field(activity, box, SectionCollection.SECTION_NAME, "sc-new-name", 1, init.name);
+    final EditText note = field(activity, box, SectionCollection.DESCRIPTION, "sc-new-note", 2, init.note);
+    final EditText prompt = field(activity, box, SectionCollection.PROMPT, "sc-new-prompt", 4, init.prompt);
+    final android.widget.Spinner lp = pick(activity, box, SectionCollection.LORAS, "sc-new-loras", loras, init.loras);
+    final android.widget.Spinner gp = pick(activity, box, SectionCollection.GROUP, "sc-new-group", groups, init.group);
+    // The program's other rows (and any other entry the section has): a field each.
+    final java.util.LinkedHashMap<String, EditText> other = new java.util.LinkedHashMap<String, EditText>();
+    java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<String, String>();
+    for (ProgramParams.Param x : extras) labels.put(x.token, SectionCollection.rowLabel(x));
+    for (String k : init.extra.keySet()) if (!labels.containsKey(k)) labels.put(k, k.substring(2));
+    for (java.util.Map.Entry<String, String> e : labels.entrySet())
+      other.put(e.getKey(), field(activity, box, e.getValue(), "sc-new-row:" + e.getKey(), 1, init.extra.containsKey(e.getKey()) ? init.extra.get(e.getKey()) : ""));
+    ScrollView sv = new ScrollView(activity);
     sv.addView(box);
-    lastNew = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.ADD_SECTION).setView(sv)
-        .setPositiveButton("OK", (d, w) -> {
-          try {
-            String bad = SectionCollection.addSection(this.vault(), this.app, name.getText().toString(), note.getText().toString(), prompt.getText().toString(),
-                loras.get(Math.max(0, lp.getSelectedItemPosition())), groups.get(Math.max(0, gp.getSelectedItemPosition())));
-            if (bad != null) this.say(bad);
-          } catch (Exception ex) {
-            this.say("Could not add the section: " + ex.getMessage());
-          }
-          this.refresh();
+    boolean edit = SectionCollection.EDIT_NAME.equals(title);
+    lastNew = new AlertDialog.Builder(activity).setTitle(title).setView(sv)
+        .setPositiveButton(edit ? SectionCollection.SAVE : "OK", (d, w) -> {
+          SectionCollection.Form f = new SectionCollection.Form();
+          f.name = name.getText().toString();
+          f.note = note.getText().toString();
+          f.prompt = prompt.getText().toString();
+          f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
+          f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
+          for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
+          done.accept(f);
         })
-        .setNegativeButton("Cancel", null).show();
+        .setNegativeButton(edit ? SectionCollection.EXIT : "Cancel", null).show();
   }
 
-  EditText field(LinearLayout box, String label, String tag, int lines) {
-    TextView l = new TextView(this.activity);
+  /** Add new section: the form, empty (the Params' LoRAs listed first). */
+  void addSection() {
+    try {
+      form(this.activity, SectionCollection.ADD_SECTION, new SectionCollection.Form(), SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow),
+          SectionCollection.groupPicks(this.vault(), this.app), this.extras, f -> {
+            try {
+              String bad = SectionCollection.add(this.vault(), this.app, f);
+              if (bad != null) this.say(bad);
+            } catch (Exception ex) {
+              this.say("Could not add the section: " + ex.getMessage());
+            }
+            this.refresh();
+          });
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+    }
+  }
+
+  /** Edit data: the section's form, every field (its rows too). */
+  void editData(final PromptVault.SogniSection s) {
+    SectionCollection.Form init = SectionCollection.formOf(s);
+    try {
+      form(this.activity, SectionCollection.EDIT_NAME, init, SectionCollection.lorasFor(this.vault(), this.app, this.lorasNow, init),
+          SectionCollection.groupPicks(this.vault(), this.app), this.extras, f -> {
+            try {
+              String bad = SectionCollection.update(this.vault(), s, f);
+              if (bad != null) this.say(bad);
+            } catch (Exception ex) {
+              this.say("Could not save the section: " + ex.getMessage());
+            }
+            this.refresh();
+          });
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+    }
+  }
+
+  static EditText field(Activity activity, LinearLayout box, String label, String tag, int lines, String now) {
+    TextView l = new TextView(activity);
     l.setText(label);
     box.addView(l);
-    EditText e = new EditText(this.activity);
+    EditText e = new EditText(activity);
     e.setTag(tag);
     if (lines == 1) e.setSingleLine(true);
     else {
       e.setMinLines(lines);
       e.setGravity(android.view.Gravity.TOP);
     }
+    e.setText(now == null ? "" : now);
     box.addView(e);
     return e;
   }
 
-  android.widget.Spinner pick(LinearLayout box, String label, String tag, List<String> items) {
-    TextView l = new TextView(this.activity);
+  static android.widget.Spinner pick(Activity activity, LinearLayout box, String label, String tag, List<String> items, String now) {
+    TextView l = new TextView(activity);
     l.setText(label);
-    l.setPadding(0, dp(6), 0, 0);
+    l.setPadding(0, Math.round(6 * activity.getResources().getDisplayMetrics().density), 0, 0);
     box.addView(l);
-    android.widget.Spinner sp = new android.widget.Spinner(this.activity);
+    android.widget.Spinner sp = new android.widget.Spinner(activity);
     sp.setTag(tag);
-    android.widget.ArrayAdapter<String> a = new android.widget.ArrayAdapter<String>(this.activity, android.R.layout.simple_spinner_item, items);
+    android.widget.ArrayAdapter<String> a = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, items);
     a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
     sp.setAdapter(a);
+    sp.setSelection(Math.max(0, items.indexOf(now)));
     box.addView(sp);
     return sp;
   }
+
 
   /** Both sides drawn again from the library. */
   void refresh() {
@@ -462,15 +516,7 @@ final class SectionCollectionScreen {
     items.add(SectionCollection.MOVE + "\u2026");
     does.add(() -> this.moveMenu(s));
     items.add(SectionCollection.EDIT_NAME);
-    does.add(() -> this.ask(SectionCollection.EDIT_NAME, SectionCollection.NAME, s.name == null ? "" : s.name, SectionCollection.DESCRIPTION, s.note == null ? "" : s.note,
-        false, SectionCollection.SAVE, SectionCollection.EXIT, (name, note) -> {
-          try {
-            this.vault().nameSogniSection(s.id, name, note);
-          } catch (Exception ex) {
-            this.say("Could not save the name: " + ex.getMessage());
-          }
-          this.refresh();
-        }));
+    does.add(() -> this.editData(s));
     this.menu(SogniSections.label(s), items, does);
   }
 

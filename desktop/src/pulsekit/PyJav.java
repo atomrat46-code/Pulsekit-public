@@ -1554,11 +1554,38 @@ final class PyJav {
             String text = SogniSections.text(now);
             PromptVault.SogniSection same = PromptDb.vault().findSogniSection(program, text);
             if (same != null) {
+                SogniSections.current(program, same);
                 this.sectionSay("This section is saved already: " + SogniSections.label(same));
                 if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.SAVE, JOptionPane.PLAIN_MESSAGE);
                 return true;
             }
+            // Entries that differ from the section loaded (or saved last): saved over it, or a new one through the section form.
+            PromptVault.SogniSection cur = SogniSections.current(PromptDb.vault(), program);
+            if (cur != null) {
+                Object[] options = {SogniSections.OVERWRITE, SogniSections.SAVE_NEW, "Cancel"};
+                int ans = overwriteAnswer != null ? overwriteAnswer : JOptionPane.showOptionDialog(at, SogniSections.overwriteAsk(cur), SogniSections.SAVE,
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (ans == 0) {
+                    PromptDb.vault().updateSogniSection(cur.id, text);
+                    this.sectionSay("Saved over: " + SogniSections.label(cur));
+                    return true;
+                }
+                if (ans != 1) return false;
+                SectionCollection.Form init = SectionCollection.formOf(now);
+                SectionCollection.Form f = SectionCollectionWindow.form(at, SectionCollection.ADD_SECTION, init,
+                    SectionCollection.lorasFor(PromptDb.vault(), program, "", init), SectionCollection.groupPicks(PromptDb.vault(), program), ps);
+                if (f == null) return false;
+                String bad = SectionCollection.add(PromptDb.vault(), program, f);
+                if (bad != null) {
+                    this.sectionSay(bad);
+                    return false;
+                }
+                SogniSections.current(program, SectionCollection.lastAdded);
+                this.sectionSay("Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
+                return true;
+            }
             PromptVault.SogniSection sec = PromptDb.vault().addSogniSection(program, text);
+            SogniSections.current(program, sec);
             this.sectionSay("Saved a " + program + " section: " + SogniSections.label(sec));
             return true;
         } catch (Exception ex) {
@@ -1566,6 +1593,9 @@ final class PyJav {
             return false;
         }
     }
+
+    /** The tests' answer to Save's overwrite question (0 Overwrite, 1 Save as new, 2 Cancel; null: asked). */
+    static Integer overwriteAnswer;
 
     /** Browse sections' list shown last, and the full view's answer for the tests (0 Load, 1 Edit, 2 Remove, -1 Close; null: asked). */
     javax.swing.JList<String> lastSectionsList;
@@ -2003,7 +2033,7 @@ final class PyJav {
             sc.setName("sections-collection");
             sc.setToolTipText(SectionCollection.BUTTON_TIP);
             sc.addActionListener(e -> {
-                SectionCollectionWindow.show(sc, program, SectionCollection.lorasIn(this.loadParams(program + ".java")));
+                SectionCollectionWindow.show(sc, program, SectionCollection.lorasIn(this.loadParams(program + ".java")), ps);
                 try {
                     all.clear();
                     all.addAll(PromptDb.vault().sogniSections(program));
@@ -2105,6 +2135,7 @@ final class PyJav {
             if (areas[i] != null) areas[i].setText(v == null ? "" : v);
             else if (fields[i] != null) fields[i].setText(v == null ? "" : v);
         }
+        SogniSections.current(program, sec);
         this.sectionSay("Loaded: " + SogniSections.label(sec));
     }
 
@@ -3858,7 +3889,7 @@ final class PyJav {
                             if (areas[k] != null) loras = ProgramParams.oneLine(areas[k].getText());
                             else if (fields[k] != null) loras = fields[k].getText();
                         }
-                        SectionCollectionWindow.show(sc, SogniSections.app(program), loras);
+                        SectionCollectionWindow.show(sc, SogniSections.app(program), loras, ps);
                     });
                     withClip.add(sc);
                 }

@@ -23,7 +23,7 @@ public final class SectionCollection {
   public static final String GROUP_NAME = "Group name", DESCRIPTION = "Description (optional)";
   public static final String SECTION_NAME = "Section name (optional)", SECTION_TEXT = "Section text (\"Prompt: ...\", \"Loras: ...\" a line each; plain text is the prompt)";
   /** A section's menu. */
-  public static final String SAVE = "Save", DELETE = "Delete", MOVE = "Move into group", EDIT_NAME = "Edit name", OUT_OF_GROUP = "Take out of the group";
+  public static final String SAVE = "Save", DELETE = "Delete", MOVE = "Move into group", EDIT_NAME = "Edit data", OUT_OF_GROUP = "Take out of the group";
   /** A group's menu. */
   public static final String RENAME = "Rename";
   /** Edit name's dialog. */
@@ -120,6 +120,94 @@ public final class SectionCollection {
     return out;
   }
 
+  /**
+   * A section's data as Add new section and Edit data show it: its name and description, the prompt, the
+   * LoRAs (a pick), its group (a pick) and the program's other rows a section keeps (aspect, width, height...).
+   */
+  public static final class Form {
+    public String name = "", note = "", prompt = "", loras = NO_LORAS, group = NO_GROUP_PICK;
+    public final java.util.LinkedHashMap<String, String> extra = new java.util.LinkedHashMap<String, String>();
+  }
+
+  /** The program's rows a section keeps besides the prompt and the LoRAs (Aspect, Width, Height, Seed...). */
+  public static List<ProgramParams.Param> extraRows(List<ProgramParams.Param> ps) {
+    List<ProgramParams.Param> out = new ArrayList<ProgramParams.Param>();
+    if (ps != null) for (ProgramParams.Param p : ps) if (SogniSections.kept(p) && !p.token.equals("--prompt") && !p.token.equals("--loras")) out.add(p);
+    return out;
+  }
+
+  /** A row's label in the form: its Params label without the hint after a colon or bracket. */
+  public static String rowLabel(ProgramParams.Param p) {
+    String l = p.label == null || p.label.isEmpty() ? p.token.substring(2) : p.label;
+    return l.replaceAll("\\s*[(:].*$", "").trim();
+  }
+
+  /** The form of entries as the Params have them (switch → value). */
+  public static Form formOf(java.util.Map<String, String> entries) {
+    Form f = new Form();
+    for (java.util.Map.Entry<String, String> e : entries.entrySet()) {
+      String v = e.getValue() == null ? "" : e.getValue().trim();
+      if (e.getKey().equals("--prompt")) f.prompt = v;
+      else if (e.getKey().equals("--loras")) f.loras = v.isEmpty() ? NO_LORAS : v;
+      else if (v.length() > 0) f.extra.put(e.getKey(), v);
+    }
+    return f;
+  }
+
+  /** A saved section's form. */
+  public static Form formOf(PromptVault.SogniSection s) {
+    Form f = formOf(SogniSections.read(s.text));
+    f.name = s.name == null ? "" : s.name;
+    f.note = s.note == null ? "" : s.note;
+    f.group = s.group == null || s.group.trim().isEmpty() ? NO_GROUP_PICK : s.group.trim();
+    return f;
+  }
+
+  /** The form's entries as a section's text ("Prompt: ...", "Loras: ...", "aspect: 4:7"). */
+  public static String textOf(Form f) {
+    java.util.LinkedHashMap<String, String> m = new java.util.LinkedHashMap<String, String>();
+    String p = f.prompt == null ? "" : f.prompt.trim().replaceAll("\\s*\n\\s*", " ");
+    if (p.length() > 0) m.put("--prompt", p);
+    String l = f.loras == null || NO_LORAS.equals(f.loras) ? "" : f.loras.trim();
+    if (l.length() > 0) m.put("--loras", l);
+    for (java.util.Map.Entry<String, String> e : f.extra.entrySet()) if (e.getValue() != null && e.getValue().trim().length() > 0) m.put(e.getKey(), e.getValue().trim());
+    return SogniSections.text(m);
+  }
+
+  /** The LoRAs list for a form: the form's own LoRAs first (when it has some), then the recent ones. */
+  public static List<String> lorasFor(PromptVault vault, String app, String lorasNow, Form f) {
+    List<String> all = recentLoras(vault, app, lorasNow);
+    if (f != null && f.loras != null && !NO_LORAS.equals(f.loras) && !all.contains(f.loras)) all.add(1, f.loras);
+    return all;
+  }
+
+  /** Add new section (or Save's new one): the form kept as a section. Null when it was made, else what is wrong. */
+  public static String add(PromptVault vault, String app, Form f) throws Exception {
+    if (f.prompt == null || f.prompt.trim().isEmpty()) return "A section needs its prompt";
+    PromptVault.SogniSection s = vault.addSogniSection(app, textOf(f));
+    if (s == null) return "The same section is saved already";
+    if (tidy(f.name).length() > 0 || (f.note != null && f.note.trim().length() > 0)) vault.nameSogniSection(s.id, f.name, f.note);
+    String g = f.group == null || NO_GROUP_PICK.equals(f.group) ? "" : tidy(f.group);
+    if (g.length() > 0) vault.groupSogniSection(s.id, g);
+    lastAdded = s;
+    return null;
+  }
+
+  /** The section add() made last. */
+  public static PromptVault.SogniSection lastAdded;
+
+  /** Edit data: the section's entries, name, description and group as the form has them. Null when saved, else what is wrong. */
+  public static String update(PromptVault vault, PromptVault.SogniSection s, Form f) throws Exception {
+    if (f.prompt == null || f.prompt.trim().isEmpty()) return "A section needs its prompt";
+    String t = textOf(f);
+    PromptVault.SogniSection same = vault.findSogniSection(s.app, t);
+    if (same != null && same.id != s.id) return "Another section has the same entries: " + SogniSections.label(same);
+    if (!SogniSections.same(t, s.text)) vault.updateSogniSection(s.id, t);
+    vault.nameSogniSection(s.id, f.name, f.note);
+    vault.groupSogniSection(s.id, f.group == null || NO_GROUP_PICK.equals(f.group) ? "" : tidy(f.group));
+    return null;
+  }
+
   /** The --loras value in a Params' saved switches ("" when it has none). */
   public static String lorasIn(String params) {
     List<String> w = JavaRun.split(params == null ? "" : params);
@@ -140,16 +228,13 @@ public final class SectionCollection {
    * LoRAs)": none) and the group picked ("(no group)": none). Null when it was made, else what is wrong.
    */
   public static String addSection(PromptVault vault, String app, String name, String note, String prompt, String loras, String group) throws Exception {
-    String p = prompt == null ? "" : prompt.trim().replaceAll("\\s*\n\\s*", " ");
-    if (p.isEmpty()) return "A section needs its prompt";
-    String l = loras == null || NO_LORAS.equals(loras) ? "" : loras.trim();
-    String t = "Prompt: " + p + "\n" + (l.isEmpty() ? "" : "Loras: " + l + "\n");
-    PromptVault.SogniSection s = vault.addSogniSection(app, t);
-    if (s == null) return "The same section is saved already";
-    if (tidy(name).length() > 0 || (note != null && note.trim().length() > 0)) vault.nameSogniSection(s.id, name, note);
-    String g = group == null || NO_GROUP_PICK.equals(group) ? "" : tidy(group);
-    if (g.length() > 0) vault.groupSogniSection(s.id, g);
-    return null;
+    Form f = new Form();
+    f.name = name == null ? "" : name;
+    f.note = note == null ? "" : note;
+    f.prompt = prompt == null ? "" : prompt;
+    f.loras = loras == null ? NO_LORAS : loras;
+    f.group = group == null ? NO_GROUP_PICK : group;
+    return add(vault, app, f);
   }
 
   /** Add new section: a section with a name (null when it was made, else what is wrong). */

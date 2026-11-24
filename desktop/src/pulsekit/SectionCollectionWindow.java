@@ -38,6 +38,8 @@ public final class SectionCollectionWindow {
   private final String app;
   /** The LoRAs the Params have now (Add new section lists them first), or "". */
   private final String lorasNow;
+  /** The program's other rows a section keeps (Aspect, Width, Height...), from its Params; may be none. */
+  private final List<ProgramParams.Param> extras;
   final JDialog dialog;
   final JPanel left = new JPanel();
   final JPanel right = new JPanel();
@@ -51,9 +53,10 @@ public final class SectionCollectionWindow {
   static java.util.Deque<String[]> answers;
   static Boolean sure;
 
-  private SectionCollectionWindow(Component owner, String app, String lorasNow) {
+  private SectionCollectionWindow(Component owner, String app, String lorasNow, List<ProgramParams.Param> ps) {
     this.owner = owner;
     this.app = app;
+    this.extras = SectionCollection.extraRows(ps);
     this.lorasNow = lorasNow == null ? "" : lorasNow;
     java.awt.Window w = owner == null ? null : SwingUtilities.getWindowAncestor(owner);
     this.dialog = new JDialog(w, SectionCollection.TITLE + " · " + app, java.awt.Dialog.ModalityType.APPLICATION_MODAL);
@@ -104,7 +107,12 @@ public final class SectionCollectionWindow {
 
   /** Shows it with the LoRAs the Params have now (Add new section's list has them first). */
   public static void show(Component owner, String app, String lorasNow) {
-    SectionCollectionWindow sc = new SectionCollectionWindow(owner, app, lorasNow);
+    show(owner, app, lorasNow, null);
+  }
+
+  /** Shows it with the Params' LoRAs now and the program's rows (Add new section and Edit data have its other rows). */
+  public static void show(Component owner, String app, String lorasNow, List<ProgramParams.Param> ps) {
+    SectionCollectionWindow sc = new SectionCollectionWindow(owner, app, lorasNow, ps);
     last = sc;
     sc.dialog.setVisible(true);
   }
@@ -154,9 +162,75 @@ public final class SectionCollectionWindow {
     this.refresh();
   }
 
-  /** Add new section: name, description, prompt, LoRAs (a list of recent ones) and group (a list). */
+  /** The tests' form: what OK gives for the form shown (null: Cancel). */
+  static java.util.function.UnaryOperator<SectionCollection.Form> formAnswer;
+
+  /**
+   * The section form (Add new section, Edit data, the Params' Save as new): name, description, prompt,
+   * LoRAs (a list), group (a list) and the program's other rows. The form as OK left it, or null.
+   */
+  static SectionCollection.Form form(Component at, String title, SectionCollection.Form init, List<String> loras, List<String> groups, List<ProgramParams.Param> extras) {
+    if (formAnswer != null) return formAnswer.apply(init);
+    JTextField name = new JTextField(init.name, 28);
+    TextMenu.attach(name);
+    JTextArea note = new JTextArea(init.note, 2, 40);
+    note.setLineWrap(true);
+    note.setWrapStyleWord(true);
+    JTextArea prompt = new JTextArea(init.prompt, 5, 40);
+    prompt.setLineWrap(true);
+    prompt.setWrapStyleWord(true);
+    javax.swing.JComboBox<String> lp = new javax.swing.JComboBox<String>(loras.toArray(new String[0]));
+    lp.setName("sc-new-loras");
+    lp.setSelectedItem(loras.contains(init.loras) ? init.loras : loras.get(0));
+    javax.swing.JComboBox<String> gp = new javax.swing.JComboBox<String>(groups.toArray(new String[0]));
+    gp.setName("sc-new-group");
+    gp.setSelectedItem(groups.contains(init.group) ? init.group : groups.get(0));
+    JPanel p = new JPanel();
+    p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+    java.util.List<Object[]> rows = new java.util.ArrayList<Object[]>();
+    rows.add(new Object[] {SectionCollection.SECTION_NAME, name});
+    rows.add(new Object[] {SectionCollection.DESCRIPTION, new JScrollPane(note)});
+    rows.add(new Object[] {SectionCollection.PROMPT, new JScrollPane(prompt)});
+    rows.add(new Object[] {SectionCollection.LORAS, lp});
+    rows.add(new Object[] {SectionCollection.GROUP, gp});
+    // The program's other rows (and any other entry the section has): a field each.
+    java.util.LinkedHashMap<String, JTextField> other = new java.util.LinkedHashMap<String, JTextField>();
+    java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<String, String>();
+    for (ProgramParams.Param x : extras) labels.put(x.token, SectionCollection.rowLabel(x));
+    for (String k : init.extra.keySet()) if (!labels.containsKey(k)) labels.put(k, k.substring(2));
+    for (java.util.Map.Entry<String, String> e : labels.entrySet()) {
+      JTextField f = new JTextField(init.extra.containsKey(e.getKey()) ? init.extra.get(e.getKey()) : "", 20);
+      f.setName("sc-new-row:" + e.getKey());
+      TextMenu.attach(f);
+      other.put(e.getKey(), f);
+      rows.add(new Object[] {e.getValue(), f});
+    }
+    for (Object[] row : rows) {
+      JLabel l = new JLabel((String) row[0]);
+      l.setAlignmentX(0f);
+      ((javax.swing.JComponent) row[1]).setAlignmentX(0f);
+      p.add(l);
+      p.add((Component) row[1]);
+      p.add(Box.createVerticalStrut(6));
+    }
+    JScrollPane sp = new JScrollPane(p);
+    sp.setPreferredSize(new Dimension(520, Math.min(620, p.getPreferredSize().height + 20)));
+    boolean edit = SectionCollection.EDIT_NAME.equals(title);
+    Object[] options = {edit ? SectionCollection.SAVE : "OK", edit ? SectionCollection.EXIT : "Cancel"};
+    int ans = JOptionPane.showOptionDialog(at, sp, title, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+    if (ans != 0) return null;
+    SectionCollection.Form f = new SectionCollection.Form();
+    f.name = name.getText();
+    f.note = note.getText();
+    f.prompt = prompt.getText();
+    f.loras = (String) lp.getSelectedItem();
+    f.group = (String) gp.getSelectedItem();
+    for (java.util.Map.Entry<String, JTextField> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText());
+    return f;
+  }
+
+  /** Add new section: the form, empty (the Params' LoRAs listed first). */
   void addSection() {
-    String[] got;
     List<String> loras, groups;
     try {
       loras = SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow);
@@ -167,41 +241,45 @@ public final class SectionCollectionWindow {
     }
     this.lastLoras = loras;
     this.lastGroups = groups;
-    if (answers != null) got = answers.poll();
-    else {
-      JTextField name = new JTextField(28);
-      TextMenu.attach(name);
-      JTextArea note = new JTextArea(2, 40);
-      note.setLineWrap(true);
-      note.setWrapStyleWord(true);
-      JTextArea prompt = new JTextArea(5, 40);
-      prompt.setLineWrap(true);
-      prompt.setWrapStyleWord(true);
-      javax.swing.JComboBox<String> lp = new javax.swing.JComboBox<String>(loras.toArray(new String[0]));
-      lp.setName("sc-new-loras");
-      javax.swing.JComboBox<String> gp = new javax.swing.JComboBox<String>(groups.toArray(new String[0]));
-      gp.setName("sc-new-group");
-      JPanel p = new JPanel();
-      p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-      for (Object[] row : new Object[][] {{SectionCollection.SECTION_NAME, name}, {SectionCollection.DESCRIPTION, new JScrollPane(note)},
-          {SectionCollection.PROMPT, new JScrollPane(prompt)}, {SectionCollection.LORAS, lp}, {SectionCollection.GROUP, gp}}) {
-        JLabel l = new JLabel((String) row[0]);
-        l.setAlignmentX(0f);
-        ((javax.swing.JComponent) row[1]).setAlignmentX(0f);
-        p.add(l);
-        p.add((Component) row[1]);
-        p.add(Box.createVerticalStrut(6));
-      }
-      Object[] options = {"OK", "Cancel"};
-      int ans = JOptionPane.showOptionDialog(this.dialog, p, SectionCollection.ADD_SECTION, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-      got = ans == 0 ? new String[] {name.getText(), note.getText(), prompt.getText(), (String) lp.getSelectedItem(), (String) gp.getSelectedItem()} : null;
-    }
-    if (got == null) return;
+    SectionCollection.Form f;
+    if (answers != null && formAnswer == null) {
+      String[] got = answers.poll();
+      if (got == null) return;
+      f = new SectionCollection.Form();
+      f.name = got[0];
+      f.note = got[1];
+      f.prompt = got[2];
+      f.loras = got[3];
+      f.group = got[4];
+    } else f = form(this.dialog, SectionCollection.ADD_SECTION, new SectionCollection.Form(), loras, groups, this.extras);
+    if (f == null) return;
     try {
-      String bad = SectionCollection.addSection(this.vault(), this.app, got[0], got[1], got[2], got[3], got[4]);
+      String bad = SectionCollection.add(this.vault(), this.app, f);
       if (bad != null) this.say(bad);
     } catch (Exception ex) {
       this.say("Could not add the section: " + ex.getMessage());
+    }
+    this.refresh();
+  }
+
+  /** Edit data: the section's form, every field (its rows too). */
+  void editData(PromptVault.SogniSection s) {
+    SectionCollection.Form init = SectionCollection.formOf(s);
+    SectionCollection.Form f;
+    try {
+      if (answers != null && formAnswer == null) {
+        String[] got = answers.poll();
+        if (got == null) return;
+        f = init;
+        f.name = got[0];
+        f.note = got[1];
+      } else f = form(this.dialog, SectionCollection.EDIT_NAME, init, SectionCollection.lorasFor(this.vault(), this.app, this.lorasNow, init),
+          SectionCollection.groupPicks(this.vault(), this.app), this.extras);
+      if (f == null) return;
+      String bad = SectionCollection.update(this.vault(), s, f);
+      if (bad != null) this.say(bad);
+    } catch (Exception ex) {
+      this.say("Could not save the section: " + ex.getMessage());
     }
     this.refresh();
   }
@@ -509,17 +587,7 @@ public final class SectionCollectionWindow {
     m.add(move);
     JMenuItem edit = new JMenuItem(SectionCollection.EDIT_NAME);
     edit.setName("sc-edit-name");
-    edit.addActionListener(e -> {
-      String[] got = this.ask(SectionCollection.EDIT_NAME, SectionCollection.NAME, s.name == null ? "" : s.name, SectionCollection.DESCRIPTION,
-          s.note == null ? "" : s.note, false, SectionCollection.SAVE, SectionCollection.EXIT);
-      if (got == null) return;
-      try {
-        this.vault().nameSogniSection(s.id, got[0], got[1]);
-      } catch (Exception ex) {
-        this.say("Could not save the name: " + ex.getMessage());
-      }
-      this.refresh();
-    });
+    edit.addActionListener(e -> this.editData(s));
     m.add(edit);
     MenuCancel.add(m);
     this.lastMenu = m;
