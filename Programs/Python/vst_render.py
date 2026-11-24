@@ -4880,15 +4880,19 @@ def bench_relabel(model, X, wrote, margin):
     return np.where(p.max(1) - mine > margin, best, wrote)
 
 
-def bench_fit(kits, reg=1e-2, it=400, lr=0.5):
+def bench_fit(kits, reg=1e-2, it=400, lr=0.5, even=False):
     """The cymbal model learned from the kits' cymbals (as tools/cymbal_model.py learns DrumMidi's):
-    multinomial logistic regression on standardized inputs. (mu, sd, W, b)."""
+    multinomial logistic regression on standardized inputs. (mu, sd, W, b). `even`: each kit weighs the
+    same in learning (a kit with a long test set of songs does not outweigh one with the test beat only)."""
     import numpy as np
     X = np.concatenate([k.X for k in kits])
     y = np.concatenate([k.label for k in kits])
+    w = np.concatenate([np.full(len(k.label), 1.0 / max(1, int((k.label > 0).sum()))) for k in kits]) if even else np.ones(len(y))
     keep = y > 0
-    X, y = X[keep], y[keep]
-    mu, sd = X.mean(0), X.std(0) + 1e-9
+    X, y, w = X[keep], y[keep], w[keep]
+    w = w / w.mean()
+    mu = (X * w[:, None]).sum(0) / w.sum()
+    sd = np.sqrt(((X - mu) ** 2 * w[:, None]).sum(0) / w.sum()) + 1e-9
     Z = (X - mu) / sd
     W = np.zeros((Z.shape[1], 4))
     b = np.zeros(4)
@@ -4898,7 +4902,7 @@ def bench_fit(kits, reg=1e-2, it=400, lr=0.5):
         z -= z.max(1, keepdims=True)
         p = np.exp(z)
         p /= p.sum(1, keepdims=True)
-        g = p - Y
+        g = (p - Y) * w[:, None]
         W -= lr * (Z.T @ g / len(Z) + reg * W)
         b -= lr * g.mean(0)
     return mu, sd, W, b
@@ -5200,25 +5204,38 @@ def model_bench(opts, switches):
             fail("--leave_one_out: no kit picked (new: the newest run's kits; all; or parts of their names)")
         print("Leave one out: %d kit%s, each scored with a model learned from the other %d (and from all %d)" % (len(which), "" if len(which) == 1 else "s", len(kits) - 1, len(kits)), flush=True)
         everyone = bench_fit(kits)
+        # The same with each kit weighing the same in learning (kits even): a kit with many songs does not decide it alone.
+        everyone_even = bench_fit(kits, even=True)
         lines = ["Leave one out: each kit scored with DrumMidi's built-in model, a model learned from the other %d kit%s" % (len(kits) - 1, "" if len(kits) == 2 else "s"),
                  "(it never saw the kit) and one learned from all %d (it saw it). DrumMidi_CRT.jar %s." % (len(kits), sig),
+                 "Kits even: learned with each kit weighing the same (otherwise each cymbal hit does, and kits with many songs decide the model).",
                  "Cymbals right: closed hat, open hat, ride and crash found where the MIDI played them (within 30 ms).",
-                 BENCH_HOW, "", "%-*s %9s %15s %15s" % (width, "Kit", "built-in", "without it", "with it")]
+                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s" % (width, "Kit", "built-in", "without it", "with it", "without, even", "with, even")]
         details = []
-        sums = [0, 0, 0]
+        sums = [0, 0, 0, 0, 0]
+        rel = [0.0] * 5
+        better = [0] * 5
         for k in which:
             without = bench_fit([o for o in kits if o is not k])
-            r = [k.score(k.builtin), k.score(without), k.score(everyone)]
+            without_even = bench_fit([o for o in kits if o is not k], even=True)
+            r = [k.score(k.builtin), k.score(without), k.score(everyone), k.score(without_even), k.score(everyone_even)]
             v = [cymbals_right(x) for x in r]
-            for i in range(3):
+            for i in range(5):
                 sums[i] += v[i]
-            lines.append("%-*s %9d %8d (%+5d) %8d (%+5d)" % (width, k.name, v[0], v[1], v[1] - v[0], v[2], v[2] - v[0]))
-            details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "without it", "with it"), r)] + [""]
+                rel[i] += (v[i] - v[0]) / float(max(1, v[0]))
+                better[i] += v[i] > v[0]
+            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 5)))
+            details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "without it", "with it", "without it, kits even", "with it, kits even"), r)] + [""]
             print(lines[-1], flush=True)
-        lines += ["", "%-*s %9d %8d (%+5d) %8d (%+5d)" % (width, "All", sums[0], sums[1], sums[1] - sums[0], sums[2], sums[2] - sums[0])]
-        print(lines[-1])
+        lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 5)),
+                  "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 5)),
+                  "%-*s %9s" % (width, "Kits better than built-in", "") + "".join(" %15s" % ("%d of %d" % (better[i], len(which))) for i in range(1, 5))]
+        print("\n".join(lines[-3:]))
+        # The model learned from all kits with each weighing the same, for DrumMidi (as Compare writes its models).
+        text, java = bench_model_text(everyone_even, kits)
         made.append(bench_zip(os.path.join(outdir, "cymbal-leave-one-out-%s.zip" % stamp),
-                              {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list}))
+                              {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list,
+                               "model-%d-kits-even.txt" % len(kits): text, "model-%d-kits-even-java.txt" % len(kits): java}))
     for z in made:
         print("Zip: %s" % z)
     if opts["--zip_outdir"]:
