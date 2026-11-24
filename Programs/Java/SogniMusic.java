@@ -1752,7 +1752,7 @@ public final class SogniMusic {
      * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
      * tools on its side and the run goes on when the connection drops, so a long job (a video) does
      * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
-     * Pictures in `turns` are uploaded URLs (a run takes no data: URIs); `media` are the uploads
+     * Pictures in `turns` are inline data: URIs; `media` are the uploads
      * (uploadMedia), named as media references and as the run's starting media.
      */
     public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {

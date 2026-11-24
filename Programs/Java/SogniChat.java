@@ -266,25 +266,8 @@ public final class SogniChat {
         System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
         a.data = null;
       }
-      // The model sees pictures as uploaded URLs, as Sogni's own apps send them (a data: URI in the
-      // request was not always shown to a vision model): the smaller copy of a big one. A chat run
-      // (Unlimited Plan) takes only URLs; otherwise a picture that cannot be uploaded goes inline.
-      int views = 0;
-      for (Attachment a : attached) {
-        if (a.seen == null) continue;
-        if (!a.shrunk && a.url != null) {
-          a.seenUrl = a.url;
-          continue;
-        }
-        String copy = a.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-seen" + ("image/png".equals(a.seenMime) ? ".png" : ".jpg");
-        try {
-          a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
-        } catch (IOException ex) {
-          if (unlimited) throw ex;
-          System.out.println("Note: could not upload " + a.name + " for the model to see (" + ex.getMessage() + "); it is sent inside the request");
-        }
-        if (a.seenUrl != null && a.seenUrl.length() == 0) a.seenUrl = null;
-      }
+      // The model sees pictures inline, as data: URIs (the smaller copy of a big one): Sogni takes no
+      // picture URLs for it any more ("Only inline base64-encoded data URIs are supported for image inputs").
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
       if (before != null) {
@@ -295,14 +278,9 @@ public final class SogniChat {
       List<String> sent = new ArrayList<String>();
       sent.add("user");
       sent.add(question);
-      for (Attachment a : attached) if (a.image != null) sent.add(a.seenUrl != null ? a.seenUrl : a.image);
+      for (Attachment a : attached) if (a.image != null) sent.add(a.image);
       turns.add(sent.toArray(new String[0]));
       List<String[]> runTurns = new ArrayList<String[]>(turns);
-      if (unlimited) {
-        List<String> linked = new ArrayList<String>(sent.subList(0, 2));
-        for (Attachment a : attached) if (a.seenUrl != null) linked.add(a.seenUrl);
-        runTurns.set(runTurns.size() - 1, linked.toArray(new String[0]));
-      }
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       if (rejoin == null) {
         System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
@@ -456,7 +434,7 @@ public final class SogniChat {
       boolean picture = false;
       for (Attachment a : attached) if (a.image != null) picture = true;
       String said = String.valueOf(ex.getMessage()).toLowerCase();
-      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400 && !said.contains("dimension") && !said.contains("exceeds")
+      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400 && !said.contains("dimension") && !said.contains("exceeds") && !said.contains("base64") && !said.contains("url")
           ? " (a picture needs a model that sees pictures: try --model deepseek-v4-flash-vision-exp-dspark-1m)" : ""));
       if (unlimited && fairUse(ex)) {
         System.out.println("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
@@ -572,14 +550,10 @@ public final class SogniChat {
     /** Its media reference once uploaded (media_ref_1...), and the uploaded file's URL; null when not uploaded. */
     String ref;
     String url;
-    /**
-     * The picture the model sees (the file, or a smaller copy: shrunk), for a chat run, which takes
-     * pictures as uploaded URLs; seenUrl once uploaded.
-     */
+    /** The picture the model sees (the file, or a smaller copy: shrunk), sent inline. */
     byte[] seen;
     String seenMime;
     boolean shrunk;
-    String seenUrl;
     /** For the log: "notes.txt, 34 characters". */
     String what;
   }
@@ -2003,7 +1977,7 @@ public final class SogniChat {
      * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
      * tools on its side and the run goes on when the connection drops, so a long job (a video) does
      * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
-     * Pictures in `turns` are uploaded URLs (a run takes no data: URIs); `media` are the uploads
+     * Pictures in `turns` are inline data: URIs; `media` are the uploads
      * (uploadMedia), named as media references and as the run's starting media.
      */
     public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {
