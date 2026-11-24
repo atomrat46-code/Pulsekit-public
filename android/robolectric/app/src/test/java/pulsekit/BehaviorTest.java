@@ -48,6 +48,8 @@ public class BehaviorTest {
     PyJavParams.shown = null;
     // Browse sections' groups all open (a tap on a group closes it while the app runs).
     PyJavParams.closedGroups.clear();
+    // Section Collection's Cut / Copy holds nothing yet.
+    SectionCollection.clip = null;
     // The Prompts page starts on its Prompts & Categories tab.
     PromptsTabs.tab = PromptsTabs.PROMPTS;
     // A long press opens a file's menu (a drag never ends here).
@@ -15808,7 +15810,7 @@ public class BehaviorTest {
     idle();
     out.append("added left: ").append(viewTexts(w.left)).append('\n').append("added right: ").append(viewTexts(w.right)).append('\n');
     // The zebra's ☰ dropped on Animals (what the group's drop reads).
-    out.append("drag handle: ").append(w.right.findViewWithTag("sc-drag:" + zebra.id) != null).append(", drop target: ").append(w.left.findViewWithTag("sc-group:Animals") != null).append('\n');
+    out.append("drop target: ").append(w.left.findViewWithTag("sc-group:Animals") != null).append('\n');
     w.dropOn("Animals", SectionCollection.dragText(zebra));
     idle();
     w.left.findViewWithTag("sc-open:Animals").performClick();
@@ -15824,7 +15826,7 @@ public class BehaviorTest {
     // The kite's ⋮: the same menu; Move into group… lists the groups.
     w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
     idle();
-    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(6);
     idle();
     out.append("move to: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
     SectionCollectionScreen.lastMenu.dismiss();
@@ -15836,7 +15838,7 @@ public class BehaviorTest {
     // The zebra (under Animals, on the left) held: Edit name.
     w.left.findViewWithTag("sc-in:" + zebra.id).performLongClick();
     idle();
-    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(6);
     idle();
     ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
     ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Zebra");
@@ -15865,6 +15867,41 @@ public class BehaviorTest {
     SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("deleted left: ").append(viewTexts(w.left)).append('\n').append("deleted right: ").append(viewTexts(w.right)).append('\n');
+    // Send to other program: the kite into SogniVideo (no group); Send to other program's group: the zebra into SogniPedit › Portraits.
+    PromptVault.open(app.getFilesDir()).addSectionGroup("SogniPedit", "Portraits", "");
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(3);
+    idle();
+    String progs = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(java.util.Arrays.asList(progs.split(" \\| ")).indexOf("SogniVideo"));
+    idle();
+    w.left.findViewWithTag("sc-section-menu:" + zebra.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(3);
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(java.util.Arrays.asList(progs.split(" \\| ")).indexOf("SogniPedit"));
+    idle();
+    String gpick = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
+    idle();
+    PromptVault sv = PromptVault.open(app.getFilesDir());
+    out.append("send: programs ").append(progs).append(" | groups ").append(gpick).append(" | SogniVideo ").append(sv.sogniSections("SogniVideo").size() == 1 ? sv.sogniSections("SogniVideo").get(0).text.trim() + "/" + sv.sogniSections("SogniVideo").get(0).group : "none")
+        .append(" | SogniPedit ").append(sv.sogniSections("SogniPedit").size() == 1 ? sv.sogniSections("SogniPedit").get(0).name + "/" + sv.sogniSections("SogniPedit").get(0).group : "none").append('\n');
+    // Copy the kite, then Animals' menu: Paste (the same program's section: moved into Animals).
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
+    idle();
+    w.left.findViewWithTag("sc-group-menu:Animals").performClick();
+    idle();
+    String gmenu = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(1);
+    idle();
+    out.append("pasted: group menu ").append(gmenu).append(" | left ").append(viewTexts(w.left)).append('\n');
+    for (PromptVault.SogniSection x : sv.sogniSections("SogniVideo")) sv.deleteSogniSection(x.id);
+    for (PromptVault.SogniSection x : sv.sogniSections("SogniPedit")) sv.deleteSogniSection(x.id);
+    sv.deleteSectionGroup("SogniPedit", "Portraits");
     // Close: Browse sections again, the groups first.
     w.dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
@@ -15897,24 +15934,26 @@ public class BehaviorTest {
         "SC button: SC",
         "shown: true, browse closed true",
         "left: Weather (1) | \u22ee | +",
-        "right: \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
-        "added left: Animals | \u22ee | Four legs | Weather (1) | \u22ee | +",
-        "added right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
+        "right: \u22ee | Prompt: A red kite. |  | \u22ee | Prompt: Zebra at noon.",
         "new section lists: (no LoRAs), kite 0.4 | (no group), Animals, Weather",
-        "drag handle: true, drop target: true",
-        "dropped left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | \u22ee | Weather (1) | \u22ee | +",
-        "dropped right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite.",
-        "section menu: Save | Delete | Move into group\u2026 | Edit name",
+        "added left: Animals | \u22ee | Four legs | Weather (1) | \u22ee | +",
+        "added right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: A red kite. |  | \u22ee | Prompt: Zebra at noon.",
+        "drop target: true",
+        "dropped left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra at noon. \u00b7 <when> | Weather (1) | \u22ee | +",
+        "dropped right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: A red kite.",
+        "section menu: Save | Cut | Copy | Send to other program\u2026 | Send to other program's group\u2026 | Delete | Move into group\u2026 | Edit name",
         "move to: Animals | Weather",
         "full: Saved <when> /  / Prompt: Zebra at noon.",
         "edit name buttons: Save / Exit",
         "group menu: Delete | Rename",
-        "renamed left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | \u22ee | Sky (1) | \u22ee | +",
+        "renamed left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | \u22ee | +",
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
-        "deleted left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | \u22ee",
-        "deleted right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: Stormy sky. | \u2630 |  | \u22ee | Prompt: A red kite at dusk.",
-        "closed: true | browse: \u25be Animals (1) |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (3) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when> |       A red kite at dusk. \u00b7 <when>",
-        "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
+        "deleted left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
+        "deleted right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: Stormy sky. |  | \u22ee | Prompt: A red kite at dusk.",
+        "send: programs SogniPedit | SogniTextVideo | SogniVideo | groups Portraits | SogniVideo Prompt: A red kite at dusk./ | SogniPedit Zebra/Portraits",
+        "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
+        "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
+        "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
         "params SC: SC, opens true"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

@@ -1485,6 +1485,14 @@ public final class PromptVault {
     return out;
   }
 
+  /** The programs that have sections saved (their names as sections keep them: "SogniPedit"), A to Z. */
+  public synchronized List<String> sogniSectionApps() {
+    java.util.TreeMap<String, String> by = new java.util.TreeMap<String, String>();
+    for (SogniSection sec : sogniSections) by.put(sec.app.toLowerCase(java.util.Locale.ROOT), sec.app);
+    for (SectionGroup g : sectionGroups) by.put(g.app.toLowerCase(java.util.Locale.ROOT), g.app);
+    return new ArrayList<String>(by.values());
+  }
+
   /** The program's section with the same entries (SogniSections.same), or null. */
   public synchronized SogniSection findSogniSection(String app, String text) {
     for (SogniSection sec : sogniSections) if (sec.app.equalsIgnoreCase(app) && SogniSections.same(sec.text, text)) return sec;

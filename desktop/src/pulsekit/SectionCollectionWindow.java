@@ -426,6 +426,54 @@ public final class SectionCollectionWindow {
       });
       m.add(save);
     }
+    // Cut, Copy (held for Paste; the text on the clipboard too) and Paste (into this section's group).
+    for (final boolean cut : new boolean[] {true, false}) {
+      JMenuItem hold = new JMenuItem(cut ? SectionCollection.CUT : SectionCollection.COPY);
+      hold.setName(cut ? "sc-cut" : "sc-copy");
+      hold.addActionListener(e -> {
+        String said = SectionCollection.hold(s, cut);
+        try {
+          java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(s.text == null ? "" : s.text.trim()), null);
+        } catch (Exception ignored) {
+          // held for Paste all the same
+        }
+        this.said = said;
+      });
+      m.add(hold);
+    }
+    if (SectionCollection.clip != null) {
+      JMenuItem paste = new JMenuItem(SectionCollection.PASTE);
+      paste.setName("sc-paste");
+      paste.addActionListener(e -> this.pasteInto(s.group));
+      m.add(paste);
+    }
+    // Send to other program (or one of its groups): the section copied there.
+    JMenu send = new JMenu(SectionCollection.SEND);
+    send.setName("sc-send");
+    JMenu sendGroup = new JMenu(SectionCollection.SEND_GROUP);
+    sendGroup.setName("sc-send-group");
+    try {
+      for (final String p : SectionCollection.programs(this.vault(), this.app)) {
+        JMenuItem to = new JMenuItem(p);
+        to.setName("sc-send-to:" + p);
+        to.addActionListener(e -> this.sendTo(s, p, ""));
+        send.add(to);
+        JMenu groups = new JMenu(p);
+        groups.setName("sc-send-group-to:" + p);
+        for (final PromptVault.SectionGroup g : this.vault().sectionGroups(p)) {
+          JMenuItem gi = new JMenuItem(g.name);
+          gi.setName("sc-send-into:" + p + ":" + g.name);
+          gi.addActionListener(e -> this.sendTo(s, p, g.name));
+          groups.add(gi);
+        }
+        groups.setEnabled(groups.getItemCount() > 0);
+        sendGroup.add(groups);
+      }
+    } catch (Exception ignored) {
+      // none listed
+    }
+    m.add(send);
+    m.add(sendGroup);
     JMenuItem delete = new JMenuItem(SectionCollection.DELETE);
     delete.setName("sc-delete");
     delete.addActionListener(e -> {
@@ -478,6 +526,27 @@ public final class SectionCollectionWindow {
     return m;
   }
 
+  /** What Cut, Copy, Paste or Send said last. */
+  String said;
+
+  void pasteInto(String group) {
+    try {
+      this.said = SectionCollection.paste(this.vault(), this.app, group);
+    } catch (Exception ex) {
+      this.said = "Could not paste: " + ex.getMessage();
+    }
+    this.refresh();
+  }
+
+  void sendTo(PromptVault.SogniSection s, String program, String group) {
+    try {
+      this.said = SectionCollection.send(this.vault(), s, program, group);
+    } catch (Exception ex) {
+      this.said = "Could not send it: " + ex.getMessage();
+    }
+    this.say(this.said);
+  }
+
   JPopupMenu groupMenu(final SectionCollection.Group g) {
     JPopupMenu m = new JPopupMenu();
     JMenuItem delete = new JMenuItem(SectionCollection.DELETE);
@@ -491,6 +560,12 @@ public final class SectionCollectionWindow {
       }
       this.refresh();
     });
+    if (SectionCollection.clip != null) {
+      JMenuItem paste = new JMenuItem(SectionCollection.PASTE);
+      paste.setName("sc-group-paste");
+      paste.addActionListener(e -> this.pasteInto(g.name));
+      m.add(paste);
+    }
     JMenuItem rename = new JMenuItem(SectionCollection.RENAME);
     rename.setName("sc-group-rename");
     rename.addActionListener(e -> {

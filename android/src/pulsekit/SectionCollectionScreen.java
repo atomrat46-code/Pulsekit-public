@@ -313,11 +313,10 @@ final class SectionCollectionScreen {
     row.setOnDragListener(drop);
     if (isOpen) {
       for (final PromptVault.SogniSection s : g.sections) {
+        // Its ⋮ on a row above it, the text the row's whole width.
         LinearLayout one = new LinearLayout(this.activity);
-        one.setOrientation(LinearLayout.HORIZONTAL);
-        one.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        one.setPadding(dp(14), 0, 0, 0);
-        TextView handle = this.handle(s);
+        one.setOrientation(LinearLayout.VERTICAL);
+        one.setPadding(dp(10), 0, 0, dp(4));
         TextView label = new TextView(this.activity);
         label.setTag("sc-in:" + s.id);
         label.setText(SectionCollection.shortLabel(s));
@@ -330,30 +329,14 @@ final class SectionCollectionScreen {
         label.setOnClickListener(v -> this.showFull(s));
         android.widget.Button more2 = this.small("\u22ee", "sc-section-menu:" + s.id);
         more2.setOnClickListener(v -> this.sectionMenu(v, s, null));
-        one.addView(handle);
-        one.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        one.addView(more2);
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32));
+        up.gravity = android.view.Gravity.END;
+        one.addView(more2, up);
+        one.addView(label, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         row.addView(one);
       }
     }
     return row;
-  }
-
-  /** A section's ☰: touched, it is dragged (onto a group). */
-  TextView handle(final PromptVault.SogniSection s) {
-    TextView h = new TextView(this.activity);
-    h.setTag("sc-drag:" + s.id);
-    h.setText("☰");
-    h.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
-    h.setPadding(dp(6), dp(4), dp(8), dp(4));
-    h.setContentDescription(SectionCollection.DROP_TIP);
-    h.setOnTouchListener((v, e) -> {
-      if (e.getAction() != android.view.MotionEvent.ACTION_DOWN) return false;
-      android.content.ClipData data = android.content.ClipData.newPlainText("section", SectionCollection.dragText(s));
-      v.startDragAndDrop(data, new View.DragShadowBuilder(v), null, 0);
-      return true;
-    });
-    return h;
   }
 
   View sectionBox(final PromptVault.SogniSection s) {
@@ -364,7 +347,6 @@ final class SectionCollectionScreen {
     LinearLayout head = new LinearLayout(this.activity);
     head.setOrientation(LinearLayout.HORIZONTAL);
     head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-    head.addView(this.handle(s));
     TextView name = new TextView(this.activity);
     name.setTag("sc-head:" + s.id);
     name.setText(SectionCollection.heading(s));
@@ -456,6 +438,18 @@ final class SectionCollectionScreen {
         this.refresh();
       });
     }
+    items.add(SectionCollection.CUT);
+    does.add(() -> this.hold(s, true));
+    items.add(SectionCollection.COPY);
+    does.add(() -> this.hold(s, false));
+    if (SectionCollection.clip != null) {
+      items.add(SectionCollection.PASTE);
+      does.add(() -> this.pasteInto(s.group));
+    }
+    items.add(SectionCollection.SEND);
+    does.add(() -> this.sendMenu(s, false));
+    items.add(SectionCollection.SEND_GROUP);
+    does.add(() -> this.sendMenu(s, true));
     items.add(SectionCollection.DELETE);
     does.add(() -> this.confirm(SectionCollection.deleteAsk(s), () -> {
       try {
@@ -478,6 +472,70 @@ final class SectionCollectionScreen {
           this.refresh();
         }));
     this.menu(SogniSections.label(s), items, does);
+  }
+
+  /** Cut or Copy: the section held for Paste, its text on the clipboard too. */
+  void hold(PromptVault.SogniSection s, boolean cut) {
+    String said = SectionCollection.hold(s, cut);
+    try {
+      android.content.ClipboardManager cm = (android.content.ClipboardManager) this.activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+      if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("section", s.text == null ? "" : s.text.trim()));
+    } catch (Exception ignored) {
+      // held for Paste all the same
+    }
+    this.say(said);
+  }
+
+  /** Paste: the section cut or copied into this program's group ("" none). */
+  void pasteInto(String group) {
+    try {
+      this.say(SectionCollection.paste(this.vault(), this.app, group));
+    } catch (Exception ex) {
+      this.say("Could not paste: " + ex.getMessage());
+    }
+    this.refresh();
+  }
+
+  /** Send to other program (`toGroup`: then one of its groups): the program picked, then its group. */
+  void sendMenu(final PromptVault.SogniSection s, final boolean toGroup) {
+    final List<String> programs;
+    try {
+      programs = SectionCollection.programs(this.vault(), this.app);
+    } catch (Exception ex) {
+      this.say("Could not read the programs: " + ex.getMessage());
+      return;
+    }
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    for (final String p : programs) does.add(() -> {
+      if (!toGroup) {
+        this.sendTo(s, p, "");
+        return;
+      }
+      List<String> groups = new java.util.ArrayList<String>();
+      List<Runnable> into = new java.util.ArrayList<Runnable>();
+      try {
+        for (final PromptVault.SectionGroup g : this.vault().sectionGroups(p)) {
+          groups.add(g.name);
+          into.add(() -> this.sendTo(s, p, g.name));
+        }
+      } catch (Exception ignored) {
+        // none listed
+      }
+      if (groups.isEmpty()) {
+        this.say(p + " has no groups yet (its Section Collection's Add new group makes one)");
+        return;
+      }
+      this.menu(SectionCollection.PICK_GROUP + " (" + p + ")", groups, into);
+    });
+    this.menu(SectionCollection.PICK_PROGRAM, programs, does);
+  }
+
+  void sendTo(PromptVault.SogniSection s, String program, String group) {
+    try {
+      this.say(SectionCollection.send(this.vault(), s, program, group));
+    } catch (Exception ex) {
+      this.say("Could not send it: " + ex.getMessage());
+    }
   }
 
   /** Move into group: the groups (not its own), and Take out of the group when it is in one. */
@@ -516,6 +574,10 @@ final class SectionCollectionScreen {
       }
       this.refresh();
     }));
+    if (SectionCollection.clip != null) {
+      items.add(SectionCollection.PASTE);
+      does.add(() -> this.pasteInto(g.name));
+    }
     items.add(SectionCollection.RENAME);
     does.add(() -> this.ask(SectionCollection.RENAME, SectionCollection.GROUP_NAME, g.name, SectionCollection.DESCRIPTION, g.note, false, "OK", "Cancel", (name, note) -> {
       if (name.trim().isEmpty()) return;

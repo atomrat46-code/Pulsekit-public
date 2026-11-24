@@ -9995,6 +9995,7 @@ public final class DesktopBehavior {
     SectionCollectionWindow.last = null;
     SectionCollectionWindow.answers = new java.util.ArrayDeque<String[]>();
     SectionCollectionWindow.sure = Boolean.TRUE;
+    SectionCollection.clip = null;
     final java.util.function.Function<java.awt.Container, String> texts = new java.util.function.Function<java.awt.Container, String>() {
       @Override
       public String apply(java.awt.Container c) {
@@ -10112,6 +10113,33 @@ public final class DesktopBehavior {
         }
         ((javax.swing.JMenuItem) component(w.sectionMenu(blue, null), "sc-delete")).doClick();
         seen.append("deleted right: ").append(texts.apply(w.right)).append('\n');
+        // Copy the kite (no group), Paste on Animals: moved there. Send it to SogniVideo › Night.
+        try {
+          PromptDb.vault().addSectionGroup("SogniVideo", "Night", "");
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        ((javax.swing.JMenuItem) component(w.sectionMenu(kite, null), "sc-copy")).doClick();
+        SectionCollection.Group animals = null;
+        try {
+          for (SectionCollection.Group g : SectionCollection.groups(PromptDb.vault(), "SogniPadd")) if (g.name.equals("Animals")) animals = g;
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        ((javax.swing.JMenuItem) component(w.groupMenu(animals), "sc-group-paste")).doClick();
+        seen.append("pasted: ").append(w.said.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+        javax.swing.JMenu sendGroup = (javax.swing.JMenu) component(w.sectionMenu(kite, null), "sc-send-group");
+        for (java.awt.Component c : sendGroup.getMenuComponents()) {
+          if (!(c instanceof javax.swing.JMenu) || !"sc-send-group-to:SogniVideo".equals(c.getName())) continue;
+          for (java.awt.Component k : ((javax.swing.JMenu) c).getMenuComponents()) if ("sc-send-into:SogniVideo:Night".equals(k.getName())) ((javax.swing.JMenuItem) k).doClick();
+        }
+        seen.append("sent: ").append(w.said.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+        try {
+          for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniVideo")) PromptDb.vault().deleteSogniSection(x.id);
+          PromptDb.vault().deleteSectionGroup("SogniVideo", "Night");
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
         ((javax.swing.JButton) component(w.dialog, "sc-close")).doClick();
       });
       for (int i = 0; i < 50 && w.dialog.isShowing(); i++) Thread.sleep(100);
@@ -10154,7 +10182,7 @@ public final class DesktopBehavior {
         "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
         "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "full: Saved <when> /  / Prompt: Zebra at noon.", "add group button: Add new group",
-        "section menu: Save, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
+        "section menu: Save, Cut, Copy, Send to other program\u2026, Send to other program's group\u2026, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
         "named: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "group menu: Delete, Rename, Cancel",
         "renamed: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Sky (1) [+] Up there",
@@ -10163,9 +10191,10 @@ public final class DesktopBehavior {
         "group deleted right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
         "deleted right: \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
         "closed: true",
-        "browse: \u25be Animals (1) | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) | Stormy sky. \u00b7 <when> | A red kite at dusk. \u00b7 <when>",
+        "pasted: In Animals: A red kite at dusk. \u00b7 <when>", "sent: Added to SogniVideo \u203a Night: A red kite at dusk. \u00b7 <when>",
+        "browse: \u25be Animals (2) | A red kite at dusk. \u00b7 <when> | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (1) | Stormy sky. \u00b7 <when>",
         "picked: null | Animals | Prompt: Owl at night / Loras: kite 0.4",
-        "kept: Animals (Four legs) | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+        "kept: Animals (Four legs) | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
     boolean ok = true;
     for (String w : want) ok &= ("\n" + t).contains("\n" + w + "\n");
     if (!ok) throw new AssertionError(out.toString());

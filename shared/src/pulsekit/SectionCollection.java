@@ -184,6 +184,86 @@ public final class SectionCollection {
     return "Delete the group " + g.name + "?" + (g.sections.isEmpty() ? "" : "\n\nIts " + (g.sections.size() == 1 ? "section stays, in" : g.sections.size() + " sections stay, in") + " no group (on the right).");
   }
 
+  /** A section's menu: Cut, Copy, Paste, and Send to another Sogni program (or one of its groups). */
+  public static final String CUT = "Cut", COPY = "Copy", PASTE = "Paste";
+  public static final String SEND = "Send to other program\u2026", SEND_GROUP = "Send to other program's group\u2026";
+  public static final String PICK_PROGRAM = "Send to which program?", PICK_GROUP = "Into which group?";
+
+  /** The section cut or copied (Paste puts it in), or null. */
+  public static final class Clip {
+    public String app = "", text = "", name = "", note = "";
+    public long id;
+    public boolean cut;
+  }
+
+  public static Clip clip;
+
+  /** Cut or Copy: the section held for Paste (its text is on the system clipboard too, where there is one). */
+  public static String hold(PromptVault.SogniSection s, boolean cut) {
+    Clip c = new Clip();
+    c.app = s.app;
+    c.id = s.id;
+    c.text = s.text == null ? "" : s.text;
+    c.name = s.name == null ? "" : s.name;
+    c.note = s.note == null ? "" : s.note;
+    c.cut = cut;
+    clip = c;
+    return (cut ? "Cut: " : "Copied: ") + SogniSections.label(s) + (cut ? " (Paste puts it where you paste)" : "");
+  }
+
+  /**
+   * Paste: the section cut or copied into `app`'s `group` ("" none). The same program's section is moved
+   * there (a program keeps a section once); another program's is added there (Cut: and taken out of its
+   * own program). What it did.
+   */
+  public static String paste(PromptVault vault, String app, String group) throws Exception {
+    Clip c = clip;
+    if (c == null) return "Nothing to paste: Cut or Copy a section first";
+    String g = group == null ? "" : tidy(group);
+    String done = put(vault, c, app, g);
+    if (c.cut) clip = null;
+    return done;
+  }
+
+  /** The section held put into a program's group: moved (the same program) or added (another one). */
+  static String put(PromptVault vault, Clip c, String app, String g) throws Exception {
+    PromptVault.SogniSection same = vault.findSogniSection(app, c.text);
+    if (same != null) {
+      vault.groupSogniSection(same.id, g);
+      if (c.cut && same.id != c.id) vault.deleteSogniSection(c.id);
+      return "In " + (g.isEmpty() ? "no group" : g) + (app.equalsIgnoreCase(c.app) ? "" : " of " + app) + ": " + SogniSections.label(same);
+    }
+    PromptVault.SogniSection n = vault.addSogniSection(app, c.text);
+    if (n == null) return "Could not add it";
+    if (c.name.length() > 0 || c.note.length() > 0) vault.nameSogniSection(n.id, c.name, c.note);
+    if (!g.isEmpty()) vault.groupSogniSection(n.id, g);
+    if (c.cut) vault.deleteSogniSection(c.id);
+    return "Added to " + app + (g.isEmpty() ? "" : " \u203a " + g) + ": " + SogniSections.label(n);
+  }
+
+  /** Send to other program (its group, or none): the section copied there. What it did. */
+  public static String send(PromptVault vault, PromptVault.SogniSection s, String app, String group) throws Exception {
+    Clip c = new Clip();
+    c.app = s.app;
+    c.id = s.id;
+    c.text = s.text == null ? "" : s.text;
+    c.name = s.name == null ? "" : s.name;
+    c.note = s.note == null ? "" : s.note;
+    return put(vault, c, app, group == null ? "" : tidy(group));
+  }
+
+  /** The other Sogni programs a section can go to: Pulsekit's and those with sections (not `app`), A to Z. */
+  public static List<String> programs(PromptVault vault, String app) {
+    java.util.TreeMap<String, String> by = new java.util.TreeMap<String, String>();
+    for (String p : ParamsClip.SOGNI) {
+      String a = SogniSections.app(p);
+      if (!a.equals("SogniChat") && !a.equals("SogniMusic")) by.put(a.toLowerCase(java.util.Locale.ROOT), a);
+    }
+    for (String a : vault.sogniSectionApps()) by.put(a.toLowerCase(java.util.Locale.ROOT), a);
+    by.remove(app == null ? "" : app.toLowerCase(java.util.Locale.ROOT));
+    return new ArrayList<String>(by.values());
+  }
+
   /** What a section's drag carries (and a drop reads back): "pk-section:<id>". */
   public static String dragText(PromptVault.SogniSection s) {
     return "pk-section:" + s.id;
