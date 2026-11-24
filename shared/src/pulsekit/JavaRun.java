@@ -640,8 +640,14 @@ public final class JavaRun {
       if (PictureCopies.wants(n)) {
         // SogniChat: big JPEG pictures get a smaller copy for the chat model to see.
         List<File> made = new ArrayList<File>();
+        List<String> notes = new ArrayList<String>();
         try {
-          return runJava(n, source, bytes, PictureCopies.withCopies(argv, made));
+          Result r = runJava(n, source, bytes, PictureCopies.withCopies(argv, made, notes));
+          // Why a big JPEG got no smaller copy, first in the log.
+          if (notes.isEmpty() || r == null) return r;
+          StringBuilder sb = new StringBuilder();
+          for (String note : notes) sb.append(note).append('\n');
+          return new Result(sb + (r.log == null ? "" : r.log), r.files, r.code);
         } finally {
           PictureCopies.clean(made);
         }

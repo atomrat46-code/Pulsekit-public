@@ -664,8 +664,9 @@ public final class SogniChat {
               + " so only the tools get it (uploaded at full size)");
         } else {
           System.out.println("Failed: " + big + "; Sogni shows the chat model pictures of up to " + INLINE_SIDE + " px on the longest side."
-              + " Save it smaller or as a PNG (SogniChat sends a smaller copy of a PNG), or tick Offer Sogni tools, Run proposed tool calls"
-              + " or Unlimited Plan, and the file is uploaded for the tools at full size.");
+              + ("image/jpeg".equals(a.mime) ? " Pulsekit makes a smaller copy of a big JPEG before the run, but none was given (a Note above says why, when Pulsekit tried)."
+                  + " Save it smaller or as a PNG (SogniChat sends a smaller copy of a PNG)" : " Save it smaller")
+              + ", or, with a model that takes Sogni's tools, tick Offer Sogni tools, Run proposed tool calls or Unlimited Plan, and the file is uploaded for the tools at full size.");
           return null;
         }
       }
