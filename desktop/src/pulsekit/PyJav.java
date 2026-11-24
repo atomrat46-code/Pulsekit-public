@@ -2003,7 +2003,7 @@ final class PyJav {
             sc.setName("sections-collection");
             sc.setToolTipText(SectionCollection.BUTTON_TIP);
             sc.addActionListener(e -> {
-                SectionCollectionWindow.show(sc, program);
+                SectionCollectionWindow.show(sc, program, SectionCollection.lorasIn(this.loadParams(program + ".java")));
                 try {
                     all.clear();
                     all.addAll(PromptDb.vault().sogniSections(program));
@@ -3850,7 +3850,16 @@ final class PyJav {
                     sc.setName("params-collection");
                     sc.setToolTipText(SectionCollection.BUTTON_TIP);
                     sc.setMargin(new java.awt.Insets(1, 4, 1, 4));
-                    sc.addActionListener(e -> SectionCollectionWindow.show(sc, SogniSections.app(program)));
+                    // (The LoRAs row as it is now: Add new section lists it first.)
+                    sc.addActionListener(e -> {
+                        String loras = "";
+                        for (int k = 0; k < ps.size(); k++) {
+                            if (!ps.get(k).token.equals("--loras")) continue;
+                            if (areas[k] != null) loras = ProgramParams.oneLine(areas[k].getText());
+                            else if (fields[k] != null) loras = fields[k].getText();
+                        }
+                        SectionCollectionWindow.show(sc, SogniSections.app(program), loras);
+                    });
                     withClip.add(sc);
                 }
                 form.add(withClip);

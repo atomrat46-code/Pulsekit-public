@@ -15770,6 +15770,8 @@ public class BehaviorTest {
     vault.groupSogniSection(storm.id, "Weather");
     java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
     android.widget.EditText[] noFields = new android.widget.EditText[0];
+    // The Params' LoRAs now: Add new section lists them first.
+    PyJavParams.store(app, "SogniPadd.java", "--loras \"kite 0.4\"");
     PyJavParams.browseSections(app, "SogniPadd", none, noFields);
     idle();
     View sc = PyJavParams.lastSections.getWindow().getDecorView().findViewWithTag("sections-collection");
@@ -15790,10 +15792,19 @@ public class BehaviorTest {
     // Add new section: a name and plain text (the prompt).
     w.dialog.getWindow().getDecorView().findViewWithTag("sc-add-section").performClick();
     idle();
-    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Blue one");
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("A blue kite over the sea");
-    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    // Its own rows: name, description, prompt, the LoRAs list (the Params' first) and the group list.
+    View nv = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-name")).setText("Blue one");
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-note")).setText("Over the sea");
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-prompt")).setText("A blue kite over the sea");
+    android.widget.Spinner lsp = (android.widget.Spinner) nv.findViewWithTag("sc-new-loras");
+    android.widget.Spinner gsp = (android.widget.Spinner) nv.findViewWithTag("sc-new-group");
+    StringBuilder lists = new StringBuilder();
+    for (int k = 0; k < lsp.getAdapter().getCount(); k++) lists.append(k == 0 ? "" : ", ").append(lsp.getAdapter().getItem(k));
+    lists.append(" | ");
+    for (int k = 0; k < gsp.getAdapter().getCount(); k++) lists.append(k == 0 ? "" : ", ").append(gsp.getAdapter().getItem(k));
+    out.append("new section lists: ").append(lists).append('\n');
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("added left: ").append(viewTexts(w.left)).append('\n').append("added right: ").append(viewTexts(w.right)).append('\n');
     // The zebra's ☰ dropped on Animals (what the group's drop reads).
@@ -15889,6 +15900,7 @@ public class BehaviorTest {
         "right: \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
         "added left: Animals | \u22ee | Four legs | Weather (1) | \u22ee | +",
         "added right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
+        "new section lists: (no LoRAs), kite 0.4 | (no group), Animals, Weather",
         "drag handle: true, drop target: true",
         "dropped left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | \u22ee | Weather (1) | \u22ee | +",
         "dropped right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite.",
@@ -15902,7 +15914,7 @@ public class BehaviorTest {
         "deleted left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | \u22ee",
         "deleted right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: Stormy sky. | \u2630 |  | \u22ee | Prompt: A red kite at dusk.",
         "closed: true | browse: \u25be Animals (1) |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (3) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when> |       A red kite at dusk. \u00b7 <when>",
-        "kept: Animals (Four legs) | Blue one///Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
+        "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
         "params SC: SC, opens true"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

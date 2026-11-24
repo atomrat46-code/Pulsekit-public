@@ -10013,6 +10013,8 @@ public final class DesktopBehavior {
     };
     try {
       final PyJav py = (PyJav) get("pyJav");
+      // The Params' LoRAs now: Add new section lists them first.
+      py.saveParams("SogniPadd.java", "--loras \"kite 0.4\"");
       // Browse sections has SC; it opens Section Collection.
       final javax.swing.JButton[] sc = new javax.swing.JButton[1];
       PyJav.pickSection = null;
@@ -10034,8 +10036,9 @@ public final class DesktopBehavior {
         // Add new: a group with a description; Add new section: a name and plain text.
         SectionCollectionWindow.answers.add(new String[] {"Animals", "Four legs"});
         w.addGroup();
-        SectionCollectionWindow.answers.add(new String[] {"Blue one", "A blue kite over the sea"});
+        SectionCollectionWindow.answers.add(new String[] {"Blue one", "Over the sea", "A blue kite over the sea", SectionCollection.NO_LORAS, SectionCollection.NO_GROUP_PICK});
         w.addSection();
+        seen.append("new section lists: ").append(w.lastLoras).append(" | ").append(w.lastGroups).append('\n');
         seen.append("added left: ").append(texts.apply(w.left)).append('\n');
         seen.append("added right: ").append(texts.apply(w.right)).append('\n');
       });
@@ -10127,6 +10130,9 @@ public final class DesktopBehavior {
       for (PromptVault.SectionGroup g : back.sectionGroups("SogniPadd")) kept.append(g.name).append(" (").append(g.note).append(") ");
       for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
       seen.append("kept: ").append(kept.toString().trim()).append('\n');
+      // Add new section with LoRAs and a group picked: in that group, its LoRAs line written.
+      String bad = SectionCollection.addSection(back, "SogniPadd", "", "", "Owl at night", "kite 0.4", "Animals");
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.text.contains("Owl")) seen.append("picked: ").append(bad).append(" | ").append(x.group).append(" | ").append(x.text.trim().replace("\n", " / ")).append('\n');
     } finally {
       if (seen.indexOf("kept: ") < 0) out.append(seen);
       SectionCollectionWindow.answers = null;
@@ -10143,6 +10149,7 @@ public final class DesktopBehavior {
         "right: \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
         "added left: Animals Four legs Weather (1) [+]",
         "added right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
+        "new section lists: [(no LoRAs), kite 0.4] | [(no group), Animals, Weather]",
         "dragged left: Animals (1) [+] Four legs Weather (1) [+]",
         "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
         "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
@@ -10157,6 +10164,7 @@ public final class DesktopBehavior {
         "deleted right: \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
         "closed: true",
         "browse: \u25be Animals (1) | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) | Stormy sky. \u00b7 <when> | A red kite at dusk. \u00b7 <when>",
+        "picked: null | Animals | Prompt: Owl at night / Loras: kite 0.4",
         "kept: Animals (Four legs) | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
     boolean ok = true;
     for (String w : want) ok &= ("\n" + t).contains("\n" + w + "\n");

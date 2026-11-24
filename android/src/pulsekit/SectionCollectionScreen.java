@@ -21,6 +21,8 @@ import java.util.Set;
 final class SectionCollectionScreen {
   private final Activity activity;
   private final String app;
+  /** The LoRAs the Params have now (Add new section lists them first), or "". */
+  private final String lorasNow;
   final LinearLayout left;
   final LinearLayout right;
   final AlertDialog dialog;
@@ -33,9 +35,10 @@ final class SectionCollectionScreen {
   static AlertDialog lastMenu, lastFull;
   static AlertDialog lastAsk;
 
-  private SectionCollectionScreen(Activity activity, String app, final Runnable closed) {
+  private SectionCollectionScreen(Activity activity, String app, String lorasNow, final Runnable closed) {
     this.activity = activity;
     this.app = app;
+    this.lorasNow = lorasNow == null ? "" : lorasNow;
     LinearLayout root = new LinearLayout(activity);
     root.setOrientation(LinearLayout.HORIZONTAL);
     // Left: Add new, then the groups (scrolled).
@@ -80,7 +83,12 @@ final class SectionCollectionScreen {
 
   /** Shows the program's Section Collection; `closed` runs when it closes (Browse sections listed again). */
   static SectionCollectionScreen show(Activity activity, String app, Runnable closed) {
-    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, closed);
+    return show(activity, app, PyJavParams.load(activity, app + ".java") == null ? "" : SectionCollection.lorasIn(PyJavParams.load(activity, app + ".java")), closed);
+  }
+
+  /** Shows it with the LoRAs the Params have now (Add new section's list has them first). */
+  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, Runnable closed) {
+    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, lorasNow, closed);
     last = sc;
     sc.dialog.show();
     // Most of the screen: both sides have room for their lists.
@@ -156,16 +164,70 @@ final class SectionCollectionScreen {
     });
   }
 
+  /** Add new section's dialog shown last (the tests). */
+  static AlertDialog lastNew;
+
+  /** Add new section: name, description, prompt, LoRAs (a list of recent ones) and group (a list). */
   void addSection() {
-    this.ask(SectionCollection.ADD_SECTION, SectionCollection.SECTION_NAME, "", SectionCollection.SECTION_TEXT, "", true, "OK", "Cancel", (name, text) -> {
-      try {
-        String bad = SectionCollection.addSection(this.vault(), this.app, name, text);
-        if (bad != null) this.say(bad);
-      } catch (Exception ex) {
-        this.say("Could not add the section: " + ex.getMessage());
-      }
-      this.refresh();
-    });
+    final List<String> loras, groups;
+    try {
+      loras = SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow);
+      groups = SectionCollection.groupPicks(this.vault(), this.app);
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+      return;
+    }
+    LinearLayout box = new LinearLayout(this.activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(dp(20), dp(8), dp(20), 0);
+    final EditText name = this.field(box, SectionCollection.SECTION_NAME, "sc-new-name", 1);
+    final EditText note = this.field(box, SectionCollection.DESCRIPTION, "sc-new-note", 2);
+    final EditText prompt = this.field(box, SectionCollection.PROMPT, "sc-new-prompt", 4);
+    final android.widget.Spinner lp = this.pick(box, SectionCollection.LORAS, "sc-new-loras", loras);
+    final android.widget.Spinner gp = this.pick(box, SectionCollection.GROUP, "sc-new-group", groups);
+    ScrollView sv = new ScrollView(this.activity);
+    sv.addView(box);
+    lastNew = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.ADD_SECTION).setView(sv)
+        .setPositiveButton("OK", (d, w) -> {
+          try {
+            String bad = SectionCollection.addSection(this.vault(), this.app, name.getText().toString(), note.getText().toString(), prompt.getText().toString(),
+                loras.get(Math.max(0, lp.getSelectedItemPosition())), groups.get(Math.max(0, gp.getSelectedItemPosition())));
+            if (bad != null) this.say(bad);
+          } catch (Exception ex) {
+            this.say("Could not add the section: " + ex.getMessage());
+          }
+          this.refresh();
+        })
+        .setNegativeButton("Cancel", null).show();
+  }
+
+  EditText field(LinearLayout box, String label, String tag, int lines) {
+    TextView l = new TextView(this.activity);
+    l.setText(label);
+    box.addView(l);
+    EditText e = new EditText(this.activity);
+    e.setTag(tag);
+    if (lines == 1) e.setSingleLine(true);
+    else {
+      e.setMinLines(lines);
+      e.setGravity(android.view.Gravity.TOP);
+    }
+    box.addView(e);
+    return e;
+  }
+
+  android.widget.Spinner pick(LinearLayout box, String label, String tag, List<String> items) {
+    TextView l = new TextView(this.activity);
+    l.setText(label);
+    l.setPadding(0, dp(6), 0, 0);
+    box.addView(l);
+    android.widget.Spinner sp = new android.widget.Spinner(this.activity);
+    sp.setTag(tag);
+    android.widget.ArrayAdapter<String> a = new android.widget.ArrayAdapter<String>(this.activity, android.R.layout.simple_spinner_item, items);
+    a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    sp.setAdapter(a);
+    box.addView(sp);
+    return sp;
   }
 
   /** Both sides drawn again from the library. */

@@ -36,6 +36,8 @@ import javax.swing.SwingUtilities;
 public final class SectionCollectionWindow {
   private final Component owner;
   private final String app;
+  /** The LoRAs the Params have now (Add new section lists them first), or "". */
+  private final String lorasNow;
   final JDialog dialog;
   final JPanel left = new JPanel();
   final JPanel right = new JPanel();
@@ -49,9 +51,10 @@ public final class SectionCollectionWindow {
   static java.util.Deque<String[]> answers;
   static Boolean sure;
 
-  private SectionCollectionWindow(Component owner, String app) {
+  private SectionCollectionWindow(Component owner, String app, String lorasNow) {
     this.owner = owner;
     this.app = app;
+    this.lorasNow = lorasNow == null ? "" : lorasNow;
     java.awt.Window w = owner == null ? null : SwingUtilities.getWindowAncestor(owner);
     this.dialog = new JDialog(w, SectionCollection.TITLE + " · " + app, java.awt.Dialog.ModalityType.APPLICATION_MODAL);
     this.dialog.setName("section-collection");
@@ -96,7 +99,12 @@ public final class SectionCollectionWindow {
 
   /** Shows the program's Section Collection (until Close). */
   public static void show(Component owner, String app) {
-    SectionCollectionWindow sc = new SectionCollectionWindow(owner, app);
+    show(owner, app, "");
+  }
+
+  /** Shows it with the LoRAs the Params have now (Add new section's list has them first). */
+  public static void show(Component owner, String app, String lorasNow) {
+    SectionCollectionWindow sc = new SectionCollectionWindow(owner, app, lorasNow);
     last = sc;
     sc.dialog.setVisible(true);
   }
@@ -146,17 +154,60 @@ public final class SectionCollectionWindow {
     this.refresh();
   }
 
+  /** Add new section: name, description, prompt, LoRAs (a list of recent ones) and group (a list). */
   void addSection() {
-    String[] got = this.ask(SectionCollection.ADD_SECTION, SectionCollection.SECTION_NAME, "", SectionCollection.SECTION_TEXT, "", true, "OK", "Cancel");
+    String[] got;
+    List<String> loras, groups;
+    try {
+      loras = SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow);
+      groups = SectionCollection.groupPicks(this.vault(), this.app);
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+      return;
+    }
+    this.lastLoras = loras;
+    this.lastGroups = groups;
+    if (answers != null) got = answers.poll();
+    else {
+      JTextField name = new JTextField(28);
+      TextMenu.attach(name);
+      JTextArea note = new JTextArea(2, 40);
+      note.setLineWrap(true);
+      note.setWrapStyleWord(true);
+      JTextArea prompt = new JTextArea(5, 40);
+      prompt.setLineWrap(true);
+      prompt.setWrapStyleWord(true);
+      javax.swing.JComboBox<String> lp = new javax.swing.JComboBox<String>(loras.toArray(new String[0]));
+      lp.setName("sc-new-loras");
+      javax.swing.JComboBox<String> gp = new javax.swing.JComboBox<String>(groups.toArray(new String[0]));
+      gp.setName("sc-new-group");
+      JPanel p = new JPanel();
+      p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+      for (Object[] row : new Object[][] {{SectionCollection.SECTION_NAME, name}, {SectionCollection.DESCRIPTION, new JScrollPane(note)},
+          {SectionCollection.PROMPT, new JScrollPane(prompt)}, {SectionCollection.LORAS, lp}, {SectionCollection.GROUP, gp}}) {
+        JLabel l = new JLabel((String) row[0]);
+        l.setAlignmentX(0f);
+        ((javax.swing.JComponent) row[1]).setAlignmentX(0f);
+        p.add(l);
+        p.add((Component) row[1]);
+        p.add(Box.createVerticalStrut(6));
+      }
+      Object[] options = {"OK", "Cancel"};
+      int ans = JOptionPane.showOptionDialog(this.dialog, p, SectionCollection.ADD_SECTION, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+      got = ans == 0 ? new String[] {name.getText(), note.getText(), prompt.getText(), (String) lp.getSelectedItem(), (String) gp.getSelectedItem()} : null;
+    }
     if (got == null) return;
     try {
-      String bad = SectionCollection.addSection(this.vault(), this.app, got[0], got[1]);
+      String bad = SectionCollection.addSection(this.vault(), this.app, got[0], got[1], got[2], got[3], got[4]);
       if (bad != null) this.say(bad);
     } catch (Exception ex) {
       this.say("Could not add the section: " + ex.getMessage());
     }
     this.refresh();
   }
+
+  /** Add new section's lists shown last (the tests). */
+  List<String> lastLoras, lastGroups;
 
   /** Both sides drawn again from the library. */
   void refresh() {

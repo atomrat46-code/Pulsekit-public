@@ -98,6 +98,60 @@ public final class SectionCollection {
     return null;
   }
 
+  /** Add new section's own rows: the prompt, the LoRAs (recent ones to pick), the group. */
+  public static final String PROMPT = "Prompt", LORAS = "LoRAs", GROUP = "Group";
+  public static final String NO_LORAS = "(no LoRAs)", NO_GROUP_PICK = "(no group)";
+
+  /**
+   * Add new section's LoRA list: "(no LoRAs)", then the LoRA values used last (the Params' now first,
+   * then the program's sections', the newest first), each once.
+   */
+  public static List<String> recentLoras(PromptVault vault, String app, String paramsNow) {
+    java.util.LinkedHashSet<String> got = new java.util.LinkedHashSet<String>();
+    String now = paramsNow == null ? "" : paramsNow.trim();
+    if (now.length() > 0) got.add(now);
+    for (PromptVault.SogniSection s : vault.sogniSections(app)) {
+      String l = SogniSections.read(s.text).get("--loras");
+      if (l != null && l.trim().length() > 0) got.add(l.trim());
+    }
+    List<String> out = new ArrayList<String>();
+    out.add(NO_LORAS);
+    out.addAll(got);
+    return out;
+  }
+
+  /** The --loras value in a Params' saved switches ("" when it has none). */
+  public static String lorasIn(String params) {
+    List<String> w = JavaRun.split(params == null ? "" : params);
+    for (int i = 0; i + 1 < w.size(); i++) if (w.get(i).equals("--loras") && !w.get(i + 1).startsWith("--")) return w.get(i + 1);
+    return "";
+  }
+
+  /** Add new section's group list: "(no group)", then the program's groups A to Z. */
+  public static List<String> groupPicks(PromptVault vault, String app) {
+    List<String> out = new ArrayList<String>();
+    out.add(NO_GROUP_PICK);
+    for (PromptVault.SectionGroup g : vault.sectionGroups(app)) out.add(g.name);
+    return out;
+  }
+
+  /**
+   * Add new section with its own rows: a name and description, the prompt, the LoRAs picked ("(no
+   * LoRAs)": none) and the group picked ("(no group)": none). Null when it was made, else what is wrong.
+   */
+  public static String addSection(PromptVault vault, String app, String name, String note, String prompt, String loras, String group) throws Exception {
+    String p = prompt == null ? "" : prompt.trim().replaceAll("\\s*\n\\s*", " ");
+    if (p.isEmpty()) return "A section needs its prompt";
+    String l = loras == null || NO_LORAS.equals(loras) ? "" : loras.trim();
+    String t = "Prompt: " + p + "\n" + (l.isEmpty() ? "" : "Loras: " + l + "\n");
+    PromptVault.SogniSection s = vault.addSogniSection(app, t);
+    if (s == null) return "The same section is saved already";
+    if (tidy(name).length() > 0 || (note != null && note.trim().length() > 0)) vault.nameSogniSection(s.id, name, note);
+    String g = group == null || NO_GROUP_PICK.equals(group) ? "" : tidy(group);
+    if (g.length() > 0) vault.groupSogniSection(s.id, g);
+    return null;
+  }
+
   /** Add new section: a section with a name (null when it was made, else what is wrong). */
   public static String addSection(PromptVault vault, String app, String name, String text) throws Exception {
     String t = entries(text);

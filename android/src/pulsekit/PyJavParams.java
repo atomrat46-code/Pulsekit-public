@@ -143,7 +143,12 @@ public final class PyJavParams {
         if (p.token.equals("--prompt") && SogniSections.shown(name)) {
           android.widget.Button sc = clipButton(activity, SectionCollection.BUTTON, "params-collection");
           sc.setContentDescription(SectionCollection.BUTTON_TIP);
-          sc.setOnClickListener(v -> SectionCollectionScreen.show(activity, SogniSections.app(name), null));
+          // (The LoRAs row as it is now: Add new section lists it first.)
+          sc.setOnClickListener(v -> {
+            String loras = "";
+            for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals("--loras") && fields[k] != null) loras = ProgramParams.oneLine(fields[k].getText().toString());
+            SectionCollectionScreen.show(activity, SogniSections.app(name), loras, null);
+          });
           withClip.addView(sc);
         }
         box.addView(withClip);
