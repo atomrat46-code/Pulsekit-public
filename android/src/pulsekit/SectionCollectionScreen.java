@@ -194,8 +194,7 @@ final class SectionCollectionScreen {
     // The program's other rows (and any other entry the section has): a field each.
     final java.util.LinkedHashMap<String, EditText> other = new java.util.LinkedHashMap<String, EditText>();
     java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<String, String>();
-    for (ProgramParams.Param x : extras) labels.put(x.token, SectionCollection.rowLabel(x));
-    for (String k : init.extra.keySet()) if (!labels.containsKey(k)) labels.put(k, k.substring(2));
+    for (ProgramParams.Param x : SectionCollection.extraRows(extras)) labels.put(x.token, SectionCollection.rowLabel(x));
     for (java.util.Map.Entry<String, String> e : labels.entrySet())
       other.put(e.getKey(), field(activity, box, e.getValue(), "sc-new-row:" + e.getKey(), 1, init.extra.containsKey(e.getKey()) ? init.extra.get(e.getKey()) : ""));
     ScrollView sv = new ScrollView(activity);
@@ -209,6 +208,7 @@ final class SectionCollectionScreen {
       f.prompt = prompt.getText().toString();
       f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
       f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
+      f.extra.putAll(init.extra);
       for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
       return f;
     };
@@ -223,7 +223,8 @@ final class SectionCollectionScreen {
           f.prompt = prompt.getText().toString();
           f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
           f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
-          for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
+          f.extra.putAll(init.extra);
+      for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
           done.accept(f);
         })
         .setNegativeButton(edit ? SectionCollection.EXIT : "Cancel", null).show();

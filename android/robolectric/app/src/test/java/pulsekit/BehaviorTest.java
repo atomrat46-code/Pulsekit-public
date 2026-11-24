@@ -15967,7 +15967,8 @@ public class BehaviorTest {
     idle();
     View fv = SectionCollectionScreen.lastNew.getWindow().getDecorView();
     out.append("rows: aspect ").append(fv.findViewWithTag("sc-new-row:--aspect") != null).append(", width ").append(fv.findViewWithTag("sc-new-row:--width") != null)
-        .append(", height ").append(fv.findViewWithTag("sc-new-row:--height") != null).append(", seed ").append(fv.findViewWithTag("sc-new-row:--seed") != null).append('\n');
+        .append(", height ").append(fv.findViewWithTag("sc-new-row:--height") != null).append(", seed ").append(fv.findViewWithTag("sc-new-row:--seed") != null)
+        .append(", prompt twice ").append(fv.findViewWithTag("sc-new-row:--prompt") != null).append('\n');
     ((android.widget.EditText) fv.findViewWithTag("sc-new-prompt")).setText("Owl at night");
     ((android.widget.EditText) fv.findViewWithTag("sc-new-row:--aspect")).setText("4:7");
     SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
@@ -16010,7 +16011,9 @@ public class BehaviorTest {
     idle();
     View nv2 = SectionCollectionScreen.lastNew.getWindow().getDecorView();
     out.append("as new: prompt ").append(((android.widget.EditText) nv2.findViewWithTag("sc-new-prompt")).getText()).append(", aspect ")
-        .append(((android.widget.EditText) nv2.findViewWithTag("sc-new-row:--aspect")).getText()).append('\n');
+        .append(((android.widget.EditText) nv2.findViewWithTag("sc-new-row:--aspect")).getText())
+        .append(", prompt twice ").append(nv2.findViewWithTag("sc-new-row:--prompt") != null)
+        .append(", loras twice ").append(nv2.findViewWithTag("sc-new-row:--loras") != null).append('\n');
     ((android.widget.EditText) nv2.findViewWithTag("sc-new-name")).setText("Dawn owl");
     SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
@@ -16044,8 +16047,8 @@ public class BehaviorTest {
         "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
-        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed true", "owl: Prompt: Owl at night / aspect: 4:7", "save as: same name Save as: give the copy another name (or change an entry) | other name null, owls 2", "buttons: export in bar after Save true, run sections above variations true | held: true",
-        "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7",
+        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed false, prompt twice false", "owl: Prompt: Owl at night / aspect: 4:7", "save as: same name Save as: give the copy another name (or change an entry) | other name null, owls 2", "buttons: export in bar after Save true, run sections above variations true | held: true",
+        "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7, prompt twice false, loras twice false",
         "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

@@ -196,8 +196,7 @@ public final class SectionCollectionWindow {
     // The program's other rows (and any other entry the section has): a field each.
     java.util.LinkedHashMap<String, JTextField> other = new java.util.LinkedHashMap<String, JTextField>();
     java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<String, String>();
-    for (ProgramParams.Param x : extras) labels.put(x.token, SectionCollection.rowLabel(x));
-    for (String k : init.extra.keySet()) if (!labels.containsKey(k)) labels.put(k, k.substring(2));
+    for (ProgramParams.Param x : SectionCollection.extraRows(extras)) labels.put(x.token, SectionCollection.rowLabel(x));
     for (java.util.Map.Entry<String, String> e : labels.entrySet()) {
       JTextField f = new JTextField(init.extra.containsKey(e.getKey()) ? init.extra.get(e.getKey()) : "", 20);
       f.setName("sc-new-row:" + e.getKey());
@@ -227,6 +226,7 @@ public final class SectionCollectionWindow {
     f.prompt = prompt.getText();
     f.loras = (String) lp.getSelectedItem();
     f.group = (String) gp.getSelectedItem();
+    f.extra.putAll(init.extra);
     for (java.util.Map.Entry<String, JTextField> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText());
     return f;
   }

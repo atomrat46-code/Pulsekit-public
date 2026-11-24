@@ -134,10 +134,13 @@ public final class SectionCollection {
   /** Edit data's third button. */
   public static final String SAVE_AS = "Save as";
 
-  /** The program's rows a section keeps besides the prompt and the LoRAs (Aspect, Width, Height, Seed...). */
+  /** The rows the form shows besides the prompt and the LoRAs: the program's Aspect, Width and Height. */
+  public static final java.util.Set<String> FORM_ROWS = new java.util.HashSet<String>(java.util.Arrays.asList("--aspect", "--width", "--height"));
+
+  /** The program's rows the form shows besides the prompt and the LoRAs (Aspect, Width, Height). */
   public static List<ProgramParams.Param> extraRows(List<ProgramParams.Param> ps) {
     List<ProgramParams.Param> out = new ArrayList<ProgramParams.Param>();
-    if (ps != null) for (ProgramParams.Param p : ps) if (SogniSections.kept(p) && !p.token.equals("--prompt") && !p.token.equals("--loras")) out.add(p);
+    if (ps != null) for (ProgramParams.Param p : ps) if (SogniSections.kept(p) && FORM_ROWS.contains(p.token)) out.add(p);
     return out;
   }
 
