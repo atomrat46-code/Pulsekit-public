@@ -4727,6 +4727,43 @@ def bench_reuse(cache, sig, alt_of):
     return False
 
 
+BENCH_WORKS = "bench-work-folders.txt"
+
+
+def bench_works(work):
+    """The work folders earlier benches used (~/.pulsekit/bench-work-folders.txt, the newest first), this one
+    added; the others returned."""
+    path = os.path.join(os.path.expanduser("~"), ".pulsekit", BENCH_WORKS)
+    try:
+        with open(path, encoding="utf-8") as f:
+            known = [l.strip() for l in f if l.strip()]
+    except OSError:
+        known = []
+    me = os.path.abspath(work)
+    others = [w for w in known if os.path.normcase(os.path.abspath(w)) != os.path.normcase(me) and os.path.isdir(os.path.join(w, "data"))]
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join([me] + others[:19]) + "\n")
+    except OSError:
+        pass
+    return others
+
+
+def bench_elsewhere(cache, works, sig, key, zips):
+    """A kit's DrumMidi results kept in an earlier work folder (this DrumMidi or one finding the same hits),
+    copied here; True when there were some."""
+    import shutil
+    for w in works:
+        for s in [sig] + SAME_DRUMMIDI.get(sig, []):
+            alt = bench_cache(w, s, key, zips)
+            if os.path.isfile(alt):
+                os.makedirs(os.path.dirname(cache), exist_ok=True)
+                shutil.copyfile(alt, cache)
+                return True
+    return False
+
+
 def bench_cache(work, sig, kit, zips):
     """Where the kit's DrumMidi results are kept: <work>/data/<jar>/<key>-<its zips>-v2.npz."""
     return os.path.join(work, "data", sig, "%s-%s-%s.npz" % (kit, bench_sig(zips), BENCH_DATA))
@@ -5216,6 +5253,18 @@ def model_bench(opts, switches):
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
     reports = []
+    # Earlier benches' work folders (another Output folder, another bench work folder) are looked in too:
+    # a kit's DrumMidi results made there are copied here, not made again.
+    works = bench_works(work)
+    # Said first: how many kits have DrumMidi's results kept, and how many need DrumMidi (the hours).
+    have = 0
+    for key, stamp, zips, where in found:
+        cache = bench_cache(work, sig, key, zips)
+        if bench_reuse(cache, sig, lambda old: bench_cache(work, old, key, zips)) or bench_elsewhere(cache, works, sig, key, zips):
+            have += 1
+    print("DrumMidi's results kept: %d of %d kits (DrumMidi_CRT.jar %s, in %s%s)%s" % (
+        have, len(found), sig, os.path.join(work, "data"), "; earlier work folders looked in: %s" % "; ".join(works) if works else "",
+        "" if have == len(found) else ": DrumMidi runs on the other %d kits' songs (the long part; give Bench work the folder an earlier bench used to use its results)" % (len(found) - have)), flush=True)
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
         bench_reuse(cache, sig, lambda old: bench_cache(work, old, key, zips))
