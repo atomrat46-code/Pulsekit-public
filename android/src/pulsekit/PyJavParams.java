@@ -139,6 +139,13 @@ public final class PyJavParams {
         for (View b : clipButtons(activity, name, p.token, () -> fields[index])) withClip.addView(b);
         // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
         if (p.token.equals("--prompt")) for (View b : markButtons(activity, SogniSections.app(name), ps, fields)) withClip.addView(b);
+        // SC: Section Collection (the program's sections in groups).
+        if (p.token.equals("--prompt") && SogniSections.shown(name)) {
+          android.widget.Button sc = clipButton(activity, SectionCollection.BUTTON, "params-collection");
+          sc.setContentDescription(SectionCollection.BUTTON_TIP);
+          sc.setOnClickListener(v -> SectionCollectionScreen.show(activity, SogniSections.app(name), null));
+          withClip.addView(sc);
+        }
         box.addView(withClip);
       } else {
         box.addView(label);
@@ -883,9 +890,10 @@ public final class PyJavParams {
     b.setAllCaps(false);
     b.setMinWidth(0);
     b.setMinimumWidth(0);
-    b.setPadding(dp(activity, 8), 0, dp(activity, 8), 0);
+    // Narrow: the prompt row has Copy, Paste, Send, ★, G and SC after its label.
+    b.setPadding(dp(activity, 5), 0, dp(activity, 5), 0);
     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    lp.leftMargin = dp(activity, 4);
+    lp.leftMargin = dp(activity, 2);
     b.setLayoutParams(lp);
     return b;
   }

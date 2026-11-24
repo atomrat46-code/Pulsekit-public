@@ -226,6 +226,14 @@ public final class SectionCollectionWindow {
         one.setToolTipText(s.text);
         this.dragsOnto(one, s);
         onMenu(one, () -> this.sectionMenu(s, null));
+        // A click: the section shown fully (its row may be cut short).
+        one.setToolTipText(SectionCollection.FULL_TIP);
+        one.addMouseListener(new java.awt.event.MouseAdapter() {
+          @Override
+          public void mouseClicked(java.awt.event.MouseEvent e) {
+            if (SwingUtilities.isLeftMouseButton(e)) SectionCollectionWindow.this.showFull(s);
+          }
+        });
         row.add(one);
       }
     }
@@ -253,6 +261,20 @@ public final class SectionCollectionWindow {
     onMenu(head, () -> this.sectionMenu(s, text));
     onMenu(text, () -> this.sectionMenu(s, text));
     return box;
+  }
+
+  /** The full view shown last (the tests). */
+  String lastFull;
+
+  /** A section shown fully: its name, description, when it was saved and its entries. */
+  void showFull(PromptVault.SogniSection s) {
+    this.lastFull = SogniSections.full(s);
+    if (answers != null) return;
+    JTextArea t = new JTextArea(this.lastFull, Math.min(16, this.lastFull.split("\n").length + 1), 50);
+    t.setEditable(false);
+    t.setLineWrap(true);
+    t.setWrapStyleWord(true);
+    JOptionPane.showMessageDialog(this.dialog, new JScrollPane(t), SogniSections.label(s), JOptionPane.PLAIN_MESSAGE);
   }
 
   /** Right click, or a hold of 0.6 s: the menu. */

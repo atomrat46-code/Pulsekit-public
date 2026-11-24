@@ -15807,13 +15807,25 @@ public class BehaviorTest {
     ((android.widget.EditText) w.right.findViewWithTag("sc-text:" + kite.id)).setText("Prompt: A red kite at dusk.");
     w.right.findViewWithTag("sc-text:" + kite.id).performLongClick();
     idle();
-    out.append("section menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.SAVE);
+    out.append("section menu: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
     idle();
+    // The kite's ⋮: the same menu; Move into group… lists the groups.
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
+    idle();
+    out.append("move to: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    SectionCollectionScreen.lastMenu.dismiss();
+    // The zebra under Animals tapped: shown fully.
+    w.left.findViewWithTag("sc-in:" + zebra.id).performClick();
+    idle();
+    out.append("full: ").append(String.valueOf(((TextView) SectionCollectionScreen.lastFull.getWindow().getDecorView().findViewWithTag("sc-full-text")).getText()).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ")).append('\n');
+    SectionCollectionScreen.lastFull.dismiss();
     // The zebra (under Animals, on the left) held: Edit name.
     w.left.findViewWithTag("sc-in:" + zebra.id).performLongClick();
     idle();
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.EDIT_NAME);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
     idle();
     ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
     ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Zebra");
@@ -15825,17 +15837,18 @@ public class BehaviorTest {
     // Weather held: Rename to Sky, then Delete (its section to the right).
     w.left.findViewWithTag("sc-group-name:Weather").performLongClick();
     idle();
-    out.append("group menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.RENAME);
+    out.append("group menu: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(1);
     idle();
     ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
     ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Sky");
     SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("renamed left: ").append(viewTexts(w.left)).append('\n');
-    w.left.findViewWithTag("sc-group-name:Sky").performLongClick();
+    // Its ⋮: the same menu as a long press.
+    w.left.findViewWithTag("sc-group-menu:Sky").performClick();
     idle();
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.DELETE);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
     idle();
     out.append("delete asks: ").append(String.valueOf(org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastAsk).getMessage()).replace("\n", " / ")).append('\n');
     SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
@@ -15853,22 +15866,44 @@ public class BehaviorTest {
     for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
     out.append("kept: ").append(kept.toString().trim()).append('\n');
     for (PromptVault.SogniSection old : back.sogniSections("SogniPadd")) back.deleteSogniSection(old.id);
+    // The Params' prompt row has SC too (after ★ and G).
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPadd.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog pd = (AlertDialog) ShadowDialog.getLatestDialog();
+    View psc = pd.getWindow().getDecorView().findViewWithTag("params-collection");
+    String pscText = psc == null ? "none" : String.valueOf(((TextView) psc).getText());
+    if (psc != null) psc.performClick();
+    idle();
+    out.append("params SC: ").append(pscText).append(", opens ").append(SectionCollectionScreen.last != null && SectionCollectionScreen.last.dialog.isShowing() && SectionCollectionScreen.last != w).append('\n');
+    if (SectionCollectionScreen.last != null) SectionCollectionScreen.last.dialog.dismiss();
+    pd.dismiss();
     write("s272_section_collection", out.toString());
     String t = out.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
     String[] want = {
-        "SC button: SC", "shown: true, browse closed true", "left: Weather (1) | +", "right: \u2630 |  | Prompt: Stormy sky.".substring(0, 0) + "right: \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
-        "added left: Animals | Four legs | Weather (1) | +",
-        "added right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
+        "SC button: SC",
+        "shown: true, browse closed true",
+        "left: Weather (1) | \u22ee | +",
+        "right: \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
+        "added left: Animals | \u22ee | Four legs | Weather (1) | \u22ee | +",
+        "added right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite. | \u2630 |  | \u22ee | Prompt: Zebra at noon.",
         "drag handle: true, drop target: true",
-        "dropped left: Animals (1) | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | Weather (1) | +",
-        "dropped right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite.",
-        "section menu: Save, Delete, Move into group [Animals, Weather], Edit name", "edit name buttons: Save / Exit", "group menu: Delete, Rename",
-        "renamed left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | +",
+        "dropped left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | \u22ee | Weather (1) | \u22ee | +",
+        "dropped right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: A red kite.",
+        "section menu: Save | Delete | Move into group\u2026 | Edit name",
+        "move to: Animals | Weather",
+        "full: Saved <when> /  / Prompt: Zebra at noon.",
+        "edit name buttons: Save / Exit",
+        "group menu: Delete | Rename",
+        "renamed left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | \u22ee | Sky (1) | \u22ee | +",
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
-        "deleted left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when>",
-        "deleted right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: Stormy sky. | \u2630 |  | Prompt: A red kite at dusk.",
+        "deleted left: Animals (1) | \u22ee | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | \u22ee",
+        "deleted right: \u2630 | Blue one | \u22ee | Prompt: A blue kite over the sea | \u2630 |  | \u22ee | Prompt: Stormy sky. | \u2630 |  | \u22ee | Prompt: A red kite at dusk.",
         "closed: true | browse: \u25be Animals (1) |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (3) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when> |       A red kite at dusk. \u00b7 <when>",
-        "kept: Animals (Four legs) | Blue one///Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+        "kept: Animals (Four legs) | Blue one///Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
+        "params SC: SC, opens true"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

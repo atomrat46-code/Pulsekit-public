@@ -10055,6 +10055,11 @@ public final class DesktopBehavior {
         seen.append("dragged right: ").append(texts.apply(w.right)).append('\n');
         ((javax.swing.JButton) component(w.dialog, "sc-open:Animals")).doClick();
         seen.append("opened Animals: ").append(texts.apply(w.left)).append('\n');
+        // The zebra under Animals clicked: shown fully.
+        java.awt.Component in = component(w.dialog, "sc-in:" + zebra.id);
+        for (java.awt.event.MouseListener l : in.getMouseListeners()) l.mouseClicked(new java.awt.event.MouseEvent(in, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 3, 3, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        seen.append("full: ").append(String.valueOf(w.lastFull).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ")).append('\n');
+        seen.append("add group button: ").append(((javax.swing.JButton) component(w.dialog, "sc-add-group")).getText()).append('\n');
         // The kite's text edited and its menu's Save; its menu has the four items.
         javax.swing.JTextArea area = (javax.swing.JTextArea) component(w.dialog, "sc-text:" + kite.id);
         area.setText("Prompt: A red kite at dusk.");
@@ -10141,6 +10146,7 @@ public final class DesktopBehavior {
         "dragged left: Animals (1) [+] Four legs Weather (1) [+]",
         "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
         "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
+        "full: Saved <when> /  / Prompt: Zebra at noon.", "add group button: Add new group",
         "section menu: Save, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
         "named: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "group menu: Delete, Rename, Cancel",

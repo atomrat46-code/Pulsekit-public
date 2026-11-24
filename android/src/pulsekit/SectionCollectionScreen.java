@@ -29,7 +29,8 @@ final class SectionCollectionScreen {
 
   /** The window shown last, its menu and the question asked last (the tests). */
   static SectionCollectionScreen last;
-  static android.widget.PopupMenu lastMenu;
+  /** The menu shown last (a list: a section's or a group's, or Move into group's groups), the full view shown last. */
+  static AlertDialog lastMenu, lastFull;
   static AlertDialog lastAsk;
 
   private SectionCollectionScreen(Activity activity, String app, final Runnable closed) {
@@ -210,6 +211,10 @@ final class SectionCollectionScreen {
     name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
     name.setPadding(dp(4), dp(8), dp(4), dp(8));
     head.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    // ⋮: the group's menu (as a long press on its name).
+    android.widget.Button more = this.small("\u22ee", "sc-group-menu:" + g.name);
+    more.setOnClickListener(v -> this.groupMenu(v, g));
+    head.addView(more);
     final boolean isOpen = this.open.contains(g.name.toLowerCase(java.util.Locale.ROOT));
     if (!g.sections.isEmpty()) {
       android.widget.Button plus = button(isOpen ? SectionCollection.SHUT : SectionCollection.OPEN, "sc-open:" + g.name);
@@ -218,7 +223,7 @@ final class SectionCollectionScreen {
         if (!this.open.remove(k)) this.open.add(k);
         this.refresh();
       });
-      head.addView(plus, new LinearLayout.LayoutParams(dp(44), dp(44)));
+      head.addView(plus, new LinearLayout.LayoutParams(dp(40), dp(40)));
     }
     row.addView(head);
     if (!g.note.isEmpty()) {
@@ -259,8 +264,13 @@ final class SectionCollectionScreen {
           this.sectionMenu(v, s, null);
           return true;
         });
+        // A tap: the section shown fully (its row may be cut short).
+        label.setOnClickListener(v -> this.showFull(s));
+        android.widget.Button more2 = this.small("\u22ee", "sc-section-menu:" + s.id);
+        more2.setOnClickListener(v -> this.sectionMenu(v, s, null));
         one.addView(handle);
         one.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        one.addView(more2);
         row.addView(one);
       }
     }
@@ -299,6 +309,10 @@ final class SectionCollectionScreen {
     name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
     head.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
     final EditText text = new EditText(this.activity);
+    // ⋮: the section's menu (as a long press on its text).
+    android.widget.Button more = this.small("\u22ee", "sc-section-menu:" + s.id);
+    more.setOnClickListener(v -> this.sectionMenu(v, s, text));
+    head.addView(more);
     text.setTag("sc-text:" + s.id);
     text.setText(s.text == null ? "" : s.text.trim());
     text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
@@ -334,91 +348,126 @@ final class SectionCollectionScreen {
     this.dropOn(group, SectionCollection.dragText(s));
   }
 
+  /** A small button (⋮) for a row's menu. */
+  android.widget.Button small(String text, String tag) {
+    android.widget.Button b = new android.widget.Button(this.activity, null, android.R.attr.buttonStyleSmall);
+    b.setText(text);
+    b.setTag(tag);
+    b.setAllCaps(false);
+    b.setMinWidth(0);
+    b.setMinimumWidth(0);
+    b.setPadding(dp(8), 0, dp(8), 0);
+    return b;
+  }
+
+  /** A section shown fully (its name, description, when it was saved, its entries). */
+  void showFull(PromptVault.SogniSection s) {
+    TextView t = new TextView(this.activity);
+    t.setTag("sc-full-text");
+    t.setText(SogniSections.full(s));
+    t.setTextIsSelectable(true);
+    t.setPadding(dp(20), dp(8), dp(20), 0);
+    ScrollView sv = new ScrollView(this.activity);
+    sv.addView(t);
+    lastFull = new AlertDialog.Builder(this.activity).setTitle(SogniSections.label(s)).setView(sv).setPositiveButton(SectionCollection.CLOSE, null).show();
+  }
+
+  /** A list of items as a menu, each with what it does. */
+  AlertDialog menu(String title, final List<String> items, final List<Runnable> does) {
+    lastMenu = new AlertDialog.Builder(this.activity).setTitle(title).setItems(items.toArray(new String[0]), (d, w) -> does.get(w).run())
+        .setNegativeButton("Cancel", null).show();
+    return lastMenu;
+  }
+
   void sectionMenu(View at, final PromptVault.SogniSection s, final EditText text) {
-    android.widget.PopupMenu m = new android.widget.PopupMenu(this.activity, at);
-    if (text != null) m.getMenu().add(SectionCollection.SAVE).setOnMenuItemClickListener(i -> {
-      try {
-        String bad = SectionCollection.save(this.vault(), s, text.getText().toString());
-        if (bad != null) this.say(bad);
-      } catch (Exception ex) {
-        this.say("Could not save the section: " + ex.getMessage());
-      }
-      this.refresh();
-      return true;
-    });
-    m.getMenu().add(SectionCollection.DELETE).setOnMenuItemClickListener(i -> {
-      this.confirm(SectionCollection.deleteAsk(s), () -> {
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    if (text != null) {
+      items.add(SectionCollection.SAVE);
+      does.add(() -> {
         try {
-          this.vault().deleteSogniSection(s.id);
+          String bad = SectionCollection.save(this.vault(), s, text.getText().toString());
+          if (bad != null) this.say(bad);
         } catch (Exception ex) {
-          this.say("Could not delete the section: " + ex.getMessage());
+          this.say("Could not save the section: " + ex.getMessage());
         }
         this.refresh();
       });
-      return true;
-    });
-    android.view.SubMenu move = m.getMenu().addSubMenu(SectionCollection.MOVE);
+    }
+    items.add(SectionCollection.DELETE);
+    does.add(() -> this.confirm(SectionCollection.deleteAsk(s), () -> {
+      try {
+        this.vault().deleteSogniSection(s.id);
+      } catch (Exception ex) {
+        this.say("Could not delete the section: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    items.add(SectionCollection.MOVE + "\u2026");
+    does.add(() -> this.moveMenu(s));
+    items.add(SectionCollection.EDIT_NAME);
+    does.add(() -> this.ask(SectionCollection.EDIT_NAME, SectionCollection.NAME, s.name == null ? "" : s.name, SectionCollection.DESCRIPTION, s.note == null ? "" : s.note,
+        false, SectionCollection.SAVE, SectionCollection.EXIT, (name, note) -> {
+          try {
+            this.vault().nameSogniSection(s.id, name, note);
+          } catch (Exception ex) {
+            this.say("Could not save the name: " + ex.getMessage());
+          }
+          this.refresh();
+        }));
+    this.menu(SogniSections.label(s), items, does);
+  }
+
+  /** Move into group: the groups (not its own), and Take out of the group when it is in one. */
+  void moveMenu(final PromptVault.SogniSection s) {
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
     try {
       for (final PromptVault.SectionGroup g : this.vault().sectionGroups(this.app)) {
         if (SectionCollection.same(g.name, s.group)) continue;
-        move.add(g.name).setOnMenuItemClickListener(i -> {
-          this.moveTo(s, g.name);
-          return true;
-        });
+        items.add(g.name);
+        does.add(() -> this.moveTo(s, g.name));
       }
     } catch (Exception ignored) {
       // no groups listed
     }
-    if (s.group != null && !s.group.trim().isEmpty()) move.add(SectionCollection.OUT_OF_GROUP).setOnMenuItemClickListener(i -> {
-      this.moveTo(s, "");
-      return true;
-    });
-    m.getMenu().add(SectionCollection.EDIT_NAME).setOnMenuItemClickListener(i -> {
-      this.ask(SectionCollection.EDIT_NAME, SectionCollection.NAME, s.name == null ? "" : s.name, SectionCollection.DESCRIPTION, s.note == null ? "" : s.note,
-          false, SectionCollection.SAVE, SectionCollection.EXIT, (name, note) -> {
-            try {
-              this.vault().nameSogniSection(s.id, name, note);
-            } catch (Exception ex) {
-              this.say("Could not save the name: " + ex.getMessage());
-            }
-            this.refresh();
-          });
-      return true;
-    });
-    lastMenu = m;
-    m.show();
+    if (s.group != null && !s.group.trim().isEmpty()) {
+      items.add(SectionCollection.OUT_OF_GROUP);
+      does.add(() -> this.moveTo(s, ""));
+    }
+    if (items.isEmpty()) {
+      this.say(SectionCollection.NO_GROUPS);
+      return;
+    }
+    this.menu(SectionCollection.MOVE, items, does);
   }
 
   void groupMenu(View at, final SectionCollection.Group g) {
-    android.widget.PopupMenu m = new android.widget.PopupMenu(this.activity, at);
-    m.getMenu().add(SectionCollection.DELETE).setOnMenuItemClickListener(i -> {
-      this.confirm(SectionCollection.deleteGroupAsk(g), () -> {
-        try {
-          this.vault().deleteSectionGroup(this.app, g.name);
-        } catch (Exception ex) {
-          this.say("Could not delete the group: " + ex.getMessage());
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    items.add(SectionCollection.DELETE);
+    does.add(() -> this.confirm(SectionCollection.deleteGroupAsk(g), () -> {
+      try {
+        this.vault().deleteSectionGroup(this.app, g.name);
+      } catch (Exception ex) {
+        this.say("Could not delete the group: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    items.add(SectionCollection.RENAME);
+    does.add(() -> this.ask(SectionCollection.RENAME, SectionCollection.GROUP_NAME, g.name, SectionCollection.DESCRIPTION, g.note, false, "OK", "Cancel", (name, note) -> {
+      if (name.trim().isEmpty()) return;
+      try {
+        if (!name.trim().equalsIgnoreCase(g.name)) {
+          if (this.open.remove(g.name.toLowerCase(java.util.Locale.ROOT))) this.open.add(name.trim().toLowerCase(java.util.Locale.ROOT));
+          this.vault().renameSectionGroup(this.app, g.name, name);
         }
-        this.refresh();
-      });
-      return true;
-    });
-    m.getMenu().add(SectionCollection.RENAME).setOnMenuItemClickListener(i -> {
-      this.ask(SectionCollection.RENAME, SectionCollection.GROUP_NAME, g.name, SectionCollection.DESCRIPTION, g.note, false, "OK", "Cancel", (name, note) -> {
-        if (name.trim().isEmpty()) return;
-        try {
-          if (!name.trim().equalsIgnoreCase(g.name)) {
-            if (this.open.remove(g.name.toLowerCase(java.util.Locale.ROOT))) this.open.add(name.trim().toLowerCase(java.util.Locale.ROOT));
-            this.vault().renameSectionGroup(this.app, g.name, name);
-          }
-          this.vault().addSectionGroup(this.app, name, note);
-        } catch (Exception ex) {
-          this.say("Could not rename the group: " + ex.getMessage());
-        }
-        this.refresh();
-      });
-      return true;
-    });
-    lastMenu = m;
-    m.show();
+        this.vault().addSectionGroup(this.app, name, note);
+      } catch (Exception ex) {
+        this.say("Could not rename the group: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    this.menu(g.name, items, does);
   }
 }

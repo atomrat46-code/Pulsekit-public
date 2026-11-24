@@ -3839,11 +3839,20 @@ final class PyJav {
             JLabel rowLabel = new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
             if (ParamsClip.has(program, p)) {
                 // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
-                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 2, 0));
                 withClip.add(rowLabel);
                 for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
                 // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
                 if (p.token.equals("--prompt")) for (JButton b : this.markButtons(SogniSections.app(program), ps, fields, areas)) withClip.add(b);
+                // SC: Section Collection (the program's sections in groups).
+                if (p.token.equals("--prompt") && SogniSections.shown(program)) {
+                    final JButton sc = new JButton(SectionCollection.BUTTON);
+                    sc.setName("params-collection");
+                    sc.setToolTipText(SectionCollection.BUTTON_TIP);
+                    sc.setMargin(new java.awt.Insets(1, 4, 1, 4));
+                    sc.addActionListener(e -> SectionCollectionWindow.show(sc, SogniSections.app(program)));
+                    withClip.add(sc);
+                }
                 form.add(withClip);
             } else {
                 form.add(rowLabel);

@@ -17,7 +17,9 @@ public final class SectionCollection {
   /** Browse sections' button that opens it. */
   public static final String BUTTON = "SC";
   public static final String BUTTON_TIP = "Section Collection: the sections in groups (add, name, move between groups)";
-  public static final String ADD_GROUP = "Add new", ADD_SECTION = "Add new section", CLOSE = "Close";
+  /** A section's full view (a tap on one under its group). */
+  public static final String FULL_TIP = "Click: the section shown fully";
+  public static final String ADD_GROUP = "Add new group", ADD_SECTION = "Add new section", CLOSE = "Close";
   public static final String GROUP_NAME = "Group name", DESCRIPTION = "Description (optional)";
   public static final String SECTION_NAME = "Section name (optional)", SECTION_TEXT = "Section text (\"Prompt: ...\", \"Loras: ...\" a line each; plain text is the prompt)";
   /** A section's menu. */
@@ -28,7 +30,7 @@ public final class SectionCollection {
   public static final String NAME = "Name", EXIT = "Exit";
   public static final String OPEN = "+", SHUT = "-";
   public static final String NO_SECTIONS = "No sections in no group: Add new section makes one, a group's sections are under it (+).";
-  public static final String NO_GROUPS = "No groups yet: Add new makes one.";
+  public static final String NO_GROUPS = "No groups yet: Add new group makes one.";
   public static final String DROP_TIP = "Drag a section onto a group to put it there (its menu: Move into group)";
 
   /** A group as the left side shows it: its name, description and sections (the newest first). */
