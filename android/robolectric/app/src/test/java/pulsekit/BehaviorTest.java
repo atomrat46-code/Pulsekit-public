@@ -16057,7 +16057,8 @@ public class BehaviorTest {
 
   /**
    * Document ready after a SogniChat run: its text cut after "=== Sogni ===" (SogniChat's default),
-   * another delimiter and Cut before (remembered), Copy, and Send as prompt into SogniPadd's Params.
+   * another delimiter and Cut before (remembered), Copy, Save, and Send as prompt into SogniPadd's Params
+   * (Document ready closes; SogniPadd opens with its Params).
    */
   @Test
   public void s273_document_ready() throws Exception {
@@ -16091,19 +16092,31 @@ public class BehaviorTest {
     out.append("remembered: ").append(String.join(" ", TextReady.setting(app.getFilesDir(), "SogniChat.java"))).append('\n');
     delim.setText("=== Sogni ===");
     idle();
-    d.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    ((android.widget.Button) root.findViewWithTag("text-ready:copy")).performClick();
     android.content.ClipboardManager clip = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
     out.append("copy: ").append(TextOffer.said).append(" | clipboard ").append(clip.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    java.io.File saved = new java.io.File(app.getCacheDir(), "saved-text.txt");
+    TextOffer.saveTo = saved;
+    try {
+      ((android.widget.Button) root.findViewWithTag("text-ready:save")).performClick();
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    out.append("save: ").append(TextOffer.said).append(" | ").append(new String(java.nio.file.Files.readAllBytes(saved.toPath()), "UTF-8"))
+        .append(" | name ").append(TextReady.savedName("answer.txt")).append('\n');
     TextOffer.sendTo = "SogniPadd.java";
     TextOffer.sendYes = Boolean.TRUE;
     try {
-      d.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+      ((android.widget.Button) root.findViewWithTag("text-ready:send")).performClick();
     } finally {
       TextOffer.sendTo = null;
       TextOffer.sendYes = null;
     }
+    idle();
     String padd = PyJavParams.load(app, "SogniPadd.java");
     out.append("send: ").append(TextOffer.said).append(" | in SogniPadd ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+    out.append("after send: ready open ").append(d.isShowing()).append(", program ").append(app.pyName).append(", params open ").append(PyJavParams.shown != null && PyJavParams.shown.isShowing()).append('\n');
+    if (PyJavParams.shown != null) PyJavParams.shown.dismiss();
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
     d.dismiss();
@@ -16113,7 +16126,8 @@ public class BehaviorTest {
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
         "remembered: Cut after >", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
-        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "cuts: c / a / a > b"};
+        "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
+        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

@@ -55,6 +55,15 @@ final class TextOffer {
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
+        // Copy, Save and Send as prompt (Close is the dialog's button).
+        LinearLayout acts = new LinearLayout(app);
+        acts.setOrientation(LinearLayout.HORIZONTAL);
+        final android.widget.Button copy = action(app, acts, TextReady.COPY, "text-ready:copy");
+        final android.widget.Button save = action(app, acts, TextReady.SAVE, "text-ready:save");
+        final android.widget.Button send = action(app, acts, TextReady.SEND, "text-ready:send");
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2);
+        ap.topMargin = app.dp(6);
+        col.addView(acts, ap);
         final TextView body = app.text("", 15, false);
         body.setTag("text-ready:text");
         body.setTextIsSelectable(true);
@@ -94,28 +103,55 @@ final class TextOffer {
         final AlertDialog dialog = new AlertDialog.Builder(app)
             .setTitle(TextReady.TITLE)
             .setView(scroll)
-            .setNeutralButton(TextReady.COPY, null)
-            .setNegativeButton(TextReady.SEND, null)
             .setPositiveButton(TextReady.CLOSE, null)
             .create();
-        dialog.setOnShowListener(d -> {
-            android.widget.Button copy = dialog.getButton(DialogInterface.BUTTON_NEUTRAL);
-            copy.setTag("text-ready:copy");
-            copy.setOnClickListener(v -> {
-                String t = body.getText().toString();
-                android.content.ClipboardManager clip = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-                if (t.trim().length() > 0) clip.setPrimaryClip(android.content.ClipData.newPlainText("text", t));
-                say(app, TextReady.copied(t));
-            });
-            android.widget.Button send = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
-            send.setTag("text-ready:send");
-            send.setOnClickListener(v -> send(app, body.getText().toString()));
+        copy.setOnClickListener(v -> {
+            String t = body.getText().toString();
+            android.content.ClipboardManager clip = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            if (t.trim().length() > 0) clip.setPrimaryClip(android.content.ClipData.newPlainText("text", t));
+            say(app, TextReady.copied(t));
         });
+        final String fileName = name;
+        save.setOnClickListener(v -> save(app, TextReady.savedName(fileName), body.getText().toString()));
+        send.setOnClickListener(v -> send(app, body.getText().toString()));
         dialog.show();
         last = dialog;
     }
 
-    /** Send as prompt: the text into a Sogni program's Params as its prompt (the program picked, then asked). */
+    static android.widget.Button action(MainActivity app, LinearLayout row, String label, String tag) {
+        android.widget.Button b = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTag(tag);
+        row.addView(b, new LinearLayout.LayoutParams(0, -2, 1f));
+        return b;
+    }
+
+    /** The tests: Save's file (else the system's save dialog). */
+    static java.io.File saveTo;
+
+    /** Save: the text as shown (trimmed) into a file picked, its name suggested (answer-trimmed.txt). */
+    static void save(MainActivity app, String name, String text) {
+        if (text.trim().isEmpty()) {
+            say(app, "No text to save");
+            return;
+        }
+        if (saveTo != null) {
+            try {
+                java.nio.file.Files.write(saveTo.toPath(), text.getBytes("UTF-8"));
+                say(app, "Saved the text into " + saveTo.getName());
+            } catch (Exception ex) {
+                say(app, "Could not save the text: " + ex.getMessage());
+            }
+            return;
+        }
+        SaveText.save(app, name, text);
+    }
+
+    /**
+     * Send as prompt: the text into a Sogni program's Params as its prompt (the program picked, then asked);
+     * then Document ready closes and that program opens with its Params.
+     */
     static void send(final MainActivity app, final String text) {
         if (text.trim().isEmpty()) {
             say(app, "No text to send");
@@ -131,6 +167,10 @@ final class TextOffer {
                 java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(PyJavParams.programTextOf(app, target));
                 PyJavParams.store(app, target, ParamsClip.put(theirs, PyJavParams.load(app, target), "--prompt", text));
                 say(app, ParamsClip.sent("--prompt", target));
+                if (last != null) last.dismiss();
+                app.openKitView("py");
+                app.programMenus.selectProgram("Java", target);
+                if (target.equals(app.pyName)) app.pyJav.pkOpenParams();
             };
             if (sendYes != null) {
                 if (sendYes.booleanValue()) put.run();

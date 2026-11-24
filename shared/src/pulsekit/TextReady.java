@@ -20,7 +20,7 @@ public final class TextReady {
   public static final String[] MODES = {CUT_AFTER, CUT_BEFORE, NO_CUT};
   public static final String DELIMITER = "Delimiter";
   public static final String HINT = "Cut after: the text after the delimiter (its last one). Cut before: the text before it (its first one).";
-  public static final String COPY = "Copy", SEND = "Send as prompt…", CLOSE = "Close";
+  public static final String COPY = "Copy", SAVE = "Save", SEND = "Send as prompt…", CLOSE = "Close";
   public static final String SEND_TITLE = "Send as prompt to";
   /** SogniChat's reply follows this line in the file it writes. */
   public static final String SOGNI_REPLY = "=== Sogni ===";
@@ -97,6 +97,12 @@ public final class TextReady {
       // none remembered
     }
     return out;
+  }
+
+  /** Save's file name: answer.txt's text as shown, answer-trimmed.txt. */
+  public static String savedName(String fileName) {
+    String stem = fileName == null ? "" : fileName.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    return (stem.isEmpty() ? "text" : stem) + "-trimmed.txt";
   }
 
   public static String copied(String text) {

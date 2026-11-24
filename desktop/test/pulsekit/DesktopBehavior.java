@@ -10250,6 +10250,52 @@ public final class DesktopBehavior {
     return out;
   }
 
+  /** The component named `name` in `c`'s tree, or null. */
+  private static java.awt.Component byName(java.awt.Component c, String name) {
+    if (name.equals(c.getName())) return c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      java.awt.Component got = byName(k, name);
+      if (got != null) return got;
+    }
+    return null;
+  }
+
+  /**
+   * Document ready after a SogniChat run: the text cut after "=== Sogni ===", Copy, Save (the text as
+   * shown) and Send as prompt into SogniPadd's Params, which then opens with its Params.
+   */
+  void s273_document_ready() throws Exception {
+    final StringBuilder got = new StringBuilder();
+    File saved = new File(System.getProperty("user.home"), "saved-text.txt");
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>(java.util.Arrays.asList(0, 1, 2));
+    PyJav.textSaveTo = saved;
+    PyJav.sendTo = "SogniPadd.java";
+    PyJav.sendYes = Boolean.TRUE;
+    PyJav.openedAfterSend = null;
+    final PyJav pj = (PyJav) get("pyJav");
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer.txt",
+          "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n"));
+      javax.swing.JTextArea body = (javax.swing.JTextArea) byName(PyJav.lastTextReady, "text-ready:text");
+      got.append("text: ").append(body.getText()).append('\n');
+      got.append("copy/save/send said: ").append(PyJav.clipSaid).append('\n');
+      got.append("saved: ").append(new String(java.nio.file.Files.readAllBytes(saved.toPath()), java.nio.charset.StandardCharsets.UTF_8)).append('\n');
+      String padd = pj.loadParams("SogniPadd.java");
+      got.append("in SogniPadd: ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+      got.append("opened: ").append((String) get("pyName")).append(" params ").append(PyJav.openedAfterSend).append('\n');
+    } finally {
+      PyJav.textReadyAnswers = null;
+      PyJav.textSaveTo = null;
+      PyJav.sendTo = null;
+      PyJav.sendYes = null;
+    }
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
+        && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
+    if (!ok) throw new AssertionError(g);
+  }
+
   /**
    * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
    * with OK and SogniPadd runs once with each section's prompt and LoRAs (the other rows, the key file,

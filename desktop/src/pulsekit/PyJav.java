@@ -2992,9 +2992,33 @@ final class PyJav {
      * through the active drum set), as a file set plays its source MIDI. Play / Stop and Close; the
      * MIDI is already imported as a file set. Nothing is shown when it has no drums for the kit.
      */
-    /** The tests: Document ready's buttons pressed in turn (0 Copy, 1 Send as prompt, 2 Close), and the panel shown last. */
+    /** The tests: Document ready's buttons pressed in turn (0 Copy, 1 Save, 2 Send as prompt, 3 Close), the panel shown last,
+     *  Save's file (else one picked) and the program whose Params Send as prompt opened. */
     static java.util.Deque<Integer> textReadyAnswers;
     static JPanel lastTextReady;
+    static File textSaveTo;
+    static volatile String openedAfterSend;
+
+    /** Save: the text as shown (trimmed) into a file picked, its name suggested (answer-trimmed.txt). */
+    void saveText(String name, String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to save");
+            return;
+        }
+        File to = textSaveTo;
+        if (to == null) {
+            javax.swing.JFileChooser ch = new javax.swing.JFileChooser();
+            ch.setSelectedFile(new File(System.getProperty("user.home", "."), name));
+            if (ch.showSaveDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION) return;
+            to = ch.getSelectedFile();
+        }
+        try {
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Saved the text into " + to.getName());
+        } catch (Exception ex) {
+            this.clipSay("Could not save the text: " + ex.getMessage());
+        }
+    }
 
     /**
      * Document ready (TextReady): the text a run wrote, cut at a delimiter (Cut after, Cut before or No
@@ -3049,10 +3073,10 @@ final class PyJav {
         });
         cut.run();
         lastTextReady = panel;
-        Object[] options = {TextReady.COPY, TextReady.SEND, TextReady.CLOSE};
+        Object[] options = {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.CLOSE};
         while (true) {
-            int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 2 : textReadyAnswers.poll().intValue())
-                : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
+            int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 3 : textReadyAnswers.poll().intValue())
+                : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[3]);
             if (ans == 0) {
                 String t = body.getText();
                 if (t.trim().length() > 0) {
@@ -3064,23 +3088,35 @@ final class PyJav {
                 }
                 this.clipSay(TextReady.copied(t));
             } else if (ans == 1) {
-                if (this.sendText(body.getText())) return;
+                this.saveText(TextReady.savedName(fileName), body.getText());
+            } else if (ans == 2) {
+                String target = this.sendText(body.getText());
+                if (target != null) {
+                    // The program sent to opens, with its Params.
+                    app.showView("py");
+                    app.programMenus.selectListedProgram("Java", target);
+                    if (target.equals(app.pyName)) {
+                        if (textReadyAnswers != null) openedAfterSend = target;
+                        else SwingUtilities.invokeLater(this::openParams);
+                    }
+                    return;
+                }
             } else {
                 return;
             }
         }
     }
 
-    /** Send as prompt: the text into a Sogni program's Params as its prompt (picked, then asked); true when sent. */
-    boolean sendText(String text) {
+    /** Send as prompt: the text into a Sogni program's Params as its prompt (picked, then asked); the program when sent. */
+    String sendText(String text) {
         if (text.trim().isEmpty()) {
             this.clipSay("No text to send");
-            return false;
+            return null;
         }
         java.util.List<String> targets = TextReady.targets(PyJav::programTextOf);
         if (targets.isEmpty()) {
             this.clipSay("No Sogni program takes a prompt");
-            return false;
+            return null;
         }
         String target = sendTo;
         if (target == null) {
@@ -3088,19 +3124,19 @@ final class PyJav {
             for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.app(targets.get(i));
             Object got = JOptionPane.showInputDialog(app, "Put the text into which program's Params, as its prompt?", TextReady.SEND_TITLE,
                 JOptionPane.QUESTION_MESSAGE, null, rows, rows[0]);
-            if (got == null) return false;
+            if (got == null) return null;
             target = targets.get(java.util.Arrays.asList(rows).indexOf(got));
         } else if (!targets.contains(target)) {
             this.clipSay(target + " takes no prompt");
-            return false;
+            return null;
         }
         boolean yes = sendYes != null ? sendYes.booleanValue()
             : JOptionPane.showConfirmDialog(app, ParamsClip.sendAsk("--prompt", target, text), TextReady.SEND_TITLE + " " + SogniSections.app(target), JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
-        if (!yes) return false;
+        if (!yes) return null;
         java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(target));
         this.saveParams(target, ParamsClip.put(theirs, this.loadParams(target), "--prompt", text));
         this.clipSay(ParamsClip.sent("--prompt", target));
-        return true;
+        return target;
     }
 
     void offerMidi(String midiName, byte[] midi) {
