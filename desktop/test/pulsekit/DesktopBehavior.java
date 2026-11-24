@@ -10381,7 +10381,7 @@ public final class DesktopBehavior {
     this.out.append(got);
     String g = got.toString();
     boolean ok = g.contains("selected: Imports | \u25b8 Imports") && g.contains("import: Imported 4 sections into Imports; 1 without a prompt\n")
-        && g.contains("import loose: Imported 1 section into no group\n") && g.contains("again: Imported 0 sections into Imports; 4 saved already\n")
+        && g.contains("import loose: Imported 1 section into no group\n") && g.contains("again: Imported 0 sections into Imports; 4 saved already; 1 without a prompt\n")
         && g.contains("section Misty forest/Imports/Prompt: A misty forest at dawn.") && g.contains("section neon/Imports/Prompt: Neon city at night, rain.")
         && g.contains("section two 1/Imports/Prompt: Red kite Loras: kite 0.4") && g.contains("section two 2/Imports/Prompt: Blue kite")
         && g.contains("section loose//Prompt: A lone tree.");
