@@ -4805,14 +4805,27 @@ class BenchKit(object):
             self.songs.append((played, found, shift, at[0] if len(at) else 0, cym_of.get(s, [])))
         self.label = label
 
-    def score(self, model):
+    def score(self, model, X=None):
         """Per family (played, found, matched) over its songs, DrumMidi's cymbals moved by the model as
-        DrumMidi moves them (None: as found, no model)."""
-        import numpy as np
-        new = self.wrote if model is None else bench_relabel(model, self.X, self.wrote, self.margin)
-        share = None if model is None else bench_ride_share(model, self.X)
+        DrumMidi moves them (None: as found, no model). `X`: the model's inputs, when not the cymbals' own
+        (a song-aware model's: bench_context)."""
         sums = dict((f, [0, 0, 0]) for f, _ in FAMILIES)
+        for rows in self.song_scores(model, X):
+            for f, a, b, c in rows:
+                v = sums[f]
+                v[0] += a
+                v[1] += b
+                v[2] += c
+        return [(f, sums[f][0], sums[f][1], sums[f][2]) for f, _ in FAMILIES]
+
+    def song_scores(self, model, X=None):
+        """score() for each song apart: [(family, played, found, matched)] a song."""
+        X = self.X if X is None else X
+        new = self.wrote if model is None else bench_relabel(model, X, self.wrote, self.margin)
+        share = None if model is None else bench_ride_share(model, X)
+        out = []
         for played, found, shift, first, cyms in self.songs:
+            sums = dict((f, [0, 0, 0]) for f, _ in FAMILIES)
             notes = list(found)
             for j in cyms:
                 if new[j] != self.wrote[j]:
@@ -4827,7 +4840,41 @@ class BenchKit(object):
                 v[0] += len(t)
                 v[1] += len(f)
                 v[2] += matched(t, f, shift)
-        return [(f, sums[f][0], sums[f][1], sums[f][2]) for f, _ in FAMILIES]
+            out.append([(f, sums[f][0], sums[f][1], sums[f][2]) for f, _ in FAMILIES])
+        return out
+
+    def song_inputs(self):
+        """Each song's look, as DrumMidi could see it in the whole song before it picks its cymbals: its
+        cymbals' inputs on average, the share of each kind DrumMidi wrote, and cymbals a second. (A row
+        a song; songs without cymbals get zeros.)"""
+        import numpy as np
+        if getattr(self, "_song_in", None) is not None:
+            return self._song_in
+        d = self.X.shape[1]
+        rows = []
+        for played, found, shift, first, cyms in self.songs:
+            if not cyms:
+                rows.append(np.zeros(d + 5))
+                continue
+            x = self.X[cyms].mean(0)
+            kinds = np.bincount(self.wrote[cyms] - 1, minlength=4)[:4] / float(len(cyms))
+            times = [t for t, _ in found]
+            span = max(1.0, (max(times) - min(times)) if times else 1.0)
+            rows.append(np.concatenate([x, kinds, [len(cyms) / span]]))
+        self._song_in = np.array(rows)
+        return self._song_in
+
+    def context_inputs(self):
+        """Each cymbal's inputs with its song's look after them (bench_context: a song-aware model)."""
+        import numpy as np
+        if getattr(self, "_ctx", None) is not None:
+            return self._ctx
+        song = self.song_inputs()
+        of = np.zeros(len(self.X), int)
+        for s, (_, _, _, _, cyms) in enumerate(self.songs):
+            of[cyms] = s
+        self._ctx = np.hstack([self.X, song[of]]) if len(self.X) else self.X
+        return self._ctx
 
 
 # DrumMidi's runs of hats and rides (CymModel.runs): RUN_GAP, RUN_MIN, RUN_SURE, RUN_UNSURE.
@@ -4880,32 +4927,109 @@ def bench_relabel(model, X, wrote, margin):
     return np.where(p.max(1) - mine > margin, best, wrote)
 
 
-def bench_fit(kits, reg=1e-2, it=400, lr=0.5, even=False):
+def bench_fit(kits, reg=1e-2, it=400, lr=0.5, even=False, context=False, cap=None, start=None):
     """The cymbal model learned from the kits' cymbals (as tools/cymbal_model.py learns DrumMidi's):
     multinomial logistic regression on standardized inputs. (mu, sd, W, b). `even`: each kit weighs the
-    same in learning (a kit with a long test set of songs does not outweigh one with the test beat only)."""
+    same in learning (a kit with a long test set of songs does not outweigh one with the test beat only);
+    `context`: each cymbal's inputs with its song's look (BenchKit.context_inputs). For leave one out's many
+    models: `cap` learns from at most that many of a kit's cymbals (picked evenly, each standing for the
+    ones left out, so the kit weighs as much as before) and `start` (a model learned from all the kits)
+    gives the inputs' scaling and where learning starts, so fewer rounds (`it`) do."""
     import numpy as np
-    X = np.concatenate([k.X for k in kits])
-    y = np.concatenate([k.label for k in kits])
-    w = np.concatenate([np.full(len(k.label), 1.0 / max(1, int((k.label > 0).sum()))) for k in kits]) if even else np.ones(len(y))
-    keep = y > 0
-    X, y, w = X[keep], y[keep], w[keep]
+    xs, ys, ws = [], [], []
+    for k in kits:
+        X = k.context_inputs() if context else k.X
+        y = k.label
+        keep = np.where(y > 0)[0]
+        n = len(keep)
+        if cap and n > cap:
+            keep = keep[np.linspace(0, n - 1, cap).astype(int)]
+        xs.append(X[keep])
+        ys.append(y[keep])
+        # Each cymbal kept: 1 (pooled) or 1/n (even), times the cymbals it stands for.
+        ws.append(np.full(len(keep), (1.0 / max(1, n) if even else 1.0) * n / max(1, len(keep))))
+    X, y, w = np.concatenate(xs), np.concatenate(ys), np.concatenate(ws)
+    w = w / w.mean()
+    if start is not None:
+        mu, sd, W, b = start
+        W, b = W.copy(), b.copy()
+    else:
+        mu = (X * w[:, None]).sum(0) / w.sum()
+        sd = np.sqrt(((X - mu) ** 2 * w[:, None]).sum(0) / w.sum()) + 1e-9
+        W = np.zeros((X.shape[1], 4))
+        b = np.zeros(4)
+    Z = ((X - mu) / sd).astype(np.float32)
+    Y = np.eye(4, dtype=np.float32)[y - 1]
+    w32 = w.astype(np.float32)[:, None]
+    for _ in range(it):
+        z = Z @ W.astype(np.float32) + b.astype(np.float32)
+        z -= z.max(1, keepdims=True)
+        p = np.exp(z)
+        p /= p.sum(1, keepdims=True)
+        g = (p - Y) * w32
+        W -= lr * ((Z.T @ g).astype(np.float64) / len(Z) + reg * W)
+        b -= lr * g.mean(0).astype(np.float64)
+    return mu, sd, W, b
+
+
+# Leave one out's models: at most this many of a kit's cymbals learned from, and the rounds each kit's models
+# learn for (they start from the model learned from all the kits).
+LOO_CAP = 20000
+LOO_ROUNDS = 150
+
+
+def bench_gains(k, model):
+    """Each of the kit's songs: how many more of its cymbals `model` got right than DrumMidi's built-in one."""
+    import numpy as np
+    return np.array([cymbals_right(m) - cymbals_right(b) for m, b in zip(k.song_scores(model), k.song_scores(k.builtin))], float)
+
+
+def bench_gate_fit(kits, gains, reg=1e-2, it=600, lr=0.5):
+    """When a model helps: learned from the kits' songs (each kit weighing the same), a song's look
+    (BenchKit.song_inputs) against whether the model got more of its cymbals right than DrumMidi's built-in
+    one (`gains`: bench_gains a kit), each song weighing by how much it gained or lost. (mu, sd, w, b) or
+    None (nothing to learn)."""
+    import numpy as np
+    xs, ys, ws = [], [], []
+    for k in kits:
+        gain = gains[id(k)]
+        keep = gain != 0
+        if not keep.any():
+            continue
+        g = gain[keep]
+        xs.append(k.song_inputs()[keep])
+        ys.append((g > 0).astype(float))
+        ws.append(np.abs(g) / np.abs(g).sum())
+    if not xs:
+        return None
+    X, y, w = np.vstack(xs), np.concatenate(ys), np.concatenate(ws)
+    if y.min() == y.max():
+        # Every song it changed gained (or every one lost): the model always (or never).
+        return X.mean(0), X.std(0) + 1e-9, np.zeros(X.shape[1]), 1.0 if y[0] > 0 else -1.0
     w = w / w.mean()
     mu = (X * w[:, None]).sum(0) / w.sum()
     sd = np.sqrt(((X - mu) ** 2 * w[:, None]).sum(0) / w.sum()) + 1e-9
     Z = (X - mu) / sd
-    W = np.zeros((Z.shape[1], 4))
-    b = np.zeros(4)
-    Y = np.eye(4)[y - 1]
+    v = np.zeros(Z.shape[1])
+    b = 0.0
     for _ in range(it):
-        z = Z @ W + b
-        z -= z.max(1, keepdims=True)
-        p = np.exp(z)
-        p /= p.sum(1, keepdims=True)
-        g = (p - Y) * w[:, None]
-        W -= lr * (Z.T @ g / len(Z) + reg * W)
-        b -= lr * g.mean(0)
-    return mu, sd, W, b
+        p = 1 / (1 + np.exp(-(Z @ v + b)))
+        g = (p - y) * w
+        v -= lr * (Z.T @ g / len(Z) + reg * v)
+        b -= lr * g.mean()
+    return mu, sd, v, b
+
+
+def bench_gated(k, gate, model):
+    """A kit scored with `model` on the songs the gate says it helps and the built-in model on the
+    others: (cymbals right, songs given the model)."""
+    import numpy as np
+    with_m, with_b = k.song_scores(model), k.song_scores(k.builtin)
+    if gate is None:
+        return sum(cymbals_right(r) for r in with_b), 0
+    mu, sd, v, b = gate
+    use = ((k.song_inputs() - mu) / sd) @ v + b > 0
+    return sum(cymbals_right(m if u else c) for m, c, u in zip(with_m, with_b, use)), int(use.sum())
 
 
 def bench_model_text(model, kits):
@@ -5202,40 +5326,78 @@ def model_bench(opts, switches):
     if "--leave_one_out" in switches:
         if not which:
             fail("--leave_one_out: no kit picked (new: the newest run's kits; all; or parts of their names)")
-        print("Leave one out: %d kit%s, each scored with a model learned from the other %d (and from all %d)" % (len(which), "" if len(which) == 1 else "s", len(kits) - 1, len(kits)), flush=True)
-        everyone = bench_fit(kits)
-        # The same with each kit weighing the same in learning (kits even): a kit with many songs does not decide it alone.
-        everyone_even = bench_fit(kits, even=True)
-        lines = ["Leave one out: each kit scored with DrumMidi's built-in model, a model learned from the other %d kit%s" % (len(kits) - 1, "" if len(kits) == 2 else "s"),
-                 "(it never saw the kit) and one learned from all %d (it saw it). DrumMidi_CRT.jar %s." % (len(kits), sig),
-                 "Kits even: learned with each kit weighing the same (otherwise each cymbal hit does, and kits with many songs decide the model).",
+        print("Leave one out: %d kit%s, each scored with models learned from the other %d (pooled, even, song-aware, gated)" % (len(which), "" if len(which) == 1 else "s", len(kits) - 1), flush=True)
+        # Each kit scored unseen (models learned from the other kits) four ways: every cymbal hit weighing
+        # the same (pooled); every kit weighing the same (kits even); kits even and song-aware (each cymbal's
+        # inputs with its song's look: the material told apart in the model); and gated (the kits-even model
+        # only on the songs a gate learned from the other kits' songs says it helps, built-in on the others).
+        lines = ["Leave one out: each kit scored with DrumMidi's built-in model and with models learned from the other %d kit%s" % (len(kits) - 1, "" if len(kits) == 2 else "s"),
+                 "(they never saw the kit). DrumMidi_CRT.jar %s." % sig,
+                 "Pooled: each cymbal hit weighs the same in learning (kits with many songs decide the model).",
+                 "Even: each kit weighs the same.",
+                 "Song-aware: even, and each cymbal's inputs come with its song's look (its cymbals' inputs on average, the kinds",
+                 "DrumMidi wrote, cymbals a second), so the model can tell kinds of material apart.",
+                 "Gated: the even model only on songs a gate (learned from the other kits' songs: their look against whether the",
+                 "model helped them) says it helps; DrumMidi's built-in model on the others. [n/m]: songs given the model.",
                  "Cymbals right: closed hat, open hat, ride and crash found where the MIDI played them (within 30 ms).",
-                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s" % (width, "Kit", "built-in", "without it", "with it", "without, even", "with, even")]
+                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s" % (width, "Kit", "built-in", "pooled", "even", "song-aware", "gated")]
         details = []
+        # The gate's lessons: each song's gain with the even model learned from all the kits (once: learning them
+        # again for each kit left out would score every song 60 times over; the kit left out still teaches its gate nothing).
+        # Learned from all the kits first; each kit's models then start from these (with its cymbals left out)
+        # and learn from at most LOO_CAP of each kit's cymbals: a few minutes a kit, not most of an hour.
+        print("Leave one out: learning from all %d kits first (pooled, even, song-aware)\u2026" % len(kits), flush=True)
+        pooled_all = bench_fit(kits, cap=LOO_CAP)
+        even_all = bench_fit(kits, even=True, cap=LOO_CAP)
+        aware_all = bench_fit(kits, even=True, context=True, cap=LOO_CAP)
+        print("Leave one out: each song's gain with the even model (the gate's lessons)\u2026", flush=True)
+        gains = dict((id(o), bench_gains(o, even_all)) for o in kits)
         sums = [0, 0, 0, 0, 0]
         rel = [0.0] * 5
         better = [0] * 5
-        for k in which:
-            without = bench_fit([o for o in kits if o is not k])
-            without_even = bench_fit([o for o in kits if o is not k], even=True)
-            r = [k.score(k.builtin), k.score(without), k.score(everyone), k.score(without_even), k.score(everyone_even)]
+        worse = [0] * 5
+        gate_songs = [0, 0]
+        for n, k in enumerate(which):
+            rest = [o for o in kits if o is not k]
+            pooled = bench_fit(rest, cap=LOO_CAP, start=pooled_all, it=LOO_ROUNDS)
+            even = bench_fit(rest, even=True, cap=LOO_CAP, start=even_all, it=LOO_ROUNDS)
+            aware = bench_fit(rest, even=True, context=True, cap=LOO_CAP, start=aware_all, it=LOO_ROUNDS)
+            gate = bench_gate_fit(rest, gains)
+            r = [k.score(k.builtin), k.score(pooled), k.score(even), k.score(aware, k.context_inputs())]
             v = [cymbals_right(x) for x in r]
+            g, used = bench_gated(k, gate, even)
+            v.append(g)
+            gate_songs[0] += used
+            gate_songs[1] += len(k.songs)
             for i in range(5):
                 sums[i] += v[i]
                 rel[i] += (v[i] - v[0]) / float(max(1, v[0]))
                 better[i] += v[i] > v[0]
-            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 5)))
-            details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "without it", "with it", "without it, kits even", "with it, kits even"), r)] + [""]
-            print(lines[-1], flush=True)
+                worse[i] += v[i] < v[0]
+            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 5))
+                         + "  [%d/%d]" % (used, len(k.songs)))
+            details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "pooled", "even", "song-aware"), r)] + [""]
+            print("(%d of %d) %s" % (n + 1, len(which), lines[-1]), flush=True)
         lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 5)),
                   "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 5)),
-                  "%-*s %9s" % (width, "Kits better than built-in", "") + "".join(" %15s" % ("%d of %d" % (better[i], len(which))) for i in range(1, 5))]
-        print("\n".join(lines[-3:]))
-        # The model learned from all kits with each weighing the same, for DrumMidi (as Compare writes its models).
-        text, java = bench_model_text(everyone_even, kits)
-        made.append(bench_zip(os.path.join(outdir, "cymbal-leave-one-out-%s.zip" % stamp),
-                              {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list,
-                               "model-%d-kits-even.txt" % len(kits): text, "model-%d-kits-even-java.txt" % len(kits): java}))
+                  "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 5)),
+                  "Gated: the model on %d of %d songs." % tuple(gate_songs)]
+        print("\n".join(lines[-4:]))
+        # The models learned from all the kits, for DrumMidi (as Compare writes its models): even, song-aware
+        # (its inputs: the cymbal's, then its song's look) and the gate with the even model.
+        files = {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list}
+        for name, m in (("even", even_all), ("song-aware", aware_all)):
+            text, java = bench_model_text(m, kits)
+            files["model-%d-kits-%s.txt" % (len(kits), name)] = text
+            files["model-%d-kits-%s-java.txt" % (len(kits), name)] = java
+        gate = bench_gate_fit(kits, gains)
+        if gate is not None:
+            mu, sd, v, b = gate
+            files["gate-%d-kits.txt" % len(kits)] = ("# When DrumMidi's cymbal model (model-%d-kits-even.txt) helps a song: its look's inputs (the cymbals' inputs on\n"
+                                                    "# average, the share of each kind written, cymbals a second) standardized, then w and b; > 0 uses the model\n" % len(kits)
+                                                    + "mu " + " ".join("%.8g" % a for a in mu) + "\nsd " + " ".join("%.8g" % a for a in sd)
+                                                    + "\nw " + " ".join("%.8g" % a for a in v) + "\nb %.8g\n" % b)
+        made.append(bench_zip(os.path.join(outdir, "cymbal-leave-one-out-%s.zip" % stamp), files))
     for z in made:
         print("Zip: %s" % z)
     if opts["--zip_outdir"]:
