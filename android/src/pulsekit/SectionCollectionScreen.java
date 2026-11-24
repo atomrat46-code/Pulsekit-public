@@ -28,6 +28,14 @@ final class SectionCollectionScreen {
   final AlertDialog dialog;
   /** The groups open (+ pressed), by name in lower case. */
   final Set<String> open = new HashSet<String>();
+  /** The group picked with a tap on its name (Import sections from folder puts the sections in it); null: none. */
+  String selected;
+  /** Import sections from folder's request (the system's folder picker), and the window it is for. */
+  static final int IMPORT_DIR = 114;
+  static SectionCollectionScreen importing;
+  /** The tests: the group when none is selected (else asked), and what Import said. */
+  static String importGroup;
+  static volatile String importSaid = "";
 
   /** The window shown last, its menu and the question asked last (the tests). */
   static SectionCollectionScreen last;
@@ -51,6 +59,9 @@ final class SectionCollectionScreen {
     android.widget.Button addGroup = button(SectionCollection.ADD_GROUP, "sc-add-group");
     addGroup.setOnClickListener(v -> this.addGroup());
     leftSide.addView(addGroup, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    android.widget.Button importDir = button(SectionCollection.IMPORT, "sc-import");
+    importDir.setOnClickListener(v -> this.importFolder());
+    leftSide.addView(importDir, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
     this.left = new LinearLayout(activity);
     this.left.setOrientation(LinearLayout.VERTICAL);
     ScrollView ls = new ScrollView(activity);
@@ -154,6 +165,84 @@ final class SectionCollectionScreen {
     lastAsk = new AlertDialog.Builder(this.activity).setTitle(title).setView(box)
         .setPositiveButton(ok, (d, w) -> done.accept(a.getText().toString(), b.getText().toString()))
         .setNegativeButton(cancel, null).show();
+  }
+
+  /** Import sections from folder: the system's folder picker; importPicked goes on with the folder. */
+  void importFolder() {
+    importing = this;
+    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    this.activity.startActivityForResult(intent, IMPORT_DIR);
+  }
+
+  /** The folder picked: its .txt and .prompt files read (by name), then the group and the question. */
+  static void importPicked(Activity activity, android.net.Uri tree) {
+    SectionCollectionScreen sc = importing;
+    importing = null;
+    if (sc == null) return;
+    java.util.TreeMap<String, String> docs = new java.util.TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER);
+    android.database.Cursor c = null;
+    try {
+      c = activity.getContentResolver().query(android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree)),
+          new String[] {android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+      while (c != null && c.moveToNext()) if (SectionCollection.importable(c.getString(1))) docs.put(c.getString(1), c.getString(0));
+    } catch (Exception ex) {
+      sc.say("Could not read the folder: " + ex.getMessage());
+      return;
+    } finally {
+      if (c != null) c.close();
+    }
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    for (java.util.Map.Entry<String, String> e : docs.entrySet()) {
+      try (java.io.InputStream in = activity.getContentResolver().openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, e.getValue()))) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] b = new byte[8192];
+        for (int n; in != null && (n = in.read(b)) > 0; ) out.write(b, 0, n);
+        files.put(e.getKey(), out.toByteArray());
+      } catch (Exception ignored) {
+        // left out
+      }
+    }
+    sc.importFrom(files, MediaDir.label(tree.toString()));
+  }
+
+  /** The files (name -> bytes) into the selected group, or the one asked for; asked first. */
+  void importFrom(final java.util.Map<String, byte[]> files, final String folder) {
+    if (files.isEmpty()) {
+      importSaid = "No .txt or .prompt files in " + folder;
+      this.say(importSaid);
+      return;
+    }
+    final java.util.function.Consumer<String> ask = group -> {
+      lastAsk = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.IMPORT).setMessage(SectionCollection.importAsk(files.size(), folder, this.app, group))
+          .setPositiveButton("Import", (d, w) -> {
+            try {
+              int[] r = SectionCollection.importAll(this.vault(), this.app, files, group);
+              if (!SectionCollection.NO_GROUP_PICK.equals(group)) this.open.add(group.toLowerCase(java.util.Locale.ROOT));
+              this.refresh();
+              importSaid = SectionCollection.imported(r, group);
+            } catch (Exception ex) {
+              importSaid = "Could not import the sections: " + ex.getMessage();
+            }
+            this.say(importSaid);
+          })
+          .setNegativeButton("Cancel", null).show();
+    };
+    if (this.selected != null) {
+      ask.accept(this.selected);
+      return;
+    }
+    if (importGroup != null) {
+      ask.accept(importGroup);
+      return;
+    }
+    try {
+      final List<String> picks = SectionCollection.groupPicks(this.vault(), this.app);
+      lastMenu = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.IMPORT_GROUP_ASK)
+          .setItems(picks.toArray(new String[0]), (d, w) -> ask.accept(picks.get(w))).setNegativeButton("Cancel", null).show();
+    } catch (Exception ex) {
+      this.say("Could not read the groups: " + ex.getMessage());
+    }
   }
 
   void confirm(String text, final Runnable yes) {
@@ -337,7 +426,14 @@ final class SectionCollectionScreen {
     head.setGravity(android.view.Gravity.CENTER_VERTICAL);
     TextView name = new TextView(this.activity);
     name.setTag("sc-group-name:" + g.name);
-    name.setText(SectionCollection.groupLabel(g));
+    final boolean picked = g.name.equalsIgnoreCase(this.selected);
+    name.setText((picked ? "\u25b8 " : "") + SectionCollection.groupLabel(g));
+    if (picked) name.setBackgroundColor(0x553D7BFD);
+    // A tap on the name selects the group (again: none); Import sections from folder puts its sections there.
+    name.setOnClickListener(v -> {
+      this.selected = picked ? null : g.name;
+      this.refresh();
+    });
     name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
     name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
     name.setPadding(dp(4), dp(8), dp(4), dp(8));

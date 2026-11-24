@@ -45,6 +45,12 @@ public final class SectionCollectionWindow {
   final JPanel right = new JPanel();
   /** The groups open (+ pressed), by name in lower case. */
   final Set<String> open = new HashSet<String>();
+  /** The group picked with a click on its name (Import sections from folder puts the sections in it); null: none. */
+  String selected;
+  /** The tests: Import's folder (else one picked), its group when none is selected (else asked), and what it said. */
+  static java.io.File importDir;
+  static String importGroup;
+  static volatile String importSaid = "";
   /** The menu shown last (the tests). */
   JPopupMenu lastMenu;
 
@@ -69,8 +75,12 @@ public final class SectionCollectionWindow {
     JButton addSection = new JButton(SectionCollection.ADD_SECTION);
     addSection.setName("sc-add-section");
     addSection.addActionListener(e -> this.addSection());
+    JButton importDirButton = new JButton(SectionCollection.IMPORT);
+    importDirButton.setName("sc-import");
+    importDirButton.addActionListener(e -> this.importFolder());
     JPanel leftTop = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
     leftTop.add(addGroup);
+    leftTop.add(importDirButton);
     JPanel rightTop = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
     rightTop.add(addSection);
     JPanel leftSide = new JPanel(new BorderLayout());
@@ -119,6 +129,49 @@ public final class SectionCollectionWindow {
 
   PromptVault vault() throws Exception {
     return PromptDb.vault();
+  }
+
+  /**
+   * Import sections from folder: a folder picked; its .txt and .prompt files (asked first) added as new
+   * sections into the selected group, or the one asked for when none is selected.
+   */
+  void importFolder() {
+    java.io.File dir = importDir;
+    if (dir == null) {
+      javax.swing.JFileChooser ch = new javax.swing.JFileChooser();
+      ch.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+      ch.setDialogTitle(SectionCollection.IMPORT);
+      if (ch.showOpenDialog(this.dialog) != javax.swing.JFileChooser.APPROVE_OPTION) return;
+      dir = ch.getSelectedFile();
+    }
+    List<java.io.File> files = SectionCollection.importFiles(dir);
+    if (files.isEmpty()) {
+      importSaid = "No .txt or .prompt files in " + dir.getName();
+      this.say(importSaid);
+      return;
+    }
+    try {
+      String group = this.selected;
+      if (group == null) {
+        List<String> picks = SectionCollection.groupPicks(this.vault(), this.app);
+        Object got = importGroup != null ? importGroup
+            : JOptionPane.showInputDialog(this.dialog, SectionCollection.IMPORT_GROUP_ASK, SectionCollection.IMPORT, JOptionPane.QUESTION_MESSAGE, null,
+                picks.toArray(), picks.get(0));
+        if (got == null) return;
+        group = String.valueOf(got);
+      }
+      if (!this.confirm(SectionCollection.importAsk(files.size(), dir.getName(), this.app, group), SectionCollection.IMPORT)) return;
+      java.util.Map<String, byte[]> read = new java.util.LinkedHashMap<String, byte[]>();
+      for (java.io.File f : files) read.put(f.getName(), java.nio.file.Files.readAllBytes(f.toPath()));
+      int[] r = SectionCollection.importAll(this.vault(), this.app, read, group);
+      if (!SectionCollection.NO_GROUP_PICK.equals(group)) this.open.add(group.toLowerCase(java.util.Locale.ROOT));
+      this.refresh();
+      importSaid = SectionCollection.imported(r, group);
+      this.say(importSaid);
+    } catch (Exception ex) {
+      importSaid = "Could not import the sections: " + ex.getMessage();
+      this.say(importSaid);
+    }
   }
 
   void say(String text) {
@@ -321,9 +374,24 @@ public final class SectionCollectionWindow {
     JPanel head = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 1));
     head.setName("sc-group:" + g.name);
     head.setAlignmentX(0f);
-    JLabel name = new JLabel(SectionCollection.groupLabel(g));
+    final boolean picked = g.name.equalsIgnoreCase(this.selected);
+    JLabel name = new JLabel((picked ? "\u25b8 " : "") + SectionCollection.groupLabel(g));
     name.setName("sc-group:" + g.name);
     name.setFont(name.getFont().deriveFont(Font.BOLD));
+    if (picked) {
+      name.setOpaque(true);
+      name.setBackground(javax.swing.UIManager.getColor("List.selectionBackground"));
+      name.setForeground(javax.swing.UIManager.getColor("List.selectionForeground"));
+    }
+    // A click on the name selects the group (again: none); Import sections from folder puts its sections there.
+    name.addMouseListener(new java.awt.event.MouseAdapter() {
+      @Override
+      public void mouseClicked(java.awt.event.MouseEvent e) {
+        if (!SwingUtilities.isLeftMouseButton(e)) return;
+        SectionCollectionWindow.this.selected = picked ? null : g.name;
+        SectionCollectionWindow.this.refresh();
+      }
+    });
     name.setToolTipText(g.note.isEmpty() ? SectionCollection.DROP_TIP : g.note);
     head.add(name);
     final boolean isOpen = this.open.contains(g.name.toLowerCase(java.util.Locale.ROOT));

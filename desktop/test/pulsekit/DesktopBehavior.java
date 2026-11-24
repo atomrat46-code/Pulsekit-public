@@ -8441,7 +8441,8 @@ public final class DesktopBehavior {
       this.out.append("run ").append(r).append(": ").append(said[r]).append('\n');
     }
     boolean ok = this.out.toString().contains("Params switch: No cymbal model: cymbals as found") && this.out.toString().contains("on/off true")
-        && said[0].equals("Cymbals by their sound in the song (the cymbal model): / ") && said[1].startsWith("settings say --no-cymbal-model") && !said[1].contains("cymbal model)");
+        && said[0].startsWith("Cymbals by their sound in the song (the ") && said[0].contains("cymbal model") && said[1].startsWith("settings say --no-cymbal-model")
+        && !said[1].contains("Cymbals by their sound");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -10315,6 +10316,86 @@ public final class DesktopBehavior {
     boolean ok = g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
         && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
     if (!ok) throw new AssertionError(g);
+  }
+
+  /**
+   * Section Collection's Import sections from folder: a click on a group's name selects it; the folder's .txt
+   * and .prompt files become sections in it (a definitions file one a definition), asked first; with no
+   * group selected the group asked for.
+   */
+  void s275_import_sections() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    SectionCollection.addGroup(vault, "SogniPadd", "Imports", "");
+    File dir = new File(System.getProperty("user.home"), "import me");
+    dir.mkdirs();
+    Files.write(new File(dir, "Misty forest.txt").toPath(), "A misty forest at dawn.\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "neon.prompt").toPath(), "Neon city at night, rain.\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "two.txt").toPath(), "Prompt: Red kite\nLoras: kite 0.4\n----\nPrompt: Blue kite\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "empty.txt").toPath(), new byte[0]);
+    Files.write(new File(dir, "picture.png").toPath(), new byte[] {1, 2});
+    File dir2 = new File(System.getProperty("user.home"), "import loose");
+    dir2.mkdirs();
+    Files.write(new File(dir2, "loose.txt").toPath(), "A lone tree.\n".getBytes(StandardCharsets.UTF_8));
+    StringBuilder got = new StringBuilder();
+    SectionCollectionWindow.last = null;
+    SectionCollectionWindow.answers = new java.util.ArrayDeque<String[]>();
+    SectionCollectionWindow.sure = Boolean.TRUE;
+    SectionCollectionWindow.importDir = dir;
+    SectionCollectionWindow.importGroup = null;
+    try {
+      SwingUtilities.invokeLater(() -> SectionCollectionWindow.show(frame, "SogniPadd"));
+      for (int i = 0; i < 200 && (SectionCollectionWindow.last == null || !SectionCollectionWindow.last.dialog.isShowing()); i++) Thread.sleep(50);
+      final SectionCollectionWindow w = SectionCollectionWindow.last;
+      final JLabel[] name = new JLabel[1];
+      edt(() -> name[0] = (JLabel) this.byName(w.dialog.getContentPane(), "sc-group:Imports", JLabel.class));
+      edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1)));
+      edt(() -> name[0] = (JLabel) this.byName(w.dialog.getContentPane(), "sc-group:Imports", JLabel.class));
+      got.append("selected: ").append(w.selected).append(" | ").append(name[0].getText()).append('\n');
+      edt(() -> w.importFolder());
+      got.append("import: ").append(SectionCollectionWindow.importSaid).append('\n');
+      // None selected: the group asked for (the tests: no group).
+      edt(() -> {
+        w.selected = null;
+        w.refresh();
+      });
+      SectionCollectionWindow.importDir = dir2;
+      SectionCollectionWindow.importGroup = SectionCollection.NO_GROUP_PICK;
+      edt(() -> w.importFolder());
+      got.append("import loose: ").append(SectionCollectionWindow.importSaid).append('\n');
+      // Again: the same sections are not added twice.
+      SectionCollectionWindow.importDir = dir;
+      SectionCollectionWindow.importGroup = "Imports";
+      edt(() -> w.importFolder());
+      got.append("again: ").append(SectionCollectionWindow.importSaid).append('\n');
+      edt(() -> w.dialog.dispose());
+    } finally {
+      SectionCollectionWindow.answers = null;
+      SectionCollectionWindow.sure = null;
+      SectionCollectionWindow.importDir = null;
+      SectionCollectionWindow.importGroup = null;
+    }
+    java.util.List<String> rows = new java.util.ArrayList<String>();
+    for (PromptVault.SogniSection x : vault.sogniSections("SogniPadd")) rows.add(x.name + "/" + x.group + "/" + x.text.trim().replace('\n', ' '));
+    java.util.Collections.sort(rows);
+    for (String r : rows) got.append("section ").append(r).append('\n');
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("selected: Imports | \u25b8 Imports") && g.contains("import: Imported 4 sections into Imports; 1 without a prompt\n")
+        && g.contains("import loose: Imported 1 section into no group\n") && g.contains("again: Imported 0 sections into Imports; 4 saved already\n")
+        && g.contains("section Misty forest/Imports/Prompt: A misty forest at dawn.") && g.contains("section neon/Imports/Prompt: Neon city at night, rain.")
+        && g.contains("section two 1/Imports/Prompt: Red kite Loras: kite 0.4") && g.contains("section two 2/Imports/Prompt: Blue kite")
+        && g.contains("section loose//Prompt: A lone tree.");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /** The first component named `name` of type `type` in `c`'s tree, or null. */
+  private java.awt.Component byName(java.awt.Component c, String name, Class<?> type) {
+    if (name.equals(c.getName()) && type.isInstance(c)) return c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      java.awt.Component f = byName(k, name, type);
+      if (f != null) return f;
+    }
+    return null;
   }
 
   /**

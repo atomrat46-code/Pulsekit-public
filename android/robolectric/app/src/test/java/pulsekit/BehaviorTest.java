@@ -16202,6 +16202,62 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * Section Collection's Import sections from folder: a tap on a group's name selects it; the folder's .txt
+   * and .prompt files become sections in it, asked first; with none selected the group is asked for.
+   */
+  @Test
+  public void s275_import_sections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    SectionCollection.addGroup(vault, "SogniPadd", "Imports", "");
+    SectionCollectionScreen sc = SectionCollectionScreen.show(app, "SogniPadd", "", null, null);
+    idle();
+    out.append("button: ").append(sc.dialog.getWindow().getDecorView().findViewWithTag("sc-import") != null).append('\n');
+    ((TextView) sc.dialog.getWindow().getDecorView().findViewWithTag("sc-group-name:Imports")).performClick();
+    idle();
+    out.append("selected: ").append(sc.selected).append(" | ").append(((TextView) sc.dialog.getWindow().getDecorView().findViewWithTag("sc-group-name:Imports")).getText()).append('\n');
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    files.put("Misty forest.txt", "A misty forest at dawn.\n".getBytes("UTF-8"));
+    files.put("two.txt", "Prompt: Red kite\nLoras: kite 0.4\n----\nPrompt: Blue kite\n".getBytes("UTF-8"));
+    files.put("empty.prompt", new byte[0]);
+    sc.importFrom(files, "my folder");
+    idle();
+    out.append("asks: ").append(SectionCollectionScreen.lastAsk.isShowing()).append('\n');
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("import: ").append(SectionCollectionScreen.importSaid).append('\n');
+    // None selected: the group is asked for (a list).
+    sc.selected = null;
+    sc.refresh();
+    java.util.Map<String, byte[]> loose = new java.util.LinkedHashMap<String, byte[]>();
+    loose.put("loose.txt", "A lone tree.\n".getBytes("UTF-8"));
+    sc.importFrom(loose, "other");
+    idle();
+    android.widget.ListView groups = SectionCollectionScreen.lastMenu.getListView();
+    out.append("groups asked: ").append(SectionCollectionScreen.lastMenu.isShowing()).append(" ").append(groups.getAdapter().getCount()).append('\n');
+    groups.performItemClick(groups.getAdapter().getView(0, null, groups), 0, 0);
+    idle();
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("import loose: ").append(SectionCollectionScreen.importSaid).append('\n');
+    java.util.List<String> rows = new java.util.ArrayList<String>();
+    for (PromptVault.SogniSection x : vault.sogniSections("SogniPadd")) rows.add(x.name + "/" + x.group + "/" + x.text.trim().replace('\n', ' '));
+    java.util.Collections.sort(rows);
+    for (String r : rows) out.append("section ").append(r).append('\n');
+    sc.dialog.dismiss();
+    String t = out.toString();
+    write("s275_import_sections", t);
+    String[] want = {"button: true", "selected: Imports | \u25b8 Imports", "asks: true", "import: Imported 3 sections into Imports; 1 without a prompt",
+        "groups asked: true 2", "import loose: Imported 1 section into no group", "section Misty forest/Imports/Prompt: A misty forest at dawn.",
+        "section loose//Prompt: A lone tree.", "section two 1/Imports/Prompt: Red kite Loras: kite 0.4", "section two 2/Imports/Prompt: Blue kite"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
   private static String viewTexts(View v) {
     StringBuilder sb = new StringBuilder();

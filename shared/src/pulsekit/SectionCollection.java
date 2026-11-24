@@ -244,6 +244,83 @@ public final class SectionCollection {
     return "";
   }
 
+  /** Import sections from folder: its .txt and .prompt files, each a section (or one a definition in it). */
+  public static final String IMPORT = "Import sections from folder";
+  public static final String IMPORT_GROUP_ASK = "Import the sections into which group?";
+
+  /** A file the import reads: a .txt or a .prompt (not a hidden one). */
+  public static boolean importable(String name) {
+    String n = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+    return !n.startsWith(".") && (n.endsWith(".txt") || n.endsWith(".prompt"));
+  }
+
+  /** Import's question: how many files, from where, for which program, into which group. */
+  public static String importAsk(int files, String folder, String app, String group) {
+    return "Import the " + files + " .txt and .prompt file" + (files == 1 ? "" : "s") + " in " + folder + " as " + app + " sections into "
+        + (group == null || group.isEmpty() || NO_GROUP_PICK.equals(group) ? "no group (on the right)" : "the group " + group) + "?";
+  }
+
+  /**
+   * A file's sections: a definitions file (Prompt:, Loras:... lines, "----" between them) gives one a
+   * definition (those for `app` or none), named as the file (with its number when there are several);
+   * any other text (a .prompt sheet's prompt) one, its prompt the whole text.
+   */
+  public static List<Form> importForms(String fileName, byte[] bytes, String app) {
+    List<Form> out = new ArrayList<Form>();
+    String stem = fileName.replaceAll("\\.[A-Za-z0-9]{1,7}$", "");
+    String raw = bytes == null ? "" : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    if (raw.startsWith("\uFEFF")) raw = raw.substring(1);
+    if (ParamDefs.looksLike(raw)) {
+      List<ParamDefs.Def> defs = ParamDefs.forProgram(ParamDefs.parse(raw, FORM_ROWS), app);
+      for (int i = 0; i < defs.size(); i++) {
+        Form f = formOf(defs.get(i).fields);
+        f.name = defs.size() == 1 ? stem : stem + " " + (i + 1);
+        out.add(f);
+      }
+      if (!out.isEmpty()) return out;
+    }
+    String text = ProgramParams.promptText(bytes);
+    if (!text.isEmpty()) {
+      Form f = new Form();
+      f.name = stem;
+      f.prompt = text;
+      out.add(f);
+    }
+    return out;
+  }
+
+  /** Import: the files' sections (name -> bytes, in order) added into `group`; {added, saved already, files without text}. */
+  public static int[] importAll(PromptVault vault, String app, java.util.Map<String, byte[]> files, String group) throws Exception {
+    int[] r = new int[3];
+    for (java.util.Map.Entry<String, byte[]> e : files.entrySet()) {
+      List<Form> forms = importForms(e.getKey(), e.getValue(), app);
+      if (forms.isEmpty()) r[2]++;
+      for (Form f : forms) {
+        f.group = group == null || group.isEmpty() ? NO_GROUP_PICK : group;
+        String bad = add(vault, app, f);
+        if (bad == null) r[0]++;
+        else if (bad.startsWith("The same")) r[1]++;
+        else r[2]++;
+      }
+    }
+    return r;
+  }
+
+  public static String imported(int[] r, String group) {
+    String where = group == null || group.isEmpty() || NO_GROUP_PICK.equals(group) ? "no group" : group;
+    return "Imported " + r[0] + " section" + (r[0] == 1 ? "" : "s") + " into " + where + (r[1] > 0 ? "; " + r[1] + " saved already" : "")
+        + (r[2] > 0 ? "; " + r[2] + " without a prompt" : "");
+  }
+
+  /** The files of a folder the import reads, by name. */
+  public static List<java.io.File> importFiles(java.io.File dir) {
+    List<java.io.File> out = new ArrayList<java.io.File>();
+    java.io.File[] all = dir == null ? null : dir.listFiles();
+    if (all != null) for (java.io.File f : all) if (f.isFile() && importable(f.getName())) out.add(f);
+    java.util.Collections.sort(out, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+    return out;
+  }
+
   /** Add new section's group list: "(no group)", then the program's groups A to Z. */
   public static List<String> groupPicks(PromptVault vault, String app) {
     List<String> out = new ArrayList<String>();
