@@ -3109,17 +3109,16 @@ final class PyJav {
         body.setEditable(true);
         TextMenu.attach(body);
         panel.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
-        // Text after: Select text takes it from a file or a saved section (the dropdown); it goes after the answer.
+        // Select file and Browse sections: their text goes after the answer (remembered: next time too); Clear takes it away.
         JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));
         JPanel arow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
-        arow.add(new JLabel(TextReady.AFTER));
-        final javax.swing.JComboBox<String> from = new javax.swing.JComboBox<String>(TextReady.AFTER_FROM);
-        from.setName("text-ready:after-from");
-        from.setSelectedItem(set[3]);
-        arow.add(from);
-        JButton select = new JButton(TextReady.SELECT_TEXT);
-        select.setName("text-ready:select");
-        arow.add(select);
+        arow.add(new JLabel(TextReady.AFTER + ":"));
+        JButton selectFile = new JButton(TextReady.SELECT_FILE);
+        selectFile.setName("text-ready:select-file");
+        arow.add(selectFile);
+        JButton browse = new JButton(TextReady.BROWSE_SECTIONS);
+        browse.setName("text-ready:browse-sections");
+        arow.add(browse);
         JButton clear = new JButton(TextReady.CLEAR_TEXT);
         clear.setName("text-ready:clear");
         arow.add(clear);
@@ -3134,17 +3133,21 @@ final class PyJav {
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
-            String[] now = {m, d, after.getText(), String.valueOf(from.getSelectedItem())};
+            String[] now = {m, d, after.getText(), set[3]};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
+            note.setVisible(TextReady.noteShown(whole, d, m));
             TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
         };
         mode.addActionListener(e -> cut.run());
-        from.addActionListener(e -> cut.run());
         clear.addActionListener(e -> after.setText(""));
-        select.addActionListener(e -> {
-            String t = TextReady.FROM_SECTIONS.equals(from.getSelectedItem()) ? this.pickSectionText(select) : this.pickFileText(select);
+        selectFile.addActionListener(e -> {
+            String t = this.pickFileText(selectFile);
+            if (t != null) after.setText(t);
+        });
+        browse.addActionListener(e -> {
+            String t = this.pickSectionText(browse);
             if (t != null) after.setText(t);
         });
         after.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {

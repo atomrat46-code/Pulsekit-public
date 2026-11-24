@@ -81,30 +81,16 @@ final class TextOffer {
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
-        // Text after: Select text takes it from a file or a saved section (the dropdown); it goes after the answer.
+        // Select file and Browse sections: their text goes after the answer (remembered: next time too); Clear takes it away.
         LinearLayout arow = new LinearLayout(app);
         arow.setOrientation(LinearLayout.HORIZONTAL);
-        arow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        arow.addView(app.text(TextReady.AFTER, 13, false));
-        final Spinner from = new Spinner(app);
-        from.setTag("text-ready:after-from");
-        from.setAdapter(new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_dropdown_item, TextReady.AFTER_FROM));
-        from.setSelection(Math.max(0, java.util.Arrays.asList(TextReady.AFTER_FROM).indexOf(set[3])));
-        arow.addView(from, new LinearLayout.LayoutParams(0, -2, 1f));
-        final android.widget.Button select = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
-        select.setText(TextReady.SELECT_TEXT);
-        select.setAllCaps(false);
-        select.setTag("text-ready:select");
-        arow.addView(select);
-        final android.widget.Button clear = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
-        clear.setText(TextReady.CLEAR_TEXT);
-        clear.setAllCaps(false);
-        clear.setTag("text-ready:clear");
-        arow.addView(clear);
+        final android.widget.Button selectFile = action(app, arow, TextReady.SELECT_FILE, "text-ready:select-file");
+        final android.widget.Button browse = action(app, arow, TextReady.BROWSE_SECTIONS, "text-ready:browse-sections");
+        final android.widget.Button clear = action(app, arow, TextReady.CLEAR_TEXT, "text-ready:clear");
         col.addView(arow);
         final EditText after = new EditText(app);
         after.setTag("text-ready:after");
-        after.setHint("Added after the answer (Select text)");
+        after.setHint("Added after the answer (Select file, Browse sections)");
         after.setMaxLines(4);
         after.setText(set[2]);
         col.addView(after, new LinearLayout.LayoutParams(-1, -2));
@@ -133,18 +119,12 @@ final class TextOffer {
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
-            String[] now = {m, d, after.getText().toString(), TextReady.AFTER_FROM[Math.max(0, from.getSelectedItemPosition())]};
+            String[] now = {m, d, after.getText().toString(), set[3]};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
+            note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
             TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
         };
-        from.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            public void onItemSelected(android.widget.AdapterView<?> p, android.view.View v, int pos, long id) {
-                cut.run();
-            }
-
-            public void onNothingSelected(android.widget.AdapterView<?> p) {}
-        });
         after.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
 
@@ -155,10 +135,8 @@ final class TextOffer {
             }
         });
         clear.setOnClickListener(v -> after.setText(""));
-        select.setOnClickListener(v -> {
-            if (TextReady.FROM_SECTIONS.equals(TextReady.AFTER_FROM[Math.max(0, from.getSelectedItemPosition())])) pickSection(app, after);
-            else PyJavParams.pickPromptFile(app, after);
-        });
+        selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(app, after));
+        browse.setOnClickListener(v -> pickSection(app, after));
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             public void onItemSelected(android.widget.AdapterView<?> p, android.view.View v, int pos, long id) {
                 cut.run();

@@ -16135,11 +16135,11 @@ public class BehaviorTest {
     TextOffer.show(app, "SogniChat.java", "answer.txt", chat);
     idle();
     View r2 = TextOffer.last.getWindow().getDecorView();
-    ((android.widget.Spinner) r2.findViewWithTag("text-ready:after-from")).setSelection(1);
-    idle();
+    out.append("buttons: ").append(r2.findViewWithTag("text-ready:select-file") != null).append(' ').append(r2.findViewWithTag("text-ready:browse-sections") != null)
+        .append(", note shown ").append(r2.findViewWithTag("text-ready:note").getVisibility() == View.VISIBLE).append('\n');
     TextOffer.sectionPick = Integer.valueOf(texts.indexOf("Moody light, film grain."));
     try {
-      ((android.widget.Button) r2.findViewWithTag("text-ready:select")).performClick();
+      ((android.widget.Button) r2.findViewWithTag("text-ready:browse-sections")).performClick();
     } finally {
       TextOffer.sectionPick = null;
     }
@@ -16172,7 +16172,7 @@ public class BehaviorTest {
         "remembered: Cut after >  From file", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
-        "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From sections",
+        "buttons: true true, note shown false", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

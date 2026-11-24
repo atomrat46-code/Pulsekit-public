@@ -68,6 +68,13 @@ public final class TextReady {
   public static final String AFTER = "Text after", FROM_FILE = "From file", FROM_SECTIONS = "From sections";
   public static final String[] AFTER_FROM = {FROM_FILE, FROM_SECTIONS};
   public static final String SELECT_TEXT = "Select text", CLEAR_TEXT = "Clear";
+  /** Document ready's buttons under the delimiter: the text after the answer from a file or a saved section. */
+  public static final String SELECT_FILE = "Select file", BROWSE_SECTIONS = "Browse sections";
+
+  /** Whether the line under the delimiter is shown: only when the delimiter is not in the text. */
+  public static boolean noteShown(String text, String delim, String mode) {
+    return note(text, delim, mode).startsWith("The delimiter is not");
+  }
 
   /**
    * The program's settings: {cut, delimiter, text after, where Select text takes it from}, remembered,
