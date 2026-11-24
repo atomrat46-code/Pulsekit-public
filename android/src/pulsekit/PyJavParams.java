@@ -735,7 +735,14 @@ public final class PyJavParams {
         .show();
     self[0] = shown;
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
-    if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+    if (saveSection != null && SogniSections.shown(name)) {
+      saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+      // Held: Save as (the section form), whatever section was loaded.
+      saveSection.setOnLongClickListener(v -> {
+        saveAs(activity, SogniSections.app(name), ps, fields);
+        return true;
+      });
+    }
     // Export: in the window's buttons, between Save and Cancel (the rows Save keeps, written into a file picked).
     if (saveSection != null && SogniSections.shown(name) && saveSection.getParent() instanceof android.view.ViewGroup) {
       android.widget.Button export = new android.widget.Button(activity, null, android.R.attr.buttonBarButtonStyle);
@@ -963,26 +970,7 @@ public final class PyJavParams {
                 sectionSay(activity, "Could not save the section: " + ex.getMessage());
               }
             })
-            .setNeutralButton(SogniSections.SAVE_NEW, (d, w) -> {
-              try {
-                SectionCollection.Form init = SectionCollection.formOf(now);
-                SectionCollectionScreen.form(activity, SectionCollection.ADD_SECTION, init, SectionCollection.lorasFor(vault, program, "", init),
-                    SectionCollection.groupPicks(vault, program), ps, f -> {
-                      try {
-                        String bad = SectionCollection.add(PromptVault.open(activity.getFilesDir()), program, f);
-                        if (bad != null) sectionSay(activity, bad);
-                        else {
-                          SogniSections.current(program, SectionCollection.lastAdded);
-                          sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
-                        }
-                      } catch (Exception ex) {
-                        sectionSay(activity, "Could not save the section: " + ex.getMessage());
-                      }
-                    });
-              } catch (Exception ex) {
-                sectionSay(activity, "Could not save the section: " + ex.getMessage());
-              }
-            })
+            .setNeutralButton(SogniSections.SAVE_NEW, (d, w) -> saveAs(activity, program, ps, now))
             .setNegativeButton("Cancel", null).show();
         return false;
       }
@@ -993,6 +981,39 @@ public final class PyJavParams {
     } catch (Exception ex) {
       sectionSay(activity, "Could not save the section: " + ex.getMessage());
       return false;
+    }
+  }
+
+  /** Save held: Save as, the section form with the entries now (a new section, whatever was loaded). */
+  static void saveAs(final Activity activity, final String program, final List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
+      return;
+    }
+    saveAs(activity, program, ps, now);
+  }
+
+  /** The section form with `now` filled in; OK adds it as a new section (the current one after). */
+  static void saveAs(final Activity activity, final String program, final List<ProgramParams.Param> ps, final java.util.Map<String, String> now) {
+    try {
+      PromptVault vault = PromptVault.open(activity.getFilesDir());
+      SectionCollection.Form init = SectionCollection.formOf(now);
+      SectionCollectionScreen.form(activity, SectionCollection.ADD_SECTION, init, SectionCollection.lorasFor(vault, program, "", init),
+          SectionCollection.groupPicks(vault, program), ps, f -> {
+            try {
+              String bad = SectionCollection.add(PromptVault.open(activity.getFilesDir()), program, f);
+              if (bad != null) sectionSay(activity, bad);
+              else {
+                SogniSections.current(program, SectionCollection.lastAdded);
+                sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
+              }
+            } catch (Exception ex) {
+              sectionSay(activity, "Could not save the section: " + ex.getMessage());
+            }
+          });
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not save the section: " + ex.getMessage());
     }
   }
 

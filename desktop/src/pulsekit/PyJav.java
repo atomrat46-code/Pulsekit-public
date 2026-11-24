@@ -1579,22 +1579,42 @@ final class PyJav {
                     return true;
                 }
                 if (ans != 1) return false;
-                SectionCollection.Form init = SectionCollection.formOf(now);
-                SectionCollection.Form f = SectionCollectionWindow.form(at, SectionCollection.ADD_SECTION, init,
-                    SectionCollection.lorasFor(PromptDb.vault(), program, "", init), SectionCollection.groupPicks(PromptDb.vault(), program), ps);
-                if (f == null) return false;
-                String bad = SectionCollection.add(PromptDb.vault(), program, f);
-                if (bad != null) {
-                    this.sectionSay(bad);
-                    return false;
-                }
-                SogniSections.current(program, SectionCollection.lastAdded);
-                this.sectionSay("Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
-                return true;
+                return this.saveAs(at, program, ps, now);
             }
             PromptVault.SogniSection sec = PromptDb.vault().addSogniSection(program, text);
             SogniSections.current(program, sec);
             this.sectionSay("Saved a " + program + " section: " + SogniSections.label(sec));
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not save the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** Save held (or right-clicked): Save as, the section form with the entries now (a new section, whatever was loaded). */
+    boolean saveAs(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.sectionSay("Nothing to save: the prompt and the other rows are empty");
+            return false;
+        }
+        return this.saveAs(at, program, ps, now);
+    }
+
+    /** The section form with `now` filled in; OK adds it as a new section (the current one after). */
+    boolean saveAs(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, java.util.Map<String, String> now) {
+        try {
+            SectionCollection.Form init = SectionCollection.formOf(now);
+            SectionCollection.Form f = SectionCollectionWindow.form(at, SectionCollection.ADD_SECTION, init,
+                SectionCollection.lorasFor(PromptDb.vault(), program, "", init), SectionCollection.groupPicks(PromptDb.vault(), program), ps);
+            if (f == null) return false;
+            String bad = SectionCollection.add(PromptDb.vault(), program, f);
+            if (bad != null) {
+                this.sectionSay(bad);
+                return false;
+            }
+            SogniSections.current(program, SectionCollection.lastAdded);
+            this.sectionSay("Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
             return true;
         } catch (Exception ex) {
             this.sectionSay("Could not save the section: " + ex.getMessage());
@@ -4767,7 +4787,36 @@ final class PyJav {
             // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
             JButton saveSection = new JButton(SogniSections.SAVE);
             saveSection.setName("params-save-section");
-            saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
+            // Held (0.6 s) or right-clicked: Save as (the section form), whatever section was loaded.
+            final boolean[] held = {false};
+            final javax.swing.Timer hold = new javax.swing.Timer(600, e -> {
+                held[0] = true;
+                this.saveAs(saveSection, SogniSections.app(program), ps, fields, areas);
+            });
+            hold.setRepeats(false);
+            saveSection.setToolTipText("Hold or right-click: Save as (a new section, with its name and group)");
+            saveSection.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    held[0] = false;
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        held[0] = true;
+                        saveAs(saveSection, SogniSections.app(program), ps, fields, areas);
+                    } else hold.restart();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    hold.stop();
+                }
+            });
+            saveSection.addActionListener(e -> {
+                if (held[0]) {
+                    held[0] = false;
+                    return;
+                }
+                this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas);
+            });
             // Export: the same rows written into a file picked, not the prompt library.
             JButton exportSection = new JButton(ParamsClip.EXPORT);
             exportSection.setName("params-export-section");

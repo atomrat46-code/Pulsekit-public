@@ -16020,6 +16020,15 @@ public class BehaviorTest {
     int owls = 0;
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owls++;
     out.append("owls: ").append(owls).append(", said ").append(PyJavParams.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+    // Save held: Save as straight away (the section form), no Overwrite question, though the entries are a section saved already.
+    PyJavParams.lastOverwrite = null;
+    SectionCollectionScreen.lastNew = null;
+    pd.getButton(DialogInterface.BUTTON_NEUTRAL).performLongClick();
+    idle();
+    View nv3 = SectionCollectionScreen.lastNew == null ? null : SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("held save: form ").append(nv3 != null && SectionCollectionScreen.lastNew.isShowing()).append(", asked ").append(PyJavParams.lastOverwrite != null)
+        .append(", prompt ").append(nv3 == null ? "" : ((android.widget.EditText) nv3.findViewWithTag("sc-new-prompt")).getText()).append('\n');
+    if (SectionCollectionScreen.lastNew != null) SectionCollectionScreen.lastNew.dismiss();
     pd.dismiss();
     write("s272_section_collection", out.toString());
     String t = out.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
@@ -16049,7 +16058,7 @@ public class BehaviorTest {
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
         "params SC: SC, opens true", "rows: aspect true, width true, height true, seed false, prompt twice false", "owl: Prompt: Owl at night / aspect: 4:7", "save as: same name Save as: give the copy another name (or change an entry) | other name null, owls 2", "buttons: export in bar after Save true, run sections above variations true | held: true",
         "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7, prompt twice false, loras twice false",
-        "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>"};
+        "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>", "held save: form true, asked false, prompt Owl at dawn"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);
