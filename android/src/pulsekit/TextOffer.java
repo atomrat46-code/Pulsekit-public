@@ -44,7 +44,7 @@ final class TextOffer {
         int n = 0;
         String where = null;
         for (JavaRun.FileOut f : answers) {
-            String text = TextReady.cut(TextReady.text(f.bytes), set[1], set[0]);
+            String text = TextReady.result(TextReady.text(f.bytes), set);
             String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
             if (got == null) continue;
             n++;
@@ -81,6 +81,33 @@ final class TextOffer {
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
+        // Text after: Select text takes it from a file or a saved section (the dropdown); it goes after the answer.
+        LinearLayout arow = new LinearLayout(app);
+        arow.setOrientation(LinearLayout.HORIZONTAL);
+        arow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        arow.addView(app.text(TextReady.AFTER, 13, false));
+        final Spinner from = new Spinner(app);
+        from.setTag("text-ready:after-from");
+        from.setAdapter(new android.widget.ArrayAdapter<String>(app, android.R.layout.simple_spinner_dropdown_item, TextReady.AFTER_FROM));
+        from.setSelection(Math.max(0, java.util.Arrays.asList(TextReady.AFTER_FROM).indexOf(set[3])));
+        arow.addView(from, new LinearLayout.LayoutParams(0, -2, 1f));
+        final android.widget.Button select = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
+        select.setText(TextReady.SELECT_TEXT);
+        select.setAllCaps(false);
+        select.setTag("text-ready:select");
+        arow.addView(select);
+        final android.widget.Button clear = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
+        clear.setText(TextReady.CLEAR_TEXT);
+        clear.setAllCaps(false);
+        clear.setTag("text-ready:clear");
+        arow.addView(clear);
+        col.addView(arow);
+        final EditText after = new EditText(app);
+        after.setTag("text-ready:after");
+        after.setHint("Added after the answer (Select text)");
+        after.setMaxLines(4);
+        after.setText(set[2]);
+        col.addView(after, new LinearLayout.LayoutParams(-1, -2));
         // Copy, Save and Send as prompt (Close is the dialog's button).
         LinearLayout acts = new LinearLayout(app);
         acts.setOrientation(LinearLayout.HORIZONTAL);
@@ -103,10 +130,32 @@ final class TextOffer {
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
-            body.setText(TextReady.cut(whole, d, m));
+            String[] now = {m, d, after.getText().toString(), TextReady.AFTER_FROM[Math.max(0, from.getSelectedItemPosition())]};
+            body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
-            TextReady.remember(dir, program, m, d);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
         };
+        from.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> p, android.view.View v, int pos, long id) {
+                cut.run();
+            }
+
+            public void onNothingSelected(android.widget.AdapterView<?> p) {}
+        });
+        after.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void afterTextChanged(android.text.Editable s) {
+                cut.run();
+            }
+        });
+        clear.setOnClickListener(v -> after.setText(""));
+        select.setOnClickListener(v -> {
+            if (TextReady.FROM_SECTIONS.equals(TextReady.AFTER_FROM[Math.max(0, from.getSelectedItemPosition())])) pickSection(app, after);
+            else PyJavParams.pickPromptFile(app, after);
+        });
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             public void onItemSelected(android.widget.AdapterView<?> p, android.view.View v, int pos, long id) {
                 cut.run();
@@ -142,6 +191,33 @@ final class TextOffer {
         send.setOnClickListener(v -> send(app, body.getText().toString()));
         dialog.show();
         last = dialog;
+    }
+
+    /** The tests: From sections' pick (its index; else a list is shown), and the list shown last. */
+    static Integer sectionPick;
+    static AlertDialog lastSections;
+
+    /** From sections: the Sogni programs' saved sections listed; the one picked puts its prompt in `after`. */
+    static void pickSection(MainActivity app, final EditText after) {
+        final java.util.List<String> texts = new java.util.ArrayList<String>();
+        java.util.List<String> labels;
+        try {
+            labels = TextReady.sectionChoices(PromptVault.open(app.getFilesDir()), texts);
+        } catch (Exception ex) {
+            say(app, "Could not read the sections: " + ex.getMessage());
+            return;
+        }
+        if (labels.isEmpty()) {
+            say(app, "No sections saved yet (Sogni Params' Save)");
+            return;
+        }
+        if (sectionPick != null) {
+            if (sectionPick.intValue() >= 0 && sectionPick.intValue() < texts.size()) after.setText(texts.get(sectionPick.intValue()));
+            return;
+        }
+        lastSections = new AlertDialog.Builder(app).setTitle(TextReady.FROM_SECTIONS)
+            .setItems(labels.toArray(new String[0]), (d, w) -> after.setText(texts.get(w)))
+            .setNegativeButton("Cancel", null).show();
     }
 
     static android.widget.Button action(MainActivity app, LinearLayout row, String label, String tag) {

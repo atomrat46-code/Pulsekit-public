@@ -3040,7 +3040,7 @@ final class PyJav {
             String stem = name.replaceAll("\\.txt$", "");
             for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
             try {
-                Files.write(to.toPath(), TextReady.cut(TextReady.text(f.bytes), set[1], set[0]).getBytes(StandardCharsets.UTF_8));
+                Files.write(to.toPath(), TextReady.result(TextReady.text(f.bytes), set).getBytes(StandardCharsets.UTF_8));
                 n++;
             } catch (Exception ex) {
                 if (app.pyLog != null) app.pyLog.append("\nCould not save " + name + ": " + ex.getMessage());
@@ -3107,16 +3107,57 @@ final class PyJav {
         body.setWrapStyleWord(true);
         body.setEditable(false);
         panel.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
-        panel.add(new JLabel(TextReady.HINT), java.awt.BorderLayout.SOUTH);
+        // Text after: Select text takes it from a file or a saved section (the dropdown); it goes after the answer.
+        JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));
+        JPanel arow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        arow.add(new JLabel(TextReady.AFTER));
+        final javax.swing.JComboBox<String> from = new javax.swing.JComboBox<String>(TextReady.AFTER_FROM);
+        from.setName("text-ready:after-from");
+        from.setSelectedItem(set[3]);
+        arow.add(from);
+        JButton select = new JButton(TextReady.SELECT_TEXT);
+        select.setName("text-ready:select");
+        arow.add(select);
+        JButton clear = new JButton(TextReady.CLEAR_TEXT);
+        clear.setName("text-ready:clear");
+        arow.add(clear);
+        bottom.add(arow, java.awt.BorderLayout.NORTH);
+        final javax.swing.JTextArea after = new javax.swing.JTextArea(set[2], 3, 52);
+        after.setName("text-ready:after");
+        after.setLineWrap(true);
+        after.setWrapStyleWord(true);
+        bottom.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
+        bottom.add(new JLabel(TextReady.HINT), java.awt.BorderLayout.SOUTH);
+        panel.add(bottom, java.awt.BorderLayout.SOUTH);
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
-            body.setText(TextReady.cut(whole, d, m));
+            String[] now = {m, d, after.getText(), String.valueOf(from.getSelectedItem())};
+            body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
-            TextReady.remember(dir, program, m, d);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
         };
         mode.addActionListener(e -> cut.run());
+        from.addActionListener(e -> cut.run());
+        clear.addActionListener(e -> after.setText(""));
+        select.addActionListener(e -> {
+            String t = TextReady.FROM_SECTIONS.equals(from.getSelectedItem()) ? this.pickSectionText(select) : this.pickFileText(select);
+            if (t != null) after.setText(t);
+        });
+        after.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
         delim.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 cut.run();
@@ -3164,6 +3205,53 @@ final class PyJav {
                 return;
             }
         }
+    }
+
+    /** The tests: Select text's file (From file; else one picked) and section (From sections: its index; else a list). */
+    static File textAfterFile;
+    static Integer textAfterSection;
+
+    /** From file: a text file's text (as Params' Select file reads a prompt file), or null. */
+    String pickFileText(java.awt.Component at) {
+        File f = textAfterFile;
+        if (f == null) {
+            JFileChooser ch = selectChooser();
+            if (ch.showOpenDialog(at) != JFileChooser.APPROVE_OPTION) return null;
+            f = ch.getSelectedFile();
+            selected(f);
+        }
+        try {
+            String t = ProgramParams.promptText(Files.readAllBytes(f.toPath()));
+            if (t.isEmpty()) this.clipSay(f.getName() + " has no text");
+            return t.isEmpty() ? null : t;
+        } catch (Exception ex) {
+            this.clipSay("Could not read " + f.getName());
+            return null;
+        }
+    }
+
+    /** From sections: the Sogni programs' saved sections listed; the prompt of the one picked, or null. */
+    String pickSectionText(java.awt.Component at) {
+        java.util.List<String> texts = new java.util.ArrayList<String>();
+        java.util.List<String> labels;
+        try {
+            labels = TextReady.sectionChoices(PromptDb.vault(), texts);
+        } catch (Exception ex) {
+            this.clipSay("Could not read the sections: " + ex.getMessage());
+            return null;
+        }
+        if (labels.isEmpty()) {
+            this.clipSay("No sections saved yet (Sogni Params' Save)");
+            return null;
+        }
+        int k;
+        if (textAfterSection != null) k = textAfterSection.intValue();
+        else {
+            Object got = JOptionPane.showInputDialog(at, "Text after the answer: a saved section's prompt", TextReady.FROM_SECTIONS,
+                JOptionPane.PLAIN_MESSAGE, null, labels.toArray(), labels.get(0));
+            k = got == null ? -1 : labels.indexOf(got);
+        }
+        return k >= 0 && k < texts.size() ? texts.get(k) : null;
     }
 
     /** Send as prompt: the text into a Sogni program's Params as its prompt (picked, then asked); the program when sent. */

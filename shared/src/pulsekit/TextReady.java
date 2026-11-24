@@ -64,24 +64,57 @@ public final class TextReady {
     return (CUT_AFTER.equals(mode) ? "The text after " : "The text before ") + "“" + delim + "”";
   }
 
-  /** The program's cut and delimiter: remembered, else SogniChat's reply line with Cut after. */
+  /** Text after: where Select text takes it from, and the text added after the answer. */
+  public static final String AFTER = "Text after", FROM_FILE = "From file", FROM_SECTIONS = "From sections";
+  public static final String[] AFTER_FROM = {FROM_FILE, FROM_SECTIONS};
+  public static final String SELECT_TEXT = "Select text", CLEAR_TEXT = "Clear";
+
+  /**
+   * The program's settings: {cut, delimiter, text after, where Select text takes it from}, remembered,
+   * else SogniChat's reply line with Cut after (no text after).
+   */
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY} : new String[] {NO_CUT, ""};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE} : new String[] {NO_CUT, "", "", FROM_FILE};
   }
 
+  /** The cut and delimiter remembered; the text after as it was. */
   public static void remember(File dir, String program, String mode, String delim) {
+    String[] was = setting(dir, program);
+    remember(dir, program, mode, delim, was[2], was[3]);
+  }
+
+  public static void remember(File dir, String program, String mode, String delim, String after, String from) {
     Map<String, String[]> all = load(dir);
-    all.put(program, new String[] {mode, delim == null ? "" : delim.replace('\n', ' ').replace('\t', ' ')});
+    all.put(program, new String[] {mode, delim == null ? "" : delim.replace('\n', ' ').replace('\t', ' '), after == null ? "" : after, from == null ? FROM_FILE : from});
     StringBuilder sb = new StringBuilder();
-    for (Map.Entry<String, String[]> e : all.entrySet()) sb.append(e.getKey()).append('\t').append(e.getValue()[0]).append('\t').append(e.getValue()[1]).append('\n');
+    for (Map.Entry<String, String[]> e : all.entrySet()) {
+      String[] v = e.getValue();
+      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\n');
+    }
     try {
       dir.mkdirs();
       java.nio.file.Files.write(new File(dir, FILE).toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
     } catch (Exception ignored) {
       // only not remembered
     }
+  }
+
+  static String escape(String t) {
+    return t.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("\r", "");
+  }
+
+  static String unescape(String t) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < t.length(); i++) {
+      char c = t.charAt(i);
+      if (c == '\\' && i + 1 < t.length()) {
+        char n = t.charAt(++i);
+        sb.append(n == 'n' ? '\n' : n == 't' ? '\t' : n);
+      } else sb.append(c);
+    }
+    return sb.toString();
   }
 
   static Map<String, String[]> load(File dir) {
@@ -91,12 +124,34 @@ public final class TextReady {
       if (!f.isFile()) return out;
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String[] p = line.split("\t", -1);
-        if (p.length >= 3) out.put(p[0], new String[] {p[1], p[2]});
+        if (p.length >= 3) out.put(p[0], new String[] {p[1], p[2], p.length >= 4 ? unescape(p[3]) : "", p.length >= 5 && !p[4].isEmpty() ? p[4] : FROM_FILE});
       }
     } catch (Exception ignored) {
       // none remembered
     }
     return out;
+  }
+
+  /** The answer as shown and saved: cut at the delimiter, the text after added after it (on a line of its own). */
+  public static String result(String text, String[] set) {
+    String cut = cut(text, set[1], set[0]);
+    String after = set.length > 2 && set[2] != null ? set[2].trim() : "";
+    return after.isEmpty() ? cut : cut.isEmpty() ? after : cut + "\n" + after;
+  }
+
+  /** From sections: the Sogni programs' saved sections, each labelled with its program; their prompts in `texts`. */
+  public static List<String> sectionChoices(PromptVault vault, List<String> texts) {
+    List<String> labels = new ArrayList<String>();
+    for (String app : vault.sogniSectionApps()) {
+      for (PromptVault.SogniSection sec : vault.sogniSections(app)) {
+        String prompt = SectionCollection.formOf(sec).prompt;
+        String t = prompt == null || prompt.trim().isEmpty() ? (sec.text == null ? "" : sec.text.trim()) : prompt.trim();
+        if (t.isEmpty()) continue;
+        labels.add(app + " \u00b7 " + SogniSections.label(sec));
+        texts.add(t);
+      }
+    }
+    return labels;
   }
 
   /** Save's file name: answer.txt's text as shown, answer-trimmed.txt. */

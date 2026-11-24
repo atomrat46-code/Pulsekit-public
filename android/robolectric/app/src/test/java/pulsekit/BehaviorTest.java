@@ -16126,6 +16126,30 @@ public class BehaviorTest {
     out.append("send: ").append(TextOffer.said).append(" | in SogniPadd ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
     out.append("after send: ready open ").append(d.isShowing()).append(", program ").append(app.pyName).append(", params open ").append(PyJavParams.shown != null && PyJavParams.shown.isShowing()).append('\n');
     if (PyJavParams.shown != null) PyJavParams.shown.dismiss();
+    // Text after: From sections puts a saved section's prompt after the answer (remembered); Clear takes it away.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPadd", "Prompt: Moody light, film grain.\n");
+    java.util.List<String> texts = new java.util.ArrayList<String>();
+    TextReady.sectionChoices(vault, texts);
+    TextOffer.show(app, "SogniChat.java", "answer.txt", chat);
+    idle();
+    View r2 = TextOffer.last.getWindow().getDecorView();
+    ((android.widget.Spinner) r2.findViewWithTag("text-ready:after-from")).setSelection(1);
+    idle();
+    TextOffer.sectionPick = Integer.valueOf(texts.indexOf("Moody light, film grain."));
+    try {
+      ((android.widget.Button) r2.findViewWithTag("text-ready:select")).performClick();
+    } finally {
+      TextOffer.sectionPick = null;
+    }
+    idle();
+    TextView body2 = (TextView) r2.findViewWithTag("text-ready:text");
+    String[] kept = TextReady.setting(app.getFilesDir(), "SogniChat.java");
+    out.append("text after: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept ").append(kept[2]).append(" / ").append(kept[3]).append('\n');
+    ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
+    idle();
+    out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
+    TextOffer.last.dismiss();
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
     d.dismiss();
@@ -16134,9 +16158,11 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
-        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true", "cuts: c / a / a > b"};
+        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
+        "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From sections",
+        "cleared: A red kite over a grey sea. | kept ''", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);
