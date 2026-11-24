@@ -5021,10 +5021,12 @@ LOO_CAP = 20000
 LOO_ROUNDS = 150
 
 
-def bench_gains(k, model):
-    """Each of the kit's songs: how many more of its cymbals `model` got right than DrumMidi's built-in one."""
+def bench_gains(k, model, context=False):
+    """Each of the kit's songs: how many more of its cymbals `model` got right than DrumMidi's built-in one
+    (`context`: a song-aware model, reading each cymbal's inputs with its song's look)."""
     import numpy as np
-    return np.array([cymbals_right(m) - cymbals_right(b) for m, b in zip(k.song_scores(model), k.song_scores(k.builtin))], float)
+    with_m = k.song_scores(model, k.context_inputs() if context else None)
+    return np.array([cymbals_right(m) - cymbals_right(b) for m, b in zip(with_m, k.song_scores(k.builtin))], float)
 
 
 def bench_gate_fit(kits, gains, reg=1e-2, it=600, lr=0.5):
@@ -5063,11 +5065,11 @@ def bench_gate_fit(kits, gains, reg=1e-2, it=600, lr=0.5):
     return mu, sd, v, b
 
 
-def bench_gated(k, gate, model):
+def bench_gated(k, gate, model, context=False):
     """A kit scored with `model` on the songs the gate says it helps and the built-in model on the
-    others: (cymbals right, songs given the model)."""
+    others: (cymbals right, songs given the model). `context`: a song-aware model."""
     import numpy as np
-    with_m, with_b = k.song_scores(model), k.song_scores(k.builtin)
+    with_m, with_b = k.song_scores(model, k.context_inputs() if context else None), k.song_scores(k.builtin)
     if gate is None:
         return sum(cymbals_right(r) for r in with_b), 0
     mu, sd, v, b = gate
@@ -5394,8 +5396,9 @@ def model_bench(opts, switches):
                  "DrumMidi wrote, cymbals a second), so the model can tell kinds of material apart.",
                  "Gated: the even model only on songs a gate (learned from the other kits' songs: their look against whether the",
                  "model helped them) says it helps; DrumMidi's built-in model on the others. [n/m]: songs given the model.",
+                 "Gated song-aware: the same with the song-aware model (its own gate). [n/m] after it: its songs.",
                  "Cymbals right: closed hat, open hat, ride and crash found where the MIDI played them (within 30 ms).",
-                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s" % (width, "Kit", "built-in", "pooled", "even", "song-aware", "gated")]
+                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s %15s" % (width, "Kit", "built-in", "pooled", "even", "song-aware", "gated", "gated aware")]
         details = []
         # The gate's lessons: each song's gain with the even model learned from all the kits (once: learning them
         # again for each kit left out would score every song 60 times over; the kit left out still teaches its gate nothing).
@@ -5407,11 +5410,12 @@ def model_bench(opts, switches):
         aware_all = bench_fit(kits, even=True, context=True, cap=LOO_CAP)
         print("Leave one out: each song's gain with the even model (the gate's lessons)\u2026", flush=True)
         gains = dict((id(o), bench_gains(o, even_all)) for o in kits)
-        sums = [0, 0, 0, 0, 0]
-        rel = [0.0] * 5
-        better = [0] * 5
-        worse = [0] * 5
-        gate_songs = [0, 0]
+        gains_aware = dict((id(o), bench_gains(o, aware_all, context=True)) for o in kits)
+        sums = [0] * 6
+        rel = [0.0] * 6
+        better = [0] * 6
+        worse = [0] * 6
+        gate_songs = [0, 0, 0]
         for n, k in enumerate(which):
             rest = [o for o in kits if o is not k]
             pooled = bench_fit(rest, cap=LOO_CAP, start=pooled_all, it=LOO_ROUNDS)
@@ -5422,21 +5426,25 @@ def model_bench(opts, switches):
             v = [cymbals_right(x) for x in r]
             g, used = bench_gated(k, gate, even)
             v.append(g)
+            gate2 = bench_gate_fit(rest, gains_aware)
+            g2, used2 = bench_gated(k, gate2, aware, context=True)
+            v.append(g2)
             gate_songs[0] += used
             gate_songs[1] += len(k.songs)
-            for i in range(5):
+            gate_songs[2] += used2
+            for i in range(6):
                 sums[i] += v[i]
                 rel[i] += (v[i] - v[0]) / float(max(1, v[0]))
                 better[i] += v[i] > v[0]
                 worse[i] += v[i] < v[0]
-            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 5))
-                         + "  [%d/%d]" % (used, len(k.songs)))
+            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 6))
+                         + "  [%d/%d] [%d/%d]" % (used, len(k.songs), used2, len(k.songs)))
             details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "pooled", "even", "song-aware"), r)] + [""]
             print("(%d of %d) %s" % (n + 1, len(which), lines[-1]), flush=True)
-        lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 5)),
-                  "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 5)),
-                  "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 5)),
-                  "Gated: the model on %d of %d songs." % tuple(gate_songs),
+        lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 6)),
+                  "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 6)),
+                  "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 6)),
+                  "Gated: the even model on %d of %d songs; gated aware: the song-aware model on %d." % (gate_songs[0], gate_songs[1], gate_songs[2]),
                   "Cymbals whose inputs DrumMidi left undefined (no model moves them; left as DrumMidi wrote them): %d of %d."
                   % (sum(k.undefined for k in which), sum(len(k.X) for k in which))]
         print("\n".join(lines[-5:]))
@@ -5447,6 +5455,12 @@ def model_bench(opts, switches):
             text, java = bench_model_text(m, kits)
             files["model-%d-kits-%s.txt" % (len(kits), name)] = text
             files["model-%d-kits-%s-java.txt" % (len(kits), name)] = java
+        gate_aware = bench_gate_fit(kits, gains_aware)
+        if gate_aware is not None:
+            mu, sd, v, b = gate_aware
+            files["gate-%d-kits-song-aware.txt" % len(kits)] = ("# When DrumMidi's song-aware cymbal model (model-%d-kits-song-aware.txt) helps a song: as gate-%d-kits.txt\n" % (len(kits), len(kits))
+                                                               + "mu " + " ".join("%.8g" % a for a in mu) + "\nsd " + " ".join("%.8g" % a for a in sd)
+                                                               + "\nw " + " ".join("%.8g" % a for a in v) + "\nb %.8g\n" % b)
         gate = bench_gate_fit(kits, gains)
         if gate is not None:
             mu, sd, v, b = gate
