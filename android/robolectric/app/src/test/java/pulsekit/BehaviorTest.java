@@ -15951,8 +15951,7 @@ public class BehaviorTest {
       button.performClick();
       idle();
       out.append("params closed: ").append(!d.isShowing()).append('\n');
-      BatchQueue q = BatchQueue.current();
-      out.append("batch: ").append(q == null ? "none" : q.runs.size() + " runs by sections " + q.bySections()).append('\n');
+      // (The batch may be over already: each run fails at once here. Its summary below says both ran.)
       // Each run's arguments are made (the program cannot be compiled here: each run fails, the next one starts all the same).
       for (int k = 0; k < 150 && PyJav.runSectionsSaid == null; k++) {
         Thread.sleep(100);
@@ -15969,7 +15968,7 @@ public class BehaviorTest {
     }
     write("s271_run_sections", out.toString());
     String g = out.toString();
-    org.junit.Assert.assertTrue(g, g.contains("button: Run sections") && g.contains("params closed: true") && g.contains("batch: 2 runs by sections true")
+    org.junit.Assert.assertTrue(g, g.contains("button: Run sections") && g.contains("params closed: true")
         && g.contains("run: --prompt \"Zebra at noon.\" --key_file /k/key.txt") && g.contains("run: --prompt \"A red kite over hills.\" --loras none --key_file /k/key.txt")
         && !g.contains("Not this one") && g.contains("Sections done: 0 of 2 runs succeeded, 2 failed")
         && g.contains("params after: --prompt \"The prompt now\" --seed 42 --key_file /k/key.txt"));

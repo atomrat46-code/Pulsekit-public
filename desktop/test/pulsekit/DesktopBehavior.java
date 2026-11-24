@@ -11567,6 +11567,7 @@ public final class DesktopBehavior {
         && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
         && all.contains("keep: unpacked 2, renders kept 2, again unpacked 0, DrumMidi ran 2")
+        && all.contains("elsewhere: DrumMidi's results kept: 2 of 2 kits | DrumMidi ran 0")
         && all.contains("folders: True kits: ['vst-render-Fake_Drums_Bright_', 'vst-render-Fake_Drums_Dark_']")
         && all.contains("delete: true off, hit tab's true, on with keep true, No: 2 kits left, Yes: Deleted the extracted files: 2 kits in 1 folder, 0 left")
         && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")

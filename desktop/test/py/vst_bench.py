@@ -182,6 +182,10 @@ print("with alias:", [(k, s) for k, s, z, w in vr.render_kits(again, True)])
 # Both benches in one run (run separately): one unzip folder, each kit's renders unpacked once and deleted after the cymbal bench.
 import contextlib
 import io
+# (The earlier benches' work folders forgotten here and below: their kept results would be copied, and DrumMidi would not run.)
+works_file = os.path.join(os.path.expanduser("~"), ".pulsekit", vr.BENCH_WORKS)
+if os.path.isfile(works_file):
+    os.remove(works_file)
 bout = os.path.join(work, "both-out")
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
@@ -195,6 +199,8 @@ print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s,
     text.count("DrumMidi ran on each")))
 # --bench_keep: the renders kept after the bench; a bench run again (its kept results gone, another DrumMidi) unpacks nothing.
 kout = os.path.join(work, "keep-out")
+if os.path.isfile(works_file):
+    os.remove(works_file)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
@@ -203,10 +209,18 @@ kunz = os.path.join(kout, "cymbal-bench", "kits")
 kept = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
 import shutil
 shutil.rmtree(os.path.join(kout, "cymbal-bench", "data"))
+if os.path.isfile(works_file):
+    os.remove(works_file)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
 print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))
+# Another output folder (so another work folder): the earlier bench's kept results are found and copied, DrumMidi does not run.
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--cymbal_bench", "--model_compare", "--bench_dir", os.path.join(work, "runs"), "--outdir", os.path.join(work, "elsewhere-out"), "--drummidi", jar])
+line = [l for l in said.getvalue().splitlines() if l.startswith("DrumMidi's results kept:")]
+print("elsewhere: %s | DrumMidi ran %d" % (line[0].split(" (")[0] if line else "-", said.getvalue().count("DrumMidi ran on each")))
 # Several input folders, separated by ";": each one's kits found (the runs' two folders given apart).
 twodirs = "%s; %s" % (os.path.join(work, "runs", "1"), os.path.join(work, "runs", "2"))
 print("folders:", vr.bench_folders(twodirs) == [os.path.join(work, "runs", "1"), os.path.join(work, "runs", "2")],
