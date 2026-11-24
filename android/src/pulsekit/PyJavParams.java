@@ -679,6 +679,19 @@ public final class PyJavParams {
         }
       }
     };
+    if (SogniSections.shown(name)) {
+      // Run sections…: several sections (or a group) picked, the program run with each in turn; the Params close as with OK.
+      android.widget.Button runSections = new android.widget.Button(activity);
+      runSections.setText(SogniSections.RUN);
+      runSections.setTag("params-run-sections");
+      runSections.setAllCaps(false);
+      runSections.setOnClickListener(v -> pickRunSections(activity, SogniSections.app(name), picked -> {
+        save.onClick(self[0], android.content.DialogInterface.BUTTON_POSITIVE);
+        if (self[0] != null) self[0].dismiss();
+        if (activity instanceof MainActivity && ((MainActivity) activity).pyJav != null) ((MainActivity) activity).pyJav.pkRunSections(name, ps, picked);
+      }));
+      box.addView(runSections);
+    }
     // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
     // (A folder row's Use box counts as its tick: Add to the AudioMixer and DrumMidi's folder untick each other.)
     for (int i = 0; i < checks.length; i++) {
@@ -939,23 +952,21 @@ public final class PyJavParams {
       sectionSay(activity, "No " + program + " sections yet: Save keeps the entries as one");
       return;
     }
-    // Search (the header): the sections that contain the term, or don't (* and ? wildcards), listed by
-    // their groups, each on its own row; no term, the groups as before.
-    final boolean searching = SogniSections.searchPattern(searchTerm) != null;
+    // Search (the header): the sections that contain the term, or don't (* and ? wildcards).
     final List<PromptVault.SogniSection> kept = SogniSections.search(all, searchTerm, searchContains);
-    // Grouped by the prompt's first sentences, A to Z: a group's long press (or tap) lists its sections.
+    // As Section Collection has them: each group (A to Z, then No group) and its sections under it; a tap on a
+    // group closes it (or opens it again), held it lists its sections apart.
     final List<SogniSections.Group> groups = SogniSections.groups(kept);
     final List<Object> items = new ArrayList<Object>();
     List<String> labels = new ArrayList<String>();
     for (SogniSections.Group g : groups) {
-      if (!searching || !SogniSections.opens(g)) {
-        items.add(g);
-        labels.add(SogniSections.groupLabel(g));
-        continue;
-      }
+      boolean shut = closedGroups.contains(groupKey(g));
+      items.add(g);
+      labels.add((shut ? "\u25b8 " : "\u25be ") + SogniSections.groupMarks(g) + g.lead + " (" + g.sections.size() + ")");
+      if (shut) continue;
       for (PromptVault.SogniSection sec : g.sections) {
         items.add(sec);
-        labels.add((g.named ? g.lead : SogniSections.lead(sec).length() > 30 ? SogniSections.lead(sec).substring(0, 30) + "\u2026" : SogniSections.lead(sec)) + " \u203a " + SogniSections.label(sec));
+        labels.add("      " + SogniSections.label(sec));
       }
     }
     String[] rows = labels.toArray(new String[0]);
@@ -967,8 +978,8 @@ public final class PyJavParams {
             return;
           }
           SogniSections.Group g = (SogniSections.Group) r;
-          if (!SogniSections.opens(g)) showSection(activity, program, ps, fields, g.sections.get(0));
-          else groupSections(activity, program, ps, fields, g);
+          if (!closedGroups.remove(groupKey(g))) closedGroups.add(groupKey(g));
+          browseSections(activity, program, ps, fields);
         })
         .setNeutralButton("Delete\u2026", (d, w) -> deleteSections(activity, program, all))
         .setNegativeButton("Cancel", null).show();
@@ -988,11 +999,16 @@ public final class PyJavParams {
         sectionMenu(activity, program, ps, fields, (PromptVault.SogniSection) r);
         return true;
       }
-      SogniSections.Group g = (SogniSections.Group) r;
-      if (!SogniSections.opens(g)) sectionMenu(activity, program, ps, fields, g.sections.get(0));
-      else groupSections(activity, program, ps, fields, g);
+      groupSections(activity, program, ps, fields, (SogniSections.Group) r);
       return true;
     });
+  }
+
+  /** Browse sections' groups closed (a tap on one), by name, while the app runs: the others are open. */
+  static final java.util.Set<String> closedGroups = new java.util.HashSet<String>();
+
+  static String groupKey(SogniSections.Group g) {
+    return g.none ? "" : g.lead.toLowerCase(java.util.Locale.ROOT);
   }
 
   /** Browse sections' search: its term and way (Contains or Doesn't contain), kept while the app runs. */
@@ -1010,7 +1026,22 @@ public final class PyJavParams {
     TextView title = new TextView(activity);
     title.setText(SogniSections.BROWSE + " \u00b7 " + program);
     title.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
-    box.addView(title);
+    // SC: Section Collection (the sections in groups); Browse sections lists them again after it closes.
+    LinearLayout top = new LinearLayout(activity);
+    top.setOrientation(LinearLayout.HORIZONTAL);
+    top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    top.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    android.widget.Button sc = new android.widget.Button(activity);
+    sc.setText(SectionCollection.BUTTON);
+    sc.setTag("sections-collection");
+    sc.setAllCaps(false);
+    sc.setContentDescription(SectionCollection.BUTTON_TIP);
+    sc.setOnClickListener(v -> {
+      if (lastSections != null) lastSections.dismiss();
+      SectionCollectionScreen.show(activity, program, () -> browseSections(activity, program, ps, fields));
+    });
+    top.addView(sc);
+    box.addView(top);
     LinearLayout row = new LinearLayout(activity);
     row.setOrientation(LinearLayout.HORIZONTAL);
     row.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -1359,6 +1390,63 @@ public final class PyJavParams {
       fields[i].setText(v == null ? "" : v);
     }
     sectionSay(activity, "Loaded: " + SogniSections.label(sec));
+  }
+
+  /** Run sections…' picker shown last, and the tests' answer (the sections in, the indexes to run out; null: asked). */
+  static AlertDialog lastRunPick;
+  static java.util.function.Function<List<PromptVault.SogniSection>, int[]> runSectionsAnswer;
+
+  /** Run sections…' picker: the program's sections ticked by hand, or by favourites or a group; `go` gets the ones ticked. */
+  static void pickRunSections(final Activity activity, final String app, final java.util.function.Consumer<List<PromptVault.SogniSection>> go) {
+    final List<PromptVault.SogniSection> all;
+    try {
+      all = PromptVault.open(activity.getFilesDir()).sogniSections(app);
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not read the sections: " + ex.getMessage());
+      return;
+    }
+    if (all.isEmpty()) {
+      sectionSay(activity, SogniSections.RUN_NONE);
+      return;
+    }
+    if (runSectionsAnswer != null) {
+      int[] idx = runSectionsAnswer.apply(all);
+      if (idx == null) return;
+      List<PromptVault.SogniSection> out = new java.util.ArrayList<PromptVault.SogniSection>();
+      for (int i : idx) if (i >= 0 && i < all.size()) out.add(all.get(i));
+      if (!out.isEmpty()) go.accept(out);
+      return;
+    }
+    final String[] rows = new String[all.size()];
+    final boolean[] on = new boolean[all.size()];
+    for (int i = 0; i < rows.length; i++) {
+      PromptVault.SogniSection sec = all.get(i);
+      String g = sec.group == null || sec.group.trim().isEmpty() ? "" : "  [" + sec.group.trim() + "]";
+      rows[i] = SogniSections.marks(sec) + SogniSections.label(sec) + g;
+    }
+    final List<String> picks = SogniSections.runPicks(all);
+    final AlertDialog[] dlg = new AlertDialog[1];
+    dlg[0] = new AlertDialog.Builder(activity).setTitle(SogniSections.RUN + " \u00b7 " + app)
+        .setMultiChoiceItems(rows, on, (d, w, checked) -> on[w] = checked)
+        .setPositiveButton("Run", (d, w) -> {
+          List<PromptVault.SogniSection> out = new java.util.ArrayList<PromptVault.SogniSection>();
+          for (int i = 0; i < on.length; i++) if (on[i]) out.add(all.get(i));
+          if (out.isEmpty()) sectionSay(activity, "Run sections: no section ticked");
+          else go.accept(out);
+        })
+        .setNeutralButton("Pick\u2026", null)
+        .setNegativeButton("Cancel", null).show();
+    lastRunPick = dlg[0];
+    // Pick…: none, the favourites or a group ticked at once.
+    dlg[0].getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> new AlertDialog.Builder(activity).setTitle(SogniSections.RUN_ASK)
+        .setItems(picks.toArray(new String[0]), (d2, w2) -> {
+          boolean[] now = SogniSections.runPicked(all, picks.get(w2));
+          android.widget.ListView lv = dlg[0].getListView();
+          for (int i = 0; i < on.length; i++) {
+            on[i] = now[i];
+            lv.setItemChecked(i, now[i]);
+          }
+        }).setNegativeButton("Cancel", null).show());
   }
 
   static void deleteSections(final Activity activity, final String program, final List<PromptVault.SogniSection> all) {

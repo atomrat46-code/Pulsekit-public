@@ -617,7 +617,7 @@ public final class DesktopBehavior {
     edt(() -> AudioMixerWindow.show(app));
     Thread.sleep(300);
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-pads").doClick());
     final AudioMix.Track t = AudioMix.tracks.get(0);
     answers.add("(keep)");
     edt(() -> ((javax.swing.JButton) component(d, "audiomixer-editor:DrumPad 1")).doClick());
@@ -722,7 +722,7 @@ public final class DesktopBehavior {
     edt(() -> AudioMixerWindow.show(app));
     Thread.sleep(300);
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-pads")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-pads").doClick());
     out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
     final AudioMix.Track t = AudioMix.tracks.get(0);
     answers.add("(keep)");
@@ -874,7 +874,7 @@ public final class DesktopBehavior {
     };
     edt(() -> AudioMixerWindow.show((Pulsekit) frame));
     javax.swing.JDialog d = AudioMixerWindow.last;
-    edt(() -> ((javax.swing.JButton) component(d, "audiomixer-new-empty")).doClick());
+    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-new-empty").doClick());
     Thread.sleep(200);
     out.append("new: ").append(AudioMixerWindow.lastSaid).append('\n');
     AudioMix.Track t = AudioMix.tracks.get(0);
@@ -982,7 +982,7 @@ public final class DesktopBehavior {
     out.append("setting: ").append(toDb == null ? "none" : toDb.getText() + " " + toDb.isSelected()).append('\n');
     if (toDb != null) edt(() -> toDb.doClick());
     AudioMixerWindow.lastSaid = null;
-    edt(() -> menuItem(d.getJMenuBar(), "audiomixer-mixdown").doClick());
+    edt(() -> ((javax.swing.AbstractButton) component(d, "audiomixer-mixdown")).doClick());
     for (int i = 0; i < 400 && (AudioMixerWindow.lastSaid == null || AudioMixerWindow.lastSaid.startsWith("Mixing")); i++) Thread.sleep(50);
     String said = String.valueOf(AudioMixerWindow.lastSaid);
     out.append("mixdown: ").append(said.replace(home.getAbsolutePath(), "~").replaceAll("\\d{6}-\\d{4}", "<date>")).append('\n');
@@ -9773,17 +9773,18 @@ public final class DesktopBehavior {
     answers.add("(keep)");
     inspectNext = d -> {
       final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
-      list.setSelectedIndex(0);
+      // (Row 0 is the sections' group, No group.)
+      list.setSelectedIndex(1);
       javax.swing.JButton star = (javax.swing.JButton) component(d, "section-star");
       javax.swing.JButton fin = (javax.swing.JButton) component(d, "section-final");
       seen.append("buttons: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
       star.doClick();
       fin.doClick();
       seen.append("after: ").append(star.getText()).append(", ").append(fin.getText()).append(" | rows: ").append(rows.apply(list)).append('\n');
-      list.setSelectedIndex(1);
+      list.setSelectedIndex(2);
       seen.append("other row: ").append(star.getText()).append(", ").append(fin.getText()).append('\n');
       // Add to group… on the kite: the groups made again, its group open and it selected.
-      list.setSelectedIndex(0);
+      list.setSelectedIndex(1);
       PyJav.groupAnswer = "Portraits";
       ((javax.swing.JButton) component(d, "section-group")).doClick();
       PyJav.groupAnswer = null;
@@ -9805,8 +9806,8 @@ public final class DesktopBehavior {
     out.append(seen);
     String t = seen.toString();
     boolean ok = done[0] && t.contains("buttons: \u2606, Mark as final")
-        && t.contains("after: \u2605, Remove the final mark | rows: \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>")
-        && t.contains("other row: \u2606, Mark as final") && t.contains("grouped: \u25be \u2605 F Portraits (1) | \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when> | selected 1")
+        && t.contains("after: \u2605, Remove the final mark | rows: \u25be \u2605 F No group (2) | \u2605 F A red kite. \u00b7 <when> | Zebra at noon. \u00b7 <when>")
+        && t.contains("other row: \u2606, Mark as final") && t.contains("grouped: \u25be \u2605 F Portraits (1) | \u2605 F A red kite. \u00b7 <when> | \u25be No group (1) | Zebra at noon. \u00b7 <when> | selected 1")
         && t.contains("read back: favourite true, final true, group Portraits");
     if (!ok) throw new AssertionError(out.toString());
   }
@@ -9976,6 +9977,304 @@ public final class DesktopBehavior {
   }
 
   /**
+   * 24112026: Browse sections' SC opens Section Collection: the groups on the left (A to Z, (n), + opens
+   * their sections), the sections in no group on the right (their text in a box, a name above). Add new
+   * (a group with a description), Add new section (plain text is the prompt), a section dragged onto a
+   * group, Save of an edited text, Edit name, a group renamed (its sections kept) and deleted (they go to
+   * the right), a section deleted; all kept in the library. Browse sections lists the groups, then No group.
+   */
+  void s272_section_collection() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    final PromptVault.SogniSection zebra = vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+    Thread.sleep(5);
+    final PromptVault.SogniSection kite = vault.addSogniSection("SogniPadd", "Prompt: A red kite.\n");
+    Thread.sleep(5);
+    final PromptVault.SogniSection storm = vault.addSogniSection("SogniPadd", "Prompt: Stormy sky.\n");
+    vault.groupSogniSection(storm.id, "Weather");
+    final StringBuilder seen = new StringBuilder();
+    SectionCollectionWindow.last = null;
+    SectionCollectionWindow.answers = new java.util.ArrayDeque<String[]>();
+    SectionCollectionWindow.sure = Boolean.TRUE;
+    final java.util.function.Function<java.awt.Container, String> texts = new java.util.function.Function<java.awt.Container, String>() {
+      @Override
+      public String apply(java.awt.Container c) {
+        StringBuilder sb = new StringBuilder();
+        for (java.awt.Component k : c.getComponents()) {
+          String t = k instanceof JLabel ? ((JLabel) k).getText() : k instanceof javax.swing.JButton && ((javax.swing.JButton) k).getText().length() > 0 ? "[" + ((javax.swing.JButton) k).getText() + "]"
+              : k instanceof javax.swing.JTextArea ? "{" + ((javax.swing.JTextArea) k).getText().replace("\n", " / ") + "}" : null;
+          if (t != null) sb.append(sb.length() == 0 ? "" : " ").append(t);
+          if (k instanceof java.awt.Container && !(k instanceof javax.swing.JTextArea)) {
+            String in = this.apply((java.awt.Container) k);
+            if (in.length() > 0) sb.append(sb.length() == 0 ? "" : " ").append(in);
+          }
+        }
+        return sb.toString();
+      }
+    };
+    try {
+      final PyJav py = (PyJav) get("pyJav");
+      // Browse sections has SC; it opens Section Collection.
+      final javax.swing.JButton[] sc = new javax.swing.JButton[1];
+      PyJav.pickSection = null;
+      // Browse sections, then Section Collection over it: both stay open for the scenario.
+      answers.add("(keep)");
+      answers.add("(keep)");
+      inspectNext = d -> {
+        sc[0] = (javax.swing.JButton) component(d, "sections-collection");
+        seen.append("SC button: ").append(sc[0] == null ? "none" : sc[0].getText()).append('\n');
+        SwingUtilities.invokeLater(() -> sc[0].doClick());
+      };
+      SwingUtilities.invokeLater(() -> py.browseSections(frame, "SogniPadd", new ArrayList<ProgramParams.Param>(), new javax.swing.JTextField[0], new javax.swing.JTextArea[0]));
+      for (int i = 0; i < 100 && (SectionCollectionWindow.last == null || !SectionCollectionWindow.last.dialog.isShowing()); i++) Thread.sleep(100);
+      final SectionCollectionWindow w = SectionCollectionWindow.last;
+      seen.append("opened: ").append(w != null && w.dialog.isShowing()).append(" ").append(w == null ? "" : w.dialog.getTitle()).append('\n');
+      edt(() -> {
+        seen.append("left: ").append(texts.apply(w.left)).append('\n');
+        seen.append("right: ").append(texts.apply(w.right)).append('\n');
+        // Add new: a group with a description; Add new section: a name and plain text.
+        SectionCollectionWindow.answers.add(new String[] {"Animals", "Four legs"});
+        w.addGroup();
+        SectionCollectionWindow.answers.add(new String[] {"Blue one", "A blue kite over the sea"});
+        w.addSection();
+        seen.append("added left: ").append(texts.apply(w.left)).append('\n');
+        seen.append("added right: ").append(texts.apply(w.right)).append('\n');
+      });
+      // The zebra's name row dragged onto Animals.
+      edt(() -> {
+        java.awt.Component head = component(w.dialog, "sc-head:" + zebra.id);
+        java.awt.Component target = null;
+        for (java.awt.Component c : all(w.left)) if (c instanceof JLabel && ("sc-group:Animals").equals(c.getName())) target = c;
+        java.awt.Point p = SwingUtilities.convertPoint(target, 5, 5, head);
+        long now = System.currentTimeMillis();
+        for (java.awt.event.MouseListener l : head.getMouseListeners()) l.mousePressed(new java.awt.event.MouseEvent(head, java.awt.event.MouseEvent.MOUSE_PRESSED, now, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 3, 3, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        for (java.awt.event.MouseMotionListener l : head.getMouseMotionListeners()) l.mouseDragged(new java.awt.event.MouseEvent(head, java.awt.event.MouseEvent.MOUSE_DRAGGED, now, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, p.x, p.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        for (java.awt.event.MouseListener l : head.getMouseListeners()) l.mouseReleased(new java.awt.event.MouseEvent(head, java.awt.event.MouseEvent.MOUSE_RELEASED, now, 0, p.x, p.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+      });
+      edt(() -> {
+        seen.append("dragged left: ").append(texts.apply(w.left)).append('\n');
+        seen.append("dragged right: ").append(texts.apply(w.right)).append('\n');
+        ((javax.swing.JButton) component(w.dialog, "sc-open:Animals")).doClick();
+        seen.append("opened Animals: ").append(texts.apply(w.left)).append('\n');
+        // The kite's text edited and its menu's Save; its menu has the four items.
+        javax.swing.JTextArea area = (javax.swing.JTextArea) component(w.dialog, "sc-text:" + kite.id);
+        area.setText("Prompt: A red kite at dusk.");
+        javax.swing.JPopupMenu m = w.sectionMenu(kite, area);
+        StringBuilder items = new StringBuilder();
+        for (java.awt.Component c : m.getComponents()) if (c instanceof javax.swing.JMenuItem) items.append(items.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+        javax.swing.JMenu move = (javax.swing.JMenu) component(m, "sc-move");
+        StringBuilder groups = new StringBuilder();
+        for (java.awt.Component c : move.getMenuComponents()) if (c instanceof javax.swing.JMenuItem) groups.append(groups.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+        seen.append("section menu: ").append(items).append(" | move to: ").append(groups).append('\n');
+        ((javax.swing.JMenuItem) component(m, "sc-save")).doClick();
+        // Edit name on the zebra (now under Animals, on the left).
+        SectionCollectionWindow.answers.add(new String[] {"Zebra", "Striped"});
+        javax.swing.JPopupMenu zm = w.sectionMenu(zebra, null);
+        ((javax.swing.JMenuItem) component(zm, "sc-edit-name")).doClick();
+        seen.append("named: ").append(texts.apply(w.left)).append('\n');
+        // Weather renamed Sky (its section kept), then deleted (the section to the right).
+        SectionCollectionWindow.answers.add(new String[] {"Sky", "Up there"});
+        SectionCollection.Group weather = null;
+        try {
+          for (SectionCollection.Group g : SectionCollection.groups(PromptDb.vault(), "SogniPadd")) if (g.name.equals("Weather")) weather = g;
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        javax.swing.JPopupMenu gm = w.groupMenu(weather);
+        StringBuilder gitems = new StringBuilder();
+        for (java.awt.Component c : gm.getComponents()) if (c instanceof javax.swing.JMenuItem) gitems.append(gitems.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+        seen.append("group menu: ").append(gitems).append('\n');
+        ((javax.swing.JMenuItem) component(gm, "sc-group-rename")).doClick();
+        seen.append("renamed: ").append(texts.apply(w.left)).append('\n');
+        SectionCollection.Group sky = null;
+        try {
+          for (SectionCollection.Group g : SectionCollection.groups(PromptDb.vault(), "SogniPadd")) if (g.name.equals("Sky")) sky = g;
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        seen.append("delete asks: ").append(SectionCollection.deleteGroupAsk(sky).replace("\n", " / ")).append('\n');
+        ((javax.swing.JMenuItem) component(w.groupMenu(sky), "sc-group-delete")).doClick();
+        seen.append("group deleted left: ").append(texts.apply(w.left)).append('\n');
+        seen.append("group deleted right: ").append(texts.apply(w.right)).append('\n');
+        // The new section deleted.
+        PromptVault.SogniSection blue = null;
+        try {
+          for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) if (x.text.contains("blue kite")) blue = x;
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        ((javax.swing.JMenuItem) component(w.sectionMenu(blue, null), "sc-delete")).doClick();
+        seen.append("deleted right: ").append(texts.apply(w.right)).append('\n');
+        ((javax.swing.JButton) component(w.dialog, "sc-close")).doClick();
+      });
+      for (int i = 0; i < 50 && w.dialog.isShowing(); i++) Thread.sleep(100);
+      seen.append("closed: ").append(!w.dialog.isShowing()).append('\n');
+      // Browse sections (still open under it) lists them again: the groups, then No group.
+      idle();
+      seen.append("browse: ").append(String.valueOf(py.lastSectionsList == null ? "" : rowsOf(py.lastSectionsList)).replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+      edt(() -> {
+        java.awt.Window bw = SwingUtilities.getWindowAncestor(py.lastSectionsList);
+        if (bw != null) bw.dispose();
+      });
+      // Kept: read back from the library file.
+      PromptVault.forget();
+      PromptVault back = PromptDb.vault();
+      StringBuilder kept = new StringBuilder();
+      for (PromptVault.SectionGroup g : back.sectionGroups("SogniPadd")) kept.append(g.name).append(" (").append(g.note).append(") ");
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
+      seen.append("kept: ").append(kept.toString().trim()).append('\n');
+    } finally {
+      if (seen.indexOf("kept: ") < 0) out.append(seen);
+      SectionCollectionWindow.answers = null;
+      SectionCollectionWindow.sure = null;
+      for (PromptVault.SogniSection old : PromptDb.vault().sogniSections("SogniPadd")) PromptDb.vault().deleteSogniSection(old.id);
+    }
+    out.append(seen);
+    String t = seen.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
+    // Each line as it is (the whole line).
+    String[] want = {
+        "SC button: SC",
+        "opened: true Section Collection \u00b7 SogniPadd",
+        "left: Weather (1) [+]",
+        "right: \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
+        "added left: Animals Four legs Weather (1) [+]",
+        "added right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
+        "dragged left: Animals (1) [+] Four legs Weather (1) [+]",
+        "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
+        "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
+        "section menu: Save, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
+        "named: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Weather (1) [+]",
+        "group menu: Delete, Rename, Cancel",
+        "renamed: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Sky (1) [+] Up there",
+        "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
+        "group deleted left: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when>",
+        "group deleted right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
+        "deleted right: \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
+        "closed: true",
+        "browse: \u25be Animals (1) | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) | Stormy sky. \u00b7 <when> | A red kite at dusk. \u00b7 <when>",
+        "kept: Animals (Four legs) | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+    boolean ok = true;
+    for (String w : want) ok &= ("\n" + t).contains("\n" + w + "\n");
+    if (!ok) throw new AssertionError(out.toString());
+  }
+
+  private static String rowsOf(javax.swing.JList<?> l) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < l.getModel().getSize(); i++) sb.append(i == 0 ? "" : " | ").append(String.valueOf(l.getModel().getElementAt(i)).trim());
+    return sb.toString();
+  }
+
+  private static java.util.List<java.awt.Component> all(java.awt.Container c) {
+    java.util.List<java.awt.Component> out = new ArrayList<java.awt.Component>();
+    for (java.awt.Component k : c.getComponents()) {
+      out.add(k);
+      if (k instanceof java.awt.Container) out.addAll(all((java.awt.Container) k));
+    }
+    return out;
+  }
+
+  /**
+   * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
+   * with OK and SogniPadd runs once with each section's prompt and LoRAs (the other rows, the key file,
+   * as they were), one after another; the Params are as they were after; the summary names each.
+   */
+  void s271_run_sections() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wf_a1")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    StringBuilder got = new StringBuilder();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      PromptVault vault = PromptDb.vault();
+      vault.addSogniSection("SogniPadd", "Prompt: A red kite over hills.\nLoras: none\n");
+      Thread.sleep(20);
+      vault.addSogniSection("SogniPadd", "Prompt: Zebra at noon.\n");
+      Thread.sleep(20);
+      vault.addSogniSection("SogniPadd", "Prompt: Not this one.\n");
+      final PyJav pj = (PyJav) get("pyJav");
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPadd.java");
+      pj.saveParams("SogniPadd.java", "--prompt \"The prompt now\" --seed 42 --key_file \"" + key.getAbsolutePath() + "\"");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "--api_base http://127.0.0.1:" + port;
+      // (The Params' OK writes the argument line again: the stand-in server's address put back before the runs.)
+      final javax.swing.text.JTextComponent extraField = (javax.swing.text.JTextComponent) get("pyExtra");
+      PyJav.runSectionsBefore = () -> extraField.setText(extra);
+      PyJav.runSectionsSaid = null;
+      PyJav.runSectionsAnswer = all -> {
+        java.util.List<Integer> idx = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < all.size(); i++) if (!all.get(i).text.contains("Not this")) idx.add(i);
+        int[] o = new int[idx.size()];
+        for (int i = 0; i < o.length; i++) o[i] = idx.get(i);
+        return o;
+      };
+      final boolean[] button = {false};
+      inspectNext = d -> {
+        Component c = component(d, "params-run-sections");
+        button[0] = c instanceof javax.swing.JButton;
+        if (c instanceof javax.swing.JButton) ((javax.swing.JButton) c).doClick();
+      };
+      call("openParams");
+      for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+      Thread.sleep(500);
+      idle();
+      got.append("button: ").append(button[0]).append('\n');
+      got.append("said: ").append(PyJav.runSectionsSaid).append('\n');
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+          Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+          got.append("run: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append(" | loras ").append(SogniApi.toJson(a.get("loras"))).append('\n');
+        }
+      }
+      got.append("params after: ").append(pj.loadParams("SogniPadd.java")).append('\n');
+    } finally {
+      PyJav.runSectionsAnswer = null;
+      PyJav.runSectionsBefore = null;
+      server.stop(0);
+    }
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("button: true") && g.contains("Sections done: 2 of 2 runs succeeded")
+        && g.contains("run: A red kite over hills. | seed null | loras null") && g.contains("run: Zebra at noon. | seed null | loras [\"krea2")
+        && !g.contains("Not this one") && !g.contains("run: The prompt now")
+        && g.contains("params after: --prompt \"The prompt now\" --seed 42 --key_file")
+        && g.matches("(?s).*Zebra at noon\\. \u00b7 [^\n]*: Succeeded \u2192 sogni-padd-zebra-at-noon\\.png\n.*")
+        && g.matches("(?s).*A red kite over hills\\. \u00b7 loras \u00b7 [^\n]*: Succeeded \u2192 sogni-padd-a-red-kite-over-hills\\.png\n.*");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /**
    * 20112026: Select program's right click has Delete from the list (asked first; the program's runs go,
    * the others stay); the Drum sound library's Add folder… adds a folder's sounds (subfolders too), with
    * All each into its part by its name; vst_render's Params: --scan gone, Carla's project, DrumGizmo's
@@ -10117,11 +10416,12 @@ public final class DesktopBehavior {
     out.append(seen);
     String t = seen.toString();
     boolean ok = done[0] && t.contains("search row: Search, icon true, ways Contains / Doesn't contain | 3 sections")
-        && t.contains("kite*sky: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | 2 of 3 sections contain \"kite*sky\"")
-        && t.contains("not st?rmy: A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 2 of 3 sections don't contain \"st?rmy\"")
-        && t.contains("empty: \u25b8 Weather (1) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 3 sections")
+        && t.contains("all: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | \u25be No group (2) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when>")
+        && t.contains("kite*sky: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | \u25be No group (1) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | 2 of 3 sections contain \"kite*sky\"")
+        && t.contains("not st?rmy: \u25be No group (2) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 2 of 3 sections don't contain \"st?rmy\"")
+        && t.contains("empty: \u25be Weather (1) | A red kite. Over hills. Stormy sky. \u00b7 <when> | \u25be No group (2) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | 3 sections")
         && t.contains("quick menu: Add to group > Weather, New group\u2026, take out shown false")
-        && t.contains("grouped: \u25be Weather (2) | A red kite. Over hills. Stormy sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when>");
+        && t.contains("grouped: \u25be Weather (2) | A red kite. Over hills. Stormy sky. \u00b7 <when> | Zebra at noon. Wide shot. \u00b7 <when> | \u25be No group (1) | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when>");
     if (!ok) throw new AssertionError(out.toString());
   }
 
@@ -10145,8 +10445,11 @@ public final class DesktopBehavior {
     inspectNext = d -> {
       final javax.swing.JList<?> list = (javax.swing.JList<?>) component(d, "sections-list");
       seen.append("rows: ").append(rows.apply(list)).append('\n');
+      // The group's right click closes it, again opens it.
       java.awt.Rectangle r = list.getCellBounds(0, 0);
       java.awt.event.MouseEvent right = new java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON3_DOWN_MASK, r.x + 5, r.y + 5, 1, true, java.awt.event.MouseEvent.BUTTON3);
+      for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
+      seen.append("closed: ").append(rows.apply(list)).append('\n');
       for (java.awt.event.MouseListener l : list.getMouseListeners()) l.mousePressed(right);
       seen.append("opened: ").append(rows.apply(list)).append('\n');
       // The second section of the group (row 2): double click shows it fully, Load there.
@@ -10167,8 +10470,9 @@ public final class DesktopBehavior {
     out.append(seen);
     for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
     String t = seen.toString();
-    boolean ok = t.contains("rows: \u25b8 a red kite. over hills. (2) | Zebra at noon. Wide shot. Warm light.")
-        && t.contains("opened: \u25be a red kite. over hills. (2) | a red kite. over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras")
+    // Sections in no group are under "No group" (as Section Collection lists them), the newest first.
+    boolean ok = t.contains("rows: \u25be No group (3) | a red kite. over hills. Stormy sky.") && t.contains("closed: \u25b8 No group (3)\n")
+        && t.contains("opened: \u25be No group (3) | a red kite. over hills. Stormy sky. \u00b7 <when> | A red kite. Over hills. Blue sky. \u00b7 loras \u00b7 <when> | Zebra at noon. Wide shot. Warm light. \u00b7 <when>")
         && shown.equals("Saved <when> /  / Prompt: A red kite. Over hills. Blue sky. / Loras: kite 0.5") && t.contains("Loaded: A red kite. Over hills. Blue sky.") && done[0];
     if (!ok) throw new AssertionError(out.toString());
   }
@@ -11263,13 +11567,16 @@ public final class DesktopBehavior {
         && all.contains("numbered: ['1', '2'] [0, 1]") && all.contains("Cymbal model comparison is off (Settings)") && all.contains("off: exit 1")
         && all.contains("== Cymbal model comparison (after the run)") && all.contains("last: exit 1")
         && all.contains("keep: unpacked 2, renders kept 2, again unpacked 0, DrumMidi ran 2")
+        && all.contains("elsewhere: DrumMidi's results kept: 2 of 2 kits | DrumMidi ran 0")
+        && all.contains("folders: True kits: ['vst-render-Fake_Drums_Bright_', 'vst-render-Fake_Drums_Dark_']")
         && all.contains("delete: true off, hit tab's true, on with keep true, No: 2 kits left, Yes: Deleted the extracted files: 2 kits in 1 folder, 0 left")
         && all.contains("when: hidden true, ticked shown true") && all.contains("import button true, imported: Riot Default kit, Cardinal, Beat DRMR")
         && all.contains("A: 5 choices, DrumMidi's own model (built-in), shown false | ticked: A shown true, N shown false | first N kits: N shown true | named: names shown true")
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
         && all.contains("jar given: true")
         && all.contains("zip: cymbal-compare-builtin-vs-2-kits ['details.txt', 'kits.txt', 'model-2-kits-java.txt', 'model-2-kits.txt', 'summary.txt']")
-        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'kits.txt', 'summary.txt']")
+        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'gate-2-kits.txt', 'kits.txt', 'model-2-kits-even-java.txt', 'model-2-kits-even.txt', 'model-2-kits-song-aware-java.txt', 'model-2-kits-song-aware.txt', 'summary.txt']")
+        && all.contains("Mean change per kit") && all.contains("song-aware           gated") && all.contains("Gated: the model on 8 of 8 songs.")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
         && all.contains("both: unpacked 2 times, shared said true, hit bench's own unzip folder false, renders left [], cymbal kits 2".replace("true", "True").replace("false", "False"))

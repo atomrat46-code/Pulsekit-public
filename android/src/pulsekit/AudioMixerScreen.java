@@ -106,11 +106,36 @@ final class AudioMixerScreen {
         more.addView(saveP, margin(app));
         projectRow.addView(openP);
         projectRow.addView(exportP, margin(app));
-        col.addView(buttons);
-        col.addView(padsRow);
+        // File ▾: Import, the New items and the projects' Open, Save and Export in one menu (more room for
+        // the tracks); its items press the buttons kept out of sight (the tests press them too).
+        final TextView[] fileItems = {imp, empty, newPads, clear, openP, saveP, exportP};
+        final String[] fileNames = {AudioMix.IMPORT, AudioMix.NEW_EMPTY, DrumPads.NEW, "New project", AudioMix.OPEN_PROJECT + "\u2026",
+            AudioMix.SAVE_PROJECT + "\u2026", AudioMix.EXPORT_PROJECT + "\u2026"};
+        final TextView file = app.pill("File \u25be", false, null);
+        file.setTag("audiomixer-file");
+        file.setOnClickListener(v -> {
+            android.widget.PopupMenu menu = new android.widget.PopupMenu(app, file);
+            for (int i = 0; i < fileNames.length; i++) menu.getMenu().add(0, i, i, fileNames[i]);
+            menu.setOnMenuItemClickListener(item -> {
+                fileItems[item.getItemId()].performClick();
+                return true;
+            });
+            lastFileMenu = menu;
+            menu.show();
+        });
+        LinearLayout hidden = app.col();
+        hidden.setVisibility(android.view.View.GONE);
+        for (LinearLayout r : new LinearLayout[] {buttons, padsRow, more, projectRow}) {
+            r.removeAllViews();
+        }
+        for (TextView t : fileItems) hidden.addView(t);
+        LinearLayout top = app.row();
+        transport.removeView(mix);
+        top.addView(file);
+        top.addView(mix, margin(app));
+        col.addView(top);
         col.addView(transport);
-        col.addView(more);
-        col.addView(projectRow);
+        col.addView(hidden);
         col.addView(status);
         col.addView(rows);
         ScrollView scroll = new ScrollView(app);
@@ -434,6 +459,9 @@ final class AudioMixerScreen {
             });
         }, "pulsekit-mixdown").start();
     }
+
+    /** The File menu shown last (for the tests). */
+    static android.widget.PopupMenu lastFileMenu;
 
     /** The window's title: AudioMixer · its project's name, when it has one. */
     static String title() {

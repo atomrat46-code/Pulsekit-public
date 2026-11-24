@@ -212,15 +212,15 @@ final class AudioMixerWindow {
         imp.setName("audiomixer-import");
         imp.addActionListener(e -> importTrack(app, d, status, fill[0]));
         JMenuItem empty = new JMenuItem(AudioMix.NEW_EMPTY);
-        empty.setName("audiomixer-new-empty-item");
+        empty.setName("audiomixer-new-empty");
         empty.addActionListener(e -> newEmpty(status, fill[0]));
         JMenuItem padsItem = new JMenuItem(DrumPads.NEW);
-        padsItem.setName("audiomixer-new-pads-item");
+        padsItem.setName("audiomixer-new-pads");
         padsItem.addActionListener(e -> newPads(status, fill[0]));
-        JMenuItem mix = new JMenuItem(AudioMix.MIXDOWN);
+        JButton mix = new JButton(AudioMix.MIXDOWN);
         mix.setName("audiomixer-mixdown");
         mix.addActionListener(e -> mixdown(app, status));
-        JMenuItem clear = new JMenuItem(AudioMix.CLEAR);
+        JMenuItem clear = new JMenuItem("New project");
         clear.setName("audiomixer-clear");
         clear.addActionListener(e -> {
             stop();
@@ -245,25 +245,18 @@ final class AudioMixerWindow {
         exportP.addActionListener(e -> exportProject(app, status));
         JMenuItem close = new JMenuItem("Close");
         close.addActionListener(e -> d.dispose());
+        // The phone's File menu, in its order: Import, the New items, Open, Save and Export project.
         file.add(imp);
         file.add(empty);
         file.add(padsItem);
-        file.add(mix);
-        file.addSeparator();
-        file.add(saveP);
-        file.add(openP);
-        file.add(exportP);
         file.add(clear);
+        file.add(openP);
+        file.add(saveP);
+        file.add(exportP);
         file.addSeparator();
         file.add(close);
         bar.add(file);
         d.setJMenuBar(bar);
-        JButton newEmpty = new JButton("+ " + AudioMix.NEW_EMPTY);
-        newEmpty.setName("audiomixer-new-empty");
-        newEmpty.addActionListener(e -> newEmpty(status, fill[0]));
-        JButton newPads = new JButton("+ " + DrumPads.NEW);
-        newPads.setName("audiomixer-new-pads");
-        newPads.addActionListener(e -> newPads(status, fill[0]));
         JButton play = new JButton("▶ Play mix");
         play.setName("audiomixer-play");
         play.addActionListener(e -> playMix(status));
@@ -271,8 +264,8 @@ final class AudioMixerWindow {
         stopBtn.setName("audiomixer-stop");
         stopBtn.addActionListener(e -> stop());
         JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        transport.add(newEmpty);
-        transport.add(newPads);
+        // As on the phone: Mixdown, ▶ Play mix and Stop as buttons, the rest in the File menu.
+        transport.add(mix);
         transport.add(play);
         transport.add(stopBtn);
         transport.add(status);

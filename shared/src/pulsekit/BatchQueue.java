@@ -28,6 +28,16 @@ public final class BatchQueue {
   /** Stop batch was pressed: no run after the one in progress. */
   public boolean stopping;
 
+  /**
+   * Run sections (the Sogni image and video programs' Params): each run is the program's Params with
+   * one saved section's entries, not BatchRun's arguments. Its Params, label and what it made.
+   */
+  public final List<String> params = new ArrayList<String>();
+  public final List<String> labels = new ArrayList<String>();
+  public final List<String> said = new ArrayList<String>();
+  /** Run sections: the program's Params rows (the argument line's own switches are left out for each run). */
+  public List<ProgramParams.Param> ps = new ArrayList<ProgramParams.Param>();
+
   private static BatchQueue now;
 
   private BatchQueue() {}
@@ -58,6 +68,42 @@ public final class BatchQueue {
     return q;
   }
 
+  /**
+   * Run sections: `program`'s runs one after another, each with the Params `saved` (the rows as
+   * they are now) and one section's entries in its rows (the rows a section keeps and it leaves
+   * empty, empty). Null when no section is picked.
+   */
+  public static synchronized BatchQueue sections(String program, String saved, List<ProgramParams.Param> ps, List<PromptVault.SogniSection> picked) {
+    if (program == null || picked == null || picked.isEmpty()) return null;
+    BatchQueue q = new BatchQueue();
+    q.program = program;
+    if (ps != null) q.ps = ps;
+    for (PromptVault.SogniSection s : picked) {
+      q.params.add(paramsFor(ps, saved, s));
+      q.labels.add(SogniSections.label(s));
+      q.runs.add(new ArrayList<String>());
+    }
+    now = q;
+    return q;
+  }
+
+  /** The Params `saved` with a section's entries in the rows a section keeps. */
+  public static String paramsFor(List<ProgramParams.Param> ps, String saved, PromptVault.SogniSection s) {
+    String[] values = ProgramParams.values(ps, saved == null ? "" : saved, "");
+    java.util.Map<String, String> f = SogniSections.read(s.text);
+    for (int i = 0; i < ps.size() && i < values.length; i++) {
+      if (!SogniSections.kept(ps.get(i))) continue;
+      String v = f.get(ps.get(i).token);
+      values[i] = v == null ? "" : v;
+    }
+    return ProgramParams.build(ps, values);
+  }
+
+  /** Whether the runs are sections' (Params) rather than BatchRun's arguments. */
+  public boolean bySections() {
+    return !this.params.isEmpty();
+  }
+
   /** True when this finished run is the batch's (its program, or JoinVideo at the end). */
   public boolean takes(String program) {
     return this.joining ? "JoinVideo.java".equals(program) : this.program.equals(program);
@@ -74,6 +120,7 @@ public final class BatchQueue {
 
   /** "Batch: run 2 of 5 (SogniVideo)" for the log and the status line. */
   public String progress() {
+    if (this.bySections()) return "Sections: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
     return "Batch: run " + this.next + " of " + this.runs.size() + " (" + this.program.replace(".java", "") + ")";
   }
 
@@ -84,6 +131,16 @@ public final class BatchQueue {
     if (status != null && status.startsWith("Succeeded")) this.ok++;
     else this.failed++;
     if (files != null) this.made.addAll(files);
+    if (this.bySections() && this.said.size() < this.next) {
+      StringBuilder sb = new StringBuilder(this.labels.get(this.next - 1)).append(": ");
+      String v = status == null || status.isEmpty() ? "no verdict" : status.startsWith("Succeeded") && files != null && !files.isEmpty() ? "Succeeded" : status;
+      sb.append(v.length() > 80 ? v.substring(0, 80) + "\u2026" : v);
+      if (files != null && !files.isEmpty()) {
+        sb.append(" \u2192 ");
+        for (int i = 0; i < files.size(); i++) sb.append(i == 0 ? "" : ", ").append(new File(files.get(i)).getName());
+      }
+      this.said.add(sb.toString());
+    }
   }
 
   /** The clips to join (MP4s the runs made, in order). */
@@ -114,10 +171,11 @@ public final class BatchQueue {
 
   /** The batch is over: what it did, for the log. */
   public String summary() {
-    StringBuilder sb = new StringBuilder(this.stopping ? "Batch stopped: " : "Batch done: ");
+    StringBuilder sb = new StringBuilder(this.bySections() ? (this.stopping ? "Sections stopped: " : "Sections done: ") : this.stopping ? "Batch stopped: " : "Batch done: ");
     sb.append(this.ok).append(" of ").append(this.runs.size()).append(" runs succeeded");
     if (this.failed > 0) sb.append(", ").append(this.failed).append(" failed");
     if (this.stopping && this.next < this.runs.size()) sb.append(", ").append(this.runs.size() - this.next).append(" not run");
+    for (String line : this.said) sb.append("\n  ").append(line);
     return sb.toString();
   }
 }
