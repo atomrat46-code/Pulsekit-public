@@ -28,10 +28,15 @@ final class TextOffer {
 
     /** As above; `outputDir` (--output_dir): the answer is saved there when Document ready closes (as shown, %g filled in). */
     static boolean offer(final MainActivity app, String program, JavaRun.Result result, String outputDir) {
+        return offer(app, program, result, outputDir, null);
+    }
+
+    /** As above; `preset` (Send to program and group): a button sends the text there with one click. */
+    static boolean offer(final MainActivity app, String program, JavaRun.Result result, String outputDir, String[] preset) {
         if (result == null || !TextReady.wanted(program)) return false;
         JavaRun.FileOut f = TextReady.textOf(result.files);
         if (f == null) return false;
-        show(app, program, f.name, TextReady.text(f.bytes), outputDir);
+        show(app, program, f.name, TextReady.text(f.bytes), outputDir, preset);
         return true;
     }
 
@@ -56,17 +61,27 @@ final class TextOffer {
         if (answers.isEmpty()) return 0;
         String[] set = TextReady.setting(app.getFilesDir(), program);
         String given = ChatFolder.arg(argv, "--output_dir");
-        String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, null));
-        int n = 0;
+        // Send to program and group: each answer also a section there; the group is %g.
+        String[] preset = TextReady.preset(argv);
+        String group = preset == null ? null : preset[1];
+        String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, group));
+        int n = 0, sent = 0;
         String where = null;
         for (JavaRun.FileOut f : answers) {
             String text = TextReady.result(TextReady.text(f.bytes), set);
-            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null, null), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
+            if (preset != null) {
+                try {
+                    if (TextReady.sendToGroup(PromptVault.open(app.getFilesDir()), preset[0], f.name, text, preset[1]).startsWith("Sent")) sent++;
+                } catch (Exception ignored) {
+                    // not sent; the answer is saved all the same
+                }
+            }
+            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null, group), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
             if (got == null) continue;
             n++;
             where = got.contains("/") ? got.substring(0, got.lastIndexOf('/')) : "Download";
         }
-        String line = n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set);
+        String line = (n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set)) + ChatFolder.sentNote(sent, preset);
         said = line;
         if (log != null) log.accept(line);
         return n;
@@ -77,6 +92,10 @@ final class TextOffer {
     }
 
     static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir) {
+        show(app, program, name, whole, outputDir, null);
+    }
+
+    static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir, final String[] preset) {
         final java.io.File dir = app.getFilesDir();
         // The group Send to group used (%g in the saved answer's names).
         final String[] group = {null};
@@ -130,6 +149,8 @@ final class TextOffer {
         LinearLayout acts2 = new LinearLayout(app);
         acts2.setOrientation(LinearLayout.HORIZONTAL);
         final android.widget.Button toGroup = action(app, acts2, TextReady.SEND_GROUP, "text-ready:send-group");
+        // Send to program and group set in Params: there with one click.
+        final android.widget.Button toPreset = preset == null ? null : action(app, acts2, TextReady.presetLabel(preset), "text-ready:send-preset");
         col.addView(acts2);
         // The text as it will be copied, saved or sent: editable (a new cut, delimiter or text after makes it again).
         final EditText body = new EditText(app);
@@ -201,6 +222,18 @@ final class TextOffer {
         save.setOnClickListener(v -> save(app, TextReady.savedName(fileName), body.getText().toString()));
         send.setOnClickListener(v -> send(app, body.getText().toString()));
         toGroup.setOnClickListener(v -> sendToGroup(app, fileName, body.getText().toString(), g -> group[0] = g));
+        if (toPreset != null) toPreset.setOnClickListener(v -> {
+            try {
+                String r = TextReady.sendToGroup(PromptVault.open(app.getFilesDir()), preset[0], fileName, body.getText().toString(), preset[1]);
+                if (r.startsWith("Sent")) {
+                    group[0] = preset[1];
+                    sentGroup = preset[1];
+                }
+                say(app, r);
+            } catch (Exception ex) {
+                say(app, "Could not send the text: " + ex.getMessage());
+            }
+        });
         // --output_dir: the answer as shown saved there when Document ready closes (%g: the group sent to).
         dialog.setOnDismissListener(d -> {
             if (outputDir != null) say(app, saveInto(app, outputDir, fileName, body.getText().toString(), group[0]));

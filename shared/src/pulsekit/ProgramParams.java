@@ -520,6 +520,16 @@ public final class ProgramParams {
       p.label = "Output folder: each answer cut at Document ready's delimiter (the one used last) and saved there";
       p.hint = "the answer saved when Document ready closes (as shown there); empty: an input folder's answers beside the chats as <name>-trimmed.txt; % codes: answers%ddmmyy, %g the group Send to group used";
     }
+    if (p.flag && p.takesValue && chat && p.token.equals("--send_program")) {
+      p.label = "Send to program: answers go into its group as sections (an input folder's by themselves; Document ready: a button)";
+      p.dropdown = true;
+      p.choices = new String[] {"(none)", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
+      p.choiceValues = new String[] {"", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
+    }
+    if (p.flag && p.takesValue && chat && p.token.equals("--send_group")) {
+      p.label = "Send to group (made when missing; %g in the output name and folder)";
+      p.hint = "e.g. Moods";
+    }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
       p.hint = "a run id from an earlier log, e.g. after a time-out";

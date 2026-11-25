@@ -101,6 +101,22 @@ public final class TextReady {
     return bad != null ? bad : "Sent to " + app + "'s " + (SectionCollection.NO_GROUP_PICK.equals(f.group) ? "sections (no group)" : "group " + f.group) + " as a section";
   }
 
+  /**
+   * SogniChat's Send to program and Send to group (--send_program, --send_group): {program ("SogniPadd"),
+   * group}, or null when either is not given. An input folder's answers go there by themselves; Document
+   * ready's preset button sends one there with a click.
+   */
+  public static String[] preset(List<String> argv) {
+    String p = ChatFolder.arg(argv, "--send_program"), g = ChatFolder.arg(argv, "--send_group");
+    if (p == null || g == null) return null;
+    return new String[] {SogniSections.app(p.replaceAll("(?i)\\.java$", "") + ".java"), g.replaceAll("\\s+", " ").trim()};
+  }
+
+  /** The preset button's text: "Send to SogniPadd: Moods". */
+  public static String presetLabel(String[] p) {
+    return "Send to " + p[0] + ": " + p[1];
+  }
+
   /** Whether the line under the delimiter is shown: only when the delimiter is not in the text. */
   public static boolean noteShown(String text, String delim, String mode) {
     return note(text, delim, mode).startsWith("The delimiter is not");

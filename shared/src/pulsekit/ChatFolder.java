@@ -103,6 +103,11 @@ public final class ChatFolder {
     return cutName(TextReady.outName(name, group), ownFolder);
   }
 
+  /** The log's words for the answers sent to the preset group (Send to program and group), "" when none. */
+  public static String sentNote(int n, String[] preset) {
+    return preset == null || n == 0 ? "" : "; " + n + " sent to " + preset[0] + "'s group " + preset[1] + " as sections";
+  }
+
   /** The log's line after the answers are saved. */
   public static String saved(int n, String where, String[] setting) {
     String how = TextReady.NO_CUT.equals(setting[0]) || setting[1].isEmpty() ? "whole" : setting[0].toLowerCase(Locale.ROOT) + " “" + setting[1] + "”";

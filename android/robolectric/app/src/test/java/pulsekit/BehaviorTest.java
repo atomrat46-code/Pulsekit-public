@@ -16186,6 +16186,16 @@ public class BehaviorTest {
     TextOffer.last.dismiss();
     idle();
     out.append("send to group: ").append(sentSaid).append(" | in group ").append(inGroup).append(" | ").append(TextOffer.said.replaceAll("^(Answer saved: ).*?(answers-Moods/answer-Moods\\.txt)$", "$1$2")).append('\n');
+    // Send to program and group set in Params: Document ready's button sends there with one click.
+    TextOffer.show(app, "SogniChat.java", "answer.txt", chat, null, new String[] {"SogniPadd", "Presets"});
+    idle();
+    android.widget.Button preset = (android.widget.Button) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:send-preset");
+    // (Another text: the same text is in Moods already, and a section is kept once.)
+    ((android.widget.EditText) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:text")).setText("A kite for the presets.");
+    preset.performClick();
+    idle();
+    out.append("preset button: ").append(preset.getText()).append(" | ").append(TextOffer.said).append('\n');
+    TextOffer.last.dismiss();
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
     d.dismiss();
@@ -16199,7 +16209,8 @@ public class BehaviorTest {
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
-        "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt", "cuts: c / a / a > b"};
+        "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
+        "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);
@@ -16229,11 +16240,21 @@ public class BehaviorTest {
       made.add(new JavaRun.FileOut(n, ("SogniChat conversation\n\n=== You ===\nDescribe\n\n=== Sogni ===\nAnswer for " + n + "\n").getBytes("UTF-8")));
     int n = TextOffer.saveAnswers(app, "SogniChat.java", argv, new JavaRun.Result("Succeeded", made, 0), null);
     out.append("saved: ").append(n).append(" | ").append(TextOffer.said).append('\n');
+    // Send to program and group: each answer also a section in SogniPadd's group Folders; %g in the output folder is it.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<String> withPreset = new java.util.ArrayList<String>(argv);
+    withPreset.set(withPreset.indexOf("answers"), "answers-%g");
+    withPreset.addAll(java.util.Arrays.asList("--send_program", "SogniPadd", "--send_group", "Folders"));
+    TextOffer.saveAnswers(app, "SogniChat.java", withPreset, new JavaRun.Result("Succeeded", made, 0), null);
+    int inFolders = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if ("Folders".equals(x.group)) inFolders++;
+    out.append("preset: ").append(TextOffer.said.replaceAll("in [^;]*answers-Folders", "in answers-Folders")).append(" | in group ").append(inFolders).append('\n');
     out.append("names: ").append(ChatFolder.cutName("chat-A.txt", true)).append(", without a folder ").append(ChatFolder.cutName("chat-A.txt", false)).append('\n');
     String t = out.toString();
     write("s274_chat_folder", t);
     String[] want = {"files: A.jpg b.txt | [Note: 3 files in chat-folder-test; the first 2 by name are asked about (Max files)]",
-        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt"};
+        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt",
+        "preset: Answers saved (cut after \u201c=== Sogni ===\u201d): 2 files in answers-Folders; 2 sent to SogniPadd's group Folders as sections | in group 2"};
     boolean ok = t.matches("(?s).*\nsaved: 2 \\| Answers saved \\(cut after \u201c=== Sogni ===\u201d\\): 2 files in [^\n]*answers\n.*");
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

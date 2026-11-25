@@ -1154,7 +1154,7 @@ final class PyJav {
                 boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
                 if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
                 // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"));
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"), TextReady.preset(argv));
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -3033,11 +3033,21 @@ final class PyJav {
         if (answers.isEmpty()) return;
         String[] set = TextReady.setting(PromptDb.dir(), program);
         String given = ChatFolder.arg(argv, "--output_dir");
-        File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, null), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
+        // Send to program and group: each answer also a section there; the group is %g.
+        String[] preset = TextReady.preset(argv);
+        String group = preset == null ? null : preset[1];
+        File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
         dir.mkdirs();
-        int n = 0;
+        int n = 0, sent = 0;
         for (JavaRun.FileOut f : answers) {
-            String name = ChatFolder.cutName(f.name, given != null, null);
+            if (preset != null) {
+                try {
+                    if (TextReady.sendToGroup(PromptDb.vault(), preset[0], f.name, TextReady.result(TextReady.text(f.bytes), set), preset[1]).startsWith("Sent")) sent++;
+                } catch (Exception ignored) {
+                    // not sent; the answer is saved all the same
+                }
+            }
+            String name = ChatFolder.cutName(f.name, given != null, group);
             File to = new File(dir, name);
             String stem = name.replaceAll("\\.txt$", "");
             for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
@@ -3048,7 +3058,7 @@ final class PyJav {
                 if (app.pyLog != null) app.pyLog.append("\nCould not save " + name + ": " + ex.getMessage());
             }
         }
-        answersSaid = ChatFolder.saved(n, dir.getPath(), set);
+        answersSaid = ChatFolder.saved(n, dir.getPath(), set) + ChatFolder.sentNote(sent, preset);
         if (app.pyLog != null) app.pyLog.append("\n" + answersSaid);
         app.setNow(answersSaid);
     }
@@ -3095,9 +3105,14 @@ final class PyJav {
 
     /** As above; `outputDir` (--output_dir): the answer as shown saved there when Document ready closes (%g: the group sent to). */
     void offerText(String program, String fileName, String whole, String outputDir) {
+        this.offerText(program, fileName, whole, outputDir, null);
+    }
+
+    /** As above; `preset` (Send to program and group): a button sends the text there with one click. */
+    void offerText(String program, String fileName, String whole, String outputDir, String[] preset) {
         final String[] group = {null};
         try {
-            this.offerTextLoop(program, fileName, whole, group);
+            this.offerTextLoop(program, fileName, whole, group, preset);
         } finally {
             if (outputDir != null) {
                 answerSaid = this.saveInto(outputDir, fileName, lastTextReadyText, group[0]);
@@ -3163,7 +3178,7 @@ final class PyJav {
         }
     }
 
-    void offerTextLoop(String program, String fileName, String whole, String[] group) {
+    void offerTextLoop(String program, String fileName, String whole, String[] group, String[] preset) {
         File dir = PromptDb.dir();
         String[] set = TextReady.setting(dir, program);
         JPanel panel = new JPanel(new java.awt.BorderLayout(0, 6));
@@ -3258,11 +3273,27 @@ final class PyJav {
         });
         cut.run();
         lastTextReady = panel;
-        Object[] options = {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE};
+        // Send to program and group set in Params: a button for it (5), before Close.
+        Object[] options = preset == null ? new Object[] {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE}
+            : new Object[] {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE, TextReady.presetLabel(preset)};
         try {
             while (true) {
                 int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 4 : textReadyAnswers.poll().intValue())
                     : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[4]);
+                if (ans == 5 && preset != null) {
+                    lastTextReadyText = body.getText();
+                    try {
+                        String r = TextReady.sendToGroup(PromptDb.vault(), preset[0], fileName, body.getText(), preset[1]);
+                        if (r.startsWith("Sent")) {
+                            group[0] = preset[1];
+                            sentGroup = preset[1];
+                        }
+                        this.clipSay(r);
+                    } catch (Exception ex) {
+                        this.clipSay("Could not send the text: " + ex.getMessage());
+                    }
+                    continue;
+                }
                 lastTextReadyText = body.getText();
                 if (ans == 0) {
                     String t = body.getText();

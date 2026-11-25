@@ -45,7 +45,9 @@ import java.util.Map;
  * most --max_files, 20 when not given, in case the folder is a big one): each is its own chat, saved
  * as <output name>-<file>.txt, or with %f in the output name the file's name there (notes-%f), else
  * <file>.txt. --output_dir is Pulsekit's: it cuts each answer at Document ready's delimiter (the one
- * used last) and saves it there; Params' Select file then puts one into a prompt.
+ * used last) and saves it there; Params' Select file then puts one into a prompt. --send_program and
+ * --send_group are Pulsekit's too: an input folder's answers also go into that program's group as
+ * sections (%g in the output name and folder is that group); Document ready has a button for it.
  *
  * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
  * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
@@ -164,6 +166,8 @@ public final class SogniChat {
       // A folder run's file (runFolder): the output name's %f, or after it.
       else if (a.equals("--name_for") && i + 1 < args.length) nameFor = args[++i];
       else if (a.equals("--output_dir") && i + 1 < args.length) i++;
+      // Pulsekit's: where its answers are sent as sections (an input folder's by themselves).
+      else if ((a.equals("--send_program") || a.equals("--send_group")) && i + 1 < args.length) i++;
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -566,7 +570,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--output_dir folder]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--output_dir folder] [--send_program name] [--send_group name]");
   }
 
   /**
