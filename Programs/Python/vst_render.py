@@ -4709,7 +4709,9 @@ BENCH_DATA = "v2"
 
 # DrumMidi_CRT.jar builds that find the same hits as earlier ones (only other switches changed): their
 # kept bench results are used as they are, not made again. 48f6adb3d23a (v546: --keep-stems) = 7f03164539be.
-SAME_DRUMMIDI = {"48f6adb3d23a": ["7f03164539be"]}
+# (b8acbaf73a86, 24.11.: the song-aware cymbal model and its gate; the bench runs DrumMidi without its cymbal
+# model, and its kicks, snares and toms are as they were, so its results are those of 48f6adb3d23a.)
+SAME_DRUMMIDI = {"48f6adb3d23a": ["7f03164539be"], "b8acbaf73a86": ["48f6adb3d23a", "7f03164539be"]}
 
 
 def bench_reuse(cache, sig, alt_of):
