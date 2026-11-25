@@ -1420,6 +1420,8 @@ final class PyJav {
         // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
         // there instead of Download (the folder's % codes filled in once, at the batch's first run).
         String batchPattern = pulsekit.DownloadMove.takeBatch(argv);
+        // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
+        ArtJava.rawTextOff = !pulsekit.ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? PyJavParams.programTextOf(app, name) : null, argv);
         pulsekit.BatchQueue inBatchQ = pulsekit.BatchQueue.runOf(name);
         ArtJava.batchSub = null;
         if (inBatchQ != null && batchPattern.length() > 0) {
@@ -1984,7 +1986,9 @@ final class PyJav {
         this.pkOffer("the answers", ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
             () -> TextOffer.saveAnswers(app, program, argv, made, this::pkAddLogLine));
         // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.arg(argv, "--output_dir"), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
+        // (With Output name the raw chat was not written: the processed one is saved on closing, in Download when no Output folder.)
+        final boolean rawKept = pulsekit.ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
+        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.answerDir(argv, rawKept), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
         // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
         if (chatFolder && !inBatch && pulsekit.AutoRender.target(argv) != null) {
             String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);

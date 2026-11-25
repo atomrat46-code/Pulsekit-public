@@ -16466,18 +16466,21 @@ public class BehaviorTest {
     ArtJava.batchSub = null;
     out.append("batch folder row: ").append(row != null && row.dir && row.typed).append(" | taken ").append(taken).append(" | left ").append(argv)
         .append(" | folder ").append(sub).append(" | used ").append(used).append(" | single run ").append(ArtJava.runSub("SogniPadd.java", argv)).append('\n');
-    // SogniChat's raw answer.txt: left out only with an Output folder (empty: into Download as before, input folder or not).
-    out.append("raw answer kept: alone ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--prompt", "x")))
-        .append(", output folder ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--output_dir", "/o")))
-        .append(", input folder ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--input_dir", "/i")))
-        .append(", both ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--input_dir", "/i", "--output_dir", "/o")))
-        .append(", other program ").append(ChatFolder.rawKept("SogniPadd.java", java.util.Arrays.asList("--output_dir", "/o"))).append('\n');
+    // SogniChat's raw chat: not written when Output name is given (the processed copy is saved under it: Output folder, else Download).
+    String chat = PyJavParams.programTextOf(app, "SogniChat.java");
+    out.append("raw answer kept: none ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("--prompt", "x", "--output_dir", "/o")))
+        .append(", output name ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("--prompt", "Describe it", "answer%g%", "--max_files", "3")))
+        .append(", name first ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("mine", "--prompt", "x")))
+        .append(", other program ").append(ChatFolder.rawKept("SogniPadd.java", null, java.util.Arrays.asList("pic", "--prompt", "x")))
+        .append(" | saved into: name, no folder '").append(ChatFolder.answerDir(java.util.Arrays.asList("mine"), false))
+        .append("', no name ").append(ChatFolder.answerDir(java.util.Arrays.asList("--prompt", "x"), true))
+        .append(", folder ").append(ChatFolder.answerDir(java.util.Arrays.asList("--output_dir", "/o"), false)).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
         && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
         && t.contains("output after select: Image%n") && t.contains("none kept: ''")
-        && t.contains("raw answer kept: alone true, output folder false, input folder true, both false, other program true")
+        && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
     if (!ok) throw new AssertionError(t);
   }

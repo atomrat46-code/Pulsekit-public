@@ -75,6 +75,8 @@ final class TextOffer {
         }
         String group = preset == null ? null : preset[1];
         String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, group));
+        // With Output name the raw chat was not written: the answers keep their names (not <name>-trimmed) in Download.
+        boolean named = !ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
         int n = 0, sent = 0;
         String where = null;
         for (JavaRun.FileOut f : answers) {
@@ -86,7 +88,7 @@ final class TextOffer {
                     // not sent; the answer is saved all the same
                 }
             }
-            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null, group), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
+            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null || named, group), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
             if (got == null) continue;
             n++;
             where = got.contains("/") ? got.substring(0, got.lastIndexOf('/')) : "Download";

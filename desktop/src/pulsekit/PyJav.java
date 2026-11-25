@@ -794,6 +794,9 @@ final class PyJav {
         // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
         // there instead of Download (the folder's % codes filled in once, at the batch's first run).
         final String batchPattern = DownloadMove.takeBatch(runArgs);
+        // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
+        final boolean rawKept = ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? this.programText() : null, runArgs);
+        this.chatRawKept = rawKept;
         final BatchQueue inBatchQ = BatchQueue.runOf(name);
         if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
             inBatchQ.outFolder = ProgramFolder.outdir(batchPattern, this.programFolder()).getAbsolutePath();
@@ -1012,7 +1015,7 @@ final class PyJav {
                         // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android; not SogniChat's
                         // raw answer when its processed copy is saved (an Output folder given): only read for it.
                         madeText = f;
-                        if (!ChatFolder.rawKept(name, argv)) continue;
+                        if (!rawKept) continue;
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) texts++;
@@ -1172,7 +1175,7 @@ final class PyJav {
                 boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
                 if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
                 // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"), TextReady.preset(argv), AutoRender.target(argv));
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.answerDir(argv, rawKept), TextReady.preset(argv), AutoRender.target(argv));
                 // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
                 if (!inBatch && chatFolder && result.code == 0 && AutoRender.target(argv) != null) this.autoRender(AutoRender.target(argv), name, result.files);
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
@@ -2932,6 +2935,9 @@ final class PyJav {
         }
     }
 
+    /** The last SogniChat run's raw chat was written (no Output name). */
+    volatile boolean chatRawKept = true;
+
     /** The running program's arguments and name (Picture ready's Stop run: a folder run). */
     java.util.List<String> liveArgv;
     String liveName;
@@ -3122,7 +3128,8 @@ final class PyJav {
                     // not sent; the answer is saved all the same
                 }
             }
-            String name = ChatFolder.cutName(f.name, given != null, group);
+            // With Output name the raw chat was not written: the answers keep their names (not <name>-trimmed).
+            String name = ChatFolder.cutName(f.name, given != null || !this.chatRawKept, group);
             File to = new File(dir, name);
             String stem = name.replaceAll("\\.txt$", "");
             for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");

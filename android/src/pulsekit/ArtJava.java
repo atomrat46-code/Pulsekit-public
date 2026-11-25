@@ -259,7 +259,7 @@ public final class ArtJava {
         // goes (and not at all when it is the same as one in the library already: PromptSave).
         if (PromptSave.isSheetFile(out)) continue;
         // SogniChat's raw answer when its processed copy is saved (an Output folder given): read, not written.
-        if (fn.toLowerCase(java.util.Locale.ROOT).endsWith(".txt") && !ChatFolder.rawKept(main.replaceAll(".*\\.", "") + ".java", argv)) continue;
+        if (fn.toLowerCase(java.util.Locale.ROOT).endsWith(".txt") && rawTextOff) continue;
         String saved = publish(ctx, fn, body, sub);
         if (saved != null) ps.println("saved " + saved);
       }
@@ -872,6 +872,9 @@ public final class ArtJava {
     String own = subOf(ProgramFolder.outdirArg(program, argv));
     return own != null ? own : batchSub;
   }
+
+  /** SogniChat's run going on has Output name: its raw chat not written (PyJav sets it at each run's start). */
+  static volatile boolean rawTextOff;
 
   /** Params' Batch folder of the batch run going on (PyJav sets it at each run's start), or null. */
   static volatile String batchSub;

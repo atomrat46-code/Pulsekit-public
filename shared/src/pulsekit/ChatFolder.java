@@ -160,12 +160,34 @@ public final class ChatFolder {
   }
 
   /**
-   * Whether a run's raw answer (answer.txt as SogniChat wrote it) is written to disk: not when an Output folder
-   * is given (the processed copy goes there; the raw one is only read for it). No Output folder: into Download as before.
+   * Whether a run's raw answer (the chat as SogniChat wrote it) is written to disk: not when Output name is
+   * given (the processed copy is saved under that name: into the Output folder, else Download; the raw one is
+   * only read for it). `programText` the program's source (its Params: which argument is Output name).
    */
-  public static boolean rawKept(String program, List<String> argv) {
+  public static boolean rawKept(String program, String programText, List<String> argv) {
     if (!"SogniChat.java".equals(program) || argv == null) return true;
-    return arg(argv, "--output_dir") == null;
+    return outputName(programText == null ? java.util.Collections.<ProgramParams.Param>emptyList() : ProgramParams.parse(programText), argv) == null;
+  }
+
+  /** The run's Output name (its first argument that is not a switch or a switch's value), or null. */
+  public static String outputName(List<ProgramParams.Param> ps, List<String> argv) {
+    for (int i = 0; argv != null && i < argv.size(); i++) {
+      String w = argv.get(i) == null ? "" : argv.get(i).trim();
+      if (w.startsWith("-")) {
+        ProgramParams.Param p = null;
+        for (ProgramParams.Param q : ps) if (q.flag && q.token.equals(w)) p = q;
+        if ((p == null || p.takesValue) && i + 1 < argv.size() && argv.get(i + 1) != null && !argv.get(i + 1).startsWith("-")) i++;
+        continue;
+      }
+      if (!w.isEmpty()) return w;
+    }
+    return null;
+  }
+
+  /** Where the processed answer goes: --output_dir, else "" (Download) when the raw one is not kept, else null (not saved by itself). */
+  public static String answerDir(List<String> argv, boolean rawKept) {
+    String given = arg(argv, "--output_dir");
+    return given != null ? given : rawKept ? null : "";
   }
 
   /** The text files the run wrote (its answers), in order. */
