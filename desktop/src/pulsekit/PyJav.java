@@ -3383,6 +3383,17 @@ final class PyJav {
         JPanel checks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         checks.add(notes);
         checks.add(sogni);
+        // Remove section: from B to the next E, each such section taken out (remembered, B and E too).
+        final javax.swing.JCheckBox section = new javax.swing.JCheckBox(TextReady.REMOVE_SECTION, TextReady.ON.equals(set[TextReady.F_SECTION]));
+        section.setName("text-ready:remove-section");
+        final javax.swing.JTextField secB = new javax.swing.JTextField(set[TextReady.F_B], 10), secE = new javax.swing.JTextField(set[TextReady.F_E], 10);
+        secB.setName("text-ready:section-b");
+        secE.setName("text-ready:section-e");
+        checks.add(section);
+        checks.add(new JLabel(TextReady.SECTION_B));
+        checks.add(secB);
+        checks.add(new JLabel(TextReady.SECTION_E));
+        checks.add(secE);
         top.add(checks, java.awt.BorderLayout.EAST);
         final JLabel note = new JLabel();
         note.setName("text-ready:note");
@@ -3423,17 +3434,32 @@ final class PyJav {
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
-            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF};
+            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
+                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText()};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
             note.setVisible(TextReady.noteShown(whole, d, m));
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5], now[6]);
+            TextReady.rememberAll(dir, program, now);
         };
         mode.addActionListener(e -> cut.run());
         addAfter.addActionListener(e -> cut.run());
         notes.addActionListener(e -> cut.run());
         sogni.addActionListener(e -> cut.run());
+        section.addActionListener(e -> cut.run());
+        for (javax.swing.JTextField f : new javax.swing.JTextField[] {secB, secE}) f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
         clear.addActionListener(e -> after.setText(""));
         selectFile.addActionListener(e -> {
             String t = this.pickFileText(selectFile);

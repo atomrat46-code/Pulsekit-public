@@ -164,10 +164,15 @@ public final class TextReady {
    * The program's settings: {cut, delimiter, text after, where Select text takes it from}, remembered,
    * else SogniChat's reply line with Cut after (no text after).
    */
+  /** A program's settings' fields: cut, delimiter, text after, where it came from, Add, Remove note sections, Sogni cut,
+   *  Remove section, its B and E. */
+  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, FIELDS = 10;
+
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF} : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", ""}
+        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", ""};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -177,27 +182,52 @@ public final class TextReady {
   }
 
   public static void remember(File dir, String program, String mode, String delim, String after, String from) {
-    remember(dir, program, mode, delim, after, from, setting(dir, program)[4]);
+    remember(dir, program, mode, delim, after, from, setting(dir, program)[F_ADD]);
   }
 
   /** As above, with Add text after on ("on") or off ("off"). */
   public static void remember(File dir, String program, String mode, String delim, String after, String from, String add) {
-    remember(dir, program, mode, delim, after, from, add, setting(dir, program)[5]);
+    remember(dir, program, mode, delim, after, from, add, setting(dir, program)[F_NOTES]);
   }
 
   public static void remember(File dir, String program, String mode, String delim, String after, String from, String add, String notes) {
-    remember(dir, program, mode, delim, after, from, add, notes, setting(dir, program)[6]);
+    remember(dir, program, mode, delim, after, from, add, notes, setting(dir, program)[F_SOGNI]);
   }
 
-  /** As above, with Remove note sections and Sogni cut on ("on") or off. */
+  /** As above, with Remove note sections and Sogni cut on ("on") or off (Remove section as it was). */
   public static void remember(File dir, String program, String mode, String delim, String after, String from, String add, String notes, String sogni) {
+    String[] v = setting(dir, program).clone();
+    v[F_MODE] = mode;
+    v[F_DELIM] = delim;
+    v[F_AFTER] = after;
+    v[F_FROM] = from;
+    v[F_ADD] = add;
+    v[F_NOTES] = notes;
+    v[F_SOGNI] = sogni;
+    rememberAll(dir, program, v);
+  }
+
+  /** All of a program's settings remembered (FIELDS of them, in the F_ order). */
+  public static void rememberAll(File dir, String program, String[] in) {
+    String[] v = new String[FIELDS];
+    for (int i = 0; i < FIELDS; i++) v[i] = in != null && i < in.length && in[i] != null ? in[i] : "";
+    v[F_MODE] = v[F_MODE].isEmpty() ? NO_CUT : v[F_MODE];
+    v[F_DELIM] = oneLine(v[F_DELIM]);
+    v[F_FROM] = v[F_FROM].isEmpty() ? FROM_FILE : v[F_FROM];
+    v[F_ADD] = OFF.equals(v[F_ADD]) ? OFF : ON;
+    v[F_NOTES] = ON.equals(v[F_NOTES]) ? ON : OFF;
+    v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
+    v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
+    v[F_B] = oneLine(v[F_B]);
+    v[F_E] = oneLine(v[F_E]);
     Map<String, String[]> all = load(dir);
-    all.put(program, new String[] {mode, delim == null ? "" : delim.replace('\n', ' ').replace('\t', ' '), after == null ? "" : after, from == null ? FROM_FILE : from,
-        OFF.equals(add) ? OFF : ON, ON.equals(notes) ? ON : OFF, ON.equals(sogni) ? ON : OFF});
+    all.put(program, v);
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, String[]> e : all.entrySet()) {
-      String[] v = e.getValue();
-      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\t').append(v[4]).append('\t').append(v[5]).append('\t').append(v[6]).append('\n');
+      String[] w = e.getValue();
+      sb.append(e.getKey());
+      for (int i = 0; i < FIELDS; i++) sb.append('\t').append(i == F_AFTER ? escape(w[i]) : w[i]);
+      sb.append('\n');
     }
     try {
       dir.mkdirs();
@@ -205,6 +235,10 @@ public final class TextReady {
     } catch (Exception ignored) {
       // only not remembered
     }
+  }
+
+  static String oneLine(String t) {
+    return t == null ? "" : t.replace('\n', ' ').replace('\t', ' ').replace("\r", "");
   }
 
   static String escape(String t) {
@@ -230,8 +264,16 @@ public final class TextReady {
       if (!f.isFile()) return out;
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String[] p = line.split("\t", -1);
-        if (p.length >= 3) out.put(p[0], new String[] {p[1], p[2], p.length >= 4 ? unescape(p[3]) : "", p.length >= 5 && !p[4].isEmpty() ? p[4] : FROM_FILE,
-            p.length >= 6 && OFF.equals(p[5]) ? OFF : ON, p.length >= 7 && ON.equals(p[6]) ? ON : OFF, p.length >= 8 && ON.equals(p[7]) ? ON : OFF});
+        if (p.length < 3) continue;
+        String[] v = new String[FIELDS];
+        for (int i = 0; i < FIELDS; i++) v[i] = i + 1 < p.length ? p[i + 1] : "";
+        v[F_AFTER] = unescape(v[F_AFTER]);
+        if (v[F_FROM].isEmpty()) v[F_FROM] = FROM_FILE;
+        v[F_ADD] = OFF.equals(v[F_ADD]) ? OFF : ON;
+        v[F_NOTES] = ON.equals(v[F_NOTES]) ? ON : OFF;
+        v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
+        v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
+        out.put(p[0], v);
       }
     } catch (Exception ignored) {
       // none remembered
@@ -262,6 +304,30 @@ public final class TextReady {
     return out.toString().replaceAll("\n{3,}", "\n\n").trim();
   }
 
+  /** Remove section: the checkbox's words and its two fields'. */
+  public static final String REMOVE_SECTION = "Remove section", SECTION_B = "B", SECTION_E = "E";
+
+  /**
+   * The text without its sections from `b` to the next `e` (both left out too), each of them; and the blank lines they
+   * leave. As it is when `b` or `e` is empty; a `b` with no `e` after it stays.
+   */
+  public static String withoutSections(String text, String b, String e) {
+    if (text == null) return "";
+    if (b == null || b.isEmpty() || e == null || e.isEmpty()) return text;
+    StringBuilder out = new StringBuilder();
+    int from = 0;
+    while (true) {
+      int at = text.indexOf(b, from);
+      if (at < 0) break;
+      int end = text.indexOf(e, at + b.length());
+      if (end < 0) break;
+      out.append(text, from, at);
+      from = end + e.length();
+    }
+    out.append(text.substring(from));
+    return out.toString().replaceAll("[ \\t]+\n", "\n").replaceAll("\n{3,}", "\n\n").trim();
+  }
+
   /** Remove note sections: the checkbox's words. */
   public static final String REMOVE_NOTES = "Remove note sections";
 
@@ -282,13 +348,15 @@ public final class TextReady {
   /** The answer as shown and saved: cut at the delimiter, the text after added after it (on a line of its own) when Add is on. */
   public static String result(String text, String[] set) {
     // Sogni cut first: SogniChat's "=== Sogni ===" blocks (the line, the lines after it, to a blank line) out of the text.
-    if (set.length > 6 && ON.equals(set[6])) text = sogniCut(text);
+    if (set.length > F_SOGNI && ON.equals(set[F_SOGNI])) text = sogniCut(text);
     String cut = cut(text, set[1], set[0]);
     boolean add = set.length <= 4 || !OFF.equals(set[4]);
     String after = add && set.length > 2 && set[2] != null ? set[2].trim() : "";
     String all = after.isEmpty() ? cut : cut.isEmpty() ? after : cut + "\n" + after;
-    // Remove note sections: from the whole processed text (the answer and the text after it).
-    return set.length > 5 && ON.equals(set[5]) ? withoutNotes(all) : all;
+    // Remove note sections, and Remove section (B to E): from the whole processed text (the answer and the text after it).
+    if (set.length > F_NOTES && ON.equals(set[F_NOTES])) all = withoutNotes(all);
+    if (set.length > F_E && ON.equals(set[F_SECTION])) all = withoutSections(all, set[F_B], set[F_E]);
+    return all;
   }
 
   /** From sections: the Sogni programs' saved sections, each labelled with its program; their prompts in `texts`. */

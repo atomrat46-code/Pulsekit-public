@@ -90,8 +90,9 @@ for kick in ('808', 'kick'):
     print('%s: snare learned: %s' % (kick, [w for w in r.stdout.split(';') if w.strip().startswith('snare')][:1]))
     click = float(line[0].split()[1]) if line else -1
     write('song.wav', render(song, kick, 34))
-    # (The 808's kicks by the rules: the hit model is used on click-less kits too now, and an 808 is not one it is for.)
-    r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', 'song.wav', 'song.mid', '--kit', kick + '.kit'] + (['--no-hit-model'] if kick == '808' else []), capture_output=True, text=True)
+    # (The kicks by the rules: what this checks is the click-less kick's finding. The hit model is for recorded kits:
+    # on these synthesized sounds, a pure sine and a pure-tone click, it is not, and it left kicks out.)
+    r = subprocess.run(['java', '-cp', jar, 'DrumMidi_CRT', 'song.wav', 'song.mid', '--kit', kick + '.kit', '--no-hit-model'], capture_output=True, text=True)
     said = [l for l in r.stdout.splitlines() if 'beater click' in l]
     print('%s: toms from snares: %s' % (kick, any('found as a snare as a tom' in l for l in r.stdout.splitlines())))
     found = [t for t, n in vr.midi_notes('song.mid')[1] if n == 36] if os.path.isfile('song.mid') else []

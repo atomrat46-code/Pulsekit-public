@@ -184,6 +184,33 @@ final class TextOffer {
         sp.leftMargin = app.dp(16);
         checks.addView(sogni, sp);
         col.addView(checks);
+        // Remove section: from B to the next E, each such section taken out (remembered, B and E too).
+        LinearLayout secRow = new LinearLayout(app);
+        secRow.setOrientation(LinearLayout.HORIZONTAL);
+        secRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final android.widget.CheckBox section = new android.widget.CheckBox(app);
+        section.setTag("text-ready:remove-section");
+        section.setText(TextReady.REMOVE_SECTION);
+        section.setTextColor(0xFFEDEDE8);
+        section.setTextSize(15);
+        section.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
+        section.setChecked(TextReady.ON.equals(set[TextReady.F_SECTION]));
+        secRow.addView(section, new LinearLayout.LayoutParams(-2, -2));
+        final EditText secB = new EditText(app);
+        secB.setTag("text-ready:section-b");
+        secB.setSingleLine(true);
+        secB.setHint(TextReady.SECTION_B);
+        secB.setText(set[TextReady.F_B]);
+        secRow.addView(secB, new LinearLayout.LayoutParams(0, -2, 1f));
+        final EditText secE = new EditText(app);
+        secE.setTag("text-ready:section-e");
+        secE.setSingleLine(true);
+        secE.setHint(TextReady.SECTION_E);
+        secE.setText(set[TextReady.F_E]);
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(0, -2, 1f);
+        ep.leftMargin = app.dp(8);
+        secRow.addView(secE, ep);
+        col.addView(secRow);
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
@@ -277,11 +304,11 @@ final class TextOffer {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
             String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
-                sogni.isChecked() ? TextReady.ON : TextReady.OFF};
+                sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString()};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5], now[6]);
+            TextReady.rememberAll(dir, program, now);
         };
         after.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -296,6 +323,16 @@ final class TextOffer {
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
         notes.setOnCheckedChangeListener((b, on) -> cut.run());
         sogni.setOnCheckedChangeListener((b, on) -> cut.run());
+        section.setOnCheckedChangeListener((b, on) -> cut.run());
+        for (EditText f : new EditText[] {secB, secE}) f.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void afterTextChanged(android.text.Editable s) {
+                cut.run();
+            }
+        });
         selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(app, after));
         browse.setOnClickListener(v -> pickSection(app, after));
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
