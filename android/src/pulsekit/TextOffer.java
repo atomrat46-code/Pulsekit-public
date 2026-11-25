@@ -169,7 +169,21 @@ final class TextOffer {
         notes.setTextSize(15);
         notes.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
         notes.setChecked(TextReady.ON.equals(set[5]));
-        col.addView(notes);
+        // Sogni cut: "=== Sogni ===" and the lines after it to a blank line taken out (remembered); beside Remove note sections.
+        final android.widget.CheckBox sogni = new android.widget.CheckBox(app);
+        sogni.setTag("text-ready:sogni-cut");
+        sogni.setText(TextReady.SOGNI_CUT);
+        sogni.setTextColor(0xFFEDEDE8);
+        sogni.setTextSize(15);
+        sogni.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
+        sogni.setChecked(TextReady.ON.equals(set[6]));
+        LinearLayout checks = new LinearLayout(app);
+        checks.setOrientation(LinearLayout.HORIZONTAL);
+        checks.addView(notes, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2);
+        sp.leftMargin = app.dp(16);
+        checks.addView(sogni, sp);
+        col.addView(checks);
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
@@ -262,11 +276,12 @@ final class TextOffer {
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
-            String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF};
+            String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
+                sogni.isChecked() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5]);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5], now[6]);
         };
         after.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -280,6 +295,7 @@ final class TextOffer {
         clear.setOnClickListener(v -> after.setText(""));
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
         notes.setOnCheckedChangeListener((b, on) -> cut.run());
+        sogni.setOnCheckedChangeListener((b, on) -> cut.run());
         selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(app, after));
         browse.setOnClickListener(v -> pickSection(app, after));
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {

@@ -166,7 +166,7 @@ public final class TextReady {
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF} : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF} : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -184,15 +184,19 @@ public final class TextReady {
     remember(dir, program, mode, delim, after, from, add, setting(dir, program)[5]);
   }
 
-  /** As above, with Remove note sections on ("on") or off. */
   public static void remember(File dir, String program, String mode, String delim, String after, String from, String add, String notes) {
+    remember(dir, program, mode, delim, after, from, add, notes, setting(dir, program)[6]);
+  }
+
+  /** As above, with Remove note sections and Sogni cut on ("on") or off. */
+  public static void remember(File dir, String program, String mode, String delim, String after, String from, String add, String notes, String sogni) {
     Map<String, String[]> all = load(dir);
     all.put(program, new String[] {mode, delim == null ? "" : delim.replace('\n', ' ').replace('\t', ' '), after == null ? "" : after, from == null ? FROM_FILE : from,
-        OFF.equals(add) ? OFF : ON, ON.equals(notes) ? ON : OFF});
+        OFF.equals(add) ? OFF : ON, ON.equals(notes) ? ON : OFF, ON.equals(sogni) ? ON : OFF});
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, String[]> e : all.entrySet()) {
       String[] v = e.getValue();
-      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\t').append(v[4]).append('\t').append(v[5]).append('\n');
+      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\t').append(v[4]).append('\t').append(v[5]).append('\t').append(v[6]).append('\n');
     }
     try {
       dir.mkdirs();
@@ -226,12 +230,35 @@ public final class TextReady {
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String[] p = line.split("\t", -1);
         if (p.length >= 3) out.put(p[0], new String[] {p[1], p[2], p.length >= 4 ? unescape(p[3]) : "", p.length >= 5 && !p[4].isEmpty() ? p[4] : FROM_FILE,
-            p.length >= 6 && OFF.equals(p[5]) ? OFF : ON, p.length >= 7 && ON.equals(p[6]) ? ON : OFF});
+            p.length >= 6 && OFF.equals(p[5]) ? OFF : ON, p.length >= 7 && ON.equals(p[6]) ? ON : OFF, p.length >= 8 && ON.equals(p[7]) ? ON : OFF});
       }
     } catch (Exception ignored) {
       // none remembered
     }
     return out;
+  }
+
+  /** Sogni cut: the checkbox's words. */
+  public static final String SOGNI_CUT = "Sogni cut";
+
+  /** The text without its "=== Sogni ===" blocks: each from that line to the next blank line (both left out too). */
+  public static String sogniCut(String text) {
+    if (text == null) return "";
+    String[] lines = text.replace("\r", "").split("\n", -1);
+    StringBuilder out = new StringBuilder();
+    boolean in = false;
+    for (String l : lines) {
+      if (!in && l.trim().equals(SOGNI_REPLY)) {
+        in = true;
+        continue;
+      }
+      if (in) {
+        if (l.trim().isEmpty()) in = false;
+        continue;
+      }
+      out.append(l).append('\n');
+    }
+    return out.toString().replaceAll("\n{3,}", "\n\n").trim();
   }
 
   /** Remove note sections: the checkbox's words. */
@@ -253,6 +280,8 @@ public final class TextReady {
 
   /** The answer as shown and saved: cut at the delimiter, the text after added after it (on a line of its own) when Add is on. */
   public static String result(String text, String[] set) {
+    // Sogni cut first: SogniChat's "=== Sogni ===" blocks (the line, the lines after it, to a blank line) out of the text.
+    if (set.length > 6 && ON.equals(set[6])) text = sogniCut(text);
     String cut = cut(text, set[1], set[0]);
     boolean add = set.length <= 4 || !OFF.equals(set[4]);
     String after = add && set.length > 2 && set[2] != null ? set[2].trim() : "";

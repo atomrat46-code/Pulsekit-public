@@ -16164,6 +16164,8 @@ public class BehaviorTest {
     String noteBack = ((TextView) r2.findViewWithTag("text-ready:text")).getText().toString();
     afterBox.setText(afterWas);
     idle();
+    android.widget.CheckBox sogniBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:sogni-cut");
+    out.append("sogni box: ").append(sogniBox != null && !sogniBox.isChecked()).append('\n');
     out.append("notes box: ").append(notesBox != null).append(", removed ").append(!noteGone.contains("*Note:")).append(", back ").append(noteBack.contains("*Note: an aside")).append('\n');
     // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
     android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
@@ -16250,7 +16252,7 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >  From file on off", "notes box: true, removed true, back true", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file on off off", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
@@ -16561,6 +16563,11 @@ public class BehaviorTest {
     out.append("notes removed: ").append(TextReady.result(withNote, notesOn).replace('\n', '|')).append(" | kept: ").append(TextReady.result(withNote, notesOff).contains("*Note:"))
         .append(" | remembered ").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[5]).append('\n');
     TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF);
+    // Sogni cut: each "=== Sogni ===" line and the lines after it to a blank line left out; the rest kept.
+    String chatText = "=== You ===\nDescribe it\n\n=== Sogni ===\nModel qwen\nThinking done\n\nA lighthouse in fog.\nSoft light.";
+    String[] sogniOn = {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF, TextReady.ON};
+    out.append("sogni cut: ").append(TextReady.result(chatText, sogniOn).replace('\n', '|')).append(" | off: ")
+        .append(TextReady.result(chatText, new String[] {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF, TextReady.OFF}).contains("Model qwen")).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
@@ -16570,6 +16577,7 @@ public class BehaviorTest {
         && t.contains("ask auto: true | Run without Auto render / Choose the program")
         && t.contains("ask silent: true | Silent auto mode would run with these left empty:|\u2022 Output name") && t.contains("Send to group: the answer is not kept as a section||Run it like this?")
         && t.contains("notes removed: A misty harbour at dawn.||Soft light. | kept: true | remembered on")
+        && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
         && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
