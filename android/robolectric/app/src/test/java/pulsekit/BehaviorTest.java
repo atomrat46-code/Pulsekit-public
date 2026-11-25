@@ -16451,6 +16451,15 @@ public class BehaviorTest {
     app.programMenus.selectProgram("Java", "SogniPadd.java");
     idle();
     out.append("output after select: ").append(app.pyJav.pkPyArgs.getText()).append('\n');
+    // Picked from Select program's list (Recent): its last run's line had no Output name; the Params' one put in.
+    PyJavRecent.remember(app.getFilesDir(), "SogniPadd.java", "--prompt \"A cat\"", PyJavParams.programTextOf(app, "SogniPadd.java"), null);
+    app.pyJav.pkRefreshRecent(0);
+    int recentAt = 0;
+    java.util.List<PyJavRecent.Item> recent = PyJavRecent.load(app.getFilesDir());
+    for (int i = 0; i < recent.size(); i++) if ("SogniPadd.java".equals(recent.get(i).name)) recentAt = i + 1;
+    app.pyJav.pkApplyRecent(recentAt);
+    idle();
+    out.append("output after Select program list: ").append(app.pyJav.pkPyArgs.getText()).append('\n');
     PyJavParams.store(app, "SogniPadd.java" + ProgramParams.OUTPUT_KEY, "");
     app.programMenus.selectProgram("Java", "SogniPadd.java");
     idle();
@@ -16479,7 +16488,7 @@ public class BehaviorTest {
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
         && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
-        && t.contains("output after select: Image%n") && t.contains("none kept: ''")
+        && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
     if (!ok) throw new AssertionError(t);

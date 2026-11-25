@@ -1873,6 +1873,24 @@ public final class ProgramParams {
    * when none was kept, or the program has no such row.
    */
   public static String withOutput(List<Param> ps, String filled, String kept) {
+    return withOutput(ps, filled, kept, false);
+  }
+
+  /**
+   * As above; `replace`: the kept name in place of the one the line has (a program picked from Select program's
+   * list: its last run's line, but the Output name as its Params have it now; kept "" there clears it).
+   */
+  public static String withOutput(List<Param> ps, String filled, String kept, boolean replace) {
+    if (replace && kept != null) {
+      int at = -1;
+      for (int i = 0; i < ps.size(); i++) if (!ps.get(i).flag && ps.get(i).output && ps.get(i).optional) at = at < 0 ? i : at;
+      if (at < 0) return filled;
+      String line = filled == null ? "" : filled;
+      String[] values = values(ps, "", line);
+      if ((values[at] == null ? "" : values[at].trim()).equals(kept.trim())) return filled;
+      values[at] = kept.trim();
+      return line(ps, values, line);
+    }
     if (kept == null || kept.trim().isEmpty()) return filled;
     int at = -1;
     for (int i = 0; i < ps.size(); i++) if (!ps.get(i).flag && ps.get(i).output && ps.get(i).optional) at = at < 0 ? i : at;

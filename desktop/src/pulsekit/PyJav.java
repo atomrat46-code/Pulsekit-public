@@ -4104,6 +4104,9 @@ final class PyJav {
         String saved = this.recentAsRun ? null : this.loadParams(item.name);
         this.recentAsRun = false;
         if (saved != null) args = ProgramParams.withSaved(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, saved);
+        // The Output name as its Params have it now (the last run's line may have had none, or another).
+        String keptOut = saved == null ? null : this.loadParams(item.name + ProgramParams.OUTPUT_KEY);
+        if (keptOut != null) args = ProgramParams.withOutput(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, keptOut, true);
         if (this.pyExtra != null) this.pyExtra.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.showRunning(item.name);

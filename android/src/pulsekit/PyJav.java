@@ -390,6 +390,9 @@ final class PyJav {
         if (!this.pkRecentAsRun) {
             String saved = pulsekit.PyJavParams.load(app, item.name);
             if (saved != null) args = pulsekit.ProgramParams.withSaved(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, saved);
+            // The Output name as its Params have it now (the last run's line may have had none, or another).
+            String keptOut = pulsekit.PyJavParams.load(app, item.name + pulsekit.ProgramParams.OUTPUT_KEY);
+            if (keptOut != null) args = pulsekit.ProgramParams.withOutput(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, keptOut, true);
         }
         this.pkRecentAsRun = false;
         if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
