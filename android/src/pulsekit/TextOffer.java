@@ -147,6 +147,13 @@ final class TextOffer {
         // Select file and Browse sections: their text goes after the answer (remembered: next time too); Clear takes it away.
         LinearLayout arow = new LinearLayout(app);
         arow.setOrientation(LinearLayout.HORIZONTAL);
+        arow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        // Add: checked, the text after is added to the answer; unchecked, it is kept aside (remembered).
+        final android.widget.CheckBox addAfter = new android.widget.CheckBox(app);
+        addAfter.setTag("text-ready:add-after");
+        addAfter.setText(TextReady.ADD_AFTER);
+        addAfter.setChecked(!TextReady.OFF.equals(set[4]));
+        arow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2));
         final android.widget.Button selectFile = action(app, arow, TextReady.SELECT_FILE, "text-ready:select-file");
         final android.widget.Button browse = action(app, arow, TextReady.BROWSE_SECTIONS, "text-ready:browse-sections");
         final android.widget.Button clear = action(app, arow, TextReady.CLEAR_TEXT, "text-ready:clear");
@@ -205,8 +212,10 @@ final class TextOffer {
         body.setMinLines(3);
         // Editable: a cursor and the keyboard; scrolled inside when longer than 14 lines.
         typed(body, 14);
+        // Right under the line above (an EditText's own top padding is large).
+        body.setPadding(body.getPaddingLeft(), app.dp(2), body.getPaddingRight(), body.getPaddingBottom());
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
-        bp.topMargin = app.dp(8);
+        bp.topMargin = 0;
         col.addView(body, bp);
         TextView hint = app.text(TextReady.HINT, 12, false);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
@@ -215,11 +224,11 @@ final class TextOffer {
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
-            String[] now = {m, d, after.getText().toString(), set[3]};
+            String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4]);
         };
         after.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -231,6 +240,7 @@ final class TextOffer {
             }
         });
         clear.setOnClickListener(v -> after.setText(""));
+        addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
         selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(app, after));
         browse.setOnClickListener(v -> pickSection(app, after));
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {

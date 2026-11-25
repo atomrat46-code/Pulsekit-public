@@ -3295,6 +3295,10 @@ final class PyJav {
         JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));
         JPanel arow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
         arow.add(new JLabel(TextReady.AFTER + ":"));
+        // Add: checked, the text after is added to the answer; unchecked, it is kept aside (remembered).
+        final javax.swing.JCheckBox addAfter = new javax.swing.JCheckBox(TextReady.ADD_AFTER, !TextReady.OFF.equals(set[4]));
+        addAfter.setName("text-ready:add-after");
+        arow.add(addAfter);
         JButton selectFile = new JButton(TextReady.SELECT_FILE);
         selectFile.setName("text-ready:select-file");
         arow.add(selectFile);
@@ -3315,14 +3319,15 @@ final class PyJav {
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
-            String[] now = {m, d, after.getText(), set[3]};
+            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
             note.setVisible(TextReady.noteShown(whole, d, m));
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3]);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4]);
         };
         mode.addActionListener(e -> cut.run());
+        addAfter.addActionListener(e -> cut.run());
         clear.addActionListener(e -> after.setText(""));
         selectFile.addActionListener(e -> {
             String t = this.pickFileText(selectFile);

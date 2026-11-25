@@ -16152,6 +16152,15 @@ public class BehaviorTest {
     TextView body2 = (TextView) r2.findViewWithTag("text-ready:text");
     String[] kept = TextReady.setting(app.getFilesDir(), "SogniChat.java");
     out.append("text after: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept ").append(kept[2]).append(" / ").append(kept[3]).append('\n');
+    // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
+    android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
+    addBox.setChecked(false);
+    idle();
+    String offText = body2.getText().toString().replace('\n', '|');
+    String offKept = TextReady.setting(app.getFilesDir(), "SogniChat.java")[4];
+    addBox.setChecked(true);
+    idle();
+    out.append("add unchecked: ").append(offText).append(" | kept ").append(offKept).append(" | checked again ").append(body2.getText().toString().contains("Moody light")).append('\n');
     ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
     idle();
     out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
@@ -16226,7 +16235,7 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >  From file", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file on", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
