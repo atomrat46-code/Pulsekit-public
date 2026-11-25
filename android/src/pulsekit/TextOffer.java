@@ -153,10 +153,22 @@ final class TextOffer {
         addAfter.setTag("text-ready:add-after");
         addAfter.setText(TextReady.ADD_AFTER);
         addAfter.setChecked(!TextReady.OFF.equals(set[4]));
-        arow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2));
+        // Light on the dark dialog (the theme's own colours can be dark there), its own room kept.
+        addAfter.setTextColor(0xFFEDEDE8);
+        addAfter.setTextSize(15);
+        addAfter.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
+        addAfter.setMinWidth(app.dp(72));
+        addAfter.setPadding(0, 0, app.dp(4), 0);
+        arow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2, 0f));
         final android.widget.Button selectFile = action(app, arow, TextReady.SELECT_FILE, "text-ready:select-file");
         final android.widget.Button browse = action(app, arow, TextReady.BROWSE_SECTIONS, "text-ready:browse-sections");
         final android.widget.Button clear = action(app, arow, TextReady.CLEAR_TEXT, "text-ready:clear");
+        // (The buttons share what is left: no minimum width pushing the checkbox out.)
+        for (android.widget.Button b : new android.widget.Button[] {selectFile, browse, clear}) {
+            b.setMinWidth(0);
+            b.setMinimumWidth(0);
+            b.setPadding(app.dp(4), b.getPaddingTop(), app.dp(4), b.getPaddingBottom());
+        }
         col.addView(arow);
         final EditText after = new EditText(app);
         after.setTag("text-ready:after");

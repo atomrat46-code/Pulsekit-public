@@ -16154,6 +16154,8 @@ public class BehaviorTest {
     out.append("text after: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept ").append(kept[2]).append(" / ").append(kept[3]).append('\n');
     // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
     android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
+    out.append("add box: shown ").append(addBox.isShown()).append(", before Select file ").append(((android.view.ViewGroup) addBox.getParent()).indexOfChild(addBox) == 0
+        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:select-file")).append(", room ").append(addBox.getWidth() >= app.dp(72)).append('\n');
     addBox.setChecked(false);
     idle();
     String offText = body2.getText().toString().replace('\n', '|');
@@ -16235,7 +16237,7 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >  From file on", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file on", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
