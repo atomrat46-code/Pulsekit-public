@@ -5946,10 +5946,16 @@ def hit_bench(opts, switches):
         files["hit-model-java.txt"] = java
         lines += ["", "hit-model.txt: the pooled model learned from all %d kits (hit-model-even.txt: kits even). DrumMidi uses one with" % len(kits),
                   "--hit-model <file>; vst_render with --hit_model_file (the Hit model tab's Hit model file): its tests and this bench."]
-        saved = os.path.join(outdir, "hit-model-%s.txt" % time.strftime("%Y%m%d-%H%M%S"))
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        saved = os.path.join(outdir, "hit-model-%s.txt" % stamp)
         with open(saved, "w", encoding="utf-8") as fh:
             fh.write(text)
         print("Hit model file: %s" % saved)
+        # The kits-even model beside it too (for the Hit model tab's Hit model file, as the pooled one).
+        saved_even = os.path.join(outdir, "hit-model-even-%s.txt" % stamp)
+        with open(saved_even, "w", encoding="utf-8") as fh:
+            fh.write(text2)
+        print("Hit model file (kits even): %s" % saved_even)
     files["summary.txt"] = "\n".join(lines) + "\n"
     made = bench_zip(os.path.join(outdir, "hit-bench-%s.zip" % time.strftime("%Y%m%d-%H%M%S")), files)
     print("Zip: %s" % made)
@@ -5957,7 +5963,7 @@ def hit_bench(opts, switches):
     # (Run last: with no zip folder of its own, the run's: with %n the run's own numbered folder.)
     copy_to = opts["--hit_zip_outdir"] or (opts["--zip_outdir"] if HIT_STAGE[0] == "bench" else None)
     if copy_to:
-        copy_zips([made] + ([saved] if loo else []), expand_folder(copy_to, newest=True))
+        copy_zips([made] + ([saved, saved_even] if loo else []), expand_folder(copy_to, newest=True))
     print("Succeeded: the hit model bench")
 
 

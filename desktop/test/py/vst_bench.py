@@ -157,7 +157,8 @@ for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"],
 # out (one plugin: kit by kit) and the model learned from both, then that model file used.
 hout = os.path.join(work, "hits-out")
 vr.main(["--hit_bench", "--hit_loo", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar])
-learned = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-") and f.endswith(".txt")]
+learned = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-") and not f.startswith("hit-model-even-") and f.endswith(".txt")]
+learned_even = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-even-") and f.endswith(".txt")]
 for f in sorted(os.listdir(hout)):
     if f.endswith(".zip"):
         with zipfile.ZipFile(os.path.join(hout, f)) as z:
@@ -165,6 +166,7 @@ for f in sorted(os.listdir(hout)):
             for line in z.read("summary.txt").decode().splitlines()[:3]:
                 print("  " + line)
 print("hit model file:", len(learned), open(os.path.join(hout, learned[0])).read().split("\n")[0] if learned else "")
+print("hit model file, kits even:", len(learned_even), open(os.path.join(hout, learned_even[0])).read().split("\n")[0] if learned_even else "")
 vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar, "--hit_model_file", os.path.join(hout, learned[0])])
 # Another Output folder: the hit bench finds the results kept in the earlier one (no DrumMidi run).
 import contextlib as _cl
