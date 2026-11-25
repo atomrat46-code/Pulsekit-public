@@ -160,6 +160,26 @@ public final class DownloadMove {
   public static final String SUB_PARAM_LABEL = "Destination subfolder: Downloads' Move puts this run's files in it, under their type's folder (made when missing)";
   public static final String SUB_PARAM_HINT = "e.g. %g/%ddmmyyyy; % codes: g group, c or c1 category, c2 a second one, t1 first tag, t2 second; dd mm yyyy n as in Downloads (%g% works too)";
 
+  /**
+   * Params' Batch folder (the Sogni programs): where a batch's files go (Run sections, an input folder's runs,
+   * SogniChat's Auto render) in place of Download. PyJav takes it off; a single run leaves it unused.
+   */
+  public static final String BATCH_PARAM = "--pk-batch-dir";
+  public static final String BATCH_PARAM_LABEL = "Batch folder: files made one after another (Run sections, an input folder, SogniChat's Auto render) go here instead of Download (made when missing; a single run still goes to Download)";
+  public static final String BATCH_PARAM_HINT = "e.g. Batches/%ddmmyyyy-%n (under Download; Browse: another folder); % codes filled in once a batch";
+
+  /** The Batch folder taken off a run's arguments (the program never sees it); "" when there is none. */
+  public static String takeBatch(List<String> args) {
+    String got = "";
+    for (int i = 0; args != null && i < args.size(); i++) {
+      if (!BATCH_PARAM.equals(args.get(i))) continue;
+      args.remove(i);
+      if (i < args.size() && !args.get(i).startsWith("--")) got = args.remove(i).trim();
+      i--;
+    }
+    return got;
+  }
+
   /** The Destination subfolder taken off a run's arguments (the program never sees it); "" when there is none. */
   public static String takeSub(List<String> args) {
     String got = "";

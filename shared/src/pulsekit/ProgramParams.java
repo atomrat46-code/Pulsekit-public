@@ -260,6 +260,19 @@ public final class ProgramParams {
       sub.hint = DownloadMove.SUB_PARAM_HINT;
       out.add(sub);
     }
+    // Their Batch folder: a batch's files there instead of Download (PyJav takes it off; a folder to type or browse).
+    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.BATCH_PARAM)) {
+      Param b = new Param();
+      b.token = DownloadMove.BATCH_PARAM;
+      b.flag = true;
+      b.takesValue = true;
+      b.optional = true;
+      b.dir = true;
+      b.typed = true;
+      b.label = DownloadMove.BATCH_PARAM_LABEL;
+      b.hint = DownloadMove.BATCH_PARAM_HINT;
+      out.add(b);
+    }
     // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
     if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
       Param save = new Param();
@@ -1841,6 +1854,34 @@ public final class ProgramParams {
    * have them not, so a run leaves them out; Params shows them again in their rows, unticked.
    */
   public static final String OFF_KEY = "#off";
+
+  /** The Output name given in Params (a program's optional output: Sogni's [output.png]), kept beside its Params. */
+  public static final String OUTPUT_KEY = "#output";
+
+  /** The Params' Output name (the program's optional output row), "" when none. */
+  public static String outputValue(List<Param> ps, String[] values) {
+    for (int i = 0; i < ps.size() && i < values.length; i++) {
+      Param p = ps.get(i);
+      if (!p.flag && p.output && p.optional) return values[i] == null ? "" : values[i].trim();
+    }
+    return "";
+  }
+
+  /**
+   * A program selected again: its argument line from its usage (`filled`), with the Output name it was given
+   * in Params last (Select program started it from the usage alone: the name was lost). `filled` as it is
+   * when none was kept, or the program has no such row.
+   */
+  public static String withOutput(List<Param> ps, String filled, String kept) {
+    if (kept == null || kept.trim().isEmpty()) return filled;
+    int at = -1;
+    for (int i = 0; i < ps.size(); i++) if (!ps.get(i).flag && ps.get(i).output && ps.get(i).optional) at = at < 0 ? i : at;
+    if (at < 0) return filled;
+    String[] values = values(ps, "", filled == null ? "" : filled);
+    if (values[at] != null && !values[at].trim().isEmpty()) return filled;
+    values[at] = kept.trim();
+    return line(ps, values, filled == null ? "" : filled);
+  }
 
   /** The rows left out, switch → its file or folder, from what was kept beside the Params. */
   public static Map<String, String> offValues(List<Param> ps, String kept) {

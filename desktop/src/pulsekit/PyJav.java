@@ -791,6 +791,12 @@ final class PyJav {
         this.saveRun = saving;
         // Params' Destination subfolder: taken off too, kept with the run's download (Move puts its files there).
         final String subPattern = DownloadMove.takeSub(runArgs);
+        // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
+        // there instead of Download (the folder's % codes filled in once, at the batch's first run).
+        final String batchPattern = DownloadMove.takeBatch(runArgs);
+        final BatchQueue inBatchQ = BatchQueue.runOf(name);
+        if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
+            inBatchQ.outFolder = ProgramFolder.outdir(batchPattern, this.programFolder()).getAbsolutePath();
         final boolean savingRun = saving;
         // PlayList --nogui without a list writes the Default playlist: its file given.
         final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
@@ -825,6 +831,8 @@ final class PyJav {
         final JavaRun.Live live = new JavaRun.Live();
         // Stop's run (JavaRun.live() is the program thread's own).
         this.runLive = live;
+        this.liveArgv = argv;
+        this.liveName = name;
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
@@ -893,6 +901,7 @@ final class PyJav {
             // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
             String outdirArg = ProgramFolder.outdirArg(name, argv);
             this.runOutDir = outdirArg == null ? null : ProgramFolder.outdir(outdirArg, this.programFolder());
+            if (this.runOutDir == null && inBatchQ != null && inBatchQ.outFolder != null && batchPattern.length() > 0) this.runOutDir = new File(inBatchQ.outFolder);
             if (this.runOutDir != null && !this.runOutDir.isDirectory()) this.runOutDir.mkdirs();
             // Where the run's files are kept: an output name's %n counts the files there too.
             System.setProperty("pulsekit.outdir", (this.runOutDir != null ? this.runOutDir : this.programFolder()).getAbsolutePath());
@@ -1275,9 +1284,15 @@ final class PyJav {
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
         scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(560, col.getPreferredSize().height + 8)));
         // Process as a reference: the picture (the first, or the one picked) into another program as its Reference file 1 or 2.
-        Object[] options = new Object[] {"Process as a reference", "Open", "Close"};
+        // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+        final boolean multi = this.multiRunning();
+        Object[] options = multi ? new Object[] {"Process as a reference", "Open", BatchQueue.STOP_RUN, "Close"} : new Object[] {"Process as a reference", "Open", "Close"};
         int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[options.length - 1]);
+        if (multi && ans == 2) {
+            this.stopMulti();
+            return;
+        }
         if (ans == 0) {
             File pick = pictures.get(0);
             if (pictures.size() > 1) {
@@ -2915,6 +2930,25 @@ final class PyJav {
         }
     }
 
+    /** The running program's arguments and name (Picture ready's Stop run: a folder run). */
+    java.util.List<String> liveArgv;
+    String liveName;
+
+    /** Files made one after another: a batch going, or a folder run (SogniChat's input folder) in progress. */
+    boolean multiRunning() {
+        if (BatchQueue.going()) return true;
+        JavaRun.Live live = this.runLive;
+        return live != null && !live.done && !live.aborted() && this.liveArgv != null
+            && (ChatFolder.folderRun(this.liveName, this.liveArgv) || FolderRuns.folderRun(this.liveName, this.liveArgv));
+    }
+
+    /** Picture ready's and Video ready's Stop run: the batch stopped and the run in progress too. */
+    void stopMulti() {
+        this.stopBatch();
+        JavaRun.Live live = this.runLive;
+        if (live != null && !live.done && !live.aborted()) this.stopScript();
+    }
+
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
     void stopBatch() {
         BatchQueue q = BatchQueue.current();
@@ -3647,12 +3681,18 @@ final class PyJav {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> videoItems = TagDialogs.withUseLast(java.util.Arrays.asList("Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
                 MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
+            // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+            if (this.multiRunning()) videoItems.add(videoItems.size() - 1, BatchQueue.STOP_RUN);
             Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             String it = ans < 0 ? "Close" : videoItems.get(ans);
+            if (it.equals(BatchQueue.STOP_RUN)) {
+                this.stopMulti();
+                break;
+            }
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
@@ -4081,6 +4121,15 @@ final class PyJav {
         String out = PyJavHints.outputFile(app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
         // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
         String filled = PyJavHints.fillArgs("", this.pyHintPlain, this.pyInputToken, app.pyInputPath, outDir.getAbsolutePath());
+        // The Output name given in its Params last, back in (the usage alone had lost it).
+        String keptOut = this.loadParams(app.pyName + ProgramParams.OUTPUT_KEY);
+        if (keptOut != null && !keptOut.isEmpty()) {
+            try {
+                filled = ProgramParams.withOutput(ProgramParams.parse(this.programText()), filled, keptOut);
+            } catch (Exception ignored) {
+                // the usage's line as it is
+            }
+        }
         if (this.pyExtra != null) this.pyExtra.setText(filled);
         if (out.length() > 0) {
             this.pyOutputPath = out;
@@ -5197,6 +5246,8 @@ final class PyJav {
         this.saveParams(program + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         this.saveParams(program, ProgramParams.build(ps, values));
+        // The Output name kept too: Select program starts the argument line from the usage (it was lost there).
+        this.saveParams(program + ProgramParams.OUTPUT_KEY, ProgramParams.outputValue(ps, values));
         // Run sections…: the runs start once the Params are saved (each the Params with a section's entries).
         if (runSecs != null) SwingUtilities.invokeLater(() -> this.runSections(program, ps, runSecs));
         // The prompt kept among the program's six last (Recent prompts).

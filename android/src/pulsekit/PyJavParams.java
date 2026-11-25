@@ -668,6 +668,8 @@ public final class PyJavParams {
         store(activity, name + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         String switches = ProgramParams.build(ps, values);
+        // The Output name kept too: Select program starts the argument line from the usage (it was lost there).
+        store(activity, name + ProgramParams.OUTPUT_KEY, ProgramParams.outputValue(ps, values));
         // The prompt kept among the program's six last (Recent prompts).
         for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
         activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();

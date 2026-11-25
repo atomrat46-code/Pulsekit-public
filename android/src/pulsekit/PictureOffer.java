@@ -102,11 +102,13 @@ final class PictureOffer {
         if (shown == 0) return false;
         ScrollView scroll = new ScrollView(app);
         scroll.addView(col);
-        last = new AlertDialog.Builder(app)
+        AlertDialog.Builder b = new AlertDialog.Builder(app)
             .setTitle(pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready")
             .setView(scroll)
-            .setPositiveButton("Close", null)
-            .show();
+            .setPositiveButton("Close", null);
+        // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+        if (app.pyJav != null && app.pyJav.pkMultiRunning()) b.setNegativeButton(BatchQueue.STOP_RUN, (d, w) -> app.pyJav.pkStopMulti());
+        last = b.show();
         return true;
     }
 

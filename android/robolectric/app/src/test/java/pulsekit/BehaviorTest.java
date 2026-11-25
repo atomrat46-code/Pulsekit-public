@@ -16410,6 +16410,71 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /** Picture ready's Stop run in a batch; Send to group skips the same text; Output name kept across Select program; Batch folder. */
+  @Test
+  public void s277_stop_run_batch_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // A picture made while a batch goes (Auto render's runs): Stop run, which stops the batch.
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"a.txt", "One."});
+    answers.add(new String[] {"b.txt", "Two."});
+    BatchQueue q = AutoRender.start("SogniPadd.java", padd, "--prompt \"Original\"", answers);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("pic.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: pic.png", files, 0));
+    idle();
+    android.widget.Button stop = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+    String label = stop == null ? "none" : String.valueOf(stop.getText());
+    if (stop != null) stop.performClick();
+    idle();
+    out.append("picture ready in a batch: ").append(label).append(" | stopping ").append(q.stopping).append('\n');
+    BatchQueue.stop();
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: pic.png", files, 0));
+    idle();
+    android.widget.Button none = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+    out.append("no batch: ").append(none == null || none.getVisibility() != View.VISIBLE || none.getText().length() == 0 ? "no Stop run" : String.valueOf(none.getText())).append('\n');
+    PictureOffer.last.dismiss();
+    // Send to group: the same text (case, spaces and quotes aside) not added again.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    String first = TextReady.sendToGroup(vault, "SogniPadd", "answer.txt", "A kite over the sea.", "Moods");
+    String again = TextReady.sendToGroup(vault, "SogniPadd", "answer2.txt", "\u201ca  KITE over the sea.\u201d", "Other");
+    int kites = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.toLowerCase().contains("kite over")) kites++;
+    out.append("send twice: ").append(first).append(" | ").append(again).append(" | sections ").append(kites).append('\n');
+    // Output name: given in Params, kept; SogniPadd selected again has it in its argument line.
+    PyJavParams.store(app, "SogniPadd.java" + ProgramParams.OUTPUT_KEY, "Image%n");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    out.append("output after select: ").append(app.pyJav.pkPyArgs.getText()).append('\n');
+    PyJavParams.store(app, "SogniPadd.java" + ProgramParams.OUTPUT_KEY, "");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    out.append("none kept: '").append(app.pyJav.pkPyArgs.getText()).append("'\n");
+    // Batch folder: a row of the Sogni programs, taken off the run's arguments; a batch's files under it.
+    ProgramParams.Param row = null;
+    for (ProgramParams.Param p : padd) if (p.token.equals(DownloadMove.BATCH_PARAM)) row = p;
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x", DownloadMove.BATCH_PARAM, "Batches/run%n", "--seed", "3"));
+    String taken = DownloadMove.takeBatch(argv);
+    String sub = ArtJava.subOf(taken);
+    ArtJava.batchSub = sub;
+    String used = ArtJava.runSub("SogniPadd.java", argv);
+    ArtJava.batchSub = null;
+    out.append("batch folder row: ").append(row != null && row.dir && row.typed).append(" | taken ").append(taken).append(" | left ").append(argv)
+        .append(" | folder ").append(sub).append(" | used ").append(used).append(" | single run ").append(ArtJava.runSub("SogniPadd.java", argv)).append('\n');
+    String t = out.toString();
+    write("s277_stop_run_batch_folder", t);
+    boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
+        && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
+        && t.contains("output after select: Image%n") && t.contains("none kept: ''")
+        && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
   private static String viewTexts(View v) {
     StringBuilder sb = new StringBuilder();

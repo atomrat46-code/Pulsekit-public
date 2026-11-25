@@ -865,10 +865,14 @@ public final class ArtJava {
     return android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
   }
 
-  /** A run's --outdir under Download (SogniMusic's), its % codes filled in; null when it has none. */
+  /** A run's --outdir under Download (SogniMusic's), its % codes filled in; else a batch's Batch folder; null when none. */
   static String runSub(String program, List<String> argv) {
-    return subOf(ProgramFolder.outdirArg(program, argv));
+    String own = subOf(ProgramFolder.outdirArg(program, argv));
+    return own != null ? own : batchSub;
   }
+
+  /** Params' Batch folder of the batch run going on (PyJav sets it at each run's start), or null. */
+  static volatile String batchSub;
 
   /** A folder given in Params (--outdir, --zip_outdir) as Download's subfolder (% codes filled in), or a picked folder's address. */
   static String subOf(String pattern) {

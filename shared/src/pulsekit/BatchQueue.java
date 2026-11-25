@@ -25,8 +25,26 @@ public final class BatchQueue {
   public final List<String> made = new ArrayList<String>();
   public int ok;
   public int failed;
+  /** Picture ready's and Video ready's button while files are made one after another (a batch, a folder run). */
+  public static final String STOP_RUN = "Stop run";
+
+  /** A batch going (not stopped yet). */
+  public static boolean going() {
+    BatchQueue q = current();
+    return q != null && !q.stopping;
+  }
+
   /** Stop batch was pressed: no run after the one in progress. */
   public boolean stopping;
+
+  /** Params' Batch folder, its % codes filled in at the batch's first run (every run's files there); null: Download. */
+  public String outFolder;
+
+  /** The batch `program`'s run is one of (not JoinVideo at the end), or null. */
+  public static BatchQueue runOf(String program) {
+    BatchQueue q = current();
+    return q != null && !q.joining && q.takes(program) ? q : null;
+  }
 
   /**
    * Run sections (the Sogni image and video programs' Params): each run is the program's Params with

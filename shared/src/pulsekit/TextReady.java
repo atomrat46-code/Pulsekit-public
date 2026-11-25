@@ -95,12 +95,35 @@ public final class TextReady {
 
   /** Send to group's section: named as the answer (no codes), its prompt the text, in `group` ("(no group)": none). */
   public static String sendToGroup(PromptVault vault, String app, String fileName, String text, String group) throws Exception {
+    // The same text there already (case, spaces and quotes aside): not added again.
+    PromptVault.SogniSection have = sameText(vault, app, text);
+    if (have != null) return ALREADY + SogniSections.label(have) + (have.group == null || have.group.isEmpty() ? "" : " (group " + have.group + ")") + ": not added again";
     SectionCollection.Form f = new SectionCollection.Form();
     f.name = DownloadMove.nameFor(fileName, choices(null)).replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
     f.prompt = text == null ? "" : text.trim();
     f.group = group == null ? SectionCollection.NO_GROUP_PICK : group;
     String bad = SectionCollection.add(vault, app, f);
     return bad != null ? bad : "Sent to " + app + "'s " + (SectionCollection.NO_GROUP_PICK.equals(f.group) ? "sections (no group)" : "group " + f.group) + " as a section";
+  }
+
+  /** Send to group's word when the text is a section of the program already. */
+  public static final String ALREADY = "Already there: ";
+
+  /** The program's section whose prompt is `text` (case, spaces and quotes around it aside), or null. */
+  public static PromptVault.SogniSection sameText(PromptVault vault, String app, String text) {
+    String want = plain(text);
+    if (vault == null || want.isEmpty()) return null;
+    for (PromptVault.SogniSection s : vault.sogniSections(app)) {
+      String prompt = SectionCollection.formOf(s).prompt;
+      if (want.equals(plain(prompt))) return s;
+    }
+    return null;
+  }
+
+  static String plain(String t) {
+    String s = t == null ? "" : t.replaceAll("\\s+", " ").trim();
+    s = s.replaceAll("^[\"'\u201c\u201d\u2018\u2019]+|[\"'\u201c\u201d\u2018\u2019]+$", "").trim();
+    return s.toLowerCase(java.util.Locale.ROOT);
   }
 
   /**

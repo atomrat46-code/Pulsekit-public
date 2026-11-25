@@ -341,6 +341,12 @@ final class PyJav {
         String out = pulsekit.PyJavHints.outputFile(this.pkPyInputPath, hint, dir.getAbsolutePath());
         // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
         String filled = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
+        // The Output name given in its Params last, back in (the usage alone had lost it).
+        String keptOut = PyJavParams.load(app, app.pyName + pulsekit.ProgramParams.OUTPUT_KEY);
+        if (keptOut != null && !keptOut.isEmpty() && app.pyName != null && app.pyName.endsWith(".java")) {
+            String text = PyJavParams.programTextOf(app, app.pyName);
+            if (text != null) filled = pulsekit.ProgramParams.withOutput(pulsekit.ProgramParams.parse(text), filled, keptOut);
+        }
         if (this.pkPyArgs != null) this.pkPyArgs.setText(filled);
         if (out.length() > 0) {
             this.pkPyOutputPath = out;
@@ -1411,6 +1417,15 @@ final class PyJav {
         while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
         // Params' Destination subfolder: taken off too, kept with the run's download (Downloads' Move uses it).
         final String subPattern = pulsekit.DownloadMove.takeSub(argv);
+        // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
+        // there instead of Download (the folder's % codes filled in once, at the batch's first run).
+        String batchPattern = pulsekit.DownloadMove.takeBatch(argv);
+        pulsekit.BatchQueue inBatchQ = pulsekit.BatchQueue.runOf(name);
+        ArtJava.batchSub = null;
+        if (inBatchQ != null && batchPattern.length() > 0) {
+            if (inBatchQ.outFolder == null) inBatchQ.outFolder = ArtJava.subOf(batchPattern);
+            ArtJava.batchSub = inBatchQ.outFolder;
+        }
         // A prompt sheet's run: its mode, reference files and output name (as on the desktop, only for a
         // .prompt: ImageUpscaler opened after one was given the sheet's files too).
         if (name.toLowerCase().endsWith(".prompt")) {
@@ -2426,6 +2441,22 @@ final class PyJav {
         } catch (Exception ex) {
             this.pkAddLogLine("Could not start the folder's runs: " + ex.getMessage());
         }
+    }
+
+    /** Files made one after another: a batch going, or a folder run (SogniChat's input folder) in progress. */
+    boolean pkMultiRunning() {
+        if (pulsekit.BatchQueue.going()) return true;
+        pulsekit.JavaRun.Live live = this.pkLive;
+        @SuppressWarnings("unchecked")
+        java.util.List<String> argv = (java.util.List<String>) this.pkLastArgv;
+        return live != null && !live.done && !live.aborted() && argv != null
+            && (pulsekit.ChatFolder.folderRun(app.pyName, argv) || pulsekit.FolderRuns.folderRun(app.pyName, argv));
+    }
+
+    /** Picture ready's and Video ready's Stop run: the batch stopped and the run in progress too. */
+    void pkStopMulti() {
+        this.pkStopBatch();
+        this.pkStopRun();
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */

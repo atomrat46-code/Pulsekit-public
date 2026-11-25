@@ -476,11 +476,13 @@ final class VideoOffer {
         col.addView(volumeRow);
         android.widget.ScrollView scroll = new android.widget.ScrollView(app);
         scroll.addView(col);
-        AlertDialog dialog = new AlertDialog.Builder(app)
+        AlertDialog.Builder vb = new AlertDialog.Builder(app)
             .setTitle("Video ready")
             .setView(scroll)
-            .setPositiveButton("Close", null)
-            .create();
+            .setPositiveButton("Close", null);
+        // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+        if (app.pyJav != null && app.pyJav.pkMultiRunning()) vb.setNegativeButton(BatchQueue.STOP_RUN, (d, w) -> app.pyJav.pkStopMulti());
+        AlertDialog dialog = vb.create();
         // Turned sideways: the clip full screen from where it is (upright again: back here).
         final SidewaysVideo.Small wide = new SidewaysVideo.Small() {
             @Override
