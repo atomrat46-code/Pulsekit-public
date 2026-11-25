@@ -23,12 +23,28 @@ final class TextOffer {
     private TextOffer() {}
 
     static boolean offer(final MainActivity app, String program, JavaRun.Result result) {
+        return offer(app, program, result, null);
+    }
+
+    /** As above; `outputDir` (--output_dir): the answer is saved there when Document ready closes (as shown, %g filled in). */
+    static boolean offer(final MainActivity app, String program, JavaRun.Result result, String outputDir) {
         if (result == null || !TextReady.wanted(program)) return false;
         JavaRun.FileOut f = TextReady.textOf(result.files);
         if (f == null) return false;
-        show(app, program, f.name, TextReady.text(f.bytes));
+        show(app, program, f.name, TextReady.text(f.bytes), outputDir);
         return true;
     }
+
+    /** The answer saved into the output folder (`given`, its codes filled in, %g the group sent to) under its chat's name. */
+    static String saveInto(MainActivity app, String given, String fileName, String text, String group) {
+        String sub = ArtJava.subOf(TextReady.outDir(given, group));
+        String got = ArtJava.publish(app, ChatFolder.cutName(fileName, true, group), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
+        return got == null ? "Could not save the answer into " + given : "Answer saved: " + got;
+    }
+
+    /** The tests: Send to group's program and group (else lists); the group it used last (%g). */
+    static String groupProgram, groupName;
+    static volatile String sentGroup;
 
     /**
      * SogniChat --input_dir / --output_dir: each answer it wrote cut at the delimiter Document ready
@@ -40,12 +56,12 @@ final class TextOffer {
         if (answers.isEmpty()) return 0;
         String[] set = TextReady.setting(app.getFilesDir(), program);
         String given = ChatFolder.arg(argv, "--output_dir");
-        String sub = given == null ? null : ArtJava.subOf(given);
+        String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, null));
         int n = 0;
         String where = null;
         for (JavaRun.FileOut f : answers) {
             String text = TextReady.result(TextReady.text(f.bytes), set);
-            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
+            String got = ArtJava.publish(app, ChatFolder.cutName(f.name, given != null, null), text.getBytes(java.nio.charset.StandardCharsets.UTF_8), sub);
             if (got == null) continue;
             n++;
             where = got.contains("/") ? got.substring(0, got.lastIndexOf('/')) : "Download";
@@ -57,7 +73,13 @@ final class TextOffer {
     }
 
     static void show(final MainActivity app, final String program, String name, final String whole) {
+        show(app, program, name, whole, null);
+    }
+
+    static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir) {
         final java.io.File dir = app.getFilesDir();
+        // The group Send to group used (%g in the saved answer's names).
+        final String[] group = {null};
         String[] set = TextReady.setting(dir, program);
         LinearLayout col = new LinearLayout(app);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -104,6 +126,11 @@ final class TextOffer {
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2);
         ap.topMargin = app.dp(6);
         col.addView(acts, ap);
+        // Send to group: the text as a section in a Sogni program's group (that group is %g in the saved answer's names).
+        LinearLayout acts2 = new LinearLayout(app);
+        acts2.setOrientation(LinearLayout.HORIZONTAL);
+        final android.widget.Button toGroup = action(app, acts2, TextReady.SEND_GROUP, "text-ready:send-group");
+        col.addView(acts2);
         // The text as it will be copied, saved or sent: editable (a new cut, delimiter or text after makes it again).
         final EditText body = new EditText(app);
         body.setTextSize(15);
@@ -173,6 +200,11 @@ final class TextOffer {
         final String fileName = name;
         save.setOnClickListener(v -> save(app, TextReady.savedName(fileName), body.getText().toString()));
         send.setOnClickListener(v -> send(app, body.getText().toString()));
+        toGroup.setOnClickListener(v -> sendToGroup(app, fileName, body.getText().toString(), g -> group[0] = g));
+        // --output_dir: the answer as shown saved there when Document ready closes (%g: the group sent to).
+        dialog.setOnDismissListener(d -> {
+            if (outputDir != null) say(app, saveInto(app, outputDir, fileName, body.getText().toString(), group[0]));
+        });
         dialog.show();
         // Its text boxes take the keyboard (a dialog's window can be set not to).
         if (dialog.getWindow() != null) {
@@ -203,6 +235,51 @@ final class TextOffer {
             }
             return false;
         });
+    }
+
+    /** Send to group: a Sogni program, then one of its groups ("(no group)" first); the text added there as a section. */
+    static void sendToGroup(final MainActivity app, final String fileName, final String text, final java.util.function.Consumer<String> used) {
+        if (text.trim().isEmpty()) {
+            say(app, "No text to send");
+            return;
+        }
+        final java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String s : TextReady.targets(p -> PyJavParams.programTextOf(app, p))) apps.add(SogniSections.app(s));
+        if (apps.isEmpty()) {
+            say(app, "No Sogni program takes a prompt");
+            return;
+        }
+        final java.util.function.Consumer<String> toApp = a -> {
+            final java.util.function.Consumer<String> toGroup = g -> {
+                try {
+                    String r = TextReady.sendToGroup(PromptVault.open(app.getFilesDir()), a, fileName, text, g);
+                    if (r.startsWith("Sent")) {
+                        sentGroup = g;
+                        used.accept(g);
+                    }
+                    say(app, r);
+                } catch (Exception ex) {
+                    say(app, "Could not send the text: " + ex.getMessage());
+                }
+            };
+            if (groupName != null) {
+                toGroup.accept(groupName);
+                return;
+            }
+            try {
+                final java.util.List<String> picks = SectionCollection.groupPicks(PromptVault.open(app.getFilesDir()), a);
+                new AlertDialog.Builder(app).setTitle(a + ": " + SectionCollection.GROUP).setItems(picks.toArray(new String[0]), (d, w) -> toGroup.accept(picks.get(w)))
+                    .setNegativeButton("Cancel", null).show();
+            } catch (Exception ex) {
+                say(app, "Could not read the groups: " + ex.getMessage());
+            }
+        };
+        if (groupProgram != null) {
+            toApp.accept(groupProgram);
+            return;
+        }
+        new AlertDialog.Builder(app).setTitle(TextReady.SEND_GROUP_PROGRAM).setItems(apps.toArray(new String[0]), (d, w) -> toApp.accept(apps.get(w)))
+            .setNegativeButton("Cancel", null).show();
     }
 
     /** The tests: From sections' pick (its index; else a list is shown), and the list shown last. */

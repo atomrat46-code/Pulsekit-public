@@ -1150,9 +1150,11 @@ final class PyJav {
                 // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
                 // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
                 boolean chatFolder = ChatFolder.folderRun(name, argv);
-                if (result.code == 0 && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
+                // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
+                boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
+                if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
                 // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes));
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"));
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -3031,11 +3033,11 @@ final class PyJav {
         if (answers.isEmpty()) return;
         String[] set = TextReady.setting(PromptDb.dir(), program);
         String given = ChatFolder.arg(argv, "--output_dir");
-        File dir = given != null ? ProgramFolder.outdir(given, this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
+        File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, null), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
         dir.mkdirs();
         int n = 0;
         for (JavaRun.FileOut f : answers) {
-            String name = ChatFolder.cutName(f.name, given != null);
+            String name = ChatFolder.cutName(f.name, given != null, null);
             File to = new File(dir, name);
             String stem = name.replaceAll("\\.txt$", "");
             for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
@@ -3084,6 +3086,84 @@ final class PyJav {
      * cut; remembered for the program), with Copy, Send as prompt (into a Sogni program's Params) and Close.
      */
     void offerText(String program, String fileName, String whole) {
+        this.offerText(program, fileName, whole, null);
+    }
+
+    /** The tests: Send to group's program and group (else asked); the group it used last (%g); what the output folder save said. */
+    static String groupProgram, groupName;
+    static volatile String sentGroup, answerSaid = "";
+
+    /** As above; `outputDir` (--output_dir): the answer as shown saved there when Document ready closes (%g: the group sent to). */
+    void offerText(String program, String fileName, String whole, String outputDir) {
+        final String[] group = {null};
+        try {
+            this.offerTextLoop(program, fileName, whole, group);
+        } finally {
+            if (outputDir != null) {
+                answerSaid = this.saveInto(outputDir, fileName, lastTextReadyText, group[0]);
+                if (app.pyLog != null) app.pyLog.append("\n" + answerSaid);
+                app.setNow(answerSaid);
+            }
+        }
+    }
+
+    /** The text Document ready showed last (as edited), for the output folder's save. */
+    static volatile String lastTextReadyText = "";
+
+    /** The answer saved into the output folder (its codes filled in, %g the group sent to) under its chat's name (a number after it when taken). */
+    String saveInto(String given, String fileName, String text, String group) {
+        File dir = ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder());
+        dir.mkdirs();
+        String name = ChatFolder.cutName(fileName, true, group);
+        File to = new File(dir, name);
+        String stem = name.replaceAll("\\.txt$", "");
+        for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
+        try {
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            return "Answer saved: " + to.getPath();
+        } catch (Exception ex) {
+            return "Could not save the answer into " + dir + ": " + ex.getMessage();
+        }
+    }
+
+    /** Send to group: a Sogni program, then one of its groups; the text added there as a section. The group, or null. */
+    String sendToGroup(String fileName, String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to send");
+            return null;
+        }
+        java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String p : TextReady.targets(PyJav::programTextOf)) apps.add(SogniSections.app(p));
+        if (apps.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return null;
+        }
+        try {
+            String a = groupProgram;
+            if (a == null) {
+                Object got = JOptionPane.showInputDialog(app, TextReady.SEND_GROUP_PROGRAM, TextReady.SEND_GROUP, JOptionPane.QUESTION_MESSAGE, null, apps.toArray(), apps.get(0));
+                if (got == null) return null;
+                a = String.valueOf(got);
+            }
+            String g = groupName;
+            if (g == null) {
+                java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), a);
+                Object got = JOptionPane.showInputDialog(app, a + ": " + SectionCollection.GROUP, TextReady.SEND_GROUP, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                if (got == null) return null;
+                g = String.valueOf(got);
+            }
+            String r = TextReady.sendToGroup(PromptDb.vault(), a, fileName, text, g);
+            this.clipSay(r);
+            if (!r.startsWith("Sent")) return null;
+            sentGroup = g;
+            return g;
+        } catch (Exception ex) {
+            this.clipSay("Could not send the text: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    void offerTextLoop(String program, String fileName, String whole, String[] group) {
         File dir = PromptDb.dir();
         String[] set = TextReady.setting(dir, program);
         JPanel panel = new JPanel(new java.awt.BorderLayout(0, 6));
@@ -3178,37 +3258,45 @@ final class PyJav {
         });
         cut.run();
         lastTextReady = panel;
-        Object[] options = {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.CLOSE};
-        while (true) {
-            int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 3 : textReadyAnswers.poll().intValue())
-                : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[3]);
-            if (ans == 0) {
-                String t = body.getText();
-                if (t.trim().length() > 0) {
-                    try {
-                        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(t), null);
-                    } catch (Exception ignored) {
-                        // no clipboard (headless)
+        Object[] options = {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE};
+        try {
+            while (true) {
+                int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 4 : textReadyAnswers.poll().intValue())
+                    : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[4]);
+                lastTextReadyText = body.getText();
+                if (ans == 0) {
+                    String t = body.getText();
+                    if (t.trim().length() > 0) {
+                        try {
+                            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(t), null);
+                        } catch (Exception ignored) {
+                            // no clipboard (headless)
+                        }
                     }
-                }
-                this.clipSay(TextReady.copied(t));
-            } else if (ans == 1) {
-                this.saveText(TextReady.savedName(fileName), body.getText());
-            } else if (ans == 2) {
-                String target = this.sendText(body.getText());
-                if (target != null) {
-                    // The program sent to opens, with its Params.
-                    app.showView("py");
-                    app.programMenus.selectListedProgram("Java", target);
-                    if (target.equals(app.pyName)) {
-                        if (textReadyAnswers != null) openedAfterSend = target;
-                        else SwingUtilities.invokeLater(this::openParams);
+                    this.clipSay(TextReady.copied(t));
+                } else if (ans == 1) {
+                    this.saveText(TextReady.savedName(fileName), body.getText());
+                } else if (ans == 2) {
+                    String target = this.sendText(body.getText());
+                    if (target != null) {
+                        // The program sent to opens, with its Params.
+                        app.showView("py");
+                        app.programMenus.selectListedProgram("Java", target);
+                        if (target.equals(app.pyName)) {
+                            if (textReadyAnswers != null) openedAfterSend = target;
+                            else SwingUtilities.invokeLater(this::openParams);
+                        }
+                        return;
                     }
+                } else if (ans == 3) {
+                    String g = this.sendToGroup(fileName, body.getText());
+                    if (g != null) group[0] = g;
+                } else {
                     return;
                 }
-            } else {
-                return;
             }
+        } finally {
+            lastTextReadyText = body.getText();
         }
     }
 

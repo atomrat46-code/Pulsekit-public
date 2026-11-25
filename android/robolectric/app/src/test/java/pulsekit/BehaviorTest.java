@@ -16166,6 +16166,26 @@ public class BehaviorTest {
     }
     out.append("edited save: ").append(new String(java.nio.file.Files.readAllBytes(edited.toPath()), "UTF-8")).append('\n');
     TextOffer.last.dismiss();
+    // Send to group: the text as a section in SogniPadd's group Moods; the answer saved into the output folder
+    // when Document ready closes, %g (in its name and folder) the group.
+    SectionCollection.addGroup(vault, "SogniPadd", "Moods", "");
+    TextOffer.show(app, "SogniChat.java", "answer-%g.txt", chat, "answers-%g");
+    idle();
+    TextOffer.groupProgram = "SogniPadd";
+    TextOffer.groupName = "Moods";
+    try {
+      ((android.widget.Button) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:send-group")).performClick();
+    } finally {
+      TextOffer.groupProgram = null;
+      TextOffer.groupName = null;
+    }
+    idle();
+    String sentSaid = TextOffer.said;
+    boolean inGroup = false;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) inGroup |= "Moods".equals(x.group) && x.text.contains("A red kite over a grey sea.") && "answer".equals(x.name);
+    TextOffer.last.dismiss();
+    idle();
+    out.append("send to group: ").append(sentSaid).append(" | in group ").append(inGroup).append(" | ").append(TextOffer.said.replaceAll("^(Answer saved: ).*?(answers-Moods/answer-Moods\\.txt)$", "$1$2")).append('\n');
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
     d.dismiss();
@@ -16178,7 +16198,8 @@ public class BehaviorTest {
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
-        "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.", "cuts: c / a / a > b"};
+        "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
+        "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt", "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

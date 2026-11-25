@@ -98,6 +98,11 @@ public final class ChatFolder {
     return ownFolder ? name : TextReady.savedName(name);
   }
 
+  /** As above, %g (Send to group's group; "" none) and the other choice codes filled in. */
+  public static String cutName(String name, boolean ownFolder, String group) {
+    return cutName(TextReady.outName(name, group), ownFolder);
+  }
+
   /** The log's line after the answers are saved. */
   public static String saved(int n, String where, String[] setting) {
     String how = TextReady.NO_CUT.equals(setting[0]) || setting[1].isEmpty() ? "whole" : setting[0].toLowerCase(Locale.ROOT) + " “" + setting[1] + "”";

@@ -71,6 +71,36 @@ public final class TextReady {
   /** Document ready's buttons under the delimiter: the text after the answer from a file or a saved section. */
   public static final String SELECT_FILE = "Select file", BROWSE_SECTIONS = "Browse sections";
 
+  /** Send to group: the text as a section in a Sogni program's group; that group is %g in the saved answer's names. */
+  public static final String SEND_GROUP = "Send to group\u2026", SEND_GROUP_PROGRAM = "Send to which program's group?";
+
+  /** %g (the group Send to group used; "" none) as the choice codes have it. */
+  public static DownloadMove.Choices choices(String group) {
+    DownloadMove.Choices c = new DownloadMove.Choices();
+    if (group != null && !group.trim().isEmpty() && !SectionCollection.NO_GROUP_PICK.equals(group)) c.groups.add(group.trim());
+    return c;
+  }
+
+  /** The answer's name in its output folder: the chat's name, %g (and the other choice codes) filled in. */
+  public static String outName(String fileName, String group) {
+    return DownloadMove.nameFor(fileName, choices(group));
+  }
+
+  /** The output folder's pattern with %g filled in (the date codes and %n stay for the folder's own filling). */
+  public static String outDir(String pattern, String group) {
+    return pattern == null ? null : DownloadMove.fillChoices(pattern, choices(group)).replace("%%", "%");
+  }
+
+  /** Send to group's section: named as the answer (no codes), its prompt the text, in `group` ("(no group)": none). */
+  public static String sendToGroup(PromptVault vault, String app, String fileName, String text, String group) throws Exception {
+    SectionCollection.Form f = new SectionCollection.Form();
+    f.name = DownloadMove.nameFor(fileName, choices(null)).replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    f.prompt = text == null ? "" : text.trim();
+    f.group = group == null ? SectionCollection.NO_GROUP_PICK : group;
+    String bad = SectionCollection.add(vault, app, f);
+    return bad != null ? bad : "Sent to " + app + "'s " + (SectionCollection.NO_GROUP_PICK.equals(f.group) ? "sections (no group)" : "group " + f.group) + " as a section";
+  }
+
   /** Whether the line under the delimiter is shown: only when the delimiter is not in the text. */
   public static boolean noteShown(String text, String delim, String mode) {
     return note(text, delim, mode).startsWith("The delimiter is not");

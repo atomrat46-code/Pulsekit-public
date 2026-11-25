@@ -10311,9 +10311,28 @@ public final class DesktopBehavior {
       PyJav.sendTo = null;
       PyJav.sendYes = null;
     }
+    // Send to group (SogniPadd's group Moods), then Close: the answer saved into the output folder, %g the group.
+    SectionCollection.addGroup(PromptDb.vault(), "SogniPadd", "Moods", "");
+    File answers = new File(System.getProperty("user.home"), "answers-%g");
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>(java.util.Arrays.asList(3));
+    PyJav.groupProgram = "SogniPadd";
+    PyJav.groupName = "Moods";
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer-%g.txt",
+          "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n", answers.getAbsolutePath()));
+    } finally {
+      PyJav.textReadyAnswers = null;
+      PyJav.groupProgram = null;
+      PyJav.groupName = null;
+    }
+    File savedTo = new File(new File(System.getProperty("user.home"), "answers-Moods"), "answer-Moods.txt");
+    boolean inGroup = false;
+    for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) inGroup |= "Moods".equals(x.group) && x.text.contains("A red kite over a grey sea.");
+    got.append("send to group: ").append(PyJav.sentGroup).append(", in group ").append(inGroup).append(", saved ")
+        .append(savedTo.isFile() ? new String(Files.readAllBytes(savedTo.toPath()), StandardCharsets.UTF_8) : "none: " + PyJav.answerSaid).append('\n');
     this.out.append(got);
     String g = got.toString();
-    boolean ok = g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
+    boolean ok = g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
         && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
     if (!ok) throw new AssertionError(g);
   }

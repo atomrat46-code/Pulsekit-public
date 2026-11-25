@@ -502,7 +502,7 @@ public final class ProgramParams {
     if (!p.flag && p.output && chat) {
       // SogniChat's output is a base name for everything it saves, not one file.
       p.label = "Output name";
-      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog, or Document ready's Send to group; also %c, %t1)";
     }
     // SogniChat --input_dir: the same question about each file of a folder (ChatFolder).
     if (p.flag && p.takesValue && chat && p.token.equals("--input_dir")) {
@@ -518,7 +518,7 @@ public final class ProgramParams {
       p.dir = true;
       p.typed = true;
       p.label = "Output folder: each answer cut at Document ready's delimiter (the one used last) and saved there";
-      p.hint = "empty: an input folder's answers beside the chats as <name>-trimmed.txt; % codes: answers%ddmmyy";
+      p.hint = "the answer saved when Document ready closes (as shown there); empty: an input folder's answers beside the chats as <name>-trimmed.txt; % codes: answers%ddmmyy, %g the group Send to group used";
     }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";

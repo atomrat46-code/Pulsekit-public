@@ -1957,10 +1957,12 @@ final class PyJav {
         // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
         // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
         final boolean chatFolder = ok && pulsekit.ChatFolder.folderRun(program, argv);
-        this.pkOffer("the answers", ok && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
+        // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
+        final boolean readyShown = ok && !inBatch && !chatFolder && pulsekit.TextReady.wanted(program) && pulsekit.TextReady.textOf(made == null ? null : made.files) != null;
+        this.pkOffer("the answers", ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
             () -> TextOffer.saveAnswers(app, program, argv, made, this::pkAddLogLine));
         // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-        this.pkOffer("the text", ok && !inBatch && !chatFolder, () -> TextOffer.offer(app, program, made));
+        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.arg(argv, "--output_dir")));
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
