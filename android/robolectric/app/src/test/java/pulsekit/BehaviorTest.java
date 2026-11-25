@@ -16196,6 +16196,19 @@ public class BehaviorTest {
     idle();
     out.append("preset button: ").append(preset.getText()).append(" | ").append(TextOffer.said).append('\n');
     TextOffer.last.dismiss();
+    // Send to group's name with % codes: %n the first number no group has yet.
+    String[] codes1 = TextReady.resolved(PromptVault.open(app.getFilesDir()), new String[] {"SogniPadd", "Uudet%n"});
+    SectionCollection.addGroup(PromptVault.open(app.getFilesDir()), "SogniPadd", codes1[1], "");
+    String[] codes2 = TextReady.resolved(PromptVault.open(app.getFilesDir()), new String[] {"SogniPadd", "Uudet%n"});
+    out.append("group codes: ").append(codes1[1]).append(", then ").append(codes2[1]).append('\n');
+    // A long folder's address in Params: a tap puts the cursor at its end.
+    android.widget.EditText path = new android.widget.EditText(app);
+    path.setText("content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage/%g%");
+    PyJavParams.endOnTap(path);
+    path.setSelection(0);
+    path.performClick();
+    idle();
+    out.append("cursor at end: ").append(path.getSelectionStart() == path.getText().length()).append('\n');
     out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
         .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
     d.dismiss();
@@ -16210,7 +16223,8 @@ public class BehaviorTest {
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
-        "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "cuts: c / a / a > b"};
+        "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
+        "cuts: c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);

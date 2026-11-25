@@ -179,6 +179,8 @@ public final class PyJavParams {
         path.setSingleLine(true);
         path.setHint(p.hint);
         path.setText(values[i]);
+        // A long path: a tap puts the cursor at its end (where codes are added), the end shown.
+        endOnTap(path);
         path.addTextChangedListener(new android.text.TextWatcher() {
           public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
 
@@ -897,6 +899,23 @@ public final class PyJavParams {
           .setNegativeButton("Cancel", null).show();
     });
     return java.util.Arrays.<View>asList(copy, paste, send);
+  }
+
+  /** A one-line field whose text is long (a folder's address): the cursor goes to its end when it is tapped or gets focus. */
+  static void endOnTap(final EditText f) {
+    f.setOnFocusChangeListener((v, has) -> {
+      if (!has) return;
+      f.setSelection(f.getText().length());
+      f.post(() -> f.setSelection(f.getText().length()));
+    });
+    // (A tap on a field that has the focus already: to the end too, unless text is selected.)
+    f.setOnClickListener(v -> {
+      if (f.getSelectionStart() != f.getSelectionEnd()) return;
+      f.setSelection(f.getText().length());
+      f.post(() -> {
+        if (f.getSelectionStart() == f.getSelectionEnd()) f.setSelection(f.getText().length());
+      });
+    });
   }
 
   static android.widget.Button clipButton(Activity activity, String symbol, String tag) {

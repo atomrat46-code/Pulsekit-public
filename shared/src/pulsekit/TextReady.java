@@ -112,6 +112,18 @@ public final class TextReady {
     return new String[] {SogniSections.app(p.replaceAll("(?i)\\.java$", "") + ".java"), g.replaceAll("\\s+", " ").trim()};
   }
 
+  /**
+   * The preset's group with its % codes filled in, once for a run (or a Document ready): the date codes, and %n
+   * the first number no group of the program has yet (Uudet%n: Uudet1, the next run Uudet2).
+   */
+  public static String[] resolved(PromptVault vault, String[] preset) {
+    if (preset == null || preset[1].indexOf('%') < 0 || vault == null) return preset;
+    final java.util.Set<String> have = new java.util.HashSet<String>();
+    for (PromptVault.SectionGroup g : vault.sectionGroups(preset[0])) have.add(g.name.toLowerCase(java.util.Locale.ROOT));
+    String name = DownloadMove.expand(preset[1], java.util.Calendar.getInstance(), n -> have.contains(n.toLowerCase(java.util.Locale.ROOT)));
+    return new String[] {preset[0], name.replaceAll("[/\\\\]", "-").trim()};
+  }
+
   /** The preset button's text: "Send to SogniPadd: Moods". */
   public static String presetLabel(String[] p) {
     return "Send to " + p[0] + ": " + p[1];

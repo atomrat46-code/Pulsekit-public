@@ -68,6 +68,11 @@ final class TextOffer {
         String given = ChatFolder.arg(argv, "--output_dir");
         // Send to program and group: each answer also a section there; the group is %g.
         String[] preset = TextReady.preset(argv);
+        try {
+            preset = TextReady.resolved(PromptVault.open(app.getFilesDir()), preset);
+        } catch (Exception ignored) {
+            // as given
+        }
         String group = preset == null ? null : preset[1];
         String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, group));
         int n = 0, sent = 0;
@@ -104,7 +109,15 @@ final class TextOffer {
         show(app, program, name, whole, outputDir, preset, null);
     }
 
-    static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir, final String[] preset, final String autoTarget) {
+    static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir, String[] given, final String autoTarget) {
+        // The preset group's % codes filled in once (Uudet%n: the next number not used yet).
+        String[] at = given;
+        try {
+            at = TextReady.resolved(PromptVault.open(app.getFilesDir()), given);
+        } catch (Exception ignored) {
+            // as given
+        }
+        final String[] preset = at;
         final java.io.File dir = app.getFilesDir();
         // The group Send to group used (%g in the saved answer's names).
         final String[] group = {null};

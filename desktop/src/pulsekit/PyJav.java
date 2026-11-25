@@ -3069,6 +3069,11 @@ final class PyJav {
         String given = ChatFolder.arg(argv, "--output_dir");
         // Send to program and group: each answer also a section there; the group is %g.
         String[] preset = TextReady.preset(argv);
+        try {
+            preset = TextReady.resolved(PromptDb.vault(), preset);
+        } catch (Exception ignored) {
+            // as given
+        }
         String group = preset == null ? null : preset[1];
         File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
         dir.mkdirs();
@@ -3148,7 +3153,14 @@ final class PyJav {
     }
 
     /** As above; `autoTarget` (Auto render): the text as shown rendered by that program once Document ready closes. */
-    void offerText(String program, String fileName, String whole, String outputDir, String[] preset, String autoTarget) {
+    void offerText(String program, String fileName, String whole, String outputDir, String[] given, String autoTarget) {
+        // The preset group's % codes filled in once (Uudet%n: the next number not used yet).
+        String[] preset = given;
+        try {
+            preset = TextReady.resolved(PromptDb.vault(), given);
+        } catch (Exception ignored) {
+            // as given
+        }
         final String[] group = {null};
         try {
             this.offerTextLoop(program, fileName, whole, group, preset);

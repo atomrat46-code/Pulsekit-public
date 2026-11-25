@@ -173,6 +173,9 @@ public final class SogniChat {
       else if ((a.equals("--send_program") || a.equals("--send_group")) && i + 1 < args.length) i++;
       // Pulsekit's too: the answer rendered by the Send to program.
       else if (a.equals("--auto_render")) continue;
+      // An input folder's rows given with no input folder (a one-file run): left out.
+      else if (a.equals("--skip_done") || a.equals("--listed")) continue;
+      else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];

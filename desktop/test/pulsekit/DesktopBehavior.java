@@ -1800,6 +1800,8 @@ public final class DesktopBehavior {
         // Skip already processed: only the file Max files left out last time; then nothing new.
         "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
         "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
+        // An input folder's rows on a one-file run (Skip already processed ticked, Max files): left out, the run goes on.
+        "--prompt \"Skip alone\" --skip_done --max_files 5",
         "--prompt \"Filter on\" --filter_on",
         // A chat run started earlier (one that timed out here) is followed again by its id.
         "--run run2",
@@ -1844,6 +1846,9 @@ public final class DesktopBehavior {
       for (String a : answered) if (new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8).contains("===")) throw new AssertionError("not cut: " + a);
       // Skip already processed: the second folder run asked about the one file left out, the third about none.
       String all = out.toString();
+      int alone = all.indexOf("== --prompt \"Skip alone\"");
+      String aloneRun = alone < 0 ? "" : all.substring(alone, all.indexOf("\n== ", alone + 3) < 0 ? all.length() : all.indexOf("\n== ", alone + 3));
+      if (aloneRun.contains("Unknown argument") || !aloneRun.contains("Succeeded")) throw new AssertionError("one-file run with --skip_done:\n" + aloneRun);
       int second = all.indexOf("--skip_done");
       if (second < 0 || !all.substring(second).contains("=== File 1 of 1: 4-left-out.txt ===")
           || !all.substring(second).contains("Note: 3 files in chat folder answered before, left out (Skip already processed)")
