@@ -3155,6 +3155,15 @@ final class PyJav {
         File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
         dir.mkdirs();
         int n = 0, sent = 0;
+        // The sections sent kept with one encrypted save at the end, not one for each.
+        PromptVault held = null;
+        try {
+            held = preset == null ? null : PromptDb.vault();
+        } catch (Exception ignored) {
+            // not sent: the answers are saved all the same
+        }
+        if (held != null) held.holdSaves();
+        try {
         for (JavaRun.FileOut f : answers) {
             if (preset != null) {
                 try {
@@ -3173,6 +3182,15 @@ final class PyJav {
                 n++;
             } catch (Exception ex) {
                 if (app.pyLog != null) app.pyLog.append("\nCould not save " + name + ": " + ex.getMessage());
+            }
+        }
+        } finally {
+            if (held != null) {
+                try {
+                    held.releaseSaves();
+                } catch (Exception ex) {
+                    if (app.pyLog != null) app.pyLog.append("\nCould not save the sections sent: " + ex.getMessage());
+                }
             }
         }
         answersSaid = ChatFolder.saved(n, dir.getPath(), set) + ChatFolder.sentNote(sent, preset);

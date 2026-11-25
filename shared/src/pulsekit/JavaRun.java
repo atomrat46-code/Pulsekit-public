@@ -246,6 +246,8 @@ public final class JavaRun {
   public static String news(String log) {
     String n = newsOnly(log);
     String count = trackCount(log);
+    // SogniChat's input folder (and its other batch runs): the file it is on.
+    if (count == null) count = fileCount(log);
     if (count == null) return n;
     return n == null ? count : count + " \u00b7 " + n;
   }
@@ -260,6 +262,15 @@ public final class JavaRun {
     if (at < 0 || at > 0 && log.charAt(at - 1) != '\n' && log.charAt(at - 1) != ' ') return null;
     java.util.regex.Matcher m = java.util.regex.Pattern.compile("Tracks: (\\d+) of (\\d+)").matcher(log.substring(at));
     return m.lookingAt() ? m.group(1) + "/" + m.group(2) : null;
+  }
+
+  /** A folder run's file so far ("=== File 3 of 20: a.txt ===" from SogniChat's input folder) as "Processing file 3/20", or null. */
+  static String fileCount(String log) {
+    if (log == null) return null;
+    int at = log.lastIndexOf("=== File ");
+    if (at < 0 || log.indexOf("Folder done:", at) >= 0) return null;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("=== File (\\d+) of (\\d+)").matcher(log.substring(at));
+    return m.lookingAt() ? "Processing file " + m.group(1) + "/" + m.group(2) : null;
   }
 
   private static String newsOnly(String log) {

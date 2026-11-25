@@ -79,11 +79,20 @@ final class TextOffer {
         boolean named = !ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
         int n = 0, sent = 0;
         String where = null;
+        // The sections sent kept with one encrypted save at the end (one for each took seconds: Android said not responding).
+        PromptVault vault = null;
+        try {
+            vault = preset == null ? null : PromptVault.open(app.getFilesDir());
+        } catch (Exception ignored) {
+            // not sent
+        }
+        if (vault != null) vault.holdSaves();
+        try {
         for (JavaRun.FileOut f : answers) {
             String text = TextReady.result(TextReady.text(f.bytes), set);
-            if (preset != null) {
+            if (vault != null) {
                 try {
-                    if (TextReady.sendToGroup(PromptVault.open(app.getFilesDir()), preset[0], f.name, text, preset[1]).startsWith("Sent")) sent++;
+                    if (TextReady.sendToGroup(vault, preset[0], f.name, text, preset[1]).startsWith("Sent")) sent++;
                 } catch (Exception ignored) {
                     // not sent; the answer is saved all the same
                 }
@@ -92,6 +101,15 @@ final class TextOffer {
             if (got == null) continue;
             n++;
             where = got.contains("/") ? got.substring(0, got.lastIndexOf('/')) : "Download";
+        }
+        } finally {
+            if (vault != null) {
+                try {
+                    vault.releaseSaves();
+                } catch (Exception ex) {
+                    if (log != null) log.accept("Could not save the sections sent: " + ex.getMessage());
+                }
+            }
         }
         String line = (n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set)) + ChatFolder.sentNote(sent, preset);
         said = line;

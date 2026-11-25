@@ -1114,6 +1114,8 @@ final class PyJav {
 
     /** SogniMusic's test without drums: Run anyway was pressed (the next run goes on), and the question, for the tests. */
     boolean pkDrumsWarned;
+    /** The tests: the thread saving a folder run's answers (joined before looking). */
+    static volatile Thread pkAnswersThread;
     /** SogniChat's questions before a run (Auto render with no Send to program; Silent auto mode's empty fields), and their answers. */
     android.app.AlertDialog pkAskChat;
     boolean pkChatNoAuto, pkChatAsked;
@@ -2023,18 +2025,39 @@ final class PyJav {
         if (pulsekit.ChatFolder.folderRun(program, argv)) pulsekit.ChatFolder.markDone(pulsekit.ChatFolder.key(argv), pulsekit.ChatFolder.answered(madeLog));
         // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
         final boolean readyShown = ok && !inBatch && !chatFolder && pulsekit.TextReady.wanted(program) && pulsekit.TextReady.textOf(made == null ? null : made.files) != null;
-        this.pkOffer("the answers", ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
-            () -> TextOffer.saveAnswers(app, program, argv, made, this::pkAddLogLine));
+        // (Saved, sent as sections and then rendered off the screen's thread: a folder's answers took long enough
+        // there that Android said not responding and closed the app before any was rendered.)
+        final boolean saveHere = ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null);
+        final String autoTarget = chatFolder && !inBatch ? pulsekit.AutoRender.target(argv) : null;
+        if (saveHere) {
+            final java.util.List<String[]> rendered = new java.util.ArrayList<String[]>();
+            if (autoTarget != null) {
+                String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
+                for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) rendered.add(new String[] {f.name, pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set)});
+            }
+            app.setNow("Saving the answers\u2026");
+            Thread saving = new Thread(() -> {
+                try {
+                    TextOffer.saveAnswers(app, program, argv, made, line -> app.runOnUiThread(() -> this.pkAddLogLine(line)));
+                } catch (Throwable ex) {
+                    app.runOnUiThread(() -> this.pkAddLogLine("Could not save the answers: " + ex.getMessage()));
+                }
+                // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
+                if (autoTarget != null) app.runOnUiThread(() -> this.pkStartAutoRender(autoTarget, rendered));
+            }, "pulsekit-answers");
+            saving.start();
+            pkAnswersThread = saving;
+        }
         // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
         // (With Output name the raw chat was not written: the processed one is saved on closing, in Download when no Output folder.)
         final boolean rawKept = pulsekit.ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
         this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.answerDir(argv, rawKept), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
-        // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
-        if (chatFolder && !inBatch && pulsekit.AutoRender.target(argv) != null) {
+        // (Auto render with the answers saved: above, after the saving thread. A folder run with nothing to save renders too.)
+        if (!saveHere && autoTarget != null) {
             String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
             java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
             for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) answers.add(new String[] {f.name, pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set)});
-            this.pkStartAutoRender(pulsekit.AutoRender.target(argv), answers);
+            this.pkStartAutoRender(autoTarget, answers);
         }
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.

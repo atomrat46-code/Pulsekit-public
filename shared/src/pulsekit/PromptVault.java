@@ -1177,7 +1177,28 @@ public final class PromptVault {
     save();
   }
 
+  /** holdSaves: saves wait until releaseSaves (many changes, one encrypted write: a folder's answers sent as sections). */
+  private int held;
+  private boolean dirty;
+
+  public synchronized void holdSaves() {
+    held++;
+  }
+
+  /** The hold ended: one save when something changed meanwhile. */
+  public synchronized void releaseSaves() throws Exception {
+    if (held > 0) held--;
+    if (held == 0 && dirty) {
+      dirty = false;
+      save();
+    }
+  }
+
   private synchronized void save() throws Exception {
+    if (held > 0) {
+      dirty = true;
+      return;
+    }
     begin("Saving the encrypted database");
     try {
       write();
@@ -1186,7 +1207,11 @@ public final class PromptVault {
     }
   }
 
+  /** The tests: encrypted writes so far. */
+  public static volatile int writes;
+
   private void write() throws Exception {
+    writes++;
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);

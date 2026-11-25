@@ -16518,6 +16518,16 @@ public class BehaviorTest {
     out.append("ask silent: ").append(ask != null && ask.isShowing()).append(" | ").append(msg == null ? "" : msg.getText().toString().replace('\n', '|')).append('\n');
     if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
     idle();
+    // A folder run's file in the Running line; its answers' sections saved once (holdSaves).
+    out.append("running: ").append(JavaRun.news("SogniChat\n=== File 3 of 20: c.txt ===\nModel m")).append(" | done: ").append(JavaRun.news("=== File 20 of 20: t.txt ===\nFolder done: 20 of 20 answered")).append('\n');
+    PromptVault hv = PromptVault.open(app.getFilesDir());
+    int w0 = PromptVault.writes;
+    hv.holdSaves();
+    for (int i = 0; i < 5; i++) TextReady.sendToGroup(hv, "SogniPadd", "held" + i + ".txt", "Held text " + i, "Held");
+    int beforeRelease = PromptVault.writes - w0;
+    hv.releaseSaves();
+    int afterRelease = PromptVault.writes - w0;
+    out.append("held saves: writes before release ").append(beforeRelease).append(", after ").append(afterRelease).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
@@ -16526,6 +16536,7 @@ public class BehaviorTest {
         && t.contains("without auto: [--prompt, x, --send_program, SogniPadd] | send program set: ") && t.contains("--send_program SogniVideo")
         && t.contains("ask auto: true | Run without Auto render / Choose the program")
         && t.contains("ask silent: true | Silent auto mode would run with these left empty:|\u2022 Output name") && t.contains("Send to group: the answer is not kept as a section||Run it like this?")
+        && t.contains("running: Processing file 3/20 | done: null") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
