@@ -1,0 +1,147 @@
+package pulsekit;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * SogniPedit's and SogniPadd's Input folder: the program run once for each of the folder's files (by
+ * name, at most Max files), one after another as a batch (Stop batch ends it): SogniPedit edits each
+ * picture (--image), SogniPadd renders each .txt or .prompt file's prompt (a definitions file's
+ * LoRAs and other rows too). Its Params are the run's for every file; Section (--section, a saved
+ * section's name) puts that section's entries in them first. Skip already processed leaves out the
+ * files done in earlier runs on the folder (as SogniChat's).
+ */
+public final class FolderRuns {
+  private FolderRuns() {}
+
+  /** The Params rows of a folder run: not given to the program's runs. */
+  public static final String[] OWN = {"--input_dir", "--max_files", "--skip_done", "--section"};
+
+  public static boolean wanted(String program) {
+    return "SogniPedit.java".equals(program) || "SogniPadd.java".equals(program);
+  }
+
+  /** A run of the program on a folder (Input folder given). */
+  public static boolean folderRun(String program, List<String> argv) {
+    return wanted(program) && ChatFolder.arg(argv, "--input_dir") != null;
+  }
+
+  /** The files the program takes: SogniPedit pictures, SogniPadd text and prompt files. */
+  public static boolean kind(String program, String name) {
+    String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
+    if (n.startsWith(".")) return false;
+    if ("SogniPedit.java".equals(program)) return n.matches(".+\\.(png|jpe?g|webp)$");
+    return n.endsWith(".txt") || n.endsWith(".prompt");
+  }
+
+  /** The folder's files the program takes, by name. */
+  public static List<File> files(String program, File dir) {
+    List<File> out = new ArrayList<File>();
+    File[] all = dir == null ? null : dir.listFiles();
+    if (all != null) for (File f : all) if (f.isFile() && kind(program, f.getName())) out.add(f);
+    java.util.Collections.sort(out, (a, b) -> {
+      int c = a.getName().compareToIgnoreCase(b.getName());
+      return c != 0 ? c : a.getName().compareTo(b.getName());
+    });
+    return out;
+  }
+
+  /** Skip already processed's list: kept for the program and the folder as given (a picked folder's address). */
+  public static String doneKey(String program, String folder) {
+    return SogniSections.app(program) + ":" + folder;
+  }
+
+  /** The section named in Section (--section): its name or its label, without case; null when none is. */
+  public static PromptVault.SogniSection section(PromptVault vault, String program, String name) {
+    if (vault == null || name == null || name.trim().isEmpty()) return null;
+    String want = name.trim();
+    for (PromptVault.SogniSection s : vault.sogniSections(SogniSections.app(program))) {
+      if (s.name != null && s.name.trim().equalsIgnoreCase(want)) return s;
+    }
+    for (PromptVault.SogniSection s : vault.sogniSections(SogniSections.app(program))) {
+      if (SogniSections.label(s).toLowerCase(Locale.ROOT).contains(want.toLowerCase(Locale.ROOT))) return s;
+    }
+    return null;
+  }
+
+  /**
+   * One file's Params: `base` (the Params, or with the section's entries) without the folder run's own rows,
+   * the file in: SogniPedit's picture (--image), SogniPadd's prompt from the file (a definitions file's rows
+   * too). (The output name is the argument line's: %f in it is the file's name, BatchQueue.withFile.)
+   */
+  public static String paramsFor(String program, List<ProgramParams.Param> ps, String base, File f, byte[] bytes) {
+    String[] values = ProgramParams.values(ps, base == null ? "" : base, "");
+    java.util.Map<String, String> defs = null;
+    String text = null;
+    if (!"SogniPedit.java".equals(program)) {
+      String raw = bytes == null ? "" : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+      if (raw.startsWith("﻿")) raw = raw.substring(1);
+      if (ParamDefs.looksLike(raw)) {
+        java.util.Set<String> tokens = new java.util.HashSet<String>();
+        for (ProgramParams.Param p : ps) if (p.flag) tokens.add(p.token);
+        List<ParamDefs.Def> found = ParamDefs.forProgram(ParamDefs.parse(raw, tokens), program);
+        if (!found.isEmpty()) defs = found.get(0).fields;
+      }
+      if (defs == null) text = ProgramParams.promptText(bytes);
+    }
+    for (int i = 0; i < ps.size() && i < values.length; i++) {
+      ProgramParams.Param p = ps.get(i);
+      if (java.util.Arrays.asList(OWN).contains(p.token)) values[i] = "";
+      else if ("SogniPedit.java".equals(program) && p.token.equals("--image")) values[i] = f.getAbsolutePath();
+      else if (defs != null && p.flag && defs.containsKey(p.token)) values[i] = defs.get(p.token);
+      else if (text != null && p.token.equals("--prompt")) values[i] = text;
+    }
+    return ProgramParams.build(ps, values);
+  }
+
+  /**
+   * The batch: the folder's files the program takes (Skip already processed: not those done before; at
+   * most Max files), each run with its own Params. `files` are local (a picked folder's copied first);
+   * `folder` as given, for Skip already processed's list. Null when there is none to run; `notes` say why.
+   */
+  public static BatchQueue start(String program, List<ProgramParams.Param> ps, String saved, List<String> argv, List<File> files, String folder,
+      PromptVault vault, List<String> notes) throws Exception {
+    String key = doneKey(program, folder);
+    List<File> todo = new ArrayList<File>(files);
+    if (argv.contains("--skip_done")) {
+      java.util.Set<String> done = ChatFolder.done(key);
+      List<File> fresh = new ArrayList<File>();
+      for (File f : todo) if (!done.contains(f.getName())) fresh.add(f);
+      int skipped = todo.size() - fresh.size();
+      if (skipped > 0) notes.add(skipped + " file" + (skipped == 1 ? "" : "s") + " done before, left out (Skip already processed)");
+      todo = fresh;
+    }
+    int max = ChatFolder.max(argv);
+    if (todo.size() > max) {
+      notes.add(todo.size() + " files; the first " + max + " by name are run (Max files)");
+      todo = new ArrayList<File>(todo.subList(0, max));
+    }
+    if (todo.isEmpty()) {
+      notes.add(files.isEmpty() ? "No " + ("SogniPedit.java".equals(program) ? "pictures (PNG, JPEG, WebP)" : ".txt or .prompt files") + " in the folder"
+          : "Nothing new: every file in the folder was done before (Skip already processed)");
+      return null;
+    }
+    String base = saved;
+    String sectionName = ChatFolder.arg(argv, "--section");
+    if (sectionName != null) {
+      PromptVault.SogniSection s = section(vault, program, sectionName);
+      if (s == null) notes.add("No " + SogniSections.app(program) + " section named " + sectionName + ": the Params as they are");
+      else {
+        base = BatchQueue.paramsFor(ps, saved, s);
+        notes.add("Section " + SogniSections.label(s) + " with each file");
+      }
+    }
+    List<String> params = new ArrayList<String>(), labels = new ArrayList<String>(), names = new ArrayList<String>();
+    for (File f : todo) {
+      byte[] bytes = "SogniPedit.java".equals(program) ? null : java.nio.file.Files.readAllBytes(f.toPath());
+      params.add(paramsFor(program, ps, base, f, bytes));
+      labels.add(f.getName());
+      names.add(f.getName());
+    }
+    BatchQueue q = BatchQueue.files(program, ps, params, labels, names, key);
+    if (q != null) q.notes.addAll(notes);
+    return q;
+  }
+}

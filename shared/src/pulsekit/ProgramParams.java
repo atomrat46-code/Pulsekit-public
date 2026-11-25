@@ -168,6 +168,22 @@ public final class ProgramParams {
     }
     for (Param p : out) {
       known(p, drumMidi, chat);
+      // SogniPedit's and SogniPadd's Input folder (FolderRuns): the program run once for each file.
+      boolean pics = has(out, "--image") && has(out, "--skin_detail"), texts = has(out, "--aspect") && has(out, "--seed") && !has(out, "--image");
+      if (p.flag && p.takesValue && p.token.equals("--input_dir") && !chat && (pics || texts)) {
+        p.dir = true;
+        p.label = pics ? "Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture" : "Input folder: each .txt or .prompt file's prompt rendered in turn, one run a file";
+        p.hint = "the Params are each run's; %f in the output name: the file's name";
+      }
+      if (p.flag && p.takesValue && p.token.equals("--max_files") && !chat && (pics || texts)) {
+        p.label = "Max files (the first by name; in case of a big folder)";
+        p.hint = "20";
+      }
+      if (p.flag && !p.takesValue && p.token.equals("--skip_done") && !chat && (pics || texts)) p.label = "Skip already processed: the input folder's files done in earlier runs left out";
+      if (p.flag && p.takesValue && p.token.equals("--section") && (pics || texts)) {
+        p.label = "Section: a saved section's entries (prompt, LoRAs...) with each file (by its name)";
+        p.hint = "e.g. Soft light; empty: the Params as they are";
+      }
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
       if ((drumMidi || compareHits || splitWav || cutWav || wav2mp3) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       // DrumMidi's and CompareHits' audio input can be a MIDI from the library too, played with the kit to a WAV.

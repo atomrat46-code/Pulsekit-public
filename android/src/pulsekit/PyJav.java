@@ -1346,6 +1346,11 @@ final class PyJav {
         String savedNow = pulsekit.PyJavParams.load(app, name);
         String field = extra;
         extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, savedNow);
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns).
+        if (pulsekit.FolderRuns.folderRun(name, pulsekit.JavaRun.split(extra))) {
+            this.pkStartFolderRun(name, runParams, pulsekit.JavaRun.split(extra));
+            return;
+        }
         // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
         if (savedNow != null && pulsekit.ProgramParams.typed(runParams, field).length() > 0)
             pulsekit.PyJavParams.store(app, name, pulsekit.ProgramParams.build(runParams, pulsekit.ProgramParams.values(runParams, pulsekit.ProgramParams.typed(runParams, extra), "")));
@@ -2306,7 +2311,7 @@ final class PyJav {
                 String was = pulsekit.PyJavParams.load(app, program);
                 // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
                 String line = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : null;
-                if (line != null) this.pkPyArgs.setText(pulsekit.ProgramParams.strip(q.ps, line));
+                if (line != null) this.pkPyArgs.setText(q.withFile(pulsekit.ProgramParams.strip(q.ps, line)));
                 pulsekit.PyJavParams.store(app, program, sectionParams);
                 this.pkRunConfirmed = true;
                 try {
@@ -2356,6 +2361,41 @@ final class PyJav {
         if (q == null) return;
         this.pkAddLogLine("Sections: " + picked.size() + " run" + (picked.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(program) + ", one after another");
         this.pkBatchNext(q);
+    }
+
+    /** Input folder (SogniPedit, SogniPadd): the folder's files, one run each, as a batch (Stop batch ends it). */
+    void pkStartFolderRun(String program, java.util.List<pulsekit.ProgramParams.Param> ps, java.util.List<String> argv) {
+        if (this.pkPyLog != null) this.pkPyLog.setText("");
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
+        }
+        String folder = pulsekit.ChatFolder.arg(argv, "--input_dir");
+        String app0 = pulsekit.SogniSections.app(program);
+        java.io.File dir;
+        if (folder.startsWith("content://")) {
+            // A folder picked with the system's picker: its files copied in first (the program reads files).
+            dir = new java.io.File(new java.io.File(app.getCacheDir(), "folder-run"), app0);
+            int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), dir);
+            this.pkAddLogLine(app0 + ": " + n + " file" + (n == 1 ? "" : "s") + " from " + pulsekit.MediaDir.label(folder));
+        } else {
+            dir = new java.io.File(folder);
+        }
+        if (!dir.isDirectory()) {
+            this.pkAddLogLine(app0 + ": the input folder is not there: " + folder);
+            return;
+        }
+        java.util.List<String> notes = new java.util.ArrayList<String>();
+        try {
+            pulsekit.BatchQueue q = pulsekit.FolderRuns.start(program, ps, pulsekit.PyJavParams.load(app, program), argv, pulsekit.FolderRuns.files(program, dir), folder,
+                pulsekit.PromptVault.open(app.getFilesDir()), notes);
+            for (String n : notes) this.pkAddLogLine(app0 + ": " + n);
+            if (q == null) return;
+            this.pkAddLogLine("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + app0 + " on " + dir.getName() + ", one after another");
+            this.pkBatchNext(q);
+        } catch (Exception ex) {
+            this.pkAddLogLine("Could not start the folder's runs: " + ex.getMessage());
+        }
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */

@@ -713,6 +713,11 @@ final class PyJav {
         final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
         final String savedNow = this.loadParams(app.pyName);
         final String extra = ProgramParams.merge(runParams, field, savedNow);
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns).
+        if (!batchStep && FolderRuns.folderRun(name, JavaRun.split(extra))) {
+            this.startFolderRun(name, runParams, JavaRun.split(extra));
+            return;
+        }
         if ("vst_render.py".equals(name)) {
             VstLists.rememberKits(extra);
             VstLists.rememberPlugins(extra);
@@ -2751,7 +2756,7 @@ final class PyJav {
                 // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
                 if (runSectionsBefore != null) runSectionsBefore.run();
                 String line = this.pyExtra != null ? this.pyExtra.getText() : null;
-                if (line != null) this.pyExtra.setText(ProgramParams.strip(q.ps, line));
+                if (line != null) this.pyExtra.setText(q.withFile(ProgramParams.strip(q.ps, line)));
                 this.saveParams(program, sectionParams);
                 this.batchStep = true;
                 try {
@@ -2840,6 +2845,31 @@ final class PyJav {
         if (q == null) return;
         this.testNote("Sections: " + picked.size() + " run" + (picked.size() == 1 ? "" : "s") + " of " + SogniSections.app(program) + ", one after another");
         this.batchNext(q);
+    }
+
+    /** Input folder (SogniPedit, SogniPadd): the folder's files, one run each, as a batch (Stop batch ends it). */
+    void startFolderRun(String program, java.util.List<ProgramParams.Param> ps, java.util.List<String> argv) {
+        if (BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
+        }
+        String folder = ChatFolder.arg(argv, "--input_dir");
+        File dir = new File(folder);
+        if (app.pyLog != null) app.pyLog.setText("");
+        if (!dir.isDirectory()) {
+            this.testNote(SogniSections.app(program) + ": the input folder is not there: " + folder);
+            return;
+        }
+        java.util.List<String> notes = new java.util.ArrayList<String>();
+        try {
+            BatchQueue q = FolderRuns.start(program, ps, this.loadParams(program), argv, FolderRuns.files(program, dir), folder, PromptDb.vault(), notes);
+            for (String n : notes) this.testNote(SogniSections.app(program) + ": " + n);
+            if (q == null) return;
+            this.testNote("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(program) + " on " + dir.getName() + ", one after another");
+            this.batchNext(q);
+        } catch (Exception ex) {
+            this.testNote("Could not start the folder's runs: " + ex.getMessage());
+        }
     }
 
     void batchOver(BatchQueue q) {

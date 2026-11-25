@@ -16333,6 +16333,41 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /**
+   * SogniPedit's Input folder: its Params rows; the batch's runs each with one picture (--image) and the
+   * default section's entries (Section), the folder's other files left out; Max files.
+   */
+  @Test
+  public void s276_folder_runs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    for (ProgramParams.Param p : ps) {
+      if (java.util.Arrays.asList(FolderRuns.OWN).contains(p.token)) out.append("row ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    PromptVault.SogniSection soft = vault.addSogniSection("SogniPedit", "Prompt: Soft window light\nLoras: glow 0.5\n");
+    vault.nameSogniSection(soft.id, "Soft light", "");
+    java.io.File dir = new java.io.File(app.getCacheDir(), "pedit-in");
+    dir.mkdirs();
+    for (String n : new String[] {"b.jpg", "a.png", "c.webp", "notes.txt"}) java.nio.file.Files.write(new java.io.File(dir, n).toPath(), new byte[] {1});
+    java.util.List<String> argv = java.util.Arrays.asList("--prompt", "Old", "--input_dir", dir.getAbsolutePath(), "--max_files", "2", "--section", "soft light");
+    java.util.List<String> notes = new java.util.ArrayList<String>();
+    BatchQueue q = FolderRuns.start("SogniPedit.java", ps, "--prompt \"Old\" --skin_detail 1 --input_dir \"" + dir.getAbsolutePath() + "\" --max_files 2 --section \"soft light\"",
+        argv, FolderRuns.files("SogniPedit.java", dir), dir.getAbsolutePath(), vault, notes);
+    BatchQueue.stop();
+    out.append("labels: ").append(q.labels).append(" | notes ").append(notes).append('\n');
+    for (String pr : q.params) out.append("params: ").append(pr.replace(dir.getAbsolutePath(), "~")).append('\n');
+    String t = out.toString();
+    write("s276_folder_runs", t);
+    boolean ok = t.contains("row --input_dir: Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture (folder)")
+        && t.contains("row --section: Section: a saved section's entries") && t.contains("labels: [a.png, b.jpg]")
+        && t.contains("3 files; the first 2 by name are run (Max files)") && t.contains("Section Soft light")
+        && t.contains("params: --prompt \"Soft window light\"") && t.contains("--image ~/a.png") && t.contains("--loras \"glow 0.5\"")
+        && !t.contains("--input_dir \"~") && !t.contains("--section \"soft");
+    if (!ok) throw new AssertionError(t);
+  }
+
   /** The texts in a view's tree (TextViews, Buttons, EditTexts), in order, " | " between them. */
   private static String viewTexts(View v) {
     StringBuilder sb = new StringBuilder();

@@ -38,6 +38,39 @@ public final class BatchQueue {
   /** Run sections: the program's Params rows (the argument line's own switches are left out for each run). */
   public List<ProgramParams.Param> ps = new ArrayList<ProgramParams.Param>();
 
+  /** An input folder's runs (FolderRuns): each file's name, and Skip already processed's list (each done file added). */
+  public final List<String> fileNames = new ArrayList<String>();
+  public String doneKey;
+  /** What starting it said (files left out, Max files, the section): first in its summary. */
+  public final List<String> notes = new ArrayList<String>();
+
+  /** An input folder's run: the argument line with %f (in its output name) the file's name, for the run in progress. */
+  public String withFile(String line) {
+    if (line == null || !this.byFiles() || this.next < 1 || this.next > this.fileNames.size()) return line;
+    String stem = this.fileNames.get(this.next - 1).replaceAll("\\.[A-Za-z0-9]{1,7}$", "").replaceAll("[\\\\/:*?\"<>| ]", "_");
+    return line.replace("%f", stem);
+  }
+
+  /** Whether the runs are an input folder's files (FolderRuns) rather than sections. */
+  public boolean byFiles() {
+    return !this.fileNames.isEmpty();
+  }
+
+  /** An input folder's runs: each its own Params (`params`), labelled with its file. */
+  public static synchronized BatchQueue files(String program, List<ProgramParams.Param> ps, List<String> params, List<String> labels, List<String> names, String doneKey) {
+    if (program == null || params == null || params.isEmpty()) return null;
+    BatchQueue q = new BatchQueue();
+    q.program = program;
+    if (ps != null) q.ps = ps;
+    q.params.addAll(params);
+    q.labels.addAll(labels);
+    q.fileNames.addAll(names);
+    q.doneKey = doneKey;
+    for (int i = 0; i < params.size(); i++) q.runs.add(new ArrayList<String>());
+    now = q;
+    return q;
+  }
+
   private static BatchQueue now;
 
   private BatchQueue() {}
@@ -120,6 +153,7 @@ public final class BatchQueue {
 
   /** "Batch: run 2 of 5 (SogniVideo)" for the log and the status line. */
   public String progress() {
+    if (this.byFiles()) return "Files: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
     if (this.bySections()) return "Sections: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
     return "Batch: run " + this.next + " of " + this.runs.size() + " (" + this.program.replace(".java", "") + ")";
   }
@@ -128,8 +162,15 @@ public final class BatchQueue {
   public synchronized void done(String status, List<String> files) {
     // JoinVideo at the end is not one of the runs.
     if (this.joining) return;
-    if (status != null && status.startsWith("Succeeded")) this.ok++;
-    else this.failed++;
+    if (status != null && status.startsWith("Succeeded")) {
+      this.ok++;
+      // Skip already processed: the file done kept.
+      if (this.doneKey != null && this.next >= 1 && this.next <= this.fileNames.size()) {
+        List<String> one = new ArrayList<String>();
+        one.add(this.fileNames.get(this.next - 1));
+        ChatFolder.markDone(this.doneKey, one);
+      }
+    } else this.failed++;
     if (files != null) this.made.addAll(files);
     if (this.bySections() && this.said.size() < this.next) {
       StringBuilder sb = new StringBuilder(this.labels.get(this.next - 1)).append(": ");
@@ -171,10 +212,12 @@ public final class BatchQueue {
 
   /** The batch is over: what it did, for the log. */
   public String summary() {
-    StringBuilder sb = new StringBuilder(this.bySections() ? (this.stopping ? "Sections stopped: " : "Sections done: ") : this.stopping ? "Batch stopped: " : "Batch done: ");
+    StringBuilder sb = new StringBuilder(this.byFiles() ? (this.stopping ? "Files stopped: " : "Files done: ")
+        : this.bySections() ? (this.stopping ? "Sections stopped: " : "Sections done: ") : this.stopping ? "Batch stopped: " : "Batch done: ");
     sb.append(this.ok).append(" of ").append(this.runs.size()).append(" runs succeeded");
     if (this.failed > 0) sb.append(", ").append(this.failed).append(" failed");
     if (this.stopping && this.next < this.runs.size()) sb.append(", ").append(this.runs.size() - this.next).append(" not run");
+    for (String n : this.notes) sb.append("\n  ").append(n);
     for (String line : this.said) sb.append("\n  ").append(line);
     return sb.toString();
   }

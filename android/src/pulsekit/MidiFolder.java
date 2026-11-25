@@ -153,6 +153,48 @@ final class MidiFolder {
         return out;
     }
 
+    /**
+     * An input folder picked with the system's picker (FolderRuns: SogniPedit's pictures, SogniPadd's text
+     * files): its files the program takes (not its subfolders') copied into `dest` (emptied first). How many.
+     */
+    static int copyFor(Context ctx, String program, Uri tree, File dest) {
+        deleteAll(dest);
+        dest.mkdirs();
+        int n = 0;
+        Cursor c = null;
+        List<String[]> kids = new ArrayList<String[]>();
+        try {
+            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
+                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String name = c.getString(1) == null ? "" : c.getString(1);
+                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2)) && FolderRuns.kind(program, name)) kids.add(new String[] {c.getString(0), name});
+            }
+        } catch (Exception ex) {
+            return 0;
+        } finally {
+            if (c != null) c.close();
+        }
+        for (String[] k : kids) {
+            try {
+                InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, k[0]));
+                if (in == null) continue;
+                FileOutputStream o = new FileOutputStream(new File(dest, safe(k[1])));
+                try {
+                    byte[] b = new byte[8192];
+                    for (int r; (r = in.read(b)) > 0; ) o.write(b, 0, r);
+                } finally {
+                    o.close();
+                    in.close();
+                }
+                n++;
+            } catch (Exception ignored) {
+                // left out
+            }
+        }
+        return n;
+    }
+
     private static String safe(String name) {
         String s = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         return s.length() == 0 ? "_" : s;

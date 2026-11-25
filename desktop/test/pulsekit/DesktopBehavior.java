@@ -10434,6 +10434,96 @@ public final class DesktopBehavior {
   }
 
   /**
+   * SogniPadd's Input folder: Run makes a batch, the program run once for each .txt or .prompt file (by name,
+   * at most Max files), its prompt from the file (a definitions file's LoRAs too), the output name with the
+   * file's name; Skip already processed then runs only the file left out.
+   */
+  void s276_folder_runs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wf_a1")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    StringBuilder got = new StringBuilder();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File dir = new File(home, "prompts in");
+      dir.mkdirs();
+      Files.write(new File(dir, "a-hills.txt").toPath(), "A red kite over hills.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "b-owl.txt").toPath(), "Prompt: An owl at dusk\nLoras: kite 0.4\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "c-sea.prompt").toPath(), "A grey sea.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "skip.png").toPath(), made.toByteArray());
+      final PyJav pj = (PyJav) get("pyJav");
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPadd.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "img-%f --api_base http://127.0.0.1:" + port;
+      final javax.swing.text.JTextComponent extraField = (javax.swing.text.JTextComponent) get("pyExtra");
+      PyJav.runSectionsBefore = () -> extraField.setText(extra);
+      for (int round = 0; round < 2; round++) {
+        starts.clear();
+        PyJav.runSectionsSaid = null;
+        pj.saveParams("SogniPadd.java", "--prompt \"Not this\" --seed 42 --key_file \"" + key.getAbsolutePath() + "\" --input_dir \"" + dir.getAbsolutePath()
+            + "\" --max_files 2" + (round == 1 ? " --skip_done" : ""));
+        edt(() -> extraField.setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        got.append("round ").append(round + 1).append(": ").append(String.valueOf(PyJav.runSectionsSaid).replace("\n", " / ")).append('\n');
+        for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("SogniPadd: ") || line.startsWith("Files: ")) got.append("  ").append(line).append('\n');
+        synchronized (starts) {
+          for (String b : starts) {
+            Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+            Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+            Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+            got.append("  run: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append(" | loras ").append(SogniApi.toJson(a.get("loras"))).append('\n');
+          }
+        }
+      }
+      got.append("params after: ").append(pj.loadParams("SogniPadd.java").contains("--input_dir")).append('\n');
+    } finally {
+      PyJav.runSectionsBefore = null;
+      server.stop(0);
+    }
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("round 1: Files done: 2 of 2 runs succeeded") && g.contains("run: A red kite over hills. | seed 42") && g.contains("run: An owl at dusk | seed 42.0 | loras [\"kite\"]")
+        && g.contains("3 files; the first 2 by name are run (Max files)") && !g.contains("run: Not this")
+        && g.contains("round 2: Files done: 1 of 1 runs succeeded") && g.contains("2 files done before, left out (Skip already processed)")
+        && g.contains("run: A grey sea. | seed 42") && g.contains("a-hills.txt: Succeeded \u2192 img-a-hills.png") && g.contains("c-sea.prompt: Succeeded \u2192 img-c-sea.png") && g.contains("params after: true");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /**
    * 23112026: Sogni Params' Run sections…: two of three saved sections picked; the Params close as
    * with OK and SogniPadd runs once with each section's prompt and LoRAs (the other rows, the key file,
    * as they were), one after another; the Params are as they were after; the summary names each.
