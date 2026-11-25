@@ -19,7 +19,7 @@ public final class TextReady {
   public static final String NO_CUT = "No cut", CUT_AFTER = "Cut after", CUT_BEFORE = "Cut before";
   public static final String[] MODES = {CUT_AFTER, CUT_BEFORE, NO_CUT};
   public static final String DELIMITER = "Delimiter";
-  public static final String HINT = "Cut after: the text after the delimiter (its last one). Cut before: the text before it (its first one).";
+  public static final String HINT = "Cut after: the text after the delimiter (its first one). Cut before: the text before it (its first one).";
   public static final String COPY = "Copy", SAVE = "Save", SEND = "Send as prompt…", CLOSE = "Close";
   /** Document ready's menu holding Copy, Save, Send as prompt, Send to group and the preset send. */
   public static final String FILE_MENU = "File";
@@ -44,12 +44,13 @@ public final class TextReady {
     return bytes == null ? "" : new String(bytes, StandardCharsets.UTF_8);
   }
 
-  /** The text cut at `delim`: after its last appearance, before its first, or all of it (no cut, or the delimiter not in it). */
+  /** The text cut at `delim`: after its first appearance, before its first, or all of it (no cut, or the delimiter not in it). */
   public static String cut(String text, String delim, String mode) {
     if (text == null) return "";
     if (delim == null || delim.isEmpty() || NO_CUT.equals(mode)) return text.trim();
     if (CUT_AFTER.equals(mode)) {
-      int at = text.lastIndexOf(delim);
+      // After its first appearance (all the rest of the text).
+      int at = text.indexOf(delim);
       return at < 0 ? text.trim() : text.substring(at + delim.length()).trim();
     }
     if (CUT_BEFORE.equals(mode)) {

@@ -16259,7 +16259,7 @@ public class BehaviorTest {
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
         "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
-        "cuts: c / a / a > b"};
+        "cuts: b > c / a / a > b"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);
