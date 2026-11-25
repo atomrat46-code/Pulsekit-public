@@ -4523,6 +4523,8 @@ def bench_sig(zips):
 # The benches' scratch folders for each DrumMidi run: under their own work folder, not the system's
 # temp folder (a temp cleaner deleting it mid-run left DrumMidi's results unwritten and the song out).
 BENCH_TMP = [None]
+# --bench_keep (Don't delete): no bench deletes a kit's unpacked files by itself (Delete extracted files does).
+BENCH_KEEP = [False]
 
 
 def bench_tmp(work):
@@ -4591,9 +4593,10 @@ def bench_unpack(key, zips, root, audio, label="", also=()):
     # The kit there without its renders (deleted after an earlier bench): only the renders unpacked, the rest kept.
     only_audio = audio and bench_unpacked(into, sig, False)
     if not only_audio:
-        if os.path.isdir(into):
+        # (Don't delete ticked: unpacked over what is there, nothing deleted.)
+        if os.path.isdir(into) and not BENCH_KEEP[0]:
             shutil.rmtree(into, ignore_errors=True)
-        os.makedirs(into)
+        os.makedirs(into, exist_ok=True)
     # Big runs are dozens of zips: said as it goes (Pulsekit stops a run that says nothing for 10 minutes).
     print("%sunpacking %d zip%s%s…" % (label, len(zips), "" if len(zips) == 1 else "s", " (the renders only)" if only_audio else ""), flush=True)
     last = time.time()
@@ -5275,6 +5278,7 @@ def model_bench(opts, switches):
     """--model_compare and --leave_one_out: the test renders' zips in --dir (with --recursive, its
     subfolders too) scored with DrumMidi's cymbal model as it is and as learned from the kits found;
     each in its own zip in --outdir (and --zip_outdir)."""
+    BENCH_KEEP[0] = "--bench_keep" in switches
     import hashlib
     import time
     import zipfile
@@ -5757,6 +5761,7 @@ def hit_bench(opts, switches):
     """--hit_bench: the test renders' zips in --bench_dir (its subfolders too) run through DrumMidi with its
     rules alone and with its hit model (or --hit_model_file); with --hit_loo, each kit with a model learned
     from the other plugins' kits, and the model learned from them all (hit-model.txt). A zip in --outdir."""
+    BENCH_KEEP[0] = "--bench_keep" in switches
     import hashlib
     import time
     try:

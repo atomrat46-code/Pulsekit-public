@@ -238,6 +238,25 @@ print("hit after keep: unpacked %d, used there %d, DrumMidi ran %d, cymbal rende
     said.getvalue().count("unpacking"), said.getvalue().count("unpacked already in"),
     sum(1 for l in said.getvalue().splitlines() if l.startswith("Kit ") and ": kick " in l and "from the last bench" not in l), len(still),
     os.path.isdir(os.path.join(kout, "hit-bench", "kits"))))
+# The hit bench alone with Don't delete, in its own unzip folder: DrumMidi runs and the renders stay; its zips changed
+# (another run of a kit added), the kit unpacked over what is there: a file of the folder's own not deleted.
+hkout = os.path.join(work, "hit-keep-out")
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+hunz = os.path.join(work, "hit-keep-unzip")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--bench_keep", "--hit_dir", os.path.join(work, "runs"), "--hit_unzip", hunz, "--outdir", hkout, "--drummidi", jar])
+hk = sorted(d for d in os.listdir(hunz) if any(os.path.isdir(os.path.join(hunz, d, s)) for s in ("mp3", "wav")))
+mine = os.path.join(hunz, hk[0], "my-notes.txt")
+open(mine, "w").write("x")
+open(os.path.join(hunz, hk[0], "unpacked.txt"), "w").write("changed")
+with contextlib.redirect_stdout(io.StringIO()):
+    vr.main(["--hit_bench", "--bench_keep", "--hit_dir", os.path.join(work, "runs"), "--hit_unzip", hunz, "--outdir", hkout, "--drummidi", jar])
+print("hit keep: unpacked %d, renders kept %d of %d, after zips changed: own file kept %s, renders %s" % (
+    said.getvalue().count("unpacking"), len(hk), len(os.listdir(hunz)), os.path.isfile(mine),
+    any(os.path.isdir(os.path.join(hunz, hk[0], s)) for s in ("mp3", "wav"))))
+vr.BENCH_KEEP[0] = False
 # Another output folder (so another work folder): the earlier bench's kept results are found and copied, DrumMidi does not run.
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
