@@ -5760,6 +5760,13 @@ def hit_bench(opts, switches):
     # Earlier hit benches' work folders (another Output folder) are looked in too: a kit's DrumMidi results
     # made there are copied here, not made again. (Its own hit model file changes what it finds: not then.)
     works = bench_works(work, HIT_WORKS, "hits")
+    # Also where an earlier hit bench kept them with no Output folder given: each input folder's hit-bench (and
+    # the one above it), as the work folder was the first input folder's (several folders: another may have been first).
+    for f in folders:
+        for cand in (os.path.join(f, "hit-bench"), os.path.join(os.path.dirname(os.path.abspath(f)), "hit-bench")):
+            if os.path.normcase(os.path.abspath(cand)) != os.path.normcase(os.path.abspath(work)) and os.path.isdir(os.path.join(cand, "hits")) \
+                    and not any(os.path.normcase(os.path.abspath(cand)) == os.path.normcase(os.path.abspath(w)) for w in works):
+                works.append(cand)
     have = 0
     for key, stamp, zips, where in found:
         cache = hits_at(work, sig, key, zips)
@@ -5769,6 +5776,22 @@ def hit_bench(opts, switches):
     print("DrumMidi's results kept: %d of %d kits (DrumMidi_CRT.jar %s, in %s%s)%s" % (
         have, len(found), sig, os.path.join(work, "hits"), "; earlier work folders looked in: %s" % "; ".join(works) if works else "",
         "" if have == len(found) else ": DrumMidi runs on the other %d kits' songs (the long part)" % (len(found) - have)), flush=True)
+    if have < len(found):
+        # Results of another DrumMidi build (or hit model file) are not used: they can find other hits. Said, so it is
+        # clear whether the long part is needed or another build's results are there.
+        other = {}
+        for w in [work] + works:
+            root = os.path.join(w, "hits")
+            for old in (os.listdir(root) if os.path.isdir(root) else []):
+                if old == sig or not os.path.isdir(os.path.join(root, old)):
+                    continue
+                n = sum(1 for key, stamp, zips, where in found if os.path.isfile(hits_at(w, old, key, zips)))
+                if n:
+                    other["%s (%s)" % (old, w)] = n
+        if other:
+            print("Results of another DrumMidi build or hit model file (not used: they can find other hits): %s" % "; ".join("%d kits with %s" % (n, k) for k, n in other.items()), flush=True)
+        else:
+            print("No results of these kits from any DrumMidi build in those folders: this is the hit bench's first run on them", flush=True)
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = hits_at(work, sig, key, zips)
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
