@@ -161,6 +161,15 @@ final class TextOffer {
         delim.setText(set[1]);
         row.addView(delim, new LinearLayout.LayoutParams(0, -2, 1f));
         col.addView(row);
+        // Remove note sections: "*Note: ... *" taken out of the text (remembered).
+        final android.widget.CheckBox notes = new android.widget.CheckBox(app);
+        notes.setTag("text-ready:remove-notes");
+        notes.setText(TextReady.REMOVE_NOTES);
+        notes.setTextColor(0xFFEDEDE8);
+        notes.setTextSize(15);
+        notes.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
+        notes.setChecked(TextReady.ON.equals(set[5]));
+        col.addView(notes);
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
@@ -253,11 +262,11 @@ final class TextOffer {
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
-            String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF};
+            String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4]);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5]);
         };
         after.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -270,6 +279,7 @@ final class TextOffer {
         });
         clear.setOnClickListener(v -> after.setText(""));
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
+        notes.setOnCheckedChangeListener((b, on) -> cut.run());
         selectFile.setOnClickListener(v -> PyJavParams.pickPromptFile(app, after));
         browse.setOnClickListener(v -> pickSection(app, after));
         mode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {

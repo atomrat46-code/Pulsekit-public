@@ -166,7 +166,7 @@ public final class TextReady {
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON} : new String[] {NO_CUT, "", "", FROM_FILE, ON};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF} : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -181,13 +181,18 @@ public final class TextReady {
 
   /** As above, with Add text after on ("on") or off ("off"). */
   public static void remember(File dir, String program, String mode, String delim, String after, String from, String add) {
+    remember(dir, program, mode, delim, after, from, add, setting(dir, program)[5]);
+  }
+
+  /** As above, with Remove note sections on ("on") or off. */
+  public static void remember(File dir, String program, String mode, String delim, String after, String from, String add, String notes) {
     Map<String, String[]> all = load(dir);
     all.put(program, new String[] {mode, delim == null ? "" : delim.replace('\n', ' ').replace('\t', ' '), after == null ? "" : after, from == null ? FROM_FILE : from,
-        OFF.equals(add) ? OFF : ON});
+        OFF.equals(add) ? OFF : ON, ON.equals(notes) ? ON : OFF});
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, String[]> e : all.entrySet()) {
       String[] v = e.getValue();
-      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\t').append(v[4]).append('\n');
+      sb.append(e.getKey()).append('\t').append(v[0]).append('\t').append(v[1]).append('\t').append(escape(v[2])).append('\t').append(v[3]).append('\t').append(v[4]).append('\t').append(v[5]).append('\n');
     }
     try {
       dir.mkdirs();
@@ -221,12 +226,26 @@ public final class TextReady {
       for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).split("\n")) {
         String[] p = line.split("\t", -1);
         if (p.length >= 3) out.put(p[0], new String[] {p[1], p[2], p.length >= 4 ? unescape(p[3]) : "", p.length >= 5 && !p[4].isEmpty() ? p[4] : FROM_FILE,
-            p.length >= 6 && OFF.equals(p[5]) ? OFF : ON});
+            p.length >= 6 && OFF.equals(p[5]) ? OFF : ON, p.length >= 7 && ON.equals(p[6]) ? ON : OFF});
       }
     } catch (Exception ignored) {
       // none remembered
     }
     return out;
+  }
+
+  /** Remove note sections: the checkbox's words. */
+  public static final String REMOVE_NOTES = "Remove note sections";
+
+  /**
+   * The text without its note sections: each from "*Note:" to the next "*" (the lines between too), and the
+   * blank lines they leave.
+   */
+  public static String withoutNotes(String text) {
+    if (text == null) return "";
+    String out = text.replaceAll("(?s)\\*Note:.*?\\*", "");
+    out = out.replaceAll("[ \\t]+\n", "\n").replaceAll("\n{3,}", "\n\n");
+    return out.trim();
   }
 
   /** Add text after (the checkbox before Select file): ON adds the text after to the answer, OFF keeps it aside. */
@@ -237,7 +256,9 @@ public final class TextReady {
     String cut = cut(text, set[1], set[0]);
     boolean add = set.length <= 4 || !OFF.equals(set[4]);
     String after = add && set.length > 2 && set[2] != null ? set[2].trim() : "";
-    return after.isEmpty() ? cut : cut.isEmpty() ? after : cut + "\n" + after;
+    String all = after.isEmpty() ? cut : cut.isEmpty() ? after : cut + "\n" + after;
+    // Remove note sections: from the whole processed text (the answer and the text after it).
+    return set.length > 5 && ON.equals(set[5]) ? withoutNotes(all) : all;
   }
 
   /** From sections: the Sogni programs' saved sections, each labelled with its program; their prompts in `texts`. */

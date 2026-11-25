@@ -3375,6 +3375,10 @@ final class PyJav {
         delim.setToolTipText(TextReady.HINT);
         top.add(mode, java.awt.BorderLayout.WEST);
         top.add(delim, java.awt.BorderLayout.CENTER);
+        // Remove note sections: "*Note: ... *" taken out of the text (remembered).
+        final javax.swing.JCheckBox notes = new javax.swing.JCheckBox(TextReady.REMOVE_NOTES, TextReady.ON.equals(set[5]));
+        notes.setName("text-ready:remove-notes");
+        top.add(notes, java.awt.BorderLayout.EAST);
         final JLabel note = new JLabel();
         note.setName("text-ready:note");
         top.add(note, java.awt.BorderLayout.SOUTH);
@@ -3414,15 +3418,16 @@ final class PyJav {
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
-            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF};
+            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
             note.setVisible(TextReady.noteShown(whole, d, m));
-            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4]);
+            TextReady.remember(dir, program, now[0], now[1], now[2], now[3], now[4], now[5]);
         };
         mode.addActionListener(e -> cut.run());
         addAfter.addActionListener(e -> cut.run());
+        notes.addActionListener(e -> cut.run());
         clear.addActionListener(e -> after.setText(""));
         selectFile.addActionListener(e -> {
             String t = this.pickFileText(selectFile);
