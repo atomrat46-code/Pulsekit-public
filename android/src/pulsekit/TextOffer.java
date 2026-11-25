@@ -174,6 +174,28 @@ final class TextOffer {
         // Send to program and group set in Params: there with one click.
         final android.widget.Button toPreset = preset == null ? null : action(app, acts2, TextReady.presetLabel(preset), "text-ready:send-preset");
         col.addView(acts2);
+        // The actions under one File menu (the buttons above kept, hidden, as the menu's doers).
+        acts.setVisibility(android.view.View.GONE);
+        acts2.setVisibility(android.view.View.GONE);
+        final java.util.List<android.widget.Button> doers = new java.util.ArrayList<android.widget.Button>(java.util.Arrays.asList(copy, save, send, toGroup));
+        if (toPreset != null) doers.add(toPreset);
+        final android.widget.Button file = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
+        file.setText(TextReady.FILE_MENU);
+        file.setAllCaps(false);
+        file.setTag("text-ready:file");
+        file.setOnClickListener(v -> {
+            android.widget.PopupMenu m = new android.widget.PopupMenu(app, file);
+            for (int i = 0; i < doers.size(); i++) m.getMenu().add(0, i, i, doers.get(i).getText());
+            m.setOnMenuItemClickListener(it -> {
+                doers.get(it.getItemId()).performClick();
+                return true;
+            });
+            lastMenu = m;
+            m.show();
+        });
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, -2);
+        fp.topMargin = app.dp(6);
+        col.addView(file, fp);
         // The text as it will be copied, saved or sent: editable (a new cut, delimiter or text after makes it again).
         final EditText body = new EditText(app);
         body.setTextSize(15);
@@ -369,6 +391,9 @@ final class TextOffer {
             .setItems(labels.toArray(new String[0]), (d, w) -> after.setText(texts.get(w)))
             .setNegativeButton("Cancel", null).show();
     }
+
+    /** The tests: the File menu shown last. */
+    static android.widget.PopupMenu lastMenu;
 
     static android.widget.Button action(MainActivity app, LinearLayout row, String label, String tag) {
         android.widget.Button b = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
