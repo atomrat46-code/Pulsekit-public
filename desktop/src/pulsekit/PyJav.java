@@ -1009,11 +1009,13 @@ final class PyJav {
                             if (lower.matches(".*\\.(mp4|m4v|webm|mov)$")) savedVideos.add(saved);
                         }
                     } else if (lower.endsWith(".txt")) {
-                        // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android.
+                        // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android; not SogniChat's
+                        // raw answer when its processed copy is saved (an Output folder given): only read for it.
+                        madeText = f;
+                        if (!ChatFolder.rawKept(name, argv)) continue;
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) texts++;
-                        madeText = f;
                     }
                 }
                 if (!promptProg && midis == 0 && this.pyOutputPath != null && this.pyOutputPath.length() > 0) {

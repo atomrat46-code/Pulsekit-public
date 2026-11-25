@@ -16466,11 +16466,18 @@ public class BehaviorTest {
     ArtJava.batchSub = null;
     out.append("batch folder row: ").append(row != null && row.dir && row.typed).append(" | taken ").append(taken).append(" | left ").append(argv)
         .append(" | folder ").append(sub).append(" | used ").append(used).append(" | single run ").append(ArtJava.runSub("SogniPadd.java", argv)).append('\n');
+    // SogniChat's raw answer.txt: left out only with an Output folder (empty: into Download as before, input folder or not).
+    out.append("raw answer kept: alone ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--prompt", "x")))
+        .append(", output folder ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--output_dir", "/o")))
+        .append(", input folder ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--input_dir", "/i")))
+        .append(", both ").append(ChatFolder.rawKept("SogniChat.java", java.util.Arrays.asList("--input_dir", "/i", "--output_dir", "/o")))
+        .append(", other program ").append(ChatFolder.rawKept("SogniPadd.java", java.util.Arrays.asList("--output_dir", "/o"))).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
         && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
         && t.contains("output after select: Image%n") && t.contains("none kept: ''")
+        && t.contains("raw answer kept: alone true, output folder false, input folder true, both false, other program true")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
     if (!ok) throw new AssertionError(t);
   }

@@ -258,6 +258,8 @@ public final class ArtJava {
         // A prompt sheet (--saveprompt) is written to disk after the run, once PyJav knows where it
         // goes (and not at all when it is the same as one in the library already: PromptSave).
         if (PromptSave.isSheetFile(out)) continue;
+        // SogniChat's raw answer when its processed copy is saved (an Output folder given): read, not written.
+        if (fn.toLowerCase(java.util.Locale.ROOT).endsWith(".txt") && !ChatFolder.rawKept(main.replaceAll(".*\\.", "") + ".java", argv)) continue;
         String saved = publish(ctx, fn, body, sub);
         if (saved != null) ps.println("saved " + saved);
       }

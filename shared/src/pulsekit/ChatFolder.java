@@ -159,6 +159,15 @@ public final class ChatFolder {
     }
   }
 
+  /**
+   * Whether a run's raw answer (answer.txt as SogniChat wrote it) is written to disk: not when an Output folder
+   * is given (the processed copy goes there; the raw one is only read for it). No Output folder: into Download as before.
+   */
+  public static boolean rawKept(String program, List<String> argv) {
+    if (!"SogniChat.java".equals(program) || argv == null) return true;
+    return arg(argv, "--output_dir") == null;
+  }
+
   /** The text files the run wrote (its answers), in order. */
   public static List<JavaRun.FileOut> answers(List<JavaRun.FileOut> files) {
     List<JavaRun.FileOut> out = new ArrayList<JavaRun.FileOut>();
