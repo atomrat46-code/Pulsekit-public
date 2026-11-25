@@ -166,6 +166,14 @@ for f in sorted(os.listdir(hout)):
                 print("  " + line)
 print("hit model file:", len(learned), open(os.path.join(hout, learned[0])).read().split("\n")[0] if learned else "")
 vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar, "--hit_model_file", os.path.join(hout, learned[0])])
+# Another Output folder: the hit bench finds the results kept in the earlier one (no DrumMidi run).
+import contextlib as _cl
+import io as _io
+_said = _io.StringIO()
+with _cl.redirect_stdout(_said):
+    vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", os.path.join(work, "hits-out2"), "--drummidi", jar])
+print("hit elsewhere:", [l.split(" (")[0] for l in _said.getvalue().splitlines() if l.startswith("DrumMidi's results kept")],
+      "| DrumMidi ran", sum(1 for l in _said.getvalue().splitlines() if "from the last bench" not in l and l.startswith("Kit ") and ": kick " in l))
 # A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
 again = os.path.join(work, "again")
 os.makedirs(again, exist_ok=True)
@@ -184,8 +192,9 @@ import contextlib
 import io
 # (The earlier benches' work folders forgotten here and below: their kept results would be copied, and DrumMidi would not run.)
 works_file = os.path.join(os.path.expanduser("~"), ".pulsekit", vr.BENCH_WORKS)
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 bout = os.path.join(work, "both-out")
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
@@ -199,8 +208,9 @@ print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s,
     text.count("DrumMidi ran on each")))
 # --bench_keep: the renders kept after the bench; a bench run again (its kept results gone, another DrumMidi) unpacks nothing.
 kout = os.path.join(work, "keep-out")
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
@@ -209,8 +219,9 @@ kunz = os.path.join(kout, "cymbal-bench", "kits")
 kept = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
 import shutil
 shutil.rmtree(os.path.join(kout, "cymbal-bench", "data"))
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])

@@ -4730,19 +4730,20 @@ def bench_reuse(cache, sig, alt_of):
 
 
 BENCH_WORKS = "bench-work-folders.txt"
+HIT_WORKS = "hit-bench-work-folders.txt"
 
 
-def bench_works(work):
-    """The work folders earlier benches used (~/.pulsekit/bench-work-folders.txt, the newest first), this one
-    added; the others returned."""
-    path = os.path.join(os.path.expanduser("~"), ".pulsekit", BENCH_WORKS)
+def bench_works(work, listed=None, sub="data"):
+    """The work folders earlier benches used (~/.pulsekit/bench-work-folders.txt, the newest first; the hit
+    bench's: hit-bench-work-folders.txt, its results in hits/), this one added; the others returned."""
+    path = os.path.join(os.path.expanduser("~"), ".pulsekit", listed or BENCH_WORKS)
     try:
         with open(path, encoding="utf-8") as f:
             known = [l.strip() for l in f if l.strip()]
     except OSError:
         known = []
     me = os.path.abspath(work)
-    others = [w for w in known if os.path.normcase(os.path.abspath(w)) != os.path.normcase(me) and os.path.isdir(os.path.join(w, "data"))]
+    others = [w for w in known if os.path.normcase(os.path.abspath(w)) != os.path.normcase(me) and os.path.isdir(os.path.join(w, sub))]
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -4752,13 +4753,14 @@ def bench_works(work):
     return others
 
 
-def bench_elsewhere(cache, works, sig, key, zips):
+def bench_elsewhere(cache, works, sig, key, zips, where=None):
     """A kit's DrumMidi results kept in an earlier work folder (this DrumMidi or one finding the same hits),
-    copied here; True when there were some."""
+    copied here; True when there were some. `where(work, sig)`: the results' path there (else the cymbal
+    bench's)."""
     import shutil
     for w in works:
         for s in [sig] + SAME_DRUMMIDI.get(sig, []):
-            alt = bench_cache(w, s, key, zips)
+            alt = where(w, s) if where else bench_cache(w, s, key, zips)
             if os.path.isfile(alt):
                 os.makedirs(os.path.dirname(cache), exist_ok=True)
                 shutil.copyfile(alt, cache)
@@ -5581,10 +5583,11 @@ def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
     return np.load(cache, allow_pickle=False), len(songs)
 
 
-def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3):
+def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3, w=None):
     """The hit model as DrumMidi has it (tools/hit_model.py fit): one hidden layer of ReLU units, three
-    outputs (kick, snare, tom), learned with Adam."""
+    outputs (kick, snare, tom), learned with Adam. `w`: each onset's weight (hit_rows: kits even)."""
     import numpy as np
+    w = None if w is None else (w / w.mean())[:, None]
     r = np.random.default_rng(seed)
     mu = X.mean(0)
     sd = X.std(0) + 1e-6
@@ -5602,6 +5605,8 @@ def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3):
             a = z @ W1 + b1
             h = np.maximum(a, 0)
             g = (1 / (1 + np.exp(-(h @ W2 + b2))) - y) / len(i)
+            if w is not None:
+                g = g * w[i]
             gh = g @ W2.T * (a > 0)
             grads = [z.T @ gh + 1e-4 * W1, gh.sum(0), h.T @ g, g.sum(0)]
             t += 1
@@ -5649,6 +5654,35 @@ def hit_model_text(model, cuts, kits):
             "        static double[][] HM_W1 = {%s}, HM_W2 = {%s};\n        static double[] HM_B1 = %s, HM_B2 = %s;\n"
             % (arr(mu), arr(sd), arr(cuts), ", ".join(arr(r) for r in W1), ", ".join(arr(r) for r in W2), arr(b1), arr(b2)))
     return text, java
+
+
+# Leave one out learns from at most this many of each kit's onsets (picked evenly, each standing for the ones
+# left out): a big kit's millions of onsets would make each model take most of an hour.
+HIT_CAP = 20000
+
+
+def hit_rows(kits, even=False, cap=None):
+    """The kits' onsets to learn from: (X, Y, weights). `even`: each kit weighs the same (a kit with thousands
+    of songs does not decide the model); `cap`: at most that many of a kit's onsets, each standing for the
+    ones left out (so the kit weighs as before)."""
+    import numpy as np
+    xs, ys, ws = [], [], []
+    for k in kits:
+        n = len(k["X"])
+        if not n:
+            continue
+        keep = np.arange(n) if not cap or n <= cap else np.linspace(0, n - 1, cap).astype(int)
+        xs.append(k["X"][keep])
+        ys.append(k["Y"][keep])
+        ws.append(np.full(len(keep), (1.0 / n if even else 1.0) * n / len(keep)))
+    return np.vstack(xs), np.vstack(ys), np.concatenate(ws)
+
+
+def hit_all_f(fs):
+    """One F (%) of a kit's kicks, snares and toms together, from each drum's (F, matched, wrong, missed)."""
+    tp = sum(f[1] for f in fs)
+    bad = sum(f[2] + f[3] for f in fs)
+    return 200.0 * tp / max(1, 2 * tp + bad)
 
 
 def hit_plugin(name):
@@ -5722,11 +5756,21 @@ def hit_bench(opts, switches):
     sig = hashlib.sha1(open(jar, "rb").read() + (open(model_file, "rb").read() if model_file else b"")).hexdigest()[:12]
     jobs = max(1, min(8, os.cpu_count() or 1))
     kits = []
+    hits_at = lambda w, s, key, zips: os.path.join(w, "hits", s, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
+    # Earlier hit benches' work folders (another Output folder) are looked in too: a kit's DrumMidi results
+    # made there are copied here, not made again. (Its own hit model file changes what it finds: not then.)
+    works = bench_works(work, HIT_WORKS, "hits")
+    have = 0
+    for key, stamp, zips, where in found:
+        cache = hits_at(work, sig, key, zips)
+        if os.path.isfile(cache) or not model_file and (bench_reuse(cache, sig, lambda old: hits_at(work, old, key, zips))
+                                                        or bench_elsewhere(cache, works, sig, key, zips, lambda w, s: hits_at(w, s, key, zips))):
+            have += 1
+    print("DrumMidi's results kept: %d of %d kits (DrumMidi_CRT.jar %s, in %s%s)%s" % (
+        have, len(found), sig, os.path.join(work, "hits"), "; earlier work folders looked in: %s" % "; ".join(works) if works else "",
+        "" if have == len(found) else ": DrumMidi runs on the other %d kits' songs (the long part)" % (len(found) - have)), flush=True)
     for n, (key, stamp, zips, where) in enumerate(found):
-        cache = os.path.join(work, "hits", sig, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
-        # (Its own hit model file changes what it finds: no earlier results then.)
-        if not model_file:
-            bench_reuse(cache, sig, lambda old: os.path.join(work, "hits", old, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA)))
+        cache = hits_at(work, sig, key, zips)
         into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
         info = bench_kit_info(into)
         if info is None:
@@ -5775,35 +5819,57 @@ def hit_bench(opts, switches):
         print("Leave one out: %s (%d kits)…" % ("each plugin's kits scored with a model learned from the other plugins' kits" if by == "plugin"
                                                  else "each kit scored with a model learned from the other kits (one plugin's kits only)", len(kits)), flush=True)
         lines += ["", "Leave one out: the onsets DrumMidi considers (any that could be a kick, snare or tom), told by its rules and by a model",
-                  "learned without the kit%s, F in %%." % (" and its plugin's other kits (they share samples: it never heard them)" if by == "plugin" else " (it never heard it)"),
-                  "", "%-*s %15s %15s %15s" % (width, "Kit", "Kick", "Snare", "Toms")]
-        sums = np.zeros((2, 3, 3))
+                  "learned without the kit%s, F in %%." % (" and its plugin's other kits (they share samples: it never heard them)" if by == "plugin" else " (it never heard it)")]
+        lines += ["Each drum: rules -> pooled model -> kits-even model. Pooled: each onset weighs the same (kits with many songs",
+                  "decide); kits even: each kit weighs the same. Each model learns from at most %d of a kit's onsets." % HIT_CAP, "",
+                  "%-*s %23s %23s %23s %23s" % (width, "Kit", "Kick", "Snare", "Toms", "All")]
+        sums = np.zeros((3, 3, 3))
+        per = []
         for g in (plugins if by == "plugin" else [k["name"] for k in kits]):
             held = [k for k in kits if k[by] == g]
             rest = [k for k in kits if k[by] != g]
-            m, cuts = hit_fit(np.vstack([k["X"] for k in rest]), np.vstack([k["Y"] for k in rest]))
+            models = []
+            for even in (False, True):
+                X, Y, w = hit_rows(rest, even, HIT_CAP)
+                models.append(hit_fit(X, Y, w=w))
             for k in held:
-                P = hit_predict(m, k["X"])
-                row = []
+                cols, fs = [], [[], [], []]
                 for d in range(3):
-                    a = hit_f(k["X"][:, HIT_RULES + d] > 0.5, k["Y"][:, d])
-                    b = hit_f(P[:, d] >= cuts[d], k["Y"][:, d])
-                    sums[0, d] += a[1:]
-                    sums[1, d] += b[1:]
-                    none = not (k["Y"][:, d] > 0).any() and not (k["X"][:, HIT_RULES + d] > 0.5).any() and not (P[:, d] >= cuts[d]).any()
-                    row.append(hit_pair(None, None) if none else hit_pair(a[0], b[0]))
-                lines.append("%-*s %s" % (width, k["name"], " ".join(row)))
+                    got = [hit_f(k["X"][:, HIT_RULES + d] > 0.5, k["Y"][:, d])]
+                    for m, cuts in models:
+                        got.append(hit_f(hit_predict(m, k["X"])[:, d] >= cuts[d], k["Y"][:, d]))
+                    for a in range(3):
+                        sums[a, d] += got[a][1:]
+                        fs[a].append(got[a])
+                    none = not (k["Y"][:, d] > 0).any() and all(g[1] + g[2] == 0 for g in got)
+                    cols.append("%23s" % ("-" if none else "%5.1f -> %5.1f -> %5.1f" % tuple(g[0] for g in got)))
+                alls = [hit_all_f(f) for f in fs]
+                per.append(alls)
+                lines.append("%-*s %s %23s" % (width, k["name"], " ".join(cols), "%5.1f -> %5.1f -> %5.1f" % tuple(alls)))
                 print(lines[-1], flush=True)
         f = lambda v: 200.0 * v[0] / max(1, 2 * v[0] + v[1] + v[2])
-        lines += ["", "%-*s %s" % (width, "All", " ".join(hit_pair(f(sums[0, d]), f(sums[1, d])) for d in range(3)))]
+        tot = [200.0 * sum(sums[a, d, 0] for d in range(3)) / max(1, sum(2 * sums[a, d, 0] + sums[a, d, 1] + sums[a, d, 2] for d in range(3))) for a in range(3)]
+        lines += ["", "%-*s %s %23s" % (width, "All", " ".join("%23s" % ("%5.1f -> %5.1f -> %5.1f" % tuple(f(sums[a, d]) for a in range(3))) for d in range(3)),
+                                        "%5.1f -> %5.1f -> %5.1f" % tuple(tot))]
         print(lines[-1])
-        print("Learning the model from all %d kits…" % len(kits), flush=True)
+        per = np.array(per)
+        for a, label in ((1, "pooled"), (2, "kits even")):
+            ch = per[:, a] - per[:, 0]
+            lines.append("%s: mean change per kit %+.2f F points; kits better / worse than the rules %d / %d; worst kit %+.1f" % (
+                label, ch.mean(), int((ch > 0.05).sum()), int((ch < -0.05).sum()), ch.min()))
+            print(lines[-1])
+        print("Learning the models from all %d kits…" % len(kits), flush=True)
+        X, Y, w = hit_rows(kits, True)
+        m2, cuts2 = hit_fit(X, Y, w=w)
+        text2, java2 = hit_model_text(m2, cuts2, [k["name"] for k in kits])
+        files["hit-model-even.txt"] = text2
+        files["hit-model-even-java.txt"] = java2
         m, cuts = hit_fit(np.vstack([k["X"] for k in kits]), np.vstack([k["Y"] for k in kits]))
         text, java = hit_model_text(m, cuts, [k["name"] for k in kits])
         files["hit-model.txt"] = text
         files["hit-model-java.txt"] = java
-        lines += ["", "hit-model.txt: the model learned from all %d kits. DrumMidi uses it with --hit-model <file>;" % len(kits),
-                  "vst_render with --hit_model_file (the Hit model tab's Hit model file): its tests and this bench."]
+        lines += ["", "hit-model.txt: the pooled model learned from all %d kits (hit-model-even.txt: kits even). DrumMidi uses one with" % len(kits),
+                  "--hit-model <file>; vst_render with --hit_model_file (the Hit model tab's Hit model file): its tests and this bench."]
         saved = os.path.join(outdir, "hit-model-%s.txt" % time.strftime("%Y%m%d-%H%M%S"))
         with open(saved, "w", encoding="utf-8") as fh:
             fh.write(text)

@@ -11783,7 +11783,7 @@ public final class DesktopBehavior {
     this.out.append(said).append('\n');
     String all = this.out.toString();
     boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_model_file= --hit_dir= --hit_unzip= --hit_zip_outdir= |")
-        && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
+        && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-even-java.txt', 'hit-model-even.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
         && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
         && all.contains("Cymbal model, Hit model]")
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
