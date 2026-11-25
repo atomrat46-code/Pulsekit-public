@@ -22,7 +22,7 @@ public final class TextReady {
   public static final String HINT = "Cut after: the text after the delimiter (its last one). Cut before: the text before it (its first one).";
   public static final String COPY = "Copy", SAVE = "Save", SEND = "Send as prompt…", CLOSE = "Close";
   /** Document ready's menu holding Copy, Save, Send as prompt, Send to group and the preset send. */
-  public static final String FILE_MENU = "File \u25BE";
+  public static final String FILE_MENU = "File";
   public static final String SEND_TITLE = "Send as prompt to";
   /** SogniChat's reply follows this line in the file it writes. */
   public static final String SOGNI_REPLY = "=== Sogni ===";

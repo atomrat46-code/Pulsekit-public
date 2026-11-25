@@ -16197,12 +16197,13 @@ public class BehaviorTest {
     out.append("preset button: ").append(preset.getText()).append(" | ").append(TextOffer.said).append('\n');
     // The actions are under the File menu: the buttons hidden, the menu lists them.
     android.view.View dv = TextOffer.last.getWindow().getDecorView();
-    ((android.widget.Button) dv.findViewWithTag("text-ready:file")).performClick();
+    android.view.View fileMenu = dv.findViewWithTag("text-ready:file");
+    fileMenu.performClick();
     idle();
     StringBuilder items = new StringBuilder();
     android.view.Menu fm = TextOffer.lastMenu.getMenu();
     for (int i = 0; i < fm.size(); i++) items.append(i == 0 ? "" : ", ").append(fm.getItem(i).getTitle());
-    out.append("file menu: ").append(items).append(" | buttons shown ").append(preset.isShown()).append('\n');
+    out.append("file menu: ").append(items).append(" | buttons shown ").append(preset.isShown()).append(" | File a button ").append(fileMenu instanceof android.widget.Button).append('\n');
     TextOffer.last.dismiss();
     // Send to group's name with % codes: %n the first number no group has yet.
     String[] codes1 = TextReady.resolved(PromptVault.open(app.getFilesDir()), new String[] {"SogniPadd", "Uudet%n"});
