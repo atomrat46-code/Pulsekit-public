@@ -223,6 +223,7 @@ final class DrumMidiSettingsPage {
         ApiKeys.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         ProgramFolder.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         PictureCopies.shrinker = new PictureShrink();
+        ChatFolder.doneDir = new File(System.getProperty("user.home", "."), ".pulsekit");
         SogniHistory.init(new File(System.getProperty("user.home", "."), ".pulsekit"));
         this.loadDbSettings();
         JPanel col = new JPanel();

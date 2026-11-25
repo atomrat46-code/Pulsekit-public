@@ -510,6 +510,7 @@ public final class ProgramParams {
       p.label = "Input folder: the same question about each of its files, one after another";
       p.hint = "each its own chat: <output name>-<file>.txt (%f: the file's name), else <file>.txt";
     }
+    if (p.flag && !p.takesValue && chat && p.token.equals("--skip_done")) p.label = "Skip already processed: the input folder's files answered in earlier runs left out (only the new ones asked about)";
     if (p.flag && p.takesValue && chat && p.token.equals("--max_files")) {
       p.label = "Max files (the first by name; in case of a big folder)";
       p.hint = "20";

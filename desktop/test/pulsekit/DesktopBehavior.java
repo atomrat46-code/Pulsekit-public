@@ -1797,6 +1797,9 @@ public final class DesktopBehavior {
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
         "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --output_dir \"" + answersDir.getAbsolutePath() + "\" --send_program SogniPadd --send_group Imports",
+        // Skip already processed: only the file Max files left out last time; then nothing new.
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
         "--prompt \"Filter on\" --filter_on",
         // A chat run started earlier (one that timed out here) is followed again by its id.
         "--run run2",
@@ -1810,7 +1813,7 @@ public final class DesktopBehavior {
         if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
         if (extra.contains("--input_dir")) {
-          for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Answers saved"); i++) Thread.sleep(50);
+          for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Answers saved") && !String.valueOf(log.getText()).contains("Nothing new"); i++) Thread.sleep(50);
         }
         for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
@@ -1839,12 +1842,19 @@ public final class DesktopBehavior {
       if (answered == null || answered.length != 3 || !answered[0].equals("chat-1-notes.txt") || !answered[1].equals("chat-2-wide.txt") || !answered[2].equals("chat-3-more.txt"))
         throw new AssertionError("folder answers: " + java.util.Arrays.toString(answered) + "\n" + out);
       for (String a : answered) if (new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8).contains("===")) throw new AssertionError("not cut: " + a);
+      // Skip already processed: the second folder run asked about the one file left out, the third about none.
+      String all = out.toString();
+      int second = all.indexOf("--skip_done");
+      if (second < 0 || !all.substring(second).contains("=== File 1 of 1: 4-left-out.txt ===")
+          || !all.substring(second).contains("Note: 3 files in chat folder answered before, left out (Skip already processed)")
+          || !all.substring(all.indexOf("--skip_done", second + 1)).contains("Nothing new in chat folder: every file in it was answered before (Skip already processed)"))
+        throw new AssertionError("skip done:\n" + all.substring(Math.max(0, second)));
       // Send to program and group: each answer also a section in SogniPadd's group Imports.
       int imported = 0;
       for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) if ("Imports".equals(x.group)) imported++;
       out.append("sent to Imports: ").append(imported).append(" | ").append(PyJav.answersSaid.replace(home.getAbsolutePath(), "~")).append('\n');
       // (The stand-in server's reply is the same for each file: one section, kept once.)
-      if (imported != 1 || !PyJav.answersSaid.contains("; 1 sent to SogniPadd's group Imports as sections")) throw new AssertionError("preset: " + imported + " " + PyJav.answersSaid);
+      if (imported != 1 || !out.toString().contains("; 1 sent to SogniPadd's group Imports as sections")) throw new AssertionError("preset: " + imported + " " + PyJav.answersSaid);
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
           String shown = f.toString().endsWith(".txt") ? new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim() : Files.size(f) + " bytes";

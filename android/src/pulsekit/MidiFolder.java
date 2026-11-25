@@ -112,6 +112,15 @@ final class MidiFolder {
             int d = a[1].compareToIgnoreCase(b[1]);
             return d != 0 ? d : a[1].compareTo(b[1]);
         });
+        // Skip already processed: the files answered in earlier runs on this folder not copied (before Max files).
+        int skipped = 0;
+        if (argv.contains("--skip_done")) {
+            java.util.Set<String> done = ChatFolder.done(v);
+            List<String[]> fresh = new ArrayList<String[]>();
+            for (String[] k : kids) if (!done.contains(k[1])) fresh.add(k);
+            skipped = kids.size() - fresh.size();
+            kids = fresh;
+        }
         int max = ChatFolder.max(argv), n = 0;
         dest.mkdirs();
         for (int i = 0; i < kids.size() && i < max; i++) {
@@ -133,8 +142,14 @@ final class MidiFolder {
         }
         if (note.length() > 0) note.append("; ");
         note.append(n).append(n == 1 ? " file" : " files").append(" from ").append(MediaDir.label(v))
-            .append(kids.size() > max ? " (the first " + max + " of " + kids.size() + " by name: Max files)" : "");
+            .append(kids.size() > max ? " (the first " + max + " of " + kids.size() + " by name: Max files)" : "")
+            .append(skipped > 0 ? "; " + skipped + " answered before left out (Skip already processed)" : "");
         out.set(at + 1, dest.getAbsolutePath());
+        // The list of answered files is kept by the picked folder's address, not its copy's path.
+        out.add("--done_key");
+        out.add(v);
+        // (Copied as Skip already processed leaves them: not filtered again.)
+        out.remove("--skip_done");
         return out;
     }
 

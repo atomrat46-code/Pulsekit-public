@@ -76,14 +76,87 @@ public final class ChatFolder {
     File d = new File(dir);
     if (!d.isDirectory()) return argv;
     List<File> all = files(d);
+    // Skip already processed: the files answered in earlier runs on this folder left out (before Max files).
+    int skipped = 0;
+    if (argv.contains("--skip_done")) {
+      java.util.Set<String> done = done(key(argv));
+      List<File> fresh = new ArrayList<File>();
+      for (File f : all) if (!done.contains(f.getName())) fresh.add(f);
+      skipped = all.size() - fresh.size();
+      all = fresh;
+    }
     int max = max(argv);
     List<String> out = new ArrayList<String>(argv);
+    // (Listed here: SogniChat does not list the folder again, also when nothing is left.)
+    out.add("--listed");
     for (int i = 0; i < all.size() && i < max; i++) {
       out.add("--dir_file");
       out.add(all.get(i).getAbsolutePath());
     }
+    if (skipped > 0 && notes != null) notes.add("Note: " + skipped + " file" + (skipped == 1 ? "" : "s") + " in " + d.getName() + " answered before, left out (Skip already processed)");
     if (all.size() > max && notes != null) notes.add("Note: " + all.size() + " files in " + d.getName() + "; the first " + max + " by name are asked about (Max files)");
     return out;
+  }
+
+  /** Where the list of answered files is kept (the app's own folder, set at start). */
+  public static volatile File doneDir;
+  static final String DONE_FILE = "chat-folder-done.txt";
+
+  /** The input folder as given (a picked folder's address on the phone: --done_key, its copy's path not). */
+  public static String key(List<String> argv) {
+    String k = arg(argv, "--done_key");
+    return k != null ? k : arg(argv, "--input_dir");
+  }
+
+  /** The names of the files of the folder `key` answered in earlier runs. */
+  public static java.util.Set<String> done(String key) {
+    java.util.Set<String> out = new java.util.HashSet<String>();
+    File f = doneDir == null ? null : new File(doneDir, DONE_FILE);
+    if (key == null || f == null || !f.isFile()) return out;
+    try {
+      for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8).split("\n")) {
+        int t = line.indexOf('\t');
+        if (t > 0 && line.substring(0, t).equals(key)) out.add(line.substring(t + 1));
+      }
+    } catch (Exception ignored) {
+      // none known
+    }
+    return out;
+  }
+
+  /** The files a folder run answered (its log's "=== File k of n: name ===" blocks with a "Succeeded:" line). */
+  public static List<String> answered(String log) {
+    List<String> out = new ArrayList<String>();
+    String cur = null;
+    boolean ok = false;
+    for (String line : (log == null ? "" : log).split("\n")) {
+      java.util.regex.Matcher m = java.util.regex.Pattern.compile("^=== File \\d+ of \\d+: (.+) ===$").matcher(line.trim());
+      if (m.matches() || line.trim().startsWith("Folder done:")) {
+        if (cur != null && ok) out.add(cur);
+        cur = m.matches() ? m.group(1) : null;
+        ok = false;
+      } else if (cur != null && line.trim().startsWith("Succeeded")) {
+        ok = true;
+      }
+    }
+    if (cur != null && ok) out.add(cur);
+    return out;
+  }
+
+  /** The files answered added to the folder's list (kept also when Skip already processed is off). */
+  public static void markDone(String key, List<String> names) {
+    if (key == null || names.isEmpty() || doneDir == null) return;
+    java.util.Set<String> have = done(key);
+    StringBuilder sb = new StringBuilder();
+    for (String n : names) if (have.add(n)) sb.append(key).append('\t').append(n).append('\n');
+    if (sb.length() == 0) return;
+    try {
+      doneDir.mkdirs();
+      java.nio.file.Files.write(new File(doneDir, DONE_FILE).toPath(), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+          java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+    } catch (Exception ignored) {
+      // only not kept
+    }
   }
 
   /** The text files the run wrote (its answers), in order. */

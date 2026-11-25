@@ -16249,11 +16249,28 @@ public class BehaviorTest {
     int inFolders = 0;
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if ("Folders".equals(x.group)) inFolders++;
     out.append("preset: ").append(TextOffer.said.replaceAll("in [^;]*answers-Folders", "in answers-Folders")).append(" | in group ").append(inFolders).append('\n');
+    // Skip already processed: the files a run answered kept (from its log); left out next time, only the new ones asked about.
+    java.io.File doneDirWas = ChatFolder.doneDir;
+    ChatFolder.doneDir = new java.io.File(app.getCacheDir(), "done-" + System.nanoTime());
+    try {
+      String runLog = "Folder chat-folder-test: 2 files\n=== File 1 of 2: A.jpg ===\nSucceeded: chat-A.txt\n=== File 2 of 2: b.txt ===\nFailed: rate limit\nFolder done: 1 of 2 answered\n";
+      out.append("answered: ").append(ChatFolder.answered(runLog)).append('\n');
+      ChatFolder.markDone(dir.getAbsolutePath(), ChatFolder.answered(runLog));
+      java.util.List<String> again = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Describe", "--input_dir", dir.getAbsolutePath(), "--skip_done"));
+      java.util.List<String> notes2 = new java.util.ArrayList<String>();
+      java.util.List<String> got2 = ChatFolder.expand(again, notes2);
+      StringBuilder files2 = new StringBuilder();
+      for (int i = 0; i + 1 < got2.size(); i++) if ("--dir_file".equals(got2.get(i))) files2.append(new java.io.File(got2.get(i + 1)).getName()).append(' ');
+      out.append("skip done: ").append(files2.toString().trim()).append(" | ").append(notes2).append('\n');
+    } finally {
+      ChatFolder.doneDir = doneDirWas;
+    }
     out.append("names: ").append(ChatFolder.cutName("chat-A.txt", true)).append(", without a folder ").append(ChatFolder.cutName("chat-A.txt", false)).append('\n');
     String t = out.toString();
     write("s274_chat_folder", t);
     String[] want = {"files: A.jpg b.txt | [Note: 3 files in chat-folder-test; the first 2 by name are asked about (Max files)]",
-        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt",
+        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt", "answered: [A.jpg]",
+        "skip done: b.txt c.mid | [Note: 1 file in chat-folder-test answered before, left out (Skip already processed)]",
         "preset: Answers saved (cut after \u201c=== Sogni ===\u201d): 2 files in answers-Folders; 2 sent to SogniPadd's group Folders as sections | in group 2"};
     boolean ok = t.matches("(?s).*\nsaved: 2 \\| Answers saved \\(cut after \u201c=== Sogni ===\u201d\\): 2 files in [^\n]*answers\n.*");
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

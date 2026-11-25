@@ -1150,6 +1150,8 @@ final class PyJav {
                 // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
                 // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
                 boolean chatFolder = ChatFolder.folderRun(name, argv);
+                // The folder's files answered kept (Skip already processed leaves them out next time), also after a run some failed in.
+                if (chatFolder) ChatFolder.markDone(ChatFolder.key(argv), ChatFolder.answered(result.log));
                 // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
                 boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
                 if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);

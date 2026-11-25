@@ -44,7 +44,8 @@ import java.util.Map;
  * --input_dir asks the same question about each file in a folder, one after another (by name; at
  * most --max_files, 20 when not given, in case the folder is a big one): each is its own chat, saved
  * as <output name>-<file>.txt, or with %f in the output name the file's name there (notes-%f), else
- * <file>.txt. --output_dir is Pulsekit's: it cuts each answer at Document ready's delimiter (the one
+ * <file>.txt. --skip_done (Pulsekit's): the folder's files answered in earlier runs are left out, only
+ * the new ones asked about. --output_dir is Pulsekit's: it cuts each answer at Document ready's delimiter (the one
  * used last) and saves it there; Params' Select file then puts one into a prompt. --send_program and
  * --send_group are Pulsekit's too: an input folder's answers also go into that program's group as
  * sections (%g in the output name and folder is that group); Document ready has a button for it.
@@ -119,7 +120,7 @@ public final class SogniChat {
   static int run(String[] typed) throws Exception {
     work = System.getProperty("pulsekit.work");
     String[] given = tidy(typed);
-    for (String a : given) if (a.equals("--input_dir") || a.equals("--dir_file")) return runFolder(given);
+    for (String a : given) if (a.equals("--input_dir") || a.equals("--dir_file") || a.equals("--listed")) return runFolder(given);
     System.out.println(VERSION);
     String[] args = given;
     lastMade = new ArrayList<String>();
@@ -489,6 +490,7 @@ public final class SogniChat {
     int max = 20;
     List<String[]> items = new ArrayList<String[]>();
     List<String> rest = new ArrayList<String>();
+    boolean listed = false;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--input_dir") && i + 1 < args.length) dir = args[++i].trim();
@@ -507,9 +509,19 @@ public final class SogniChat {
           i += 2;
         }
         items.add(new String[] {f, copy});
+      } else if (a.equals("--listed") || a.equals("--skip_done")) {
+        // Pulsekit listed the folder (--dir_file), with Skip already processed leaving out the files answered before.
+        if (a.equals("--listed")) listed = true;
+      } else if (a.equals("--done_key") && i + 1 < args.length) {
+        i++;
       } else rest.add(a);
     }
     String where = dir == null || dir.isEmpty() ? "the files given" : new File(dir).getName();
+    if (items.isEmpty() && listed) {
+      System.out.println("Nothing new in " + where + ": every file in it was answered before (Skip already processed)");
+      System.out.println("Succeeded");
+      return 0;
+    }
     if (items.isEmpty()) {
       File d = dir == null || dir.isEmpty() ? null : new File(dir);
       if (d == null || !d.isDirectory()) {
@@ -570,7 +582,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--output_dir folder] [--send_program name] [--send_group name]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--output_dir folder] [--send_program name] [--send_group name]");
   }
 
   /**
