@@ -226,6 +226,18 @@ said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
 print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))
+# Don't delete ticked: the hit bench (run separately, its results not kept yet) uses the kits the cymbal bench left unpacked,
+# where they are: nothing unpacked again; and it does not delete the cymbal bench's renders.
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+still = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
+print("hit after keep: unpacked %d, used there %d, DrumMidi ran %d, cymbal renders still %d, own unzip folder %s" % (
+    said.getvalue().count("unpacking"), said.getvalue().count("unpacked already in"),
+    sum(1 for l in said.getvalue().splitlines() if l.startswith("Kit ") and ": kick " in l and "from the last bench" not in l), len(still),
+    os.path.isdir(os.path.join(kout, "hit-bench", "kits"))))
 # Another output folder (so another work folder): the earlier bench's kept results are found and copied, DrumMidi does not run.
 said = io.StringIO()
 with contextlib.redirect_stdout(said):

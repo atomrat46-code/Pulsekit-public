@@ -4560,24 +4560,42 @@ def bench_map(fn, songs, jobs, label):
         return list(pool.map(one, songs))
 
 
-def bench_unpack(key, zips, root, audio, label=""):
+def bench_unpacked(into, sig, audio):
+    """Whether <into> holds the kit unpacked from these zips (with `audio`: its renders too)."""
+    mark = os.path.join(into, "unpacked.txt")
+    try:
+        had = open(mark, encoding="utf-8").read().split() if os.path.isfile(mark) else []
+    except OSError:
+        had = []
+    return had[:1] == [sig] and (not audio or "audio" in had and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav")))
+
+
+def bench_unpack(key, zips, root, audio, label="", also=()):
     """A kit's zips unpacked into <root>/<key> (--bench_unzip): its MIDI, report, run line and kit profile,
     and with `audio` its MP3s or WAVs too (not its dm/ MIDI: the bench runs DrumMidi itself). Once: what
-    is there already is kept. The folder."""
+    is there already is kept. The other bench's unzip folders (`also`) are looked in first: a kit unpacked
+    there (Don't delete ticked) is used where it is, not unpacked again. The folder."""
     import zipfile
     import shutil
     import time
     into = os.path.join(root, key)
     sig = bench_sig(zips)
-    mark = os.path.join(into, "unpacked.txt")
-    had = open(mark, encoding="utf-8").read().split() if os.path.isfile(mark) else []
-    if had[:1] == [sig] and (not audio or "audio" in had):
+    if bench_unpacked(into, sig, audio):
         return into
-    if os.path.isdir(into):
-        shutil.rmtree(into, ignore_errors=True)
-    os.makedirs(into)
+    for other in also:
+        there = os.path.join(other, key) if other else None
+        if there and os.path.normcase(os.path.abspath(there)) != os.path.normcase(os.path.abspath(into)) and bench_unpacked(there, sig, audio):
+            print("%sunpacked already in %s: used there" % (label, other), flush=True)
+            return there
+    mark = os.path.join(into, "unpacked.txt")
+    # The kit there without its renders (deleted after an earlier bench): only the renders unpacked, the rest kept.
+    only_audio = audio and bench_unpacked(into, sig, False)
+    if not only_audio:
+        if os.path.isdir(into):
+            shutil.rmtree(into, ignore_errors=True)
+        os.makedirs(into)
     # Big runs are dozens of zips: said as it goes (Pulsekit stops a run that says nothing for 10 minutes).
-    print("%sunpacking %d zip%s…" % (label, len(zips), "" if len(zips) == 1 else "s"), flush=True)
+    print("%sunpacking %d zip%s%s…" % (label, len(zips), "" if len(zips) == 1 else "s", " (the renders only)" if only_audio else ""), flush=True)
     last = time.time()
     for zn, z in enumerate(zips):
         if time.time() - last > 30:
@@ -4590,6 +4608,8 @@ def bench_unpack(key, zips, root, audio, label=""):
                 if n.endswith("/") or n.startswith("dm/") or ".." in n.split("/") or n.startswith("/"):
                     continue
                 if not audio and n.startswith(("mp3/", "wav/")):
+                    continue
+                if only_audio and not n.startswith(("mp3/", "wav/")):
                     continue
                 target = os.path.join(into, *n.split("/"))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -5214,6 +5234,33 @@ def busy(what, fn, *args):
         done.set()
 
 
+def bench_own(into, unzip):
+    """Whether the kit's folder is this bench's own (one the other bench unpacked is not emptied by this one)."""
+    return os.path.normcase(os.path.abspath(os.path.dirname(into))) == os.path.normcase(os.path.abspath(unzip))
+
+
+def cymbal_unzips(opts):
+    """Where the cymbal bench may have kits unpacked: its unzip folder as given or as model_bench works it out."""
+    out = []
+    try:
+        c = cymbal_unzip(opts)
+    except Exception:
+        c = None
+    for f in (opts.get("--bench_unzip"), c):
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
+def hit_unzips(opts, outdir):
+    """Where the hit bench may have kits unpacked: its unzip folder, else hit-bench/kits in the output folder."""
+    out = []
+    for f in (opts.get("--hit_unzip"), os.path.join(opts.get("--outdir") or outdir, "hit-bench", "kits")):
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
 def cymbal_unzip(opts):
     """The cymbal bench's unzip folder, as model_bench works it out (None without its input folder)."""
     folder = (bench_folders(opts["--bench_dir"] or opts["--dir"]) or [None])[0]
@@ -5289,7 +5336,7 @@ def model_bench(opts, switches):
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
         bench_reuse(cache, sig, lambda old: bench_cache(work, old, key, zips))
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key), hit_unzips(opts, outdir))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
@@ -5299,7 +5346,7 @@ def model_bench(opts, switches):
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         # (Shared with the hit bench before it: the renders it kept for this bench go now too.)
         # (--bench_keep: kept for the next bench; the tabs' Delete extracted files deletes them.)
-        if "--bench_keep" not in switches and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
+        if "--bench_keep" not in switches and bench_own(into, unzip) and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5794,13 +5841,14 @@ def hit_bench(opts, switches):
             print("No results of these kits from any DrumMidi build in those folders: this is the hit bench's first run on them", flush=True)
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = hits_at(work, sig, key, zips)
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key), [] if shared else cymbal_unzips(opts) + [os.path.join(x, "cymbal-bench", "kits") for x in [outdir] + list(folders)]
+                            + ([os.path.join(opts["--bench_work"], "kits")] if opts.get("--bench_work") else []))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
-        if ran and not shared and "--bench_keep" not in switches:
+        if ran and not shared and "--bench_keep" not in switches and bench_own(into, unzip):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
