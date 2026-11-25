@@ -556,6 +556,8 @@ public final class ProgramParams {
       p.choices = new String[] {"(none)", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
       p.choiceValues = new String[] {"", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
     }
+    if (p.flag && !p.takesValue && chat && p.token.equals(ChatFolder.SILENT))
+      p.label = "Silent auto mode: no Document ready; the answer saved (Output name, Output folder), sent to the group and rendered by itself (only with Auto render)";
     if (p.flag && !p.takesValue && chat && p.token.equals("--auto_render"))
       p.label = "Auto render: the answer as the Send to program's prompt, rendered with its Params (aspect, width, height...); its prompt put back after (no Send to program: not used)";
     if (p.flag && p.takesValue && chat && p.token.equals("--send_group")) {
@@ -1854,6 +1856,13 @@ public final class ProgramParams {
    * have them not, so a run leaves them out; Params shows them again in their rows, unticked.
    */
   public static final String OFF_KEY = "#off";
+
+  /** The saved Params with one switch's value set (the rest as they are). */
+  public static String withValue(List<Param> ps, String saved, String token, String value) {
+    String[] values = values(ps, saved, "");
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).flag && ps.get(i).token.equals(token)) values[i] = value == null ? "" : value;
+    return build(ps, values);
+  }
 
   /** The Output name given in Params (a program's optional output: Sogni's [output.png]), kept beside its Params. */
   public static final String OUTPUT_KEY = "#output";

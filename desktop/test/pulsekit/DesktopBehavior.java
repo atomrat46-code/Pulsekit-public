@@ -1807,6 +1807,9 @@ public final class DesktopBehavior {
         "--run run2",
         "--models",
         "--max_tokens lots",
+        // Silent auto mode (Output name, Output folder and group given): no Document ready; the answer saved,
+        // kept as a section and rendered by itself.
+        "quiet-answer --prompt \"Describe it\" --file \"" + tall.getAbsolutePath() + "\" --output_dir \"" + new File(home, "quiet").getAbsolutePath() + "\" --send_program SogniPadd --send_group Quiet --auto_render --silent_auto",
       };
       for (String extra : runs) {
         edt(() -> log.setText(""));
@@ -1825,6 +1828,12 @@ public final class DesktopBehavior {
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
       }
+      // The silent run's auto render (a SogniPadd batch) stopped here: only its start is looked at.
+      edt(() -> call("stopBatch"));
+      String quiet = String.valueOf(out).contains("== quiet-answer") ? String.valueOf(out).substring(String.valueOf(out).indexOf("== quiet-answer")) : "";
+      out.append("silent: document ready shown ").append(quiet.contains("dialog \"Document ready\""))
+          .append(", saved ").append(new File(home, "quiet/quiet-answer.txt").isFile())
+          .append(", raw in Download ").append(new File(home, ".pulsekit/quiet-answer.txt").isFile()).append('\n');
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
         // The filter is off for every chat request and run but the --filter_on one.
@@ -1844,6 +1853,7 @@ public final class DesktopBehavior {
       if (answered == null || answered.length != 3 || !answered[0].equals("chat-1-notes.txt") || !answered[1].equals("chat-2-wide.txt") || !answered[2].equals("chat-3-more.txt"))
         throw new AssertionError("folder answers: " + java.util.Arrays.toString(answered) + "\n" + out);
       for (String a : answered) if (new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8).contains("===")) throw new AssertionError("not cut: " + a);
+      if (!String.valueOf(out).contains("silent: document ready shown false, saved true, raw in Download false")) throw new AssertionError("silent auto mode:\n" + out);
       // Skip already processed: the second folder run asked about the one file left out, the third about none.
       String all = out.toString();
       int alone = all.indexOf("== --prompt \"Skip alone\"");

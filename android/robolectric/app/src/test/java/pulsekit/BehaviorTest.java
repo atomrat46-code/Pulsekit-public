@@ -16484,10 +16484,48 @@ public class BehaviorTest {
         .append(" | saved into: name, no folder '").append(ChatFolder.answerDir(java.util.Arrays.asList("mine"), false))
         .append("', no name ").append(ChatFolder.answerDir(java.util.Arrays.asList("--prompt", "x"), true))
         .append(", folder ").append(ChatFolder.answerDir(java.util.Arrays.asList("--output_dir", "/o"), false)).append('\n');
+    // Silent auto mode: only with Auto render and a Send to program; then no Document ready (as an input folder's run).
+    java.util.List<String> silentArgs = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x", "--auto_render", "--silent_auto", "--send_program", "SogniPadd"));
+    java.util.List<ProgramParams.Param> chatPs = ProgramParams.parse(chat);
+    String silentLabel = "";
+    for (ProgramParams.Param p : chatPs) if (p.token.equals(ChatFolder.SILENT)) silentLabel = p.label;
+    out.append("silent: on ").append(ChatFolder.silent("SogniChat.java", silentArgs)).append(", no auto render ")
+        .append(ChatFolder.silent("SogniChat.java", java.util.Arrays.asList("--prompt", "x", "--silent_auto", "--send_program", "SogniPadd")))
+        .append(", no program ").append(ChatFolder.silent("SogniChat.java", java.util.Arrays.asList("--auto_render", "--silent_auto")))
+        .append(" | auto saved ").append(ChatFolder.autoSaved("SogniChat.java", silentArgs)).append(" | empty ").append(ChatFolder.silentEmpty("SogniChat.java", chatPs, silentArgs))
+        .append(" | all given ").append(ChatFolder.silentEmpty("SogniChat.java", chatPs, java.util.Arrays.asList("Ans", "--auto_render", "--silent_auto", "--send_program", "SogniPadd", "--output_dir", "o", "--send_group", "G")))
+        .append(" | label ").append(silentLabel.startsWith("Silent auto mode")).append('\n');
+    java.util.List<String> noAuto = new java.util.ArrayList<String>(silentArgs);
+    ChatFolder.withoutAuto(noAuto);
+    out.append("without auto: ").append(noAuto).append(" | send program set: ").append(ProgramParams.withValue(chatPs, "--prompt \"x\"", "--send_program", "SogniVideo")).append('\n');
+    // Run: Auto render with no Send to program asked first; Silent auto mode's empty fields asked first.
+    app.programMenus.selectProgram("Java", "SogniChat.java");
+    idle();
+    app.pyJav.pkPyArgs.setText("--prompt \"Hello\" --auto_render");
+    app.pyJav.pkRunPyJav();
+    idle();
+    android.app.AlertDialog ask = app.pyJav.pkAskChat;
+    out.append("ask auto: ").append(ask != null && ask.isShowing()).append(" | ").append(ask == null ? "" : ask.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText())
+        .append(" / ").append(ask == null ? "" : ask.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getText()).append('\n');
+    if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    app.pyJav.pkAskChat = null;
+    app.pyJav.pkPyArgs.setText("--prompt \"Hello\" --auto_render --silent_auto --send_program SogniPadd");
+    app.pyJav.pkRunPyJav();
+    idle();
+    ask = app.pyJav.pkAskChat;
+    android.widget.TextView msg = ask == null ? null : (android.widget.TextView) ask.findViewById(android.R.id.message);
+    out.append("ask silent: ").append(ask != null && ask.isShowing()).append(" | ").append(msg == null ? "" : msg.getText().toString().replace('\n', '|')).append('\n');
+    if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
         && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
+        && t.contains("silent: on true, no auto render false, no program false | auto saved true | empty [Output name, Output folder, Send to group] | all given [] | label true")
+        && t.contains("without auto: [--prompt, x, --send_program, SogniPadd] | send program set: ") && t.contains("--send_program SogniVideo")
+        && t.contains("ask auto: true | Run without Auto render / Choose the program")
+        && t.contains("ask silent: true | Silent auto mode would run with these left empty:|\u2022 Output name") && t.contains("Send to group: the answer is not kept as a section||Run it like this?")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");

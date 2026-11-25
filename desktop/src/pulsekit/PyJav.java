@@ -801,6 +801,37 @@ final class PyJav {
         if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
             inBatchQ.outFolder = ProgramFolder.outdir(batchPattern, this.programFolder()).getAbsolutePath();
         final boolean savingRun = saving;
+        // SogniChat: Auto render with no Send to program: run without it, or choose the program (kept in the Params).
+        if (ChatFolder.autoWithoutProgram(name, runArgs)) {
+            Object[] options = {ChatFolder.RUN_WITHOUT_AUTO, ChatFolder.CHOOSE_PROGRAM, "Cancel"};
+            int ans = this.chatAnswer != null ? this.chatAnswer[0] : JOptionPane.showOptionDialog(app, ChatFolder.AUTO_NO_PROGRAM, "Auto render", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans == 0) ChatFolder.withoutAuto(runArgs);
+            else if (ans == 1) {
+                Object chosen = this.chatAnswer != null ? ChatFolder.RENDER_PROGRAMS[this.chatAnswer[1]]
+                    : JOptionPane.showInputDialog(app, "Render the answer with", "Auto render", JOptionPane.QUESTION_MESSAGE, null, ChatFolder.RENDER_PROGRAMS, ChatFolder.RENDER_PROGRAMS[0]);
+                if (chosen == null) {
+                    app.setNow("Not run");
+                    return;
+                }
+                java.util.List<ProgramParams.Param> cps = ProgramParams.parse(this.programText());
+                this.saveParams(name, ProgramParams.withValue(cps, this.loadParams(name), "--send_program", chosen.toString()));
+                runArgs.add("--send_program");
+                runArgs.add(chosen.toString());
+            } else {
+                app.setNow("Not run");
+                return;
+            }
+        }
+        // Silent auto mode with Output name, Output folder or Send to group empty: asked first.
+        java.util.List<String> chatEmpty = ChatFolder.silentEmpty(name, "SogniChat.java".equals(name) ? ProgramParams.parse(this.programText()) : new java.util.ArrayList<ProgramParams.Param>(), runArgs);
+        if (!chatEmpty.isEmpty()) {
+            Object[] options = {ChatFolder.RUN_ANYWAY, "Cancel"};
+            int ans = this.chatAnswer != null ? this.chatAnswer[2] : JOptionPane.showOptionDialog(app, ChatFolder.silentEmptyAsk(chatEmpty), "Silent auto mode", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]);
+            if (ans != 0) {
+                app.setNow("Not run");
+                return;
+            }
+        }
         // PlayList --nogui without a list writes the Default playlist: its file given.
         final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
@@ -1168,9 +1199,10 @@ final class PyJav {
                 }
                 // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
                 // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
-                boolean chatFolder = ChatFolder.folderRun(name, argv);
+                // (Silent auto mode too: no Document ready, the answer saved, sent and rendered by itself.)
+                boolean chatFolder = ChatFolder.autoSaved(name, argv);
                 // The folder's files answered kept (Skip already processed leaves them out next time), also after a run some failed in.
-                if (chatFolder) ChatFolder.markDone(ChatFolder.key(argv), ChatFolder.answered(result.log));
+                if (ChatFolder.folderRun(name, argv)) ChatFolder.markDone(ChatFolder.key(argv), ChatFolder.answered(result.log));
                 // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
                 boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
                 if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
@@ -2935,6 +2967,9 @@ final class PyJav {
         }
     }
 
+    /** The tests: SogniChat's questions answered ({Auto render's choice, the program picked, Silent auto mode's}); null: asked. */
+    static int[] chatAnswer;
+
     /** The last SogniChat run's raw chat was written (no Output name). */
     volatile boolean chatRawKept = true;
 
@@ -3357,7 +3392,6 @@ final class PyJav {
         after.setLineWrap(true);
         after.setWrapStyleWord(true);
         bottom.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
-        bottom.add(new JLabel(TextReady.HINT), java.awt.BorderLayout.SOUTH);
         panel.add(bottom, java.awt.BorderLayout.SOUTH);
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());

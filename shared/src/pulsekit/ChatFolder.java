@@ -60,6 +60,54 @@ public final class ChatFolder {
     return out;
   }
 
+  /** Silent auto mode: Document ready skipped (only with Auto render and a Send to program). */
+  public static final String SILENT = "--silent_auto";
+
+  /** Silent auto mode in effect: ticked, with Auto render and its Send to program (else not used). */
+  public static boolean silent(String program, List<String> argv) {
+    return "SogniChat.java".equals(program) && argv != null && argv.contains(SILENT) && AutoRender.target(argv) != null;
+  }
+
+  /** A run whose answers are saved, sent and rendered by themselves (no Document ready): an input folder's, or silent. */
+  public static boolean autoSaved(String program, List<String> argv) {
+    return folderRun(program, argv) || silent(program, argv);
+  }
+
+  /** Auto render ticked with no Send to program: asked before the run. */
+  public static boolean autoWithoutProgram(String program, List<String> argv) {
+    return "SogniChat.java".equals(program) && argv != null && argv.contains("--auto_render") && arg(argv, "--send_program") == null;
+  }
+
+  public static final String AUTO_NO_PROGRAM = "Auto render is ticked, but Send to program is empty: there is no program to render the answer with.";
+  public static final String RUN_WITHOUT_AUTO = "Run without Auto render", CHOOSE_PROGRAM = "Choose the program", RUN_ANYWAY = "Run anyway";
+  /** The programs Auto render can render with (Send to program's list). */
+  public static final String[] RENDER_PROGRAMS = {"SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic"};
+
+  /** Auto render and Silent auto mode taken off a run's arguments (Run without Auto render). */
+  public static void withoutAuto(List<String> argv) {
+    while (argv.remove("--auto_render")) {}
+    while (argv.remove(SILENT)) {}
+  }
+
+  /** Silent auto mode's fields left empty (Output name, Output folder, Send to group): asked about before the run. */
+  public static List<String> silentEmpty(String program, List<ProgramParams.Param> ps, List<String> argv) {
+    List<String> out = new ArrayList<String>();
+    if (!silent(program, argv)) return out;
+    if (outputName(ps, argv) == null) out.add("Output name");
+    if (arg(argv, "--output_dir") == null) out.add("Output folder");
+    if (arg(argv, "--send_group") == null) out.add("Send to group");
+    return out;
+  }
+
+  /** The question when Silent auto mode would run with fields empty. */
+  public static String silentEmptyAsk(List<String> empty) {
+    StringBuilder sb = new StringBuilder("Silent auto mode would run with these left empty:");
+    if (empty.contains("Output name")) sb.append("\n\u2022 Output name: the answer is named after the chat");
+    if (empty.contains("Output folder")) sb.append("\n\u2022 Output folder: the answer is saved in Download");
+    if (empty.contains("Send to group")) sb.append("\n\u2022 Send to group: the answer is not kept as a section");
+    return sb.append("\n\nRun it like this?").toString();
+  }
+
   /** A SogniChat run on a folder (--input_dir given). */
   public static boolean folderRun(String program, List<String> argv) {
     return PictureCopies.wants(program) && arg(argv, "--input_dir") != null;

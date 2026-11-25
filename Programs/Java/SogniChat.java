@@ -50,7 +50,8 @@ import java.util.Map;
  * --send_group are Pulsekit's too: an input folder's answers also go into that program's group as
  * sections (%g in the output name and folder is that group); Document ready has a button for it.
  * --auto_render (Pulsekit's): the answer becomes the Send to program's prompt and is rendered with its
- * Params (each answer of an input folder), its prompt put back after.
+ * Params (each answer of an input folder), its prompt put back after. --silent_auto (Pulsekit's, with
+ * --auto_render): no Document ready; the answer saved, sent to the group and rendered by itself.
  *
  * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
  * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
@@ -172,7 +173,7 @@ public final class SogniChat {
       // Pulsekit's: where its answers are sent as sections (an input folder's by themselves).
       else if ((a.equals("--send_program") || a.equals("--send_group")) && i + 1 < args.length) i++;
       // Pulsekit's too: the answer rendered by the Send to program.
-      else if (a.equals("--auto_render")) continue;
+      else if (a.equals("--auto_render") || a.equals("--silent_auto")) continue;
       // An input folder's rows given with no input folder (a one-file run): left out.
       else if (a.equals("--skip_done") || a.equals("--listed")) continue;
       else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
@@ -589,7 +590,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto]");
   }
 
   /**

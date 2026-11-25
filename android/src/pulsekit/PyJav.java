@@ -1114,6 +1114,9 @@ final class PyJav {
 
     /** SogniMusic's test without drums: Run anyway was pressed (the next run goes on), and the question, for the tests. */
     boolean pkDrumsWarned;
+    /** SogniChat's questions before a run (Auto render with no Send to program; Silent auto mode's empty fields), and their answers. */
+    android.app.AlertDialog pkAskChat;
+    boolean pkChatNoAuto, pkChatAsked;
     android.app.AlertDialog pkAskDrums;
 
     /** Run was answered Yes ("run a new session while the current task is incomplete"): the next check passes. */
@@ -1451,6 +1454,39 @@ final class PyJav {
             }
         } catch (Exception ignored) {
             // the program says what it misses
+        }
+        // SogniChat: Run without Auto render chosen (its Send to program empty): both auto rows left out of this run.
+        if (this.pkChatNoAuto) pulsekit.ChatFolder.withoutAuto(argv);
+        this.pkChatNoAuto = false;
+        // Auto render with no Send to program: run without it, or choose the program (kept in the Params).
+        if (pulsekit.ChatFolder.autoWithoutProgram(name, argv)) {
+            final String chatName = name;
+            this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Auto render").setMessage(pulsekit.ChatFolder.AUTO_NO_PROGRAM)
+                .setPositiveButton(pulsekit.ChatFolder.RUN_WITHOUT_AUTO, (d, w) -> {
+                    this.pkChatNoAuto = true;
+                    this.pkRunPyJav();
+                })
+                .setNeutralButton(pulsekit.ChatFolder.CHOOSE_PROGRAM, (d, w) -> this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Render with")
+                    .setItems(pulsekit.ChatFolder.RENDER_PROGRAMS, (d2, which) -> {
+                        java.util.List<pulsekit.ProgramParams.Param> cps = pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, chatName));
+                        PyJavParams.store(app, chatName, pulsekit.ProgramParams.withValue(cps, PyJavParams.load(app, chatName), "--send_program", pulsekit.ChatFolder.RENDER_PROGRAMS[which]));
+                        this.pkRunPyJav();
+                    }).setNegativeButton("Cancel", null).show())
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+            return;
+        }
+        // Silent auto mode with Output name, Output folder or Send to group empty: asked first.
+        java.util.List<String> chatEmpty = this.pkChatAsked ? new java.util.ArrayList<String>()
+            : pulsekit.ChatFolder.silentEmpty(name, "SogniChat.java".equals(name) ? pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)) : new java.util.ArrayList<pulsekit.ProgramParams.Param>(), argv);
+        this.pkChatAsked = false;
+        if (!chatEmpty.isEmpty()) {
+            this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Silent auto mode").setMessage(pulsekit.ChatFolder.silentEmptyAsk(chatEmpty))
+                .setPositiveButton(pulsekit.ChatFolder.RUN_ANYWAY, (d, w) -> {
+                    this.pkChatAsked = true;
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+            return;
         }
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
@@ -1981,7 +2017,8 @@ final class PyJav {
         this.pkOffer("the video", ok && !inBatch, () -> VideoOffer.offer(app, made));
         // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
         // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
-        final boolean chatFolder = ok && pulsekit.ChatFolder.folderRun(program, argv);
+        // (Silent auto mode too: no Document ready, the answer saved, sent and rendered by itself.)
+        final boolean chatFolder = ok && pulsekit.ChatFolder.autoSaved(program, argv);
         // The folder's files answered kept (Skip already processed leaves them out next time), also after a run some failed in.
         if (pulsekit.ChatFolder.folderRun(program, argv)) pulsekit.ChatFolder.markDone(pulsekit.ChatFolder.key(argv), pulsekit.ChatFolder.answered(madeLog));
         // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
@@ -1992,7 +2029,7 @@ final class PyJav {
         // (With Output name the raw chat was not written: the processed one is saved on closing, in Download when no Output folder.)
         final boolean rawKept = pulsekit.ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
         this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.answerDir(argv, rawKept), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
-        // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
+        // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
         if (chatFolder && !inBatch && pulsekit.AutoRender.target(argv) != null) {
             String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
             java.util.List<String[]> answers = new java.util.ArrayList<String[]>();

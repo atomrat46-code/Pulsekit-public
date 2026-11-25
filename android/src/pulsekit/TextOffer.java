@@ -225,16 +225,13 @@ final class TextOffer {
         body.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
         body.setMinLines(3);
         // Editable: a cursor and the keyboard; scrolled inside when longer than 14 lines.
-        typed(body, 14);
+        typed(body, 22);
         // Right under the line above (an EditText's own top padding is large).
         body.setPadding(body.getPaddingLeft(), app.dp(2), body.getPaddingRight(), body.getPaddingBottom());
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
         bp.topMargin = 0;
         col.addView(body, bp);
-        TextView hint = app.text(TextReady.HINT, 12, false);
-        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
-        hp.topMargin = app.dp(10);
-        col.addView(hint, hp);
+        // (No help line under it: the room is the text's.)
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
