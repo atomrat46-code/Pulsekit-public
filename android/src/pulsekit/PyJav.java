@@ -1969,7 +1969,14 @@ final class PyJav {
         this.pkOffer("the answers", ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null),
             () -> TextOffer.saveAnswers(app, program, argv, made, this::pkAddLogLine));
         // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.arg(argv, "--output_dir"), pulsekit.TextReady.preset(argv)));
+        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.arg(argv, "--output_dir"), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
+        // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
+        if (chatFolder && !inBatch && pulsekit.AutoRender.target(argv) != null) {
+            String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
+            java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+            for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) answers.add(new String[] {f.name, pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set)});
+            this.pkStartAutoRender(pulsekit.AutoRender.target(argv), answers);
+        }
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
@@ -2360,6 +2367,29 @@ final class PyJav {
         pulsekit.BatchQueue q = pulsekit.BatchQueue.sections(program, pulsekit.PyJavParams.load(app, program), ps, picked);
         if (q == null) return;
         this.pkAddLogLine("Sections: " + picked.size() + " run" + (picked.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(program) + ", one after another");
+        this.pkBatchNext(q);
+    }
+
+    /** What Auto render did last (the tests). */
+    static volatile String autoRenderSaid = "";
+
+    /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
+    void pkStartAutoRender(String target, java.util.List<String[]> answers) {
+        if (pulsekit.BatchQueue.current() != null) {
+            autoRenderSaid = "A batch is running: Auto render left out";
+            this.pkAddLogLine(autoRenderSaid);
+            return;
+        }
+        String text = pulsekit.PyJavParams.programTextOf(app, target);
+        if (text == null) {
+            autoRenderSaid = "Auto render: " + target + " not found";
+            this.pkAddLogLine(autoRenderSaid);
+            return;
+        }
+        pulsekit.BatchQueue q = pulsekit.AutoRender.start(target, pulsekit.ProgramParams.parse(text), pulsekit.PyJavParams.load(app, target), answers);
+        if (q == null) return;
+        autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
+        this.pkAddLogLine(autoRenderSaid);
         this.pkBatchNext(q);
     }
 

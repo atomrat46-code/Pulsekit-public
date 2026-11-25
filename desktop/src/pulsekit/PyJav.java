@@ -1161,7 +1161,9 @@ final class PyJav {
                 boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
                 if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
                 // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
-                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"), TextReady.preset(argv));
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.arg(argv, "--output_dir"), TextReady.preset(argv), AutoRender.target(argv));
+                // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
+                if (!inBatch && chatFolder && result.code == 0 && AutoRender.target(argv) != null) this.autoRender(AutoRender.target(argv), name, result.files);
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -3142,6 +3144,11 @@ final class PyJav {
 
     /** As above; `preset` (Send to program and group): a button sends the text there with one click. */
     void offerText(String program, String fileName, String whole, String outputDir, String[] preset) {
+        this.offerText(program, fileName, whole, outputDir, preset, null);
+    }
+
+    /** As above; `autoTarget` (Auto render): the text as shown rendered by that program once Document ready closes. */
+    void offerText(String program, String fileName, String whole, String outputDir, String[] preset, String autoTarget) {
         final String[] group = {null};
         try {
             this.offerTextLoop(program, fileName, whole, group, preset);
@@ -3151,7 +3158,43 @@ final class PyJav {
                 if (app.pyLog != null) app.pyLog.append("\n" + answerSaid);
                 app.setNow(answerSaid);
             }
+            if (autoTarget != null) {
+                java.util.List<String[]> one = new java.util.ArrayList<String[]>();
+                one.add(new String[] {fileName, lastTextReadyText});
+                this.startAutoRender(autoTarget, one);
+            }
         }
+    }
+
+    /** Auto render of an input folder's answers: each cut as Document ready would (its delimiter and text after). */
+    void autoRender(String target, String chat, java.util.List<PythonRun.FileOut> files) {
+        String[] set = TextReady.setting(PromptDb.dir(), chat);
+        java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+        for (PythonRun.FileOut f : files) if (f.name.toLowerCase().endsWith(".txt")) answers.add(new String[] {f.name, TextReady.result(TextReady.text(f.bytes), set)});
+        this.startAutoRender(target, answers);
+    }
+
+    /** What Auto render did last (the tests). */
+    static volatile String autoRenderSaid = "";
+
+    /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
+    void startAutoRender(String target, java.util.List<String[]> answers) {
+        if (BatchQueue.current() != null) {
+            autoRenderSaid = "A batch is running: Auto render left out";
+            this.testNote(autoRenderSaid);
+            return;
+        }
+        String text = programTextOf(target);
+        if (text == null) {
+            autoRenderSaid = "Auto render: " + target + " not found";
+            this.testNote(autoRenderSaid);
+            return;
+        }
+        BatchQueue q = AutoRender.start(target, ProgramParams.parse(text), this.loadParams(target), answers);
+        if (q == null) return;
+        autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
+        this.testNote(autoRenderSaid);
+        this.batchNext(q);
     }
 
     /** The text Document ready showed last (as edited), for the output folder's save. */

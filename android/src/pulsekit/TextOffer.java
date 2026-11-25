@@ -33,10 +33,15 @@ final class TextOffer {
 
     /** As above; `preset` (Send to program and group): a button sends the text there with one click. */
     static boolean offer(final MainActivity app, String program, JavaRun.Result result, String outputDir, String[] preset) {
+        return offer(app, program, result, outputDir, preset, null);
+    }
+
+    /** As above; `autoTarget` (Auto render): the text as shown rendered by that program once Document ready closes. */
+    static boolean offer(final MainActivity app, String program, JavaRun.Result result, String outputDir, String[] preset, String autoTarget) {
         if (result == null || !TextReady.wanted(program)) return false;
         JavaRun.FileOut f = TextReady.textOf(result.files);
         if (f == null) return false;
-        show(app, program, f.name, TextReady.text(f.bytes), outputDir, preset);
+        show(app, program, f.name, TextReady.text(f.bytes), outputDir, preset, autoTarget);
         return true;
     }
 
@@ -96,6 +101,10 @@ final class TextOffer {
     }
 
     static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir, final String[] preset) {
+        show(app, program, name, whole, outputDir, preset, null);
+    }
+
+    static void show(final MainActivity app, final String program, String name, final String whole, final String outputDir, final String[] preset, final String autoTarget) {
         final java.io.File dir = app.getFilesDir();
         // The group Send to group used (%g in the saved answer's names).
         final String[] group = {null};
@@ -237,6 +246,12 @@ final class TextOffer {
         // --output_dir: the answer as shown saved there when Document ready closes (%g: the group sent to).
         dialog.setOnDismissListener(d -> {
             if (outputDir != null) say(app, saveInto(app, outputDir, fileName, body.getText().toString(), group[0]));
+            // Auto render: the text as shown rendered by the Send to program.
+            if (autoTarget != null && app.pyJav != null) {
+                java.util.List<String[]> one = new java.util.ArrayList<String[]>();
+                one.add(new String[] {fileName, body.getText().toString()});
+                app.pyJav.pkStartAutoRender(autoTarget, one);
+            }
         });
         dialog.show();
         // Its text boxes take the keyboard (a dialog's window can be set not to).

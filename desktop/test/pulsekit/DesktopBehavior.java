@@ -10510,6 +10510,28 @@ public final class DesktopBehavior {
         }
       }
       got.append("params after: ").append(pj.loadParams("SogniPadd.java").contains("--input_dir")).append('\n');
+      // Auto render (SogniChat): two answers as SogniPadd's prompt, with its Params (its seed); its prompt put back after.
+      starts.clear();
+      PyJav.runSectionsSaid = null;
+      pj.saveParams("SogniPadd.java", "--prompt \"Original prompt\" --seed 7 --key_file \"" + key.getAbsolutePath() + "\"");
+      got.append("target: ").append(AutoRender.target(java.util.Arrays.asList("--auto_render", "--send_program", "SogniPadd"))).append(", none without ")
+          .append(AutoRender.target(java.util.Arrays.asList("--auto_render"))).append('\n');
+      final java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+      answers.add(new String[] {"answer-1.txt", "A lighthouse in fog."});
+      answers.add(new String[] {"answer-2.txt", "Cherry trees at dawn."});
+      edt(() -> pj.startAutoRender("SogniPadd.java", answers));
+      for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+      Thread.sleep(500);
+      idle();
+      got.append("auto render: ").append(PyJav.autoRenderSaid).append(" | ").append(String.valueOf(PyJav.runSectionsSaid).replace("\n", " / ")).append('\n');
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> a = (Map<?, ?>) ((Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0)).get("arguments");
+          got.append("  auto: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append('\n');
+        }
+      }
+      got.append("prompt after: ").append(pj.loadParams("SogniPadd.java")).append('\n');
     } finally {
       PyJav.runSectionsBefore = null;
       server.stop(0);
@@ -10519,7 +10541,8 @@ public final class DesktopBehavior {
     boolean ok = g.contains("round 1: Files done: 2 of 2 runs succeeded") && g.contains("run: A red kite over hills. | seed 42") && g.contains("run: An owl at dusk | seed 42.0 | loras [\"kite\"]")
         && g.contains("3 files; the first 2 by name are run (Max files)") && !g.contains("run: Not this")
         && g.contains("round 2: Files done: 1 of 1 runs succeeded") && g.contains("2 files done before, left out (Skip already processed)")
-        && g.contains("run: A grey sea. | seed 42") && g.contains("a-hills.txt: Succeeded \u2192 img-a-hills.png") && g.contains("c-sea.prompt: Succeeded \u2192 img-c-sea.png") && g.contains("params after: true");
+        && g.contains("run: A grey sea. | seed 42") && g.contains("target: SogniPadd.java, none without null") && g.contains("auto render: Auto render: 2 runs of SogniPadd | Files done: 2 of 2 runs succeeded")
+        && g.contains("auto: A lighthouse in fog. | seed 7.0") && g.contains("auto: Cherry trees at dawn. | seed 7.0") && g.contains("prompt after: --prompt \"Original prompt\" --seed 7") && g.contains("a-hills.txt: Succeeded \u2192 img-a-hills.png") && g.contains("c-sea.prompt: Succeeded \u2192 img-c-sea.png") && g.contains("params after: true");
     if (!ok) throw new AssertionError(g);
   }
 

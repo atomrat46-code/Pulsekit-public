@@ -543,6 +543,8 @@ public final class ProgramParams {
       p.choices = new String[] {"(none)", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
       p.choiceValues = new String[] {"", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
     }
+    if (p.flag && !p.takesValue && chat && p.token.equals("--auto_render"))
+      p.label = "Auto render: the answer as the Send to program's prompt, rendered with its Params (aspect, width, height...); its prompt put back after (no Send to program: not used)";
     if (p.flag && p.takesValue && chat && p.token.equals("--send_group")) {
       p.label = "Send to group (made when missing; %g in the output name and folder)";
       p.hint = "e.g. Moods";

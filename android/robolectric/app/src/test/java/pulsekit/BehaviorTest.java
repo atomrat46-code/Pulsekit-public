@@ -16358,13 +16358,21 @@ public class BehaviorTest {
     BatchQueue.stop();
     out.append("labels: ").append(q.labels).append(" | notes ").append(notes).append('\n');
     for (String pr : q.params) out.append("params: ").append(pr.replace(dir.getAbsolutePath(), "~")).append('\n');
+    // Auto render (SogniChat): each answer as SogniPadd's prompt, its other Params kept (an input folder's rows left out).
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"answer.txt", "A lighthouse in fog.\nSoft light."});
+    BatchQueue ar = AutoRender.start("SogniPadd.java", padd, "--prompt \"Original\" --seed 7 --input_dir \"/x\"", answers);
+    BatchQueue.stop();
+    out.append("auto render: ").append(ar.params).append(" | ").append(AutoRender.target(java.util.Arrays.asList("--send_program", "SogniPadd", "--auto_render"))).append('\n');
     String t = out.toString();
     write("s276_folder_runs", t);
     boolean ok = t.contains("row --input_dir: Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture (folder)")
         && t.contains("row --section: Section: a saved section's entries") && t.contains("labels: [a.png, b.jpg]")
         && t.contains("3 files; the first 2 by name are run (Max files)") && t.contains("Section Soft light")
         && t.contains("params: --prompt \"Soft window light\"") && t.contains("--image ~/a.png") && t.contains("--loras \"glow 0.5\"")
-        && !t.contains("--input_dir \"~") && !t.contains("--section \"soft");
+        && !t.contains("--input_dir \"~") && !t.contains("--section \"soft")
+        && t.contains("auto render: [--prompt \"A lighthouse in fog. Soft light.\" --seed 7] | SogniPadd.java");
     if (!ok) throw new AssertionError(t);
   }
 
