@@ -28,6 +28,13 @@ public final class BatchQueue {
   /** Picture ready's and Video ready's button while files are made one after another (a batch, a folder run). */
   public static final String STOP_RUN = "Stop run";
 
+  /** The Running line's count of a batch's runs ("Batch 3/20"), or null (no batch, JoinVideo at its end, or one run only). */
+  public static String runCount() {
+    BatchQueue q = current();
+    if (q == null || q.joining || q.runs.size() < 2 || q.next < 1) return null;
+    return "Batch " + Math.min(q.next, q.runs.size()) + "/" + q.runs.size();
+  }
+
   /** A batch going (not stopped yet). */
   public static boolean going() {
     BatchQueue q = current();

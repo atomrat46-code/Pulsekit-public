@@ -521,12 +521,17 @@ final class PyJav {
         this.pkPromptModes.setVisibility(8);
         this.pkSetPromptRun(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app)), slot);
-        slot = slot + 1;
+        // Browse file and Params side by side (a gap between them).
+        android.widget.LinearLayout fileRow = new android.widget.LinearLayout(app);
+        fileRow.setOrientation(0);
+        android.widget.TextView browseBtn = app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app));
+        browseBtn.setTag("pyjav-browse");
         // Params and Run apart, and in different colours: a tap meant for Params no longer starts a run.
         android.widget.TextView paramsBtn = app.action("Params", ELEV, FG, pulsekit.PyJavUi.params(app));
         paramsBtn.setTag("pyjav-params");
-        app.pyPane.addView(paramsBtn, slot);
+        fileRow.addView(browseBtn, pkHalf(false));
+        fileRow.addView(paramsBtn, pkHalf(true));
+        app.pyPane.addView(fileRow, slot);
         slot = slot + 1;
         android.widget.TextView runBtn = app.action("Run", FG, BG, pulsekit.PyJavUi.click(app));
         runBtn.setTag("pyjav-run");
@@ -538,7 +543,15 @@ final class PyJav {
         this.pkStopBtn = app.action("Stop", ELEV, FG, v -> this.pkStopRun());
         this.pkStopBtn.setTag("pyjav-stop");
         this.pkStopBtn.setVisibility(this.pkLive != null && !this.pkLive.done && !this.pkLive.aborted() ? 0 : 8);
-        app.pyPane.addView(this.pkStopBtn, slot);
+        // Stop batch beside it (BatchRun's runs end after the one in progress); either alone takes the row.
+        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
+        this.pkBatchStopBtn.setTag("pyjav-batch-stop");
+        this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
+        android.widget.LinearLayout stopRow = new android.widget.LinearLayout(app);
+        stopRow.setOrientation(0);
+        stopRow.addView(this.pkStopBtn, pkHalf(false));
+        stopRow.addView(this.pkBatchStopBtn, pkHalf(true));
+        app.pyPane.addView(stopRow, slot);
         slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
@@ -552,12 +565,6 @@ final class PyJav {
         app.pyPane.addView(this.pkBackBtn, slot);
         slot = slot + 1;
         this.pkShowBack();
-        // Stop batch: BatchRun's runs end after the one in progress.
-        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
-        this.pkBatchStopBtn.setTag("pyjav-batch-stop");
-        this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
-        app.pyPane.addView(this.pkBatchStopBtn, slot);
-        slot = slot + 1;
         // The run's output, set apart under its own headline.
         android.widget.TextView outHead = app.text("Output", 13, true);
         outHead.setTag("pyjav-output-head");
@@ -2339,6 +2346,13 @@ final class PyJav {
             this.pkForcedArgs = drumArgs;
             this.pkRunPyJav();
         });
+    }
+
+    /** One of two buttons sharing a row: half the width each, a gap between them (`second`: the gap before it). */
+    android.widget.LinearLayout.LayoutParams pkHalf(boolean second) {
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        if (second) lp.leftMargin = app.dp(10);
+        return lp;
     }
 
     /** The batch's Stop batch button (shown while a batch runs). */

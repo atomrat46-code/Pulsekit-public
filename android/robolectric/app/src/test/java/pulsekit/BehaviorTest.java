@@ -16518,6 +16518,18 @@ public class BehaviorTest {
     out.append("ask silent: ").append(ask != null && ask.isShowing()).append(" | ").append(msg == null ? "" : msg.getText().toString().replace('\n', '|')).append('\n');
     if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
     idle();
+    // A batch's run in the Running line: Batch k/n; Browse file and Params, Stop and Stop batch, share rows.
+    java.util.List<String[]> three = new java.util.ArrayList<String[]>();
+    for (String n : new String[] {"a", "b", "c"}) three.add(new String[] {n + ".txt", n});
+    BatchQueue bq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\"", three);
+    bq.nextArgs();
+    bq.nextArgs();
+    String batchLine = JavaRun.runningLine(null, 0);
+    BatchQueue.stop();
+    View pane = app.findViewById(android.R.id.content);
+    View browse = pane.findViewWithTag("pyjav-browse"), params = pane.findViewWithTag("pyjav-params"), stopB = pane.findViewWithTag("pyjav-stop"), stopBatch = pane.findViewWithTag("pyjav-batch-stop");
+    out.append("batch line: ").append(batchLine).append(" | after: ").append(JavaRun.runningLine(null, 0)).append(" | rows: ")
+        .append(browse != null && browse.getParent() == params.getParent()).append(' ').append(stopB != null && stopB.getParent() == stopBatch.getParent()).append('\n');
     // A folder run's file in the Running line; its answers' sections saved once (holdSaves).
     out.append("running: ").append(JavaRun.news("SogniChat\n=== File 3 of 20: c.txt ===\nModel m")).append(" | done: ").append(JavaRun.news("=== File 20 of 20: t.txt ===\nFolder done: 20 of 20 answered")).append('\n');
     PromptVault hv = PromptVault.open(app.getFilesDir());
@@ -16536,7 +16548,7 @@ public class BehaviorTest {
         && t.contains("without auto: [--prompt, x, --send_program, SogniPadd] | send program set: ") && t.contains("--send_program SogniVideo")
         && t.contains("ask auto: true | Run without Auto render / Choose the program")
         && t.contains("ask silent: true | Silent auto mode would run with these left empty:|\u2022 Output name") && t.contains("Send to group: the answer is not kept as a section||Run it like this?")
-        && t.contains("running: Processing file 3/20 | done: null") && t.contains("held saves: writes before release 0, after 1")
+        && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
         && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");

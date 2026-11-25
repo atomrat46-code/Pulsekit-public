@@ -179,7 +179,9 @@ public final class JavaRun {
     long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
     String time = s >= 3600 ? (s / 3600) + ":" + two((s / 60) % 60) + ":" + two(s % 60) : (s / 60) + ":" + two(s % 60);
     String news = live == null ? null : news(live.text());
-    return "Running\u2026 " + time + (news == null ? "" : " \u00b7 " + news);
+    // A batch's run (Auto render, an input folder, Run sections): which of how many.
+    String batch = BatchQueue.runCount();
+    return "Running\u2026 " + time + (batch == null ? "" : " \u00b7 " + batch) + (news == null ? "" : " \u00b7 " + news);
   }
 
   /** Appends `s` to `out` with `time` before each line that starts in it; true when `s` ends a line. */
