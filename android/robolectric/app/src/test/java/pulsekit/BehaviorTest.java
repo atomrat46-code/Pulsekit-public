@@ -16206,6 +16206,28 @@ public class BehaviorTest {
     ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
     idle();
     out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
+    // The text's buttons beside File: to the end, to the start, a page down and up (the lines the box shows at once).
+    StringBuilder longText = new StringBuilder();
+    for (int i = 1; i <= 80; i++) longText.append("Line ").append(i).append('\n');
+    ((android.widget.EditText) body2).setText(longText.toString().trim());
+    idle();
+    android.widget.EditText eb = (android.widget.EditText) body2;
+    r2.findViewWithTag("text-ready:end").performClick();
+    idle();
+    boolean atEnd = eb.getSelectionStart() == eb.getText().length();
+    r2.findViewWithTag("text-ready:start").performClick();
+    idle();
+    boolean atStart = eb.getSelectionStart() == 0;
+    r2.findViewWithTag("text-ready:page-down").performClick();
+    idle();
+    int downAt = eb.getSelectionStart();
+    int downLine = eb.getLayout() == null ? -1 : eb.getLayout().getLineForOffset(downAt);
+    int shownLines = (eb.getHeight() - eb.getTotalPaddingTop() - eb.getTotalPaddingBottom()) / Math.max(1, eb.getLineHeight());
+    r2.findViewWithTag("text-ready:page-up").performClick();
+    idle();
+    out.append("text buttons: ").append(((TextView) r2.findViewWithTag("text-ready:start")).getText()).append(((TextView) r2.findViewWithTag("text-ready:page-up")).getText())
+        .append(((TextView) r2.findViewWithTag("text-ready:page-down")).getText()).append(((TextView) r2.findViewWithTag("text-ready:end")).getText())
+        .append(" | end ").append(atEnd).append(", start ").append(atStart).append(", page down a page ").append(shownLines > 1 && downLine == shownLines).append(", up again ").append(eb.getSelectionStart() == 0).append('\n');
     // Select: a list of Select file, Browse sections and Custom text; Custom text shows its field, its text added last (remembered).
     android.view.View customField = r2.findViewWithTag("text-ready:custom");
     boolean customHidden = !customField.isShown();
@@ -16345,6 +16367,7 @@ public class BehaviorTest {
         "custom menu: Save, Add into program's group, Clear | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
         "custom cleared: A red kite over a grey sea. | kept ''",
         "custom box: before it true | off: A red kite over a grey sea. | kept off | on again true",
+        "text buttons: \u21e4\u25b2\u25bc\u21e5 | end true, start true, page down a page true, up again true",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
         "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
         "cuts: b > c / a / a > b"};
@@ -16604,6 +16627,29 @@ public class BehaviorTest {
     PyJavParams.store(app, "SogniPadd.java", "");
     PyJavParams.store(app, "SogniTextVideo.java", "");
     BatchQueue.stop();
+    // Picture ready made by a chain: Back to the program that chained it; a run of its own: no Back.
+    android.graphics.Bitmap pbmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream ppng = new java.io.ByteArrayOutputStream();
+    pbmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, ppng);
+    java.util.List<JavaRun.FileOut> pfiles = new java.util.ArrayList<JavaRun.FileOut>();
+    pfiles.add(new JavaRun.FileOut("Testi_1.png", ppng.toByteArray()));
+    JavaRun.Result pr = new JavaRun.Result("", pfiles, 0);
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    ReadyBack.toProgram(app, "SogniPadd.java");
+    PictureOffer.offer(app, pr);
+    idle();
+    android.widget.Button backB = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
+    String backText = backB == null ? "none" : backB.getText().toString();
+    if (backB != null) backB.performClick();
+    idle();
+    String backTo = app.pyName;
+    ReadyBack.clear();
+    PictureOffer.offer(app, pr);
+    idle();
+    android.widget.Button noBack = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
+    out.append("ready back: ").append(backText).append(" | to ").append(backTo).append(" | own run: ").append(noBack == null || noBack.getVisibility() != View.VISIBLE ? "no Back" : "Back").append('\n');
+    PictureOffer.last.dismiss();
     String t = out.toString();
     write("s278_chain_batch_prompt", t);
     String[] want = {
@@ -16613,6 +16659,7 @@ public class BehaviorTest {
         "text video: --prompt \"A red kite, slow pan\" / --prompt \"A blue boat. slow pan\" | own batch: --prompt \"A red kite, zoom in\" --pk-batch-prompt --pk-batch-prompt-text \"zoom in\" | chained true",
         "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
         "params: chain to hidden true, shown true | batch text true, buttons true true",
+        "ready back: Back | to SogniPadd.java | own run: no Back",
         "chained: Chain: 2 runs of SogniTextVideo | SogniTextVideo.java true --prompt \"A red kite, slow pan\" --pk-usage-warn 80"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");

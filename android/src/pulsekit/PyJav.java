@@ -1438,6 +1438,8 @@ final class PyJav {
         // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
         ArtJava.rawTextOff = !pulsekit.ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? PyJavParams.programTextOf(app, name) : null, argv);
         pulsekit.BatchQueue inBatchQ = pulsekit.BatchQueue.runOf(name);
+        // A run of its own (not a batch's): its Picture ready or Video ready has no Back.
+        if (inBatchQ == null) ReadyBack.clear();
         // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
         String groupPattern = pulsekit.DownloadMove.takeValue(argv, pulsekit.DownloadMove.BATCH_GROUP);
         // Params' Usage warning: read before a batch (pkBatchNext), not the program's.
@@ -2602,6 +2604,8 @@ final class PyJav {
         }
         chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
         this.pkAddLogLine(chainSaid);
+        // Their Back: the program that chained them.
+        ReadyBack.toProgram(app, from);
         this.pkBatchNext(q);
     }
 
@@ -2620,6 +2624,8 @@ final class PyJav {
         }
         pulsekit.BatchQueue q = pulsekit.AutoRender.start(target, pulsekit.ProgramParams.parse(text), pulsekit.PyJavParams.load(app, target), answers);
         if (q == null) return;
+        // Its pictures' Back: SogniChat's page (Document ready, when it chained them, sets itself after this).
+        ReadyBack.toProgram(app, "SogniChat.java");
         autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
         this.pkAddLogLine(autoRenderSaid);
         this.pkBatchNext(q);

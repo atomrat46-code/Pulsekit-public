@@ -321,7 +321,27 @@ final class TextOffer {
             lastMenu = m;
             m.show();
         });
-        col.addView(file, 0, new LinearLayout.LayoutParams(-2, -2));
+        // The menu bar: File, then the text's buttons: to its start, a page up, a page down, to its end.
+        LinearLayout bar = new LinearLayout(app);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.addView(file, new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView[] navs = new TextView[4];
+        final String[] navTags = {"text-ready:start", "text-ready:page-up", "text-ready:page-down", "text-ready:end"};
+        final String[] navSyms = {"\u21e4", "\u25b2", "\u25bc", "\u21e5"};
+        final String[] navSays = {"To the start", "A page up", "A page down", "To the end"};
+        for (int k = 0; k < 4; k++) {
+            TextView n = app.text(navSyms[k], 20, true);
+            n.setTag(navTags[k]);
+            n.setContentDescription(navSays[k]);
+            n.setGravity(android.view.Gravity.CENTER);
+            n.setPadding(app.dp(10), app.dp(4), app.dp(10), app.dp(4));
+            n.setClickable(true);
+            if (tv.resourceId != 0) n.setBackgroundResource(tv.resourceId);
+            navs[k] = n;
+            bar.addView(n, new LinearLayout.LayoutParams(-2, -2));
+        }
+        col.addView(bar, 0, new LinearLayout.LayoutParams(-1, -2));
         // The text as it will be copied, saved or sent: editable (a new cut, delimiter or text after makes it again).
         final EditText body = new EditText(app);
         body.setTextSize(15);
@@ -336,6 +356,10 @@ final class TextOffer {
         bp.topMargin = 0;
         col.addView(body, bp);
         // (No help line under it: the room is the text's.)
+        navs[0].setOnClickListener(v -> page(body, Integer.MIN_VALUE));
+        navs[1].setOnClickListener(v -> page(body, -1));
+        navs[2].setOnClickListener(v -> page(body, 1));
+        navs[3].setOnClickListener(v -> page(body, Integer.MAX_VALUE));
         final Runnable cut = () -> {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
@@ -463,6 +487,15 @@ final class TextOffer {
                 java.util.List<String[]> one = new java.util.ArrayList<String[]>();
                 one.add(new String[] {fileName, body.getText().toString()});
                 app.pyJav.pkStartAutoRender(autoTarget, one);
+                // Its pictures' Back: this Document ready again, its text as it was (not saved or rendered again on closing).
+                final String shownText = body.getText().toString();
+                ReadyBack.set(TextReady.TITLE, () -> {
+                    show(app, program, fileName, whole, null, given, null);
+                    if (last != null) {
+                        android.widget.EditText again = (android.widget.EditText) last.getWindow().getDecorView().findViewWithTag("text-ready:text");
+                        if (again != null) again.setText(shownText);
+                    }
+                });
             }
         });
         dialog.show();
@@ -636,6 +669,29 @@ final class TextOffer {
         };
         lastSections = new AlertDialog.Builder(app).setTitle(TextReady.SEND_GROUP_PROGRAM).setItems(apps.toArray(new String[0]), (d, w) -> toApp.accept(apps.get(w)))
             .setNegativeButton("Cancel", null).show();
+    }
+
+    /**
+     * The text's cursor moved: to its start (MIN_VALUE), its end (MAX_VALUE), or a page up (-1) or down (1),
+     * a page being the lines its box shows at once; the box scrolled so the cursor's line is at its top.
+     */
+    static void page(final EditText body, int how) {
+        body.requestFocus();
+        int len = body.getText().length();
+        if (how == Integer.MIN_VALUE || how == Integer.MAX_VALUE) {
+            body.setSelection(how == Integer.MIN_VALUE ? 0 : len);
+            if (how == Integer.MIN_VALUE) body.scrollTo(0, 0);
+            return;
+        }
+        android.text.Layout l = body.getLayout();
+        if (l == null) return;
+        int shown = Math.max(1, (body.getHeight() - body.getTotalPaddingTop() - body.getTotalPaddingBottom()) / Math.max(1, body.getLineHeight()));
+        int top = l.getLineForVertical(body.getScrollY());
+        int target = Math.max(0, Math.min(l.getLineCount() - 1, top + how * shown));
+        body.setSelection(l.getLineStart(target));
+        final int y = Math.max(0, Math.min(l.getLineTop(target), Math.max(0, l.getHeight() - (body.getHeight() - body.getTotalPaddingTop() - body.getTotalPaddingBottom()))));
+        body.scrollTo(0, y);
+        body.post(() -> body.scrollTo(0, y));
     }
 
     /** The tests: the File menu shown last. */

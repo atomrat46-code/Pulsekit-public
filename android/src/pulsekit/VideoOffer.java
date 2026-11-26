@@ -482,6 +482,8 @@ final class VideoOffer {
             .setPositiveButton("Close", null);
         // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
         if (app.pyJav != null && app.pyJav.pkMultiRunning()) vb.setNegativeButton(BatchQueue.STOP_RUN, (d, w) -> app.pyJav.pkStopMulti());
+        // Made by a chain (SogniPadd's Chain, Document ready's Auto render): Back to the screen that chained it.
+        ReadyBack.addTo(vb);
         AlertDialog dialog = vb.create();
         // Turned sideways: the clip full screen from where it is (upright again: back here).
         final SidewaysVideo.Small wide = new SidewaysVideo.Small() {
