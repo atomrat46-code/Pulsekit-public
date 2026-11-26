@@ -1241,6 +1241,8 @@ public final class ProgramParams {
       p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--bench_keep")) {
       p.label = "Don't delete the benches' unzipped files automatically (a bench run again does not unpack the kits' zips again; the Cymbal model and Hit model tabs' Delete extracted files deletes them)";
+    } else if (p.token.equals("--hit_band")) {
+      p.label = "Band mixes too: each kit's songs also with a band over them (bass and guitar, piano, synth or clean guitar, as loud as the drums), learned from too, so the hit model learns drums under other instruments (DrumMidi runs twice as long)";
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
     } else if (p.token.equals("--hit_model_file")) {

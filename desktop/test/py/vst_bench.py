@@ -176,6 +176,21 @@ with _cl.redirect_stdout(_said):
     vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", os.path.join(work, "hits-out2"), "--drummidi", jar])
 print("hit elsewhere:", [l.split(" (")[0] for l in _said.getvalue().splitlines() if l.startswith("DrumMidi's results kept")],
       "| DrumMidi ran", sum(1 for l in _said.getvalue().splitlines() if "from the last bench" not in l and l.startswith("Kit ") and ": kick " in l))
+# --hit_band: each kit's songs also with a band over them, as their own kit ("<kit> (band)"), learned from too.
+import contextlib as _cl2
+import io as _io2
+_band = _io2.StringIO()
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+with _cl2.redirect_stdout(_band):
+    vr.main(["--hit_bench", "--hit_loo", "--hit_band", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", os.path.join(work, "band-out"), "--drummidi", jar])
+_bl = _band.getvalue().splitlines()
+bz = [f for f in sorted(os.listdir(os.path.join(work, "band-out"))) if f.endswith(".zip")]
+with zipfile.ZipFile(os.path.join(work, "band-out", bz[0])) as z:
+    bsum = z.read("summary.txt").decode()
+print("band:", len([l for l in _bl if " with a band: kick " in l]), "kits with a band;",
+      "band rows in the summary", sum(1 for l in bsum.splitlines() if "(band)" in l), "| models learned from",
+      [l for l in _bl if l.startswith("Learning the models from")][:1])
 # A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
 again = os.path.join(work, "again")
 os.makedirs(again, exist_ok=True)

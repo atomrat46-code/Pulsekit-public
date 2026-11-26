@@ -1101,6 +1101,9 @@ public class DrumMidi_CRT{
         if (drumStem) note("Drum-stem mode: the drums alone (no bass, guitar or keys guards)");
         Audio audio = readAudio(heard);
         if (heard != inFile) heard.delete();
+        // The hit model bench's band mixes (-Ddm.mixWith=<band.wav>): a band laid over the drums as they are read.
+        String mixWith = System.getProperty("dm.mixWith");
+        if (mixWith != null && mixWith.length() > 0) mixIn(audio, new File(mixWith), Double.parseDouble(System.getProperty("dm.mixLevel", "1")));
         double sr = audio.sampleRate;
         double fps = sr / HOP;
         note(String.format(java.util.Locale.ROOT, "Loaded %.1f s at %.0f Hz", audio.samples.length / sr, sr));
@@ -1983,6 +1986,33 @@ public class DrumMidi_CRT{
             if (in != null) for (File c : in) deleteTree(c);
             f.delete();
         }
+    }
+
+    /**
+     * The hit model bench's band: `band` (a WAV) added to the song as loud as its drums (x `level`), resampled
+     * to the song's rate when it has another, the sum kept under full scale. Only the bench sets it.
+     */
+    static void mixIn(Audio audio, File band, double level) throws Exception {
+        Audio b = readAudio(band);
+        double[] x = audio.samples;
+        double ratio = b.sampleRate / audio.sampleRate;
+        double drums = 0, acc = 0;
+        double[] y = new double[x.length];
+        for (int i = 0; i < x.length; i++) {
+            double at = i * ratio;
+            int k = (int) at;
+            double v = k + 1 < b.samples.length ? b.samples[k] + (b.samples[k + 1] - b.samples[k]) * (at - k) : k < b.samples.length ? b.samples[k] : 0;
+            y[i] = v;
+            drums += x[i] * x[i];
+            acc += v * v;
+        }
+        double g = acc <= 0 ? 0 : Math.sqrt(drums / acc) * level;
+        double peak = 0;
+        for (int i = 0; i < x.length; i++) {
+            x[i] += y[i] * g;
+            peak = Math.max(peak, Math.abs(x[i]));
+        }
+        if (peak > 0.95) for (int i = 0; i < x.length; i++) x[i] *= 0.95 / peak;
     }
 
     static Audio readAudio(File f) throws Exception {
