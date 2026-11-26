@@ -607,20 +607,44 @@ final class TextOffer {
     static String customSectionName;
     static AlertDialog lastNameAsk;
 
-    /** Custom text's long press menu: Save, Add into program's group, Clear. */
+    /** Custom text's long press menu: Save, Add into program's group, Clear, Cut, Copy, Paste. */
     static void customMenu(final MainActivity app, final EditText custom) {
         android.widget.PopupMenu m = new android.widget.PopupMenu(app, custom);
-        final String[] items = {TextReady.CUSTOM_SAVE, TextReady.CUSTOM_GROUP, TextReady.CUSTOM_CLEAR};
+        final String[] items = {TextReady.CUSTOM_SAVE, TextReady.CUSTOM_GROUP, TextReady.CUSTOM_CLEAR, TextReady.CUT, TextReady.COPY_TEXT, TextReady.PASTE};
         for (int i = 0; i < items.length; i++) m.getMenu().add(0, i, i, items[i]);
         m.setOnMenuItemClickListener(it -> {
             String text = custom.getText().toString();
-            if (it.getItemId() == 0) save(app, TextReady.CUSTOM_FILE, text.trim());
-            else if (it.getItemId() == 1) customToGroup(app, text.trim());
-            else custom.setText("");
+            int id = it.getItemId();
+            if (id == 0) save(app, TextReady.CUSTOM_FILE, text.trim());
+            else if (id == 1) customToGroup(app, text.trim());
+            else if (id == 2) custom.setText("");
+            else clip(app, custom, id - 3);
             return true;
         });
         lastCustomMenu = m;
         m.show();
+    }
+
+    /** Cut (0), Copy (1) or Paste (2) in a field: its selection, else its whole text (Paste: at the cursor, over a selection). */
+    static void clip(MainActivity app, EditText f, int what) {
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+        android.text.Editable e = f.getText();
+        int a = Math.max(0, Math.min(f.getSelectionStart(), f.getSelectionEnd())), b = Math.max(0, Math.max(f.getSelectionStart(), f.getSelectionEnd()));
+        if (what < 2) {
+            if (a == b) {
+                a = 0;
+                b = e.length();
+            }
+            if (a == b) return;
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("text", e.subSequence(a, b).toString()));
+            if (what == 0) e.delete(a, b);
+            return;
+        }
+        CharSequence got = null;
+        if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) got = cm.getPrimaryClip().getItemAt(0).coerceToText(app);
+        if (got == null || got.length() == 0) return;
+        e.replace(a, b, got);
+        f.setSelection(Math.min(e.length(), a + got.length()));
     }
 
     /** Add into program's group: a Sogni program, one of its groups, then the section's name (its first words suggested). */

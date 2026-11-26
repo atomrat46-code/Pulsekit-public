@@ -10390,7 +10390,7 @@ public final class DesktopBehavior {
     got.append("custom: ").append(PyJav.lastTextReadyText.replace('\n', '|')).append(" | list ").append(pickItems).append(" | menu ").append(customItems).append(" | ").append(said[0]).append(" | in group ").append(customIn).append('\n');
     this.out.append(got);
     String g = got.toString();
-    boolean ok = g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear | Sent to SogniPadd's group Moods as a section | in group true\n")
+    boolean ok = g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear, Cut, Copy, Paste | Sent to SogniPadd's group Moods as a section | in group true\n")
         && g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
         && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
     if (!ok) throw new AssertionError(g);

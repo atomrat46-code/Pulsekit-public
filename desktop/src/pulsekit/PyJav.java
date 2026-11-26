@@ -3637,6 +3637,23 @@ final class PyJav {
         customMenu.add(cSave);
         customMenu.add(cGroup);
         customMenu.add(cClear);
+        // Cut, Copy, Paste: the selection (Cut and Copy: the whole text when nothing is selected).
+        javax.swing.JMenuItem cCut = new javax.swing.JMenuItem(TextReady.CUT);
+        cCut.addActionListener(e -> {
+            if (custom.getSelectionStart() == custom.getSelectionEnd()) custom.selectAll();
+            custom.cut();
+        });
+        javax.swing.JMenuItem cCopy = new javax.swing.JMenuItem(TextReady.COPY_TEXT);
+        cCopy.addActionListener(e -> {
+            if (custom.getSelectionStart() == custom.getSelectionEnd()) custom.selectAll();
+            custom.copy();
+        });
+        javax.swing.JMenuItem cPaste = new javax.swing.JMenuItem(TextReady.PASTE);
+        cPaste.addActionListener(e -> custom.paste());
+        customMenu.addSeparator();
+        customMenu.add(cCut);
+        customMenu.add(cCopy);
+        customMenu.add(cPaste);
         custom.setComponentPopupMenu(customMenu);
         lastCustomMenu = customMenu;
         final javax.swing.JPopupMenu pickMenu = new javax.swing.JPopupMenu();

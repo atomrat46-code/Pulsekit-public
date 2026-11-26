@@ -114,7 +114,7 @@ public final class TextReady {
 
   /** Custom text: the item in the Select list, its field's hint, and its long press menu. */
   public static final String SELECT_MENU = "Select \u25be", CUSTOM_TEXT = "Custom text", CUSTOM_HINT = "Custom text: added after the answer (long press: Save, Add into program's group)",
-      CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
+      CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", CUT = "Cut", COPY_TEXT = "Copy", PASTE = "Paste", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
 
   /** A section name for a text: its first words (at most 40 characters), else "Custom text". */
   public static String customName(String text) {

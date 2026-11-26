@@ -16272,6 +16272,29 @@ public class BehaviorTest {
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) customIn |= "Looks".equals(x.group) && "Film look".equals(x.name) && x.text.contains("Shot on film.");
     out.append("custom menu: ").append(cItems).append(" | saved ").append(new String(java.nio.file.Files.readAllBytes(customFile.toPath()), "UTF-8")).append(" | suggested ").append(suggested)
         .append(" | ").append(TextOffer.said).append(" | in group ").append(customIn).append('\n');
+    // Its menu's Cut, Copy and Paste: the selection, else the whole text; Paste at the cursor.
+    android.widget.EditText cf = (android.widget.EditText) customField;
+    cf.setSelection(0, 4);
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(4, 0);
+    cf.setSelection(cf.getText().length());
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(5, 0);
+    String pasted = cf.getText().toString();
+    cf.setSelection(cf.getText().length());
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(3, 0);
+    String cutAll = cf.getText().toString();
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(5, 0);
+    idle();
+    out.append("custom clip: copy+paste ").append(pasted).append(" | cut all '").append(cutAll).append("' | pasted back ").append(cf.getText()).append('\n');
+    cf.setText("Shot on film.");
+    idle();
     // Its checkbox before it: unchecked, the custom text is not added (remembered); checked again, it is.
     android.widget.CheckBox customAdd = (android.widget.CheckBox) r2.findViewWithTag("text-ready:custom-add");
     boolean boxFirst = ((android.view.ViewGroup) customAdd.getParent()).getChildAt(0) == customAdd && ((android.view.ViewGroup) customAdd.getParent()).getChildAt(1) == customField;
@@ -16364,8 +16387,9 @@ public class BehaviorTest {
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
         "custom text: hidden true, list Select file, Browse sections, Custom text, shown true | A red kite over a grey sea.|Shot on film. | kept Shot on film.",
-        "custom menu: Save, Add into program's group, Clear | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
+        "custom menu: Save, Add into program's group, Clear, Cut, Copy, Paste | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
         "custom cleared: A red kite over a grey sea. | kept ''",
+        "custom clip: copy+paste Shot on film.Shot | cut all '' | pasted back Shot on film.Shot",
         "custom box: before it true | off: A red kite over a grey sea. | kept off | on again true",
         "text buttons: \u21e4\u25b2\u25bc\u21e5 | end true, start true, page down a page true, up again true",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
