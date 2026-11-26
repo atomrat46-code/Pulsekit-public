@@ -16221,8 +16221,15 @@ public class BehaviorTest {
     r2.findViewWithTag("text-ready:start").performClick();
     idle();
     boolean atStart = eb.getSelectionStart() == 0;
+    android.view.ViewParent sp = eb.getParent();
+    while (sp != null && !(sp instanceof android.widget.ScrollView)) sp = sp.getParent();
+    android.widget.ScrollView outerScroll = (android.widget.ScrollView) sp;
+    int outerBefore = outerScroll.getScrollY();
     r2.findViewWithTag("text-ready:page-down").performClick();
     idle();
+    boolean screenStill = outerScroll.getScrollY() == outerBefore;
+    boolean boxFits = eb.getBottom() <= outerScroll.getHeight() + outerScroll.getScrollY();
+    boolean inside = eb.getScrollY() > 0;
     int downAt = eb.getSelectionStart();
     int downLine = eb.getLayout() == null ? -1 : eb.getLayout().getLineForOffset(downAt);
     int shownLines = (eb.getHeight() - eb.getTotalPaddingTop() - eb.getTotalPaddingBottom()) / Math.max(1, eb.getLineHeight());
@@ -16230,7 +16237,8 @@ public class BehaviorTest {
     idle();
     out.append("text buttons: ").append(((TextView) r2.findViewWithTag("text-ready:start")).getText()).append(((TextView) r2.findViewWithTag("text-ready:page-up")).getText())
         .append(((TextView) r2.findViewWithTag("text-ready:page-down")).getText()).append(((TextView) r2.findViewWithTag("text-ready:end")).getText())
-        .append(" | end ").append(atEnd).append(", start ").append(atStart).append(", page down a page ").append(shownLines > 1 && downLine == shownLines).append(", up again ").append(eb.getSelectionStart() == 0).append('\n');
+        .append(" | end ").append(atEnd).append(", start ").append(atStart).append(", page down a page ").append(shownLines > 1 && downLine == shownLines).append(", up again ").append(eb.getSelectionStart() == 0)
+        .append(" | screen still ").append(screenStill).append(", box fits ").append(boxFits).append(", text scrolled inside ").append(inside).append('\n');
     // Select: a list of Select file, Browse sections and Custom text; Custom text shows its field, its text added last (remembered).
     android.view.View customField = r2.findViewWithTag("text-ready:custom");
     boolean customHidden = !customField.isShown();
@@ -16406,7 +16414,7 @@ public class BehaviorTest {
         "custom clip: copy+paste Shot on film.Shot | cut all '' | pasted back Shot on film.Shot",
         "fields: \u2212 | hidden: + after false custom false | text kept true | remembered off | again: \u2212 after true custom true",
         "custom box: before it true | off: A red kite over a grey sea. | kept off | on again true",
-        "text buttons: \u21e4\u25b2\u25bc\u21e5 | end true, start true, page down a page true, up again true",
+        "text buttons: \u21e4\u25b2\u25bc\u21e5 | end true, start true, page down a page true, up again true | screen still true, box fits true, text scrolled inside true",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
         "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
         "cuts: b > c / a / a > b"};

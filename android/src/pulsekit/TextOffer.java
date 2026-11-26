@@ -481,7 +481,22 @@ final class TextOffer {
             }
         });
         cut.run();
-        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        // (While an arrow pages the text, the screen ignores the cursor's "show me" asks: only the box scrolls.)
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(app) {
+            @Override
+            public boolean requestChildRectangleOnScreen(android.view.View child, android.graphics.Rect rect, boolean immediate) {
+                return !paging && super.requestChildRectangleOnScreen(child, rect, immediate);
+            }
+
+            @Override
+            public void requestChildFocus(android.view.View child, android.view.View focused) {
+                if (paging) {
+                    int y = getScrollY();
+                    super.requestChildFocus(child, focused);
+                    scrollTo(0, y);
+                } else super.requestChildFocus(child, focused);
+            }
+        };
         scroll.addView(col);
         final AlertDialog dialog = new AlertDialog.Builder(app)
             .setTitle(TextReady.TITLE)
@@ -525,6 +540,20 @@ final class TextOffer {
             }
         });
         dialog.show();
+        // The text's box as tall as the room under the rows above it: its text scrolls inside it (the
+        // arrows page it), the screen around it stays (fitted again when the room changes: the keyboard, -/+).
+        final int[] fitFor = {-1, -1};
+        final Runnable fit = () -> {
+            int room = scroll.getHeight() - body.getTop() - app.dp(4);
+            if (room == fitFor[0] && body.getTop() == fitFor[1]) return;
+            fitFor[0] = room;
+            fitFor[1] = body.getTop();
+            int least = body.getLineHeight() * 4 + body.getTotalPaddingTop() + body.getTotalPaddingBottom();
+            body.setMaxLines(Integer.MAX_VALUE);
+            body.setMaxHeight(Math.max(least, room));
+        };
+        scroll.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> v.post(fit));
+        scroll.post(fit);
         // Its text boxes take the keyboard (a dialog's window can be set not to).
         if (dialog.getWindow() != null) {
             dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
@@ -725,7 +754,20 @@ final class TextOffer {
      * The text's cursor moved: to its start (MIN_VALUE), its end (MAX_VALUE), or a page up (-1) or down (1),
      * a page being the lines its box shows at once; the box scrolled so the cursor's line is at its top.
      */
+    /** An arrow paging the text: the screen around it is not scrolled to the cursor meanwhile. */
+    static volatile boolean paging;
+
     static void page(final EditText body, int how) {
+        // The screen around the box stays where it is (only the text moves).
+        android.view.ViewParent up = body.getParent();
+        while (up != null && !(up instanceof android.widget.ScrollView)) up = up.getParent();
+        final android.widget.ScrollView outer = (android.widget.ScrollView) up;
+        final int outerY = outer == null ? 0 : outer.getScrollY();
+        paging = true;
+        body.post(() -> {
+            if (outer != null) outer.scrollTo(0, outerY);
+            paging = false;
+        });
         body.requestFocus();
         int len = body.getText().length();
         if (how == Integer.MIN_VALUE || how == Integer.MAX_VALUE) {
