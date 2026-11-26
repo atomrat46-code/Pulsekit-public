@@ -16503,6 +16503,111 @@ public class BehaviorTest {
   }
 
   /** Picture ready's Stop run in a batch; Send to group skips the same text; Output name kept across Select program; Batch folder. */
+  /**
+   * SogniPadd's Chain: its pictures (a picture program) or its prompt (a prompt-only one) go on to the
+   * program picked, one run each as a batch; Batch prompt added to the prompt passed on, the target's instead
+   * of SogniPadd's when it has one.
+   */
+  @Test
+  public void s278_chain_batch_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<ProgramParams.Param> tv = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniTextVideo.java"));
+    java.util.List<ProgramParams.Param> vid = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideo.java"));
+    java.util.List<ProgramParams.Param> up = ProgramParams.parse(PyJavParams.programTextOf(app, "ImageUpscaler.java"));
+    java.util.List<ProgramParams.Param> pedit = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    java.util.function.Function<java.util.List<ProgramParams.Param>, String> rows = ps -> {
+      StringBuilder r = new StringBuilder();
+      for (ProgramParams.Param x : ps) if (x.token.startsWith("--pk-chain") || x.token.startsWith("--pk-batch-prompt")) r.append(x.token).append(' ');
+      return r.toString().trim();
+    };
+    String chainTo = "";
+    for (ProgramParams.Param x : padd) if (x.token.equals(Chain.CHAIN_TO)) chainTo = String.join(", ", x.choices);
+    out.append("rows: padd ").append(rows.apply(padd)).append(" | text video ").append(rows.apply(tv)).append(" | upscaler '").append(rows.apply(up)).append("'\n");
+    out.append("chain to: ").append(chainTo).append('\n');
+    String paddSaved = "--prompt \"A red kite\" " + Chain.CHAIN + " " + Chain.CHAIN_TO + " SogniTextVideo " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"slow pan\"";
+    out.append("target: ").append(Chain.target("SogniPadd.java", paddSaved)).append(", unticked ").append(Chain.target("SogniPadd.java", "--prompt x " + Chain.CHAIN_TO + " SogniVideo"))
+        .append(", batch ").append(Chain.batchPrompt(paddSaved)).append('\n');
+    java.util.List<String> argv = JavaRun.split(paddSaved);
+    Chain.strip(argv);
+    out.append("stripped: ").append(argv).append('\n');
+    // Prompt-only target: the run's prompt and SogniPadd's batch prompt; with its own batch prompt, that one instead.
+    java.util.List<Chain.Item> items = new java.util.ArrayList<Chain.Item>();
+    items.add(new Chain.Item("Testi_1.png", "A red kite", "/x/Testi_1.png"));
+    items.add(new Chain.Item("Testi_2.png", "A blue boat.", "/x/Testi_2.png"));
+    BatchQueue q1 = Chain.start("SogniPadd.java", "SogniTextVideo.java", tv, "--prompt \"old\"", items, "slow pan");
+    String tv1 = q1.params.get(0) + " / " + q1.params.get(1);
+    BatchQueue q2 = Chain.start("SogniPadd.java", "SogniTextVideo.java", tv, "--prompt \"old\" " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"zoom in\"", items, "slow pan");
+    out.append("text video: ").append(tv1).append(" | own batch: ").append(q2.params.get(0)).append(" | chained ").append(q2.chained).append('\n');
+    // Picture target: the picture its input, its own prompt with the batch prompt.
+    BatchQueue q3 = Chain.start("SogniPadd.java", "SogniVideo.java", vid, "--prompt \"Waves\"", items, "slow pan");
+    BatchQueue q4 = Chain.start("SogniPadd.java", "SogniPedit.java", pedit, "--prompt \"Make it night\"", items, null);
+    out.append("video: ").append(q3.params.get(1)).append(" | pedit: ").append(q4.params.get(0)).append(" | labels ").append(q3.labels).append('\n');
+    BatchQueue.stop();
+    // Params: Chain to shown once Chain is ticked; Batch prompt's text with Select file and Browse sections.
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    app.pyJav.pkOpenParams();
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    View toRow = pv.findViewWithTag("params-dropdown:" + Chain.CHAIN_TO);
+    boolean hiddenFirst = toRow != null && !toRow.isShown();
+    ((android.widget.CheckBox) pv.findViewWithTag("params-check:" + Chain.CHAIN)).setChecked(true);
+    idle();
+    boolean shownAfter = toRow != null && toRow.isShown();
+    ((android.widget.CheckBox) pv.findViewWithTag("params-check:" + Chain.BATCH_PROMPT)).setChecked(true);
+    idle();
+    out.append("params: chain to hidden ").append(hiddenFirst).append(", shown ").append(shownAfter).append(" | batch text ").append(pv.findViewWithTag("params-field:" + Chain.BATCH_TEXT) != null && pv.findViewWithTag("params-field:" + Chain.BATCH_TEXT).isShown())
+        .append(", buttons ").append(pv.findViewWithTag("params-batch-file:" + Chain.BATCH_TEXT) != null).append(' ').append(pv.findViewWithTag("params-batch-sections:" + Chain.BATCH_TEXT) != null).append('\n');
+    params.dismiss();
+    idle();
+    // SogniPadd's batch over: the chain's batch starts (here held at its Usage warning, then stopped).
+    java.io.File keyFile = new java.io.File(app.getCacheDir(), "sogni-key.txt");
+    java.nio.file.Files.write(keyFile.toPath(), "SOGNI_API_KEY=test".getBytes("UTF-8"));
+    String keyWas = SogniApi.keyFileSetting;
+    SogniApi.keyFileSetting = keyFile.getAbsolutePath();
+    SogniApi.answer = path -> SogniApi.parseJson("{\"status\":\"success\",\"data\":{\"fairUse\":{\"dailyPct\":90}}}");
+    PyJavParams.store(app, "SogniPadd.java", paddSaved);
+    PyJavParams.store(app, "SogniTextVideo.java", "--prompt \"old\" --pk-usage-warn 80");
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"a.txt", "A red kite"});
+    answers.add(new String[] {"b.txt", "A blue boat."});
+    BatchQueue pq = AutoRender.start("SogniPadd.java", padd, paddSaved, answers);
+    pq.chainItems.addAll(items);
+    pq.next = pq.runs.size();
+    PyJav.pkUsageAsk = null;
+    app.pyJav.pkBatchOver(pq);
+    idle();
+    for (int i = 0; i < 100 && (PyJav.pkUsageAsk == null || !PyJav.pkUsageAsk.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    BatchQueue cq = BatchQueue.current();
+    out.append("chained: ").append(PyJav.chainSaid).append(" | ").append(cq == null ? "none" : cq.program + " " + cq.chained + " " + cq.params.get(0)).append('\n');
+    if (PyJav.pkUsageAsk != null && PyJav.pkUsageAsk.isShowing()) PyJav.pkUsageAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    SogniApi.answer = null;
+    SogniApi.keyFileSetting = keyWas;
+    PyJavParams.store(app, "SogniPadd.java", "");
+    PyJavParams.store(app, "SogniTextVideo.java", "");
+    BatchQueue.stop();
+    String t = out.toString();
+    write("s278_chain_batch_prompt", t);
+    String[] want = {
+        "rows: padd --pk-chain --pk-chain-to --pk-batch-prompt --pk-batch-prompt-text | text video --pk-batch-prompt --pk-batch-prompt-text | upscaler ''",
+        "chain to: SogniTextVideo (prompt), SogniVideo (picture), SogniPedit (picture), SogniMusic (prompt)",
+        "target: SogniTextVideo.java, unticked null, batch slow pan", "stripped: [--prompt, A red kite]",
+        "text video: --prompt \"A red kite, slow pan\" / --prompt \"A blue boat. slow pan\" | own batch: --prompt \"A red kite, zoom in\" --pk-batch-prompt --pk-batch-prompt-text \"zoom in\" | chained true",
+        "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
+        "params: chain to hidden true, shown true | batch text true, buttons true true",
+        "chained: Chain: 2 runs of SogniTextVideo | SogniTextVideo.java true --prompt \"A red kite, slow pan\" --pk-usage-warn 80"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
   @Test
   public void s277_stop_run_batch_folder() throws Exception {
     StringBuilder out = new StringBuilder();

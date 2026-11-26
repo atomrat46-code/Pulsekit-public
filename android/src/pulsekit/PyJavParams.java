@@ -478,6 +478,27 @@ public final class PyJavParams {
         box.addView(spaced(activity, row));
         continue;
       }
+      if (Chain.batchTextRow(p)) {
+        // Batch prompt's text: typed, or from a text file (Select file) or a saved section (Browse sections).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button select = new android.widget.Button(activity);
+        select.setText("Select file");
+        select.setTag("params-batch-file:" + p.token);
+        select.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(select);
+        android.widget.Button secs = new android.widget.Button(activity);
+        secs.setText(Chain.BROWSE_SECTIONS);
+        secs.setTag("params-batch-sections:" + p.token);
+        secs.setOnClickListener(v -> {
+          if (activity instanceof MainActivity) TextOffer.pickSection((MainActivity) activity, target);
+        });
+        row.addView(secs);
+        box.addView(spaced(activity, row));
+        continue;
+      }
       if (ProgramParams.promptFromFile(p)) {
         // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
         box.addView(field);

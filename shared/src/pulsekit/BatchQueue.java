@@ -54,6 +54,11 @@ public final class BatchQueue {
   /** Its short form for the running line ("Sogni 85.5%"). */
   public String usageShort;
 
+  /** A chain's batch (Chain: SogniPadd's pictures or prompts going on); its runs chain no further. */
+  public boolean chained;
+  /** What the batch's runs made for a chain to go on with (SogniPadd with Chain ticked). */
+  public final List<Chain.Item> chainItems = new ArrayList<Chain.Item>();
+
   /** Params' Batch group, its % codes filled in at the batch's first run (every run's files put in it); null: none. */
   public String group;
 

@@ -802,6 +802,8 @@ final class PyJav {
         String groupPattern = DownloadMove.takeValue(runArgs, DownloadMove.BATCH_GROUP);
         // Params' Usage warning: read before a batch (batchNext), not the program's.
         DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
+        // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
+        Chain.strip(runArgs);
         if (inBatchQ != null && groupPattern.length() > 0) {
             if (inBatchQ.group == null) inBatchQ.group = BatchGroup.resolve(PromptDb.dir(), groupPattern);
             java.util.List<String> groupFilled = BatchGroup.withGroup(ProgramParams.parse(this.programText()), runArgs, inBatchQ.group);
@@ -1271,10 +1273,15 @@ final class PyJav {
                         int put = BatchGroup.add(PromptDb.dir(), batch.group, fs);
                         if (put > 0 && app.pyLog != null) app.pyLog.append("\n" + BatchGroup.said(batch.group, put));
                     }
+                    // Chain (SogniPadd): what the run made kept for the chain, which starts when the batch is over.
+                    if (result.code == 0 && !batch.joining && !batch.chained && Chain.target(name, this.loadParams(name)) != null) batch.chainItems.addAll(chainItems(savedPictures, argv));
                     batch.done(verdict, paths);
                     this.batchNext(batch);
                 } else if (BatchQueue.start(name, argv, verdict, result.log) != null) {
                     this.batchNext(BatchQueue.current());
+                } else if (result.code == 0 && batch == null && Chain.target(name, this.loadParams(name)) != null) {
+                    // Chain after a single run: its pictures (or prompt) go on.
+                    this.startChain(name, chainItems(savedPictures, argv));
                 }
             });
         }, "pulsekit-pyjav").start();
@@ -2993,6 +3000,12 @@ final class PyJav {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+        // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
+        if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
+            final java.util.List<Chain.Item> items = new java.util.ArrayList<Chain.Item>(q.chainItems);
+            final String from = q.program;
+            SwingUtilities.invokeLater(() -> this.startChain(from, items));
+        }
         // Run sections: what each section's run made, in a window too.
         if (q.bySections()) {
             runSectionsSaid = q.summary();
@@ -3357,6 +3370,45 @@ final class PyJav {
 
     /** What Auto render did last (the tests). */
     static volatile String autoRenderSaid = "";
+
+    /** What Chain did last (the tests). */
+    static volatile String chainSaid = "";
+
+    /** A run's saved pictures for a chain, with the run's prompt; a run without one, its prompt alone. */
+    static java.util.List<Chain.Item> chainItems(java.util.List<File> pictures, java.util.List<String> argv) {
+        java.util.List<Chain.Item> out = new java.util.ArrayList<Chain.Item>();
+        String prompt = Chain.promptOf(argv);
+        for (File f : pictures) if (f.isFile()) out.add(new Chain.Item(f.getName(), prompt, f.getAbsolutePath()));
+        if (out.isEmpty() && prompt.length() > 0) out.add(new Chain.Item("prompt", prompt, null));
+        return out;
+    }
+
+    /** Chain: `from`'s pictures (or prompts) run by the program its Params chain to, one run each as a batch. */
+    void startChain(String from, java.util.List<Chain.Item> items) {
+        String fromSaved = this.loadParams(from);
+        String target = Chain.target(from, fromSaved);
+        if (target == null || items.isEmpty()) return;
+        if (BatchQueue.current() != null) {
+            chainSaid = "A batch is running: Chain left out";
+            this.testNote(chainSaid);
+            return;
+        }
+        String text = programTextOf(target);
+        if (text == null) {
+            chainSaid = "Chain: " + target + " not found";
+            this.testNote(chainSaid);
+            return;
+        }
+        BatchQueue q = Chain.start(from, target, ProgramParams.parse(text), this.loadParams(target), items, Chain.batchPrompt(fromSaved));
+        if (q == null) {
+            chainSaid = "Chain: nothing for " + SogniSections.app(target) + " (no " + (Chain.takesPicture(target) ? "pictures" : "prompt") + ")";
+            this.testNote(chainSaid);
+            return;
+        }
+        chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
+        this.testNote(chainSaid);
+        this.batchNext(q);
+    }
 
     /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
     void startAutoRender(String target, java.util.List<String[]> answers) {
@@ -5188,6 +5240,29 @@ final class PyJav {
                         sections.addActionListener(e -> this.browseSections(sections, SogniSections.app(program), ps, fields, areas));
                         picks.add(sections);
                     }
+                    holder.add(picks, BorderLayout.SOUTH);
+                    form.add(holder);
+                    continue;
+                }
+                if (Chain.batchTextRow(p)) {
+                    // Batch prompt's text: typed, or from a text file (Select file) or a saved section (Browse sections).
+                    JPanel holder = new JPanel(new BorderLayout(0, 4));
+                    holder.add(new javax.swing.JScrollPane(area), BorderLayout.CENTER);
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    JButton select = new JButton("Select file");
+                    select.setName("params-batch-file:" + p.token);
+                    select.addActionListener(e -> {
+                        String t = this.pickFileText(select);
+                        if (t != null) area.setText(t);
+                    });
+                    JButton secs = new JButton(Chain.BROWSE_SECTIONS);
+                    secs.setName("params-batch-sections:" + p.token);
+                    secs.addActionListener(e -> {
+                        String t = this.pickSectionText(secs);
+                        if (t != null) area.setText(t);
+                    });
+                    picks.add(select);
+                    picks.add(secs);
                     holder.add(picks, BorderLayout.SOUTH);
                     form.add(holder);
                     continue;

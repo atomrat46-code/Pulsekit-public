@@ -304,6 +304,9 @@ public final class ProgramParams {
       b.hint = DownloadMove.BATCH_PARAM_HINT;
       out.add(b);
     }
+    // SogniPadd's Chain (and Chain to); the Sogni prompt programs' Batch prompt (and its text).
+    String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : null;
+    if (chainName != null) for (Param r : Chain.rows(chainName)) if (!has(out, r.token)) out.add(r);
     // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
     if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
       Param save = new Param();
@@ -1668,7 +1671,7 @@ public final class ProgramParams {
     if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
     String t = p.token;
     // A LoRA list (SogniVideo, SogniPedit, SogniPadd) too: wrapped so the whole list shows.
-    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras") || t.equals(Chain.BATCH_TEXT);
   }
 
   /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */

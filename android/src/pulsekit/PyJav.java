@@ -1442,6 +1442,8 @@ final class PyJav {
         String groupPattern = pulsekit.DownloadMove.takeValue(argv, pulsekit.DownloadMove.BATCH_GROUP);
         // Params' Usage warning: read before a batch (pkBatchNext), not the program's.
         pulsekit.DownloadMove.takeValue(argv, pulsekit.SogniUsage.WARN_PARAM);
+        // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
+        pulsekit.Chain.strip(argv);
         if (inBatchQ != null && groupPattern.length() > 0) {
             if (inBatchQ.group == null) inBatchQ.group = pulsekit.BatchGroup.resolve(app.getFilesDir(), groupPattern);
             java.util.List<String> groupFilled = pulsekit.BatchGroup.withGroup(pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)), argv, inBatchQ.group);
@@ -2111,10 +2113,15 @@ final class PyJav {
                 int put = pulsekit.BatchGroup.add(app.getFilesDir(), batch.group, fs);
                 if (put > 0) this.pkAddLogLine(pulsekit.BatchGroup.said(batch.group, put));
             }
+            // Chain (SogniPadd): what the run made kept for the chain, which starts when the batch is over.
+            if (ok && !batch.joining && !batch.chained && pulsekit.Chain.target(program, PyJavParams.load(app, program)) != null) batch.chainItems.addAll(this.pkChainItems(made, argv));
             batch.done(status, this.pkBatchCopies(made));
             this.pkBatchNext(batch);
         } else if (pulsekit.BatchQueue.start(program, argv, status, madeLog) != null) {
             this.pkBatchNext(pulsekit.BatchQueue.current());
+        } else if (ok && batch == null && pulsekit.Chain.target(program, PyJavParams.load(app, program)) != null) {
+            // Chain after a single run: its pictures (or prompt) go on.
+            this.pkStartChain(program, this.pkChainItems(made, argv));
         }
         } catch (Throwable ex) {
             String m = ex.getMessage();
@@ -2509,6 +2516,12 @@ final class PyJav {
         pulsekit.BatchQueue.stop();
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
         this.pkAddLogLine(q.summary());
+        // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
+        if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
+            final java.util.List<pulsekit.Chain.Item> items = new java.util.ArrayList<pulsekit.Chain.Item>(q.chainItems);
+            final String from = q.program;
+            app.handler.post(() -> this.pkStartChain(from, items));
+        }
         // Run sections: what each section's run made, in a window too.
         if (q.bySections()) {
             runSectionsSaid = q.summary();
@@ -2539,6 +2552,58 @@ final class PyJav {
 
     /** What Auto render did last (the tests). */
     static volatile String autoRenderSaid = "";
+
+    /** What Chain did last (the tests). */
+    static volatile String chainSaid = "";
+
+    /** A run's pictures for a chain: each copied into the cache (its own name, numbered), with the run's prompt; a run without one, its prompt alone. */
+    java.util.List<pulsekit.Chain.Item> pkChainItems(pulsekit.JavaRun.Result made, java.util.List<String> argv) {
+        java.util.List<pulsekit.Chain.Item> out = new java.util.ArrayList<pulsekit.Chain.Item>();
+        String prompt = pulsekit.Chain.promptOf(argv);
+        java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-chain");
+        if (!dir.isDirectory()) dir.mkdirs();
+        if (made != null && made.files != null) {
+            for (pulsekit.JavaRun.FileOut f : made.files) {
+                if (f == null || f.bytes == null || !pulsekit.Chain.picture(f.name)) continue;
+                try {
+                    java.io.File copy = new java.io.File(dir, System.nanoTime() + "-" + f.name);
+                    java.nio.file.Files.write(copy.toPath(), f.bytes);
+                    out.add(new pulsekit.Chain.Item(f.name, prompt, copy.getAbsolutePath()));
+                } catch (Exception ignored) {
+                    // left out of the chain
+                }
+            }
+        }
+        if (out.isEmpty() && prompt.length() > 0) out.add(new pulsekit.Chain.Item("prompt", prompt, null));
+        return out;
+    }
+
+    /** Chain: `from`'s pictures (or prompts) run by the program its Params chain to, one run each as a batch. */
+    void pkStartChain(String from, java.util.List<pulsekit.Chain.Item> items) {
+        String fromSaved = PyJavParams.load(app, from);
+        String target = pulsekit.Chain.target(from, fromSaved);
+        if (target == null || items.isEmpty()) return;
+        if (pulsekit.BatchQueue.current() != null) {
+            chainSaid = "A batch is running: Chain left out";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        String text = PyJavParams.programTextOf(app, target);
+        if (text == null) {
+            chainSaid = "Chain: " + target + " not found";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        pulsekit.BatchQueue q = pulsekit.Chain.start(from, target, pulsekit.ProgramParams.parse(text), PyJavParams.load(app, target), items, pulsekit.Chain.batchPrompt(fromSaved));
+        if (q == null) {
+            chainSaid = "Chain: nothing for " + pulsekit.SogniSections.app(target) + " (no " + (pulsekit.Chain.takesPicture(target) ? "pictures" : "prompt") + ")";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
+        this.pkAddLogLine(chainSaid);
+        this.pkBatchNext(q);
+    }
 
     /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
     void pkStartAutoRender(String target, java.util.List<String[]> answers) {
