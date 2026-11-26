@@ -465,7 +465,8 @@ final class TextOffer {
         });
         final String fileName = name;
         save.setOnClickListener(v -> save(app, TextReady.savedName(fileName), body.getText().toString()));
-        send.setOnClickListener(v -> send(app, body.getText().toString()));
+        // Send as prompt: what that program then makes has Back to this Document ready.
+        send.setOnClickListener(v -> send(app, body.getText().toString(), reopen(app, program, fileName, whole, given, body.getText().toString())));
         toGroup.setOnClickListener(v -> sendToGroup(app, fileName, body.getText().toString(), g -> group[0] = g));
         if (toPreset != null) toPreset.setOnClickListener(v -> {
             try {
@@ -489,13 +490,7 @@ final class TextOffer {
                 app.pyJav.pkStartAutoRender(autoTarget, one);
                 // Its pictures' Back: this Document ready again, its text as it was (not saved or rendered again on closing).
                 final String shownText = body.getText().toString();
-                ReadyBack.set(TextReady.TITLE, () -> {
-                    show(app, program, fileName, whole, null, given, null);
-                    if (last != null) {
-                        android.widget.EditText again = (android.widget.EditText) last.getWindow().getDecorView().findViewWithTag("text-ready:text");
-                        if (again != null) again.setText(shownText);
-                    }
-                });
+                ReadyBack.set(autoTarget, TextReady.TITLE, reopen(app, program, fileName, whole, given, shownText));
             }
         });
         dialog.show();
@@ -755,7 +750,23 @@ final class TextOffer {
      * Send as prompt: the text into a Sogni program's Params as its prompt (the program picked, then asked);
      * then Document ready closes and that program opens with its Params.
      */
+    /** Document ready opened again (Picture ready's Back), its text as shown then; not saved or rendered again on closing. */
+    static Runnable reopen(final MainActivity app, final String program, final String fileName, final String whole, final String[] given, final String shownText) {
+        return () -> {
+            show(app, program, fileName, whole, null, given, null);
+            if (last != null) {
+                android.widget.EditText again = (android.widget.EditText) last.getWindow().getDecorView().findViewWithTag("text-ready:text");
+                if (again != null) again.setText(shownText);
+            }
+        };
+    }
+
     static void send(final MainActivity app, final String text) {
+        send(app, text, null);
+    }
+
+    /** As below; `back`: the program's ready screens get Back to it. */
+    static void send(final MainActivity app, final String text, final Runnable back) {
         if (text.trim().isEmpty()) {
             say(app, "No text to send");
             return;
@@ -769,6 +780,7 @@ final class TextOffer {
             final Runnable put = () -> {
                 java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(PyJavParams.programTextOf(app, target));
                 PyJavParams.store(app, target, ParamsClip.put(theirs, PyJavParams.load(app, target), "--prompt", text));
+                if (back != null) ReadyBack.set(target, TextReady.TITLE, back);
                 say(app, ParamsClip.sent("--prompt", target));
                 if (last != null) last.dismiss();
                 app.openKitView("py");

@@ -798,6 +798,8 @@ final class PyJav {
         final boolean rawKept = ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? this.programText() : null, runArgs);
         this.chatRawKept = rawKept;
         final BatchQueue inBatchQ = BatchQueue.runOf(name);
+        // A run of another program, not a batch's: its ready screens have no Back.
+        if (inBatchQ == null && !name.equals(readyBackFor)) readyBack = null;
         // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
         String groupPattern = DownloadMove.takeValue(runArgs, DownloadMove.BATCH_GROUP);
         // Params' Usage warning: read before a batch (batchNext), not the program's.
@@ -1291,6 +1293,12 @@ final class PyJav {
      * After a run that made pictures: each is shown under its name, scaled to fit, with Open (the
      * system viewer, for the first) and Close. A picture Java cannot read (WebP) is named only.
      */
+    /** Picture ready's and Video ready's Back. */
+    static final String READY_BACK = "Back";
+    /** The tests: Picture ready's answer (else asked) and its buttons last. */
+    static Integer pictureAnswer;
+    static java.util.List<Object> lastPictureOptions;
+
     void offerPictures(java.util.List<File> pictures) {
         JPanel col = new JPanel();
         col.setLayout(new javax.swing.BoxLayout(col, javax.swing.BoxLayout.Y_AXIS));
@@ -1350,11 +1358,23 @@ final class PyJav {
         // Process as a reference: the picture (the first, or the one picked) into another program as its Reference file 1 or 2.
         // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
         final boolean multi = this.multiRunning();
-        Object[] options = multi ? new Object[] {"Process as a reference", "Open", BatchQueue.STOP_RUN, "Close"} : new Object[] {"Process as a reference", "Open", "Close"};
-        int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
+        // Made by a chain (Document ready's Send or Auto render, SogniPadd's Chain): Back to the screen that chained it.
+        final Runnable back = readyBack;
+        java.util.List<Object> opts = new java.util.ArrayList<Object>(java.util.Arrays.asList("Process as a reference", "Open"));
+        if (multi) opts.add(BatchQueue.STOP_RUN);
+        if (back != null) opts.add(READY_BACK);
+        opts.add("Close");
+        Object[] options = opts.toArray();
+        int ans = pictureAnswer != null ? pictureAnswer.intValue() : JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
             JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[options.length - 1]);
-        if (multi && ans == 2) {
+        lastPictureOptions = opts;
+        Object picked = ans >= 0 && ans < options.length ? options[ans] : "Close";
+        if (BatchQueue.STOP_RUN.equals(picked)) {
             this.stopMulti();
+            return;
+        }
+        if (READY_BACK.equals(picked)) {
+            back.run();
             return;
         }
         if (ans == 0) {
@@ -3351,6 +3371,8 @@ final class PyJav {
                 java.util.List<String[]> one = new java.util.ArrayList<String[]>();
                 one.add(new String[] {fileName, lastTextReadyText});
                 this.startAutoRender(autoTarget, one);
+                // Its pictures' Back: this Document ready again.
+                this.readyBackToText(autoTarget, program, fileName, whole, given, lastTextReadyText);
             }
         }
     }
@@ -3407,6 +3429,8 @@ final class PyJav {
         }
         chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
         this.testNote(chainSaid);
+        // Their Back: the program that chained them.
+        this.readyBackToProgram(target, from);
         this.batchNext(q);
     }
 
@@ -3425,6 +3449,8 @@ final class PyJav {
         }
         BatchQueue q = AutoRender.start(target, ProgramParams.parse(text), this.loadParams(target), answers);
         if (q == null) return;
+        // Its pictures' Back: SogniChat's page (Document ready, when it chained them, sets itself after this).
+        this.readyBackToProgram(target, "SogniChat.java");
         autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
         this.testNote(autoRenderSaid);
         this.batchNext(q);
@@ -3485,6 +3511,51 @@ final class PyJav {
             return null;
         }
     }
+
+    /** Document ready's text: the cursor to its start (MIN_VALUE), its end (MAX_VALUE), or a page up (-1) or down (1), the box scrolled with it. */
+    static void textPage(javax.swing.JTextArea body, int how) {
+        body.requestFocusInWindow();
+        int len = body.getDocument().getLength();
+        if (how == Integer.MIN_VALUE || how == Integer.MAX_VALUE) {
+            body.setCaretPosition(how == Integer.MIN_VALUE ? 0 : len);
+            return;
+        }
+        java.awt.Rectangle vis = body.getVisibleRect();
+        int y = Math.max(0, Math.min(body.getHeight() - vis.height, vis.y + how * vis.height));
+        body.scrollRectToVisible(new java.awt.Rectangle(0, y, 1, vis.height));
+        int at = body.viewToModel(new java.awt.Point(0, y + 1));
+        if (at >= 0) body.setCaretPosition(Math.min(len, at));
+        body.scrollRectToVisible(new java.awt.Rectangle(0, y, 1, vis.height));
+    }
+
+    /** Picture ready's and Video ready's Back: to the screen that chained the run (null: none), and the program it is for. */
+    static volatile Runnable readyBack;
+    static volatile String readyBackFor, readyBackTo;
+
+    void readyBackSet(String forProgram, String to, Runnable r) {
+        readyBackFor = forProgram;
+        readyBackTo = to;
+        readyBack = r;
+    }
+
+    /** Back to a program's page. */
+    void readyBackToProgram(String forProgram, final String program) {
+        this.readyBackSet(forProgram, SogniSections.app(program), () -> {
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", program);
+        });
+    }
+
+    /** Back to Document ready, its text as it was (not saved or rendered again on closing). */
+    void readyBackToText(String forProgram, final String program, final String fileName, final String whole, final String[] preset, final String shown) {
+        this.readyBackSet(forProgram, TextReady.TITLE, () -> {
+            textReadyAgain = shown;
+            this.offerText(program, fileName, whole, null, preset, null);
+        });
+    }
+
+    /** Document ready opened again by Back: its text as it was then. */
+    static volatile String textReadyAgain;
 
     /** The tests: the Select list and Custom text's menu of the Document ready shown last; the section name (else asked). */
     static javax.swing.JPopupMenu lastPickMenu, lastCustomMenu;
@@ -3576,7 +3647,22 @@ final class PyJav {
         // Editable: the text as it will be copied, saved or sent (a new cut, delimiter or text after makes it again).
         body.setEditable(true);
         TextMenu.attach(body);
-        panel.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
+        // Above the text: to its start, a page up, a page down, to its end (a page: what the box shows at once).
+        JPanel textHolder = new JPanel(new java.awt.BorderLayout(0, 2));
+        JPanel navRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0));
+        String[][] navs = {{"text-ready:start", "\u21e4", "To the start"}, {"text-ready:page-up", "\u25b2", "A page up"}, {"text-ready:page-down", "\u25bc", "A page down"}, {"text-ready:end", "\u21e5", "To the end"}};
+        for (int k = 0; k < navs.length; k++) {
+            JButton nb = new JButton(navs[k][1]);
+            nb.setName(navs[k][0]);
+            nb.setToolTipText(navs[k][2]);
+            nb.setMargin(new java.awt.Insets(1, 8, 1, 8));
+            final int how = k == 0 ? Integer.MIN_VALUE : k == 1 ? -1 : k == 2 ? 1 : Integer.MAX_VALUE;
+            nb.addActionListener(e -> textPage(body, how));
+            navRow.add(nb);
+        }
+        textHolder.add(navRow, java.awt.BorderLayout.NORTH);
+        textHolder.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
+        panel.add(textHolder, java.awt.BorderLayout.CENTER);
         // Select file and Browse sections: their text goes after the answer (remembered: next time too); Clear takes it away.
         JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));
         JPanel arow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
@@ -3755,6 +3841,12 @@ final class PyJav {
             }
         });
         cut.run();
+        // Opened again by Picture ready's Back: the text as it was shown then.
+        if (textReadyAgain != null) {
+            body.setText(textReadyAgain);
+            body.setCaretPosition(0);
+            textReadyAgain = null;
+        }
         lastTextReady = panel;
         // Send to program and group set in Params: a button for it (5), before Close.
         Object[] options = preset == null ? new Object[] {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE}
@@ -3793,6 +3885,8 @@ final class PyJav {
                 } else if (ans == 2) {
                     String target = this.sendText(body.getText());
                     if (target != null) {
+                        // What that program makes: Back to this Document ready.
+                        this.readyBackToText(target, program, fileName, whole, preset, body.getText());
                         // The program sent to opens, with its Params.
                         app.showView("py");
                         app.programMenus.selectListedProgram("Java", target);
@@ -4040,6 +4134,9 @@ final class PyJav {
                 MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
             // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
             if (this.multiRunning()) videoItems.add(videoItems.size() - 1, BatchQueue.STOP_RUN);
+            // Made by a chain: Back to the screen that chained it.
+            final Runnable vback = readyBack;
+            if (vback != null) videoItems.add(videoItems.size() - 1, READY_BACK);
             Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
@@ -4049,6 +4146,10 @@ final class PyJav {
             if (it.equals(BatchQueue.STOP_RUN)) {
                 this.stopMulti();
                 break;
+            }
+            if (it.equals(READY_BACK) && vback != null) {
+                vback.run();
+                return;
             }
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);

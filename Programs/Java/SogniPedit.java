@@ -1226,9 +1226,26 @@ public final class SogniPedit {
       return m;
     }
 
-    /** Sends a chat request (chatInput) and returns Sogni's reply as it came. */
+    /**
+     * Sends a chat request (chatInput) and returns Sogni's reply as it came. A 502, 503 or 504 (Sogni's
+     * gateway got no answer from the model in time, or it is busy) is asked again twice, after 15 s and 30 s.
+     */
     public Object chat(String inputJson) throws IOException {
-      return this.request("POST", "/v1/chat/completions", inputJson);
+      for (int attempt = 0; ; attempt++) {
+        try {
+          return this.request("POST", "/v1/chat/completions", inputJson);
+        } catch (ApiException ex) {
+          if (attempt >= 2 || (ex.status != 502 && ex.status != 503 && ex.status != 504)) throw ex;
+          int wait = 15 * (attempt + 1);
+          System.out.println("Sogni answered " + ex.status + (ex.status == 504 ? " (gateway timeout: the model did not answer in time)" : " (busy)") + "; asking again in " + wait + " s");
+          try {
+            Thread.sleep(wait * 1000L);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw ex;
+          }
+        }
+      }
     }
 
     /** The reply's text (choices[0].message.content, also inside "data"), without a <think> part; null if none. */

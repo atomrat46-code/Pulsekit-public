@@ -10342,6 +10342,10 @@ public final class DesktopBehavior {
       PyJav.sendTo = null;
       PyJav.sendYes = null;
     }
+    // Send as prompt: SogniPadd's ready screens get Back to this Document ready; the text's four buttons above it.
+    got.append("send back: ").append(PyJav.readyBackFor).append(" -> ").append(PyJav.readyBackTo).append(" | buttons ")
+        .append(byName(PyJav.lastTextReady, "text-ready:start") != null && byName(PyJav.lastTextReady, "text-ready:page-up") != null && byName(PyJav.lastTextReady, "text-ready:page-down") != null && byName(PyJav.lastTextReady, "text-ready:end") != null).append('\n');
+    PyJav.readyBack = null;
     // Send to group (SogniPadd's group Moods), then Close: the answer saved into the output folder, %g the group.
     SectionCollection.addGroup(PromptDb.vault(), "SogniPadd", "Moods", "");
     File answers = new File(System.getProperty("user.home"), "answers-%g");
@@ -10390,7 +10394,7 @@ public final class DesktopBehavior {
     got.append("custom: ").append(PyJav.lastTextReadyText.replace('\n', '|')).append(" | list ").append(pickItems).append(" | menu ").append(customItems).append(" | ").append(said[0]).append(" | in group ").append(customIn).append('\n');
     this.out.append(got);
     String g = got.toString();
-    boolean ok = g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear, Cut, Copy, Paste | Sent to SogniPadd's group Moods as a section | in group true\n")
+    boolean ok = g.contains("send back: SogniPadd.java -> Document ready | buttons true\n") && g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear, Cut, Copy, Paste | Sent to SogniPadd's group Moods as a section | in group true\n")
         && g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
         && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
     if (!ok) throw new AssertionError(g);

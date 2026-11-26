@@ -16138,6 +16138,9 @@ public class BehaviorTest {
     idle();
     String padd = PyJavParams.load(app, "SogniPadd.java");
     out.append("send: ").append(TextOffer.said).append(" | in SogniPadd ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+    // What SogniPadd then makes has Back to this Document ready.
+    out.append("send back: ").append(ReadyBack.forProgram).append(" -> ").append(ReadyBack.to).append('\n');
+    ReadyBack.clear();
     out.append("after send: ready open ").append(d.isShowing()).append(", program ").append(app.pyName).append(", params open ").append(PyJavParams.shown != null && PyJavParams.shown.isShowing()).append('\n');
     if (PyJavParams.shown != null) PyJavParams.shown.dismiss();
     // Text after: From sections puts a saved section's prompt after the answer (remembered); Clear takes it away.
@@ -16383,7 +16386,7 @@ public class BehaviorTest {
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
         "remembered: Cut after >  From file on off off off    on", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before its text true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
-        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
+        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "send back: SogniPadd.java -> Document ready", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
         "custom text: hidden true, list Select file, Browse sections, Custom text, shown true | A red kite over a grey sea.|Shot on film. | kept Shot on film.",
@@ -16660,7 +16663,7 @@ public class BehaviorTest {
     JavaRun.Result pr = new JavaRun.Result("", pfiles, 0);
     app.programMenus.selectProgram("Java", "SogniTextVideo.java");
     idle();
-    ReadyBack.toProgram(app, "SogniPadd.java");
+    ReadyBack.toProgram(app, "SogniTextVideo.java", "SogniPadd.java");
     PictureOffer.offer(app, pr);
     idle();
     android.widget.Button backB = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
