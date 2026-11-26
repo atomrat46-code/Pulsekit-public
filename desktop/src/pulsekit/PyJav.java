@@ -3671,6 +3671,13 @@ final class PyJav {
         final javax.swing.JCheckBox addAfter = new javax.swing.JCheckBox(TextReady.ADD_AFTER, !TextReady.OFF.equals(set[4]));
         addAfter.setName("text-ready:add-after");
         addAfter.setToolTipText("Checked: the text after is added");
+        // -/+: the two text fields hidden or shown again (remembered; hidden, still added when ticked).
+        final boolean[] fieldsShown = {set.length <= TextReady.F_SHOWN || !TextReady.OFF.equals(set[TextReady.F_SHOWN])};
+        final JButton fold = new JButton(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+        fold.setName("text-ready:fields");
+        fold.setToolTipText("Show or hide the text fields");
+        fold.setMargin(new java.awt.Insets(1, 8, 1, 8));
+        arow.add(fold, 0);
         // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as its doers).
         final JButton pick = new JButton(TextReady.SELECT_MENU);
         pick.setName("text-ready:select-menu");
@@ -3692,7 +3699,7 @@ final class PyJav {
         after.setLineWrap(true);
         after.setWrapStyleWord(true);
         // Each text with its checkbox before it: checked, that text is added.
-        JPanel afterRow = new JPanel(new java.awt.BorderLayout(4, 0));
+        final JPanel afterRow = new JPanel(new java.awt.BorderLayout(4, 0));
         afterRow.add(addAfter, java.awt.BorderLayout.WEST);
         afterRow.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
         bottom.add(afterRow, java.awt.BorderLayout.CENTER);
@@ -3710,7 +3717,16 @@ final class PyJav {
         javax.swing.JScrollPane customPane = new javax.swing.JScrollPane(custom);
         customPane.setBorder(javax.swing.BorderFactory.createTitledBorder(TextReady.CUSTOM_TEXT));
         customScroll.add(customPane, java.awt.BorderLayout.CENTER);
-        customScroll.setVisible(custom.getText().length() > 0);
+        final boolean[] customWanted = {custom.getText().length() > 0};
+        final Runnable showFields = () -> {
+            afterRow.setVisible(fieldsShown[0]);
+            customScroll.setVisible(fieldsShown[0] && customWanted[0]);
+            fold.setText(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+            panel.revalidate();
+            java.awt.Window w = SwingUtilities.getWindowAncestor(panel);
+            if (w != null) w.pack();
+        };
+        showFields.run();
         bottom.add(customScroll, java.awt.BorderLayout.SOUTH);
         final javax.swing.JPopupMenu customMenu = new javax.swing.JPopupMenu();
         customMenu.setName("text-ready:custom-menu");
@@ -3744,15 +3760,22 @@ final class PyJav {
         lastCustomMenu = customMenu;
         final javax.swing.JPopupMenu pickMenu = new javax.swing.JPopupMenu();
         javax.swing.JMenuItem pFile = new javax.swing.JMenuItem(TextReady.SELECT_FILE);
-        pFile.addActionListener(e -> selectFile.doClick());
+        pFile.addActionListener(e -> {
+            fieldsShown[0] = true;
+            showFields.run();
+            selectFile.doClick();
+        });
         javax.swing.JMenuItem pSec = new javax.swing.JMenuItem(TextReady.BROWSE_SECTIONS);
-        pSec.addActionListener(e -> browse.doClick());
+        pSec.addActionListener(e -> {
+            fieldsShown[0] = true;
+            showFields.run();
+            browse.doClick();
+        });
         javax.swing.JMenuItem pCustom = new javax.swing.JMenuItem(TextReady.CUSTOM_TEXT);
         pCustom.addActionListener(e -> {
-            customScroll.setVisible(true);
-            panel.revalidate();
-            java.awt.Window w = SwingUtilities.getWindowAncestor(panel);
-            if (w != null) w.pack();
+            customWanted[0] = true;
+            fieldsShown[0] = true;
+            showFields.run();
             custom.requestFocusInWindow();
         });
         pickMenu.add(pFile);
@@ -3766,7 +3789,7 @@ final class PyJav {
             String d = delim.getText();
             String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
                 section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText(),
-                customAdd.isSelected() ? TextReady.ON : TextReady.OFF};
+                customAdd.isSelected() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
@@ -3776,6 +3799,11 @@ final class PyJav {
         mode.addActionListener(e -> cut.run());
         addAfter.addActionListener(e -> cut.run());
         customAdd.addActionListener(e -> cut.run());
+        fold.addActionListener(e -> {
+            fieldsShown[0] = !fieldsShown[0];
+            showFields.run();
+            cut.run();
+        });
         notes.addActionListener(e -> cut.run());
         sogni.addActionListener(e -> cut.run());
         section.addActionListener(e -> cut.run());

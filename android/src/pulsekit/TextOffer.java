@@ -237,6 +237,16 @@ final class TextOffer {
         addAfter.setContentDescription(TextReady.ADD_AFTER);
         addAfter.setPadding(0, 0, 0, 0);
         // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as the list's doers).
+        // -/+: the two text fields (the file or section's, Custom text's) hidden or shown again (remembered; hidden, still added when ticked).
+        final boolean[] fieldsShown = {set.length <= TextReady.F_SHOWN || !TextReady.OFF.equals(set[TextReady.F_SHOWN])};
+        final android.widget.Button fold = new android.widget.Button(app, null, android.R.attr.buttonStyleSmall);
+        fold.setTag("text-ready:fields");
+        fold.setText(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+        fold.setContentDescription("Show or hide the text fields");
+        fold.setMinWidth(0);
+        fold.setMinimumWidth(0);
+        fold.setPadding(app.dp(10), fold.getPaddingTop(), app.dp(10), fold.getPaddingBottom());
+        arow.addView(fold, new LinearLayout.LayoutParams(-2, -2, 0f));
         final android.widget.Button pick = action(app, arow, TextReady.SELECT_MENU, "text-ready:select-menu");
         LinearLayout hiddenRow = new LinearLayout(app);
         hiddenRow.setVisibility(android.view.View.GONE);
@@ -257,7 +267,7 @@ final class TextOffer {
         after.setText(set[2]);
         // Up to 4 lines, scrolled inside when longer.
         typed(after, 4);
-        LinearLayout afterRow = new LinearLayout(app);
+        final LinearLayout afterRow = new LinearLayout(app);
         afterRow.setOrientation(LinearLayout.HORIZONTAL);
         afterRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         afterRow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2, 0f));
@@ -281,7 +291,14 @@ final class TextOffer {
         customRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         customRow.addView(customAdd, new LinearLayout.LayoutParams(-2, -2, 0f));
         customRow.addView(custom, new LinearLayout.LayoutParams(0, -2, 1f));
-        customRow.setVisibility(custom.getText().length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+        // Custom text's row: there once picked in Select or when it has text (and the fields are shown).
+        final boolean[] customWanted = {custom.getText().length() > 0};
+        final Runnable showFields = () -> {
+            afterRow.setVisibility(fieldsShown[0] ? android.view.View.VISIBLE : android.view.View.GONE);
+            customRow.setVisibility(fieldsShown[0] && customWanted[0] ? android.view.View.VISIBLE : android.view.View.GONE);
+            fold.setText(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+        };
+        showFields.run();
         col.addView(customRow, new LinearLayout.LayoutParams(-1, -2));
         // Copy, Save and Send as prompt (Close is the dialog's button).
         LinearLayout acts = new LinearLayout(app);
@@ -365,7 +382,7 @@ final class TextOffer {
             String d = delim.getText().toString();
             String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
                 sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString(),
-                custom.getText().toString(), customAdd.isChecked() ? TextReady.ON : TextReady.OFF};
+                custom.getText().toString(), customAdd.isChecked() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
@@ -399,10 +416,19 @@ final class TextOffer {
             final String[] items = {TextReady.SELECT_FILE, TextReady.BROWSE_SECTIONS, TextReady.CUSTOM_TEXT};
             for (int i = 0; i < items.length; i++) m.getMenu().add(0, i, i, items[i]);
             m.setOnMenuItemClickListener(it -> {
+                // (Hidden fields shown again: what is picked goes into them.)
+                if (it.getItemId() < 2 && !fieldsShown[0]) {
+                    fieldsShown[0] = true;
+                    showFields.run();
+                    cut.run();
+                }
                 if (it.getItemId() == 0) selectFile.performClick();
                 else if (it.getItemId() == 1) browse.performClick();
                 else {
-                    customRow.setVisibility(android.view.View.VISIBLE);
+                    customWanted[0] = true;
+                    fieldsShown[0] = true;
+                    showFields.run();
+                    cut.run();
                     custom.requestFocus();
                     custom.setSelection(custom.getText().length());
                     try {
@@ -419,6 +445,11 @@ final class TextOffer {
         clear.setOnClickListener(v -> after.setText(""));
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
         customAdd.setOnCheckedChangeListener((b, on) -> cut.run());
+        fold.setOnClickListener(v -> {
+            fieldsShown[0] = !fieldsShown[0];
+            showFields.run();
+            cut.run();
+        });
         notes.setOnCheckedChangeListener((b, on) -> cut.run());
         sogni.setOnCheckedChangeListener((b, on) -> cut.run());
         section.setOnCheckedChangeListener((b, on) -> cut.run());

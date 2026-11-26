@@ -114,7 +114,7 @@ public final class TextReady {
 
   /** Custom text: the item in the Select list, its field's hint, and its long press menu. */
   public static final String SELECT_MENU = "Select \u25be", CUSTOM_TEXT = "Custom text", CUSTOM_HINT = "Custom text: added after the answer (long press: Save, Add into program's group)",
-      CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", CUT = "Cut", COPY_TEXT = "Copy", PASTE = "Paste", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
+      CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", CUT = "Cut", COPY_TEXT = "Copy", PASTE = "Paste", FIELDS_HIDE = "\u2212", FIELDS_SHOW = "+", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
 
   /** A section name for a text: its first words (at most 40 characters), else "Custom text". */
   public static String customName(String text) {
@@ -184,14 +184,14 @@ public final class TextReady {
    * else SogniChat's reply line with Cut after (no text after).
    */
   /** A program's settings' fields: cut, delimiter, text after, where it came from, Add, Remove note sections, Sogni cut,
-   *  Remove section, its B and E, Custom text and whether it is added. */
-  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, F_CUSTOM_ADD = 11, FIELDS = 12;
+   *  Remove section, its B and E, Custom text and whether it is added, whether the two text fields are shown (+/-). */
+  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, F_CUSTOM_ADD = 11, F_SHOWN = 12, FIELDS = 13;
 
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON}
-        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON}
+        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -238,6 +238,7 @@ public final class TextReady {
     v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
     v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
     v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
+    v[F_SHOWN] = OFF.equals(v[F_SHOWN]) ? OFF : ON;
     v[F_B] = oneLine(v[F_B]);
     v[F_E] = oneLine(v[F_E]);
     Map<String, String[]> all = load(dir);
@@ -295,6 +296,7 @@ public final class TextReady {
         v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
         v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
         v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
+        v[F_SHOWN] = OFF.equals(v[F_SHOWN]) ? OFF : ON;
         out.put(p[0], v);
       }
     } catch (Exception ignored) {
