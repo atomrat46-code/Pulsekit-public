@@ -191,6 +191,13 @@ public final class ArtJava {
     for (int i = 0; i < args.length; i++) shown = shown + " " + args[i];
     final String logHead = shown;
     java.util.HashSet<String> before = new java.util.HashSet<String>();
+    // The argument files outside the work folder as they were: only one the run writes (an output given
+    // as a path) is saved after it, not an input (a picture, a prompt file) it only read.
+    final java.util.Map<String, Long> argWas = new java.util.HashMap<String, Long>();
+    for (int i = 0; args != null && i < args.length; i++) {
+      File a = new File(args[i]);
+      argWas.put(args[i], Long.valueOf(a.isFile() ? a.lastModified() * 31 + a.length() : -1L));
+    }
     File[] prior = work.listFiles();
     if (prior != null) {
       for (int i = 0; i < prior.length; i++) {
@@ -287,9 +294,11 @@ public final class ArtJava {
           if (extra.getName().equals(files.get(j).name)) seen = true;
         }
         if (seen || extra.length() > 3000000L) continue;
+        Long was = argWas.get(args[i]);
+        if (was != null && was.longValue() == extra.lastModified() * 31 + extra.length()) continue;
         byte[] body = read(extra);
         files.add(new JavaRun.FileOut(extra.getName(), body));
-        String saved = publish(ctx, extra.getName(), body);
+        String saved = publish(ctx, extra.getName(), body, sub);
         if (saved != null) ps.println("saved " + saved);
       }
     }
