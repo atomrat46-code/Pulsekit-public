@@ -96,15 +96,34 @@ public final class TextReady {
 
   /** Send to group's section: named as the answer (no codes), its prompt the text, in `group` ("(no group)": none). */
   public static String sendToGroup(PromptVault vault, String app, String fileName, String text, String group) throws Exception {
+    return toGroup(vault, app, DownloadMove.nameFor(fileName, choices(null)).replaceAll("\\.[A-Za-z0-9]{1,5}$", ""), text, group);
+  }
+
+  /** The text as a section named `name` in the program's group (Custom text's Add into program's group; Send to group). */
+  public static String toGroup(PromptVault vault, String app, String name, String text, String group) throws Exception {
     // The same text there already (case, spaces and quotes aside): not added again.
     PromptVault.SogniSection have = sameText(vault, app, text);
     if (have != null) return ALREADY + SogniSections.label(have) + (have.group == null || have.group.isEmpty() ? "" : " (group " + have.group + ")") + ": not added again";
     SectionCollection.Form f = new SectionCollection.Form();
-    f.name = DownloadMove.nameFor(fileName, choices(null)).replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+    f.name = name == null || name.trim().isEmpty() ? customName(text) : name.trim();
     f.prompt = text == null ? "" : text.trim();
     f.group = group == null ? SectionCollection.NO_GROUP_PICK : group;
     String bad = SectionCollection.add(vault, app, f);
     return bad != null ? bad : "Sent to " + app + "'s " + (SectionCollection.NO_GROUP_PICK.equals(f.group) ? "sections (no group)" : "group " + f.group) + " as a section";
+  }
+
+  /** Custom text: the item in the Select list, its field's hint, and its long press menu. */
+  public static final String SELECT_MENU = "Select \u25be", CUSTOM_TEXT = "Custom text", CUSTOM_HINT = "Custom text: added after the answer (long press: Save, Add into program's group)",
+      CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
+
+  /** A section name for a text: its first words (at most 40 characters), else "Custom text". */
+  public static String customName(String text) {
+    String t = text == null ? "" : text.replaceAll("\\s+", " ").trim();
+    if (t.length() > 40) {
+      int sp = t.lastIndexOf(' ', 40);
+      t = t.substring(0, sp > 10 ? sp : 40).trim();
+    }
+    return t.isEmpty() ? CUSTOM_TEXT : t;
   }
 
   /** Send to group's word when the text is a section of the program already. */
@@ -165,14 +184,14 @@ public final class TextReady {
    * else SogniChat's reply line with Cut after (no text after).
    */
   /** A program's settings' fields: cut, delimiter, text after, where it came from, Add, Remove note sections, Sogni cut,
-   *  Remove section, its B and E. */
-  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, FIELDS = 10;
+   *  Remove section, its B and E, Custom text. */
+  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, FIELDS = 11;
 
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", ""}
-        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", ""};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", ""}
+        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", ""};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -226,7 +245,7 @@ public final class TextReady {
     for (Map.Entry<String, String[]> e : all.entrySet()) {
       String[] w = e.getValue();
       sb.append(e.getKey());
-      for (int i = 0; i < FIELDS; i++) sb.append('\t').append(i == F_AFTER ? escape(w[i]) : w[i]);
+      for (int i = 0; i < FIELDS; i++) sb.append('\t').append(i == F_AFTER || i == F_CUSTOM ? escape(w[i]) : w[i]);
       sb.append('\n');
     }
     try {
@@ -268,6 +287,7 @@ public final class TextReady {
         String[] v = new String[FIELDS];
         for (int i = 0; i < FIELDS; i++) v[i] = i + 1 < p.length ? p[i + 1] : "";
         v[F_AFTER] = unescape(v[F_AFTER]);
+        v[F_CUSTOM] = unescape(v[F_CUSTOM]);
         if (v[F_FROM].isEmpty()) v[F_FROM] = FROM_FILE;
         v[F_ADD] = OFF.equals(v[F_ADD]) ? OFF : ON;
         v[F_NOTES] = ON.equals(v[F_NOTES]) ? ON : OFF;
@@ -356,6 +376,9 @@ public final class TextReady {
     // Remove note sections, and Remove section (B to E): from the whole processed text (the answer and the text after it).
     if (set.length > F_NOTES && ON.equals(set[F_NOTES])) all = withoutNotes(all);
     if (set.length > F_E && ON.equals(set[F_SECTION])) all = withoutSections(all, set[F_B], set[F_E]);
+    // Custom text: the user's own, after the processed text (not cut).
+    String custom = set.length > F_CUSTOM && set[F_CUSTOM] != null ? set[F_CUSTOM].trim() : "";
+    if (!custom.isEmpty()) all = all.isEmpty() ? custom : all + "\n" + custom;
     return all;
   }
 

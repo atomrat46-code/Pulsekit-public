@@ -8785,6 +8785,18 @@ public class BehaviorTest {
     Files.write(new File(dir, name + ".txt").toPath(), text.getBytes(StandardCharsets.UTF_8));
   }
 
+  /** A list dialog's item, by its words, clicked. */
+  static void clickListItem(android.app.AlertDialog d, String label) {
+    android.widget.ListView lv = d.getListView();
+    for (int i = 0; i < lv.getAdapter().getCount(); i++) {
+      if (label.equals(String.valueOf(lv.getAdapter().getItem(i)))) {
+        lv.performItemClick(null, i, i);
+        return;
+      }
+    }
+    throw new AssertionError("no " + label + " in the list");
+  }
+
   private static void idle() {
     for (int i = 0; i < 5; i++) ShadowLooper.idleMainLooper();
     // A run's result stored in the prompt library in the background: wait for it, as a user would see.
@@ -16182,7 +16194,7 @@ public class BehaviorTest {
     // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
     android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
     out.append("add box: shown ").append(addBox.isShown()).append(", before Select file ").append(((android.view.ViewGroup) addBox.getParent()).indexOfChild(addBox) == 0
-        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:select-file")).append(", room ").append(addBox.getWidth() >= app.dp(72)).append('\n');
+        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:select-menu")).append(", room ").append(addBox.getWidth() >= app.dp(72)).append('\n');
     addBox.setChecked(false);
     idle();
     String offText = body2.getText().toString().replace('\n', '|');
@@ -16193,6 +16205,55 @@ public class BehaviorTest {
     ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
     idle();
     out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
+    // Select: a list of Select file, Browse sections and Custom text; Custom text shows its field, its text added last (remembered).
+    android.view.View customField = r2.findViewWithTag("text-ready:custom");
+    boolean customHidden = !customField.isShown();
+    r2.findViewWithTag("text-ready:select-menu").performClick();
+    idle();
+    StringBuilder pickItems = new StringBuilder();
+    for (int i = 0; i < TextOffer.lastPick.getMenu().size(); i++) pickItems.append(i == 0 ? "" : ", ").append(TextOffer.lastPick.getMenu().getItem(i).getTitle());
+    TextOffer.lastPick.getMenu().performIdentifierAction(2, 0);
+    idle();
+    boolean customShown = customField.isShown();
+    ((android.widget.EditText) customField).setText("Shot on film.");
+    idle();
+    out.append("custom text: hidden ").append(customHidden).append(", list ").append(pickItems).append(", shown ").append(customShown).append(" | ").append(body2.getText().toString().replace('\n', '|'))
+        .append(" | kept ").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM]).append('\n');
+    // Its long press: Save, Add into program's group, Clear; Save writes it, Add puts it in a group as a section named as typed.
+    customField.performLongClick();
+    idle();
+    StringBuilder cItems = new StringBuilder();
+    for (int i = 0; i < TextOffer.lastCustomMenu.getMenu().size(); i++) cItems.append(i == 0 ? "" : ", ").append(TextOffer.lastCustomMenu.getMenu().getItem(i).getTitle());
+    java.io.File customFile = new java.io.File(app.getCacheDir(), "custom-saved.txt");
+    TextOffer.saveTo = customFile;
+    try {
+      TextOffer.lastCustomMenu.getMenu().performIdentifierAction(0, 0);
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    SectionCollection.addGroup(vault, "SogniPadd", "Looks", "");
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(1, 0);
+    idle();
+    clickListItem(TextOffer.lastSections, "SogniPadd");
+    idle();
+    clickListItem(TextOffer.lastSections, "Looks");
+    idle();
+    android.widget.EditText nameField = (android.widget.EditText) TextOffer.lastNameAsk.getWindow().getDecorView().findViewWithTag("text-ready:section-name");
+    String suggested = nameField.getText().toString();
+    nameField.setText("Film look");
+    TextOffer.lastNameAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean customIn = false;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) customIn |= "Looks".equals(x.group) && "Film look".equals(x.name) && x.text.contains("Shot on film.");
+    out.append("custom menu: ").append(cItems).append(" | saved ").append(new String(java.nio.file.Files.readAllBytes(customFile.toPath()), "UTF-8")).append(" | suggested ").append(suggested)
+        .append(" | ").append(TextOffer.said).append(" | in group ").append(customIn).append('\n');
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(2, 0);
+    idle();
+    out.append("custom cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM]).append("'\n");
     // The text edited before saving: Save writes it as edited.
     ((android.widget.EditText) body2).setText("My own words.");
     java.io.File edited = new java.io.File(app.getCacheDir(), "edited-text.txt");
@@ -16264,11 +16325,14 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >  From file on off off off  ", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file on off off off   ", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
         "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
+        "custom text: hidden true, list Select file, Browse sections, Custom text, shown true | A red kite over a grey sea.|Shot on film. | kept Shot on film.",
+        "custom menu: Save, Add into program's group, Clear | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
+        "custom cleared: A red kite over a grey sea. | kept ''",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
         "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
         "cuts: b > c / a / a > b"};
@@ -16637,6 +16701,22 @@ public class BehaviorTest {
     SogniApi.keyFileSetting = keyFile.getAbsolutePath();
     SogniApi.answer = path -> SogniApi.parseJson("{\"status\":\"success\",\"data\":{\"usage\":{\"periodJobs\":12},\"fairUse\":{\"daily\":{\"usedPct\":85.5},\"monthlyPercent\":20,\"fastRenderingPaused\":false}}}");
     Object usage = SogniUsage.fetch();
+    // A batch: the usage read before it is kept on it (the runs' logs replace the log): its running line and summary say it.
+    PyJavParams.store(app, "SogniPadd.java", "--prompt \"x\" --pk-usage-warn 80");
+    BatchQueue uq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\" --pk-usage-warn 80", three);
+    app.pyJav.pkBatchNext(uq);
+    for (int i = 0; i < 100 && (PyJav.pkUsageAsk == null || !PyJav.pkUsageAsk.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean usageAsked = PyJav.pkUsageAsk != null && PyJav.pkUsageAsk.isShowing();
+    uq.next = 1;
+    String usageLine = String.valueOf(BatchQueue.runCount());
+    uq.next = 0;
+    if (usageAsked) PyJav.pkUsageAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("usage kept: asked ").append(usageAsked).append(" | line ").append(usageLine).append(" | summary ").append(uq.summary().replace('\n', '|')).append('\n');
+    PyJavParams.store(app, "SogniPadd.java", "");
     SogniApi.answer = null;
     SogniApi.keyFileSetting = keyWas;
     out.append("usage: ").append(SogniUsage.line(usage)).append(" | ask at 80 ").append(SogniUsage.ask(usage, 80) != null).append(", at 90 ").append(SogniUsage.ask(usage, 90) != null)
@@ -16658,6 +16738,7 @@ public class BehaviorTest {
         && t.contains("| as: [Start picture (--image), End picture (--end_image)] | rows true")
         && t.contains("batch group: Batch 1 | [Img-Batch 1, --prompt, x] | put 1 in true | next Batch 2")
         && t.contains("usage: Sogni usage: daily.usedPct 85.5%, monthlyPercent 20% | ask at 80 true, at 90 false | threshold 80")
+        && t.contains("usage kept: asked true | line Batch 1/3 \u00b7 Sogni usage 85.5% | summary Files stopped: 0 of 3 runs succeeded, 3 not run|") && t.contains("|  Sogni usage: daily.usedPct 85.5%, monthlyPercent 20%\n")
         && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")

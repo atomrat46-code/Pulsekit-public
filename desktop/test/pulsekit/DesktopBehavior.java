@@ -10361,9 +10361,37 @@ public final class DesktopBehavior {
     for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) inGroup |= "Moods".equals(x.group) && x.text.contains("A red kite over a grey sea.");
     got.append("send to group: ").append(PyJav.sentGroup).append(", in group ").append(inGroup).append(", saved ")
         .append(savedTo.isFile() ? new String(Files.readAllBytes(savedTo.toPath()), StandardCharsets.UTF_8) : "none: " + PyJav.answerSaid).append('\n');
+    // Custom text (remembered): added after the answer; its menu's Add into program's group puts it in a group, named as given.
+    String[] cs = TextReady.setting(PromptDb.dir(), "SogniChat.java").clone();
+    cs[TextReady.F_CUSTOM] = "Shot on film.";
+    TextReady.rememberAll(PromptDb.dir(), "SogniChat.java", cs);
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>();
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer.txt", "SogniChat conversation\n\n=== Sogni ===\nA red kite.\n", null));
+    } finally {
+      PyJav.textReadyAnswers = null;
+    }
+    StringBuilder pickItems = new StringBuilder(), customItems = new StringBuilder();
+    for (java.awt.Component c : PyJav.lastPickMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) pickItems.append(pickItems.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+    for (java.awt.Component c : PyJav.lastCustomMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) customItems.append(customItems.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+    PyJav.groupProgram = "SogniPadd";
+    PyJav.groupName = "Moods";
+    PyJav.customSectionName = "Film look";
+    final String[] said = new String[1];
+    try {
+      edt(() -> said[0] = pj.customToGroup("Shot on film."));
+    } finally {
+      PyJav.groupProgram = null;
+      PyJav.groupName = null;
+      PyJav.customSectionName = null;
+    }
+    boolean customIn = false;
+    for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) customIn |= "Film look".equals(x.name) && "Moods".equals(x.group) && x.text.contains("Shot on film.");
+    got.append("custom: ").append(PyJav.lastTextReadyText.replace('\n', '|')).append(" | list ").append(pickItems).append(" | menu ").append(customItems).append(" | ").append(said[0]).append(" | in group ").append(customIn).append('\n');
     this.out.append(got);
     String g = got.toString();
-    boolean ok = g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
+    boolean ok = g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear | Sent to SogniPadd's group Moods as a section | in group true\n")
+        && g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
         && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
     if (!ok) throw new AssertionError(g);
   }

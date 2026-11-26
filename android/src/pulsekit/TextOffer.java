@@ -235,16 +235,21 @@ final class TextOffer {
         addAfter.setMinWidth(app.dp(72));
         addAfter.setPadding(0, 0, app.dp(4), 0);
         arow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2, 0f));
-        final android.widget.Button selectFile = action(app, arow, TextReady.SELECT_FILE, "text-ready:select-file");
-        final android.widget.Button browse = action(app, arow, TextReady.BROWSE_SECTIONS, "text-ready:browse-sections");
+        // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as the list's doers).
+        final android.widget.Button pick = action(app, arow, TextReady.SELECT_MENU, "text-ready:select-menu");
+        LinearLayout hiddenRow = new LinearLayout(app);
+        hiddenRow.setVisibility(android.view.View.GONE);
+        final android.widget.Button selectFile = action(app, hiddenRow, TextReady.SELECT_FILE, "text-ready:select-file");
+        final android.widget.Button browse = action(app, hiddenRow, TextReady.BROWSE_SECTIONS, "text-ready:browse-sections");
         final android.widget.Button clear = action(app, arow, TextReady.CLEAR_TEXT, "text-ready:clear");
         // (The buttons share what is left: no minimum width pushing the checkbox out.)
-        for (android.widget.Button b : new android.widget.Button[] {selectFile, browse, clear}) {
+        for (android.widget.Button b : new android.widget.Button[] {pick, clear}) {
             b.setMinWidth(0);
             b.setMinimumWidth(0);
             b.setPadding(app.dp(4), b.getPaddingTop(), app.dp(4), b.getPaddingBottom());
         }
         col.addView(arow);
+        col.addView(hiddenRow);
         final EditText after = new EditText(app);
         after.setTag("text-ready:after");
         after.setHint("Added after the answer (Select file, Browse sections)");
@@ -252,6 +257,14 @@ final class TextOffer {
         // Up to 4 lines, scrolled inside when longer.
         typed(after, 4);
         col.addView(after, new LinearLayout.LayoutParams(-1, -2));
+        // Custom text: the user's own, added after the answer (remembered); shown once picked in Select or when it has text.
+        final EditText custom = new EditText(app);
+        custom.setTag("text-ready:custom");
+        custom.setHint(TextReady.CUSTOM_HINT);
+        custom.setText(set.length > TextReady.F_CUSTOM ? set[TextReady.F_CUSTOM] : "");
+        typed(custom, 4);
+        custom.setVisibility(custom.getText().length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+        col.addView(custom, new LinearLayout.LayoutParams(-1, -2));
         // Copy, Save and Send as prompt (Close is the dialog's button).
         LinearLayout acts = new LinearLayout(app);
         acts.setOrientation(LinearLayout.HORIZONTAL);
@@ -309,7 +322,8 @@ final class TextOffer {
             String m = TextReady.MODES[Math.max(0, mode.getSelectedItemPosition())];
             String d = delim.getText().toString();
             String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
-                sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString()};
+                sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString(),
+                custom.getText().toString()};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
@@ -323,6 +337,42 @@ final class TextOffer {
             public void afterTextChanged(android.text.Editable s) {
                 cut.run();
             }
+        });
+        custom.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+
+            public void afterTextChanged(android.text.Editable s) {
+                cut.run();
+            }
+        });
+        // Custom text's long press: Save (into a file), Add into program's group (a program, its group, the section's name), Clear.
+        custom.setOnLongClickListener(v -> {
+            customMenu(app, custom);
+            return true;
+        });
+        pick.setOnClickListener(v -> {
+            android.widget.PopupMenu m = new android.widget.PopupMenu(app, pick);
+            final String[] items = {TextReady.SELECT_FILE, TextReady.BROWSE_SECTIONS, TextReady.CUSTOM_TEXT};
+            for (int i = 0; i < items.length; i++) m.getMenu().add(0, i, i, items[i]);
+            m.setOnMenuItemClickListener(it -> {
+                if (it.getItemId() == 0) selectFile.performClick();
+                else if (it.getItemId() == 1) browse.performClick();
+                else {
+                    custom.setVisibility(android.view.View.VISIBLE);
+                    custom.requestFocus();
+                    custom.setSelection(custom.getText().length());
+                    try {
+                        ((android.view.inputmethod.InputMethodManager) app.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)).showSoftInput(custom, 0);
+                    } catch (Exception ignored) {
+                        // typed in when tapped
+                    }
+                }
+                return true;
+            });
+            lastPick = m;
+            m.show();
         });
         clear.setOnClickListener(v -> after.setText(""));
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
@@ -497,6 +547,75 @@ final class TextOffer {
         }
         lastSections = new AlertDialog.Builder(app).setTitle(TextReady.FROM_SECTIONS)
             .setItems(labels.toArray(new String[0]), (d, w) -> after.setText(texts.get(w)))
+            .setNegativeButton("Cancel", null).show();
+    }
+
+    /** The tests: the Select list and the Custom text menu shown last; the section name typed (else asked). */
+    static android.widget.PopupMenu lastPick, lastCustomMenu;
+    static String customSectionName;
+    static AlertDialog lastNameAsk;
+
+    /** Custom text's long press menu: Save, Add into program's group, Clear. */
+    static void customMenu(final MainActivity app, final EditText custom) {
+        android.widget.PopupMenu m = new android.widget.PopupMenu(app, custom);
+        final String[] items = {TextReady.CUSTOM_SAVE, TextReady.CUSTOM_GROUP, TextReady.CUSTOM_CLEAR};
+        for (int i = 0; i < items.length; i++) m.getMenu().add(0, i, i, items[i]);
+        m.setOnMenuItemClickListener(it -> {
+            String text = custom.getText().toString();
+            if (it.getItemId() == 0) save(app, TextReady.CUSTOM_FILE, text.trim());
+            else if (it.getItemId() == 1) customToGroup(app, text.trim());
+            else custom.setText("");
+            return true;
+        });
+        lastCustomMenu = m;
+        m.show();
+    }
+
+    /** Add into program's group: a Sogni program, one of its groups, then the section's name (its first words suggested). */
+    static void customToGroup(final MainActivity app, final String text) {
+        if (text.isEmpty()) {
+            say(app, "No text to add");
+            return;
+        }
+        final java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String s : TextReady.targets(p -> PyJavParams.programTextOf(app, p))) apps.add(SogniSections.app(s));
+        if (apps.isEmpty()) {
+            say(app, "No Sogni program takes a prompt");
+            return;
+        }
+        final java.util.function.Consumer<String> toApp = a -> {
+            final java.util.List<String> picks;
+            try {
+                picks = SectionCollection.groupPicks(PromptVault.open(app.getFilesDir()), a);
+            } catch (Exception ex) {
+                say(app, "Could not read the groups: " + ex.getMessage());
+                return;
+            }
+            final java.util.function.Consumer<String> named = g -> {
+                final java.util.function.Consumer<String> put = name -> {
+                    try {
+                        say(app, TextReady.toGroup(PromptVault.open(app.getFilesDir()), a, name, text, g));
+                    } catch (Exception ex) {
+                        say(app, "Could not add the text: " + ex.getMessage());
+                    }
+                };
+                if (customSectionName != null) {
+                    put.accept(customSectionName);
+                    return;
+                }
+                final EditText name = new EditText(app);
+                name.setTag("text-ready:section-name");
+                name.setSingleLine(true);
+                name.setText(TextReady.customName(text));
+                name.selectAll();
+                lastNameAsk = new AlertDialog.Builder(app).setTitle(a + ": " + TextReady.SECTION_NAME).setView(name)
+                    .setPositiveButton("Add", (d, w) -> put.accept(name.getText().toString()))
+                    .setNegativeButton("Cancel", null).show();
+            };
+            lastSections = new AlertDialog.Builder(app).setTitle(a + ": " + SectionCollection.GROUP).setItems(picks.toArray(new String[0]), (d, w) -> named.accept(picks.get(w)))
+                .setNegativeButton("Cancel", null).show();
+        };
+        lastSections = new AlertDialog.Builder(app).setTitle(TextReady.SEND_GROUP_PROGRAM).setItems(apps.toArray(new String[0]), (d, w) -> toApp.accept(apps.get(w)))
             .setNegativeButton("Cancel", null).show();
     }
 

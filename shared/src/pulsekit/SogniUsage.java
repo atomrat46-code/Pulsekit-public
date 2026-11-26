@@ -83,6 +83,13 @@ public final class SogniUsage {
     return sb.toString();
   }
 
+  /** The running line's short form: "Sogni 85.5%" (the highest percentage), "Sogni: no figures", "Sogni: paused". */
+  public static String brief(Object payload) {
+    double max = highest(percents(payload));
+    String s = max < 0 ? "Sogni usage: no figures" : "Sogni usage " + number(max) + "%";
+    return paused(payload) ? s + ", paused" : s;
+  }
+
   static String number(double d) {
     return d == Math.rint(d) ? String.valueOf((long) d) : String.format(Locale.ROOT, "%.1f", d);
   }

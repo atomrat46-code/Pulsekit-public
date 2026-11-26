@@ -32,7 +32,7 @@ public final class BatchQueue {
   public static String runCount() {
     BatchQueue q = current();
     if (q == null || q.joining || q.runs.size() < 2 || q.next < 1) return null;
-    return "Batch " + Math.min(q.next, q.runs.size()) + "/" + q.runs.size();
+    return "Batch " + Math.min(q.next, q.runs.size()) + "/" + q.runs.size() + (q.usageShort == null ? "" : " \u00b7 " + q.usageShort);
   }
 
   /** A batch going (not stopped yet). */
@@ -49,6 +49,10 @@ public final class BatchQueue {
 
   /** Sogni's usage read before the batch's first run (Params' Usage warning). */
   public boolean usageChecked;
+  /** Sogni usage as read before the batch (the log's line), kept for the running line and the summary; null when not read. */
+  public String usage;
+  /** Its short form for the running line ("Sogni 85.5%"). */
+  public String usageShort;
 
   /** Params' Batch group, its % codes filled in at the batch's first run (every run's files put in it); null: none. */
   public String group;
@@ -250,6 +254,7 @@ public final class BatchQueue {
     if (this.stopping && this.next < this.runs.size()) sb.append(", ").append(this.runs.size() - this.next).append(" not run");
     for (String n : this.notes) sb.append("\n  ").append(n);
     for (String line : this.said) sb.append("\n  ").append(line);
+    if (this.usage != null) sb.append("\n  ").append(this.usage);
     return sb.toString();
   }
 }

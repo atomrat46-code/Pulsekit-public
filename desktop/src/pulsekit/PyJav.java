@@ -2815,11 +2815,15 @@ final class PyJav {
                     final Object reply = got;
                     SwingUtilities.invokeLater(() -> {
                         if (reply instanceof Throwable) {
+                            q.usage = "Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + ")";
+                            q.usageShort = "Sogni usage: not read";
                             this.testNote("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
                             this.batchNext(q);
                             return;
                         }
-                        this.testNote(SogniUsage.line(reply));
+                        q.usage = SogniUsage.line(reply);
+                        q.usageShort = SogniUsage.brief(reply);
+                        this.testNote(q.usage);
                         String ask = SogniUsage.ask(reply, warnAt);
                         if (ask == null) {
                             this.batchNext(q);
@@ -3430,6 +3434,51 @@ final class PyJav {
         }
     }
 
+    /** The tests: the Select list and Custom text's menu of the Document ready shown last; the section name (else asked). */
+    static javax.swing.JPopupMenu lastPickMenu, lastCustomMenu;
+    static String customSectionName;
+
+    /** Custom text's Add into program's group: a Sogni program, one of its groups, then the section's name (its first words suggested). */
+    String customToGroup(String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to add");
+            return null;
+        }
+        java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String p : TextReady.targets(PyJav::programTextOf)) apps.add(SogniSections.app(p));
+        if (apps.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return null;
+        }
+        try {
+            String a = groupProgram;
+            if (a == null) {
+                Object got = JOptionPane.showInputDialog(app, TextReady.SEND_GROUP_PROGRAM, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, apps.toArray(), apps.get(0));
+                if (got == null) return null;
+                a = String.valueOf(got);
+            }
+            String g = groupName;
+            if (g == null) {
+                java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), a);
+                Object got = JOptionPane.showInputDialog(app, a + ": " + SectionCollection.GROUP, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                if (got == null) return null;
+                g = String.valueOf(got);
+            }
+            String name = customSectionName;
+            if (name == null) {
+                Object got = JOptionPane.showInputDialog(app, a + ": " + TextReady.SECTION_NAME, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, null, TextReady.customName(text));
+                if (got == null) return null;
+                name = String.valueOf(got);
+            }
+            String r = TextReady.toGroup(PromptDb.vault(), a, name, text, g);
+            this.clipSay(r);
+            return r;
+        } catch (Exception ex) {
+            this.clipSay("Could not add the text: " + ex.getMessage());
+            return null;
+        }
+    }
+
     void offerTextLoop(String program, String fileName, String whole, String[] group, String[] preset) {
         File dir = PromptDb.dir();
         String[] set = TextReady.setting(dir, program);
@@ -3484,11 +3533,17 @@ final class PyJav {
         final javax.swing.JCheckBox addAfter = new javax.swing.JCheckBox(TextReady.ADD_AFTER, !TextReady.OFF.equals(set[4]));
         addAfter.setName("text-ready:add-after");
         arow.add(addAfter);
+        // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as its doers).
+        final JButton pick = new JButton(TextReady.SELECT_MENU);
+        pick.setName("text-ready:select-menu");
+        arow.add(pick);
         JButton selectFile = new JButton(TextReady.SELECT_FILE);
         selectFile.setName("text-ready:select-file");
+        selectFile.setVisible(false);
         arow.add(selectFile);
         JButton browse = new JButton(TextReady.BROWSE_SECTIONS);
         browse.setName("text-ready:browse-sections");
+        browse.setVisible(false);
         arow.add(browse);
         JButton clear = new JButton(TextReady.CLEAR_TEXT);
         clear.setName("text-ready:clear");
@@ -3499,12 +3554,53 @@ final class PyJav {
         after.setLineWrap(true);
         after.setWrapStyleWord(true);
         bottom.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
+        // Custom text: the user's own, added after the answer (remembered); its right-click menu: Save, Add into program's group, Clear.
+        final javax.swing.JTextArea custom = new javax.swing.JTextArea(set.length > TextReady.F_CUSTOM ? set[TextReady.F_CUSTOM] : "", 3, 52);
+        custom.setName("text-ready:custom");
+        custom.setLineWrap(true);
+        custom.setWrapStyleWord(true);
+        custom.setToolTipText(TextReady.CUSTOM_HINT);
+        final javax.swing.JScrollPane customScroll = new javax.swing.JScrollPane(custom);
+        customScroll.setBorder(javax.swing.BorderFactory.createTitledBorder(TextReady.CUSTOM_TEXT));
+        customScroll.setVisible(custom.getText().length() > 0);
+        bottom.add(customScroll, java.awt.BorderLayout.SOUTH);
+        final javax.swing.JPopupMenu customMenu = new javax.swing.JPopupMenu();
+        customMenu.setName("text-ready:custom-menu");
+        javax.swing.JMenuItem cSave = new javax.swing.JMenuItem(TextReady.CUSTOM_SAVE);
+        cSave.addActionListener(e -> this.saveText(TextReady.CUSTOM_FILE, custom.getText().trim()));
+        javax.swing.JMenuItem cGroup = new javax.swing.JMenuItem(TextReady.CUSTOM_GROUP);
+        cGroup.addActionListener(e -> this.customToGroup(custom.getText().trim()));
+        javax.swing.JMenuItem cClear = new javax.swing.JMenuItem(TextReady.CUSTOM_CLEAR);
+        cClear.addActionListener(e -> custom.setText(""));
+        customMenu.add(cSave);
+        customMenu.add(cGroup);
+        customMenu.add(cClear);
+        custom.setComponentPopupMenu(customMenu);
+        lastCustomMenu = customMenu;
+        final javax.swing.JPopupMenu pickMenu = new javax.swing.JPopupMenu();
+        javax.swing.JMenuItem pFile = new javax.swing.JMenuItem(TextReady.SELECT_FILE);
+        pFile.addActionListener(e -> selectFile.doClick());
+        javax.swing.JMenuItem pSec = new javax.swing.JMenuItem(TextReady.BROWSE_SECTIONS);
+        pSec.addActionListener(e -> browse.doClick());
+        javax.swing.JMenuItem pCustom = new javax.swing.JMenuItem(TextReady.CUSTOM_TEXT);
+        pCustom.addActionListener(e -> {
+            customScroll.setVisible(true);
+            panel.revalidate();
+            java.awt.Window w = SwingUtilities.getWindowAncestor(panel);
+            if (w != null) w.pack();
+            custom.requestFocusInWindow();
+        });
+        pickMenu.add(pFile);
+        pickMenu.add(pSec);
+        pickMenu.add(pCustom);
+        lastPickMenu = pickMenu;
+        pick.addActionListener(e -> pickMenu.show(pick, 0, pick.getHeight()));
         panel.add(bottom, java.awt.BorderLayout.SOUTH);
         final Runnable cut = () -> {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
             String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
-                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText()};
+                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText()};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
@@ -3537,6 +3633,19 @@ final class PyJav {
         browse.addActionListener(e -> {
             String t = this.pickSectionText(browse);
             if (t != null) after.setText(t);
+        });
+        custom.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
         });
         after.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) {

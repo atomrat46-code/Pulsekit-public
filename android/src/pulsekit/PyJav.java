@@ -2429,11 +2429,15 @@ final class PyJav {
                     final Object reply = got;
                     app.runOnUiThread(() -> {
                         if (reply instanceof Throwable) {
+                            q.usage = "Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + ")";
+                            q.usageShort = "Sogni usage: not read";
                             this.pkAddLogLine("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
                             this.pkBatchNext(q);
                             return;
                         }
-                        this.pkAddLogLine(pulsekit.SogniUsage.line(reply));
+                        q.usage = pulsekit.SogniUsage.line(reply);
+                        q.usageShort = pulsekit.SogniUsage.brief(reply);
+                        this.pkAddLogLine(q.usage);
                         String ask = pulsekit.SogniUsage.ask(reply, warnAt);
                         if (ask == null) {
                             this.pkBatchNext(q);
