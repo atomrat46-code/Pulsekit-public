@@ -3528,6 +3528,8 @@ public final class SogniChat {
           }
         }
         if (j == i + 1) out.append('%');
+        // %n% (as %g% is written): the % closing the codes is not part of the name.
+        else if (j < pattern.length() && pattern.charAt(j) == '%' && !(j + 1 < pattern.length() && pattern.charAt(j + 1) == '%')) j++;
         i = j - 1;
       }
       return out.toString();

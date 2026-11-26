@@ -16582,6 +16582,12 @@ public class BehaviorTest {
         .append(TextReady.result(chatText, new String[] {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF, TextReady.OFF}).contains("Model qwen")).append('\n');
     out.append("sections: ").append(TextReady.withoutSections("Keep [[drop\nthis]] and [[that]] end [[open", "[[", "]]").replace('\n', '|'))
         .append(" | empty E: ").append(TextReady.withoutSections("a [[b]] c", "[[", "")).append('\n');
+    // Output name with %n% (the closing % as in %g%): no % left in the name; %n and %% as before.
+    java.io.File nd = new java.io.File(app.getCacheDir(), "names");
+    nd.mkdirs();
+    java.nio.file.Files.write(new java.io.File(nd, "Testi_1.png").toPath(), new byte[] {1});
+    out.append("names: ").append(SogniApi.fillName("Testi_%n%", nd)).append(", ").append(SogniApi.fillName("Testi_%n", nd)).append(", ")
+        .append(SogniApi.fillName("100%% sure_%n%.png", nd)).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
@@ -16593,6 +16599,7 @@ public class BehaviorTest {
         && t.contains("notes removed: A misty harbour at dawn.||Soft light. | kept: true | remembered on")
         && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
         && t.contains("sections: Keep  and  end [[open | empty E: a [[b]] c")
+        && t.contains("names: Testi_2, Testi_2, 100% sure_1.png")
         && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
