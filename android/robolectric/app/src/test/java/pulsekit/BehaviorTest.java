@@ -13333,6 +13333,7 @@ public class BehaviorTest {
     Files.write(new File(work, "Image1.png").toPath(), new byte[] {1});
     Files.write(new File(kept, "Image2.jpg").toPath(), new byte[] {1});
     String was = System.getProperty("pulsekit.outdir");
+    System.clearProperty("pulsekit.given");
     System.setProperty("pulsekit.outdir", kept.getAbsolutePath());
     String n = SogniApi.fillName("Image%n", work);
     System.clearProperty("pulsekit.outdir");
@@ -16650,6 +16651,8 @@ public class BehaviorTest {
     java.io.File nd = new java.io.File(app.getCacheDir(), "names");
     nd.mkdirs();
     java.nio.file.Files.write(new java.io.File(nd, "Testi_1.png").toPath(), new byte[] {1});
+    System.clearProperty("pulsekit.given");
+    // (A name %n gave stays taken: a batch's runs whose files go elsewhere get Testi_2, Testi_3...)
     out.append("names: ").append(SogniApi.fillName("Testi_%n%", nd)).append(", ").append(SogniApi.fillName("Testi_%n", nd)).append(", ")
         .append(SogniApi.fillName("100%% sure_%n%.png", nd)).append('\n');
     // Batch mode: an answer empty once processed is passed by (not saved, sent or rendered).
@@ -16732,7 +16735,7 @@ public class BehaviorTest {
         && t.contains("notes removed: A misty harbour at dawn.||Soft light. | kept: true | remembered on")
         && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
         && t.contains("sections: Keep  and  end [[open | empty E: a [[b]] c")
-        && t.contains("names: Testi_2, Testi_2, 100% sure_1.png")
+        && t.contains("names: Testi_2, Testi_3, 100% sure_1.png")
         && t.contains("empty skipped: saved 1 | ; 1 empty after processing, left out (not saved, sent or rendered)")
         && t.contains("video folder: ") && t.contains("--end_image ~/a.png") && t.contains("| pedit: ") && t.contains("--image2 ~/a.png") && t.contains("text video: --prompt \"A lighthouse at night.\"")
         && t.contains("| as: [Start picture (--image), End picture (--end_image)] | rows true")

@@ -2425,9 +2425,26 @@ public final class SogniTextVideo {
       if (one.equals(fillCodes(name, now, 2))) return one;
       for (int n = 1; n < 100000; n++) {
         String made = fillCodes(name, now, n);
-        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+        if (!nameTaken(dir, made) && !takenInOutDirs(made) && !givenBefore(made)) {
+          given(made);
+          return made;
+        }
       }
       return one;
+    }
+
+    /**
+     * The names %n has given in this process (a batch's runs: their files may go to a folder %n cannot
+     * see, or be moved away): kept in a system property, as each program has its own copy of this class.
+     */
+    static synchronized boolean givenBefore(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      return ("\n" + all + "\n").contains("\n" + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "\n");
+    }
+
+    static synchronized void given(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      System.setProperty("pulsekit.given", (all.isEmpty() ? "" : all + "\n") + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", ""));
     }
 
     /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
