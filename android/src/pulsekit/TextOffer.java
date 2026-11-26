@@ -232,9 +232,10 @@ final class TextOffer {
         addAfter.setTextColor(0xFFEDEDE8);
         addAfter.setTextSize(15);
         addAfter.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
-        addAfter.setMinWidth(app.dp(72));
-        addAfter.setPadding(0, 0, app.dp(4), 0);
-        arow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2, 0f));
+        // (Before the text after's field, its own row: checked, that text is added.)
+        addAfter.setText("");
+        addAfter.setContentDescription(TextReady.ADD_AFTER);
+        addAfter.setPadding(0, 0, 0, 0);
         // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as the list's doers).
         final android.widget.Button pick = action(app, arow, TextReady.SELECT_MENU, "text-ready:select-menu");
         LinearLayout hiddenRow = new LinearLayout(app);
@@ -256,15 +257,32 @@ final class TextOffer {
         after.setText(set[2]);
         // Up to 4 lines, scrolled inside when longer.
         typed(after, 4);
-        col.addView(after, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout afterRow = new LinearLayout(app);
+        afterRow.setOrientation(LinearLayout.HORIZONTAL);
+        afterRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        afterRow.addView(addAfter, new LinearLayout.LayoutParams(-2, -2, 0f));
+        afterRow.addView(after, new LinearLayout.LayoutParams(0, -2, 1f));
+        col.addView(afterRow, new LinearLayout.LayoutParams(-1, -2));
         // Custom text: the user's own, added after the answer (remembered); shown once picked in Select or when it has text.
         final EditText custom = new EditText(app);
         custom.setTag("text-ready:custom");
         custom.setHint(TextReady.CUSTOM_HINT);
         custom.setText(set.length > TextReady.F_CUSTOM ? set[TextReady.F_CUSTOM] : "");
         typed(custom, 4);
-        custom.setVisibility(custom.getText().length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
-        col.addView(custom, new LinearLayout.LayoutParams(-1, -2));
+        // Its own checkbox before it: checked, the custom text is added (remembered).
+        final android.widget.CheckBox customAdd = new android.widget.CheckBox(app);
+        customAdd.setTag("text-ready:custom-add");
+        customAdd.setContentDescription(TextReady.CUSTOM_TEXT);
+        customAdd.setChecked(set.length <= TextReady.F_CUSTOM_ADD || !TextReady.OFF.equals(set[TextReady.F_CUSTOM_ADD]));
+        customAdd.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFFB9C9B4));
+        customAdd.setPadding(0, 0, 0, 0);
+        final LinearLayout customRow = new LinearLayout(app);
+        customRow.setOrientation(LinearLayout.HORIZONTAL);
+        customRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        customRow.addView(customAdd, new LinearLayout.LayoutParams(-2, -2, 0f));
+        customRow.addView(custom, new LinearLayout.LayoutParams(0, -2, 1f));
+        customRow.setVisibility(custom.getText().length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
+        col.addView(customRow, new LinearLayout.LayoutParams(-1, -2));
         // Copy, Save and Send as prompt (Close is the dialog's button).
         LinearLayout acts = new LinearLayout(app);
         acts.setOrientation(LinearLayout.HORIZONTAL);
@@ -323,7 +341,7 @@ final class TextOffer {
             String d = delim.getText().toString();
             String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
                 sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString(),
-                custom.getText().toString()};
+                custom.getText().toString(), customAdd.isChecked() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
@@ -360,7 +378,7 @@ final class TextOffer {
                 if (it.getItemId() == 0) selectFile.performClick();
                 else if (it.getItemId() == 1) browse.performClick();
                 else {
-                    custom.setVisibility(android.view.View.VISIBLE);
+                    customRow.setVisibility(android.view.View.VISIBLE);
                     custom.requestFocus();
                     custom.setSelection(custom.getText().length());
                     try {
@@ -376,6 +394,7 @@ final class TextOffer {
         });
         clear.setOnClickListener(v -> after.setText(""));
         addAfter.setOnCheckedChangeListener((b, on) -> cut.run());
+        customAdd.setOnCheckedChangeListener((b, on) -> cut.run());
         notes.setOnCheckedChangeListener((b, on) -> cut.run());
         sogni.setOnCheckedChangeListener((b, on) -> cut.run());
         section.setOnCheckedChangeListener((b, on) -> cut.run());

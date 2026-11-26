@@ -16194,8 +16194,8 @@ public class BehaviorTest {
     out.append("notes box: ").append(notesBox != null).append(", removed ").append(!noteGone.contains("*Note:")).append(", back ").append(noteBack.contains("*Note: an aside")).append('\n');
     // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
     android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
-    out.append("add box: shown ").append(addBox.isShown()).append(", before Select file ").append(((android.view.ViewGroup) addBox.getParent()).indexOfChild(addBox) == 0
-        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:select-menu")).append(", room ").append(addBox.getWidth() >= app.dp(72)).append('\n');
+    out.append("add box: shown ").append(addBox.isShown()).append(", before its text ").append(((android.view.ViewGroup) addBox.getParent()).indexOfChild(addBox) == 0
+        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:after")).append('\n');
     addBox.setChecked(false);
     idle();
     String offText = body2.getText().toString().replace('\n', '|');
@@ -16250,6 +16250,16 @@ public class BehaviorTest {
     for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) customIn |= "Looks".equals(x.group) && "Film look".equals(x.name) && x.text.contains("Shot on film.");
     out.append("custom menu: ").append(cItems).append(" | saved ").append(new String(java.nio.file.Files.readAllBytes(customFile.toPath()), "UTF-8")).append(" | suggested ").append(suggested)
         .append(" | ").append(TextOffer.said).append(" | in group ").append(customIn).append('\n');
+    // Its checkbox before it: unchecked, the custom text is not added (remembered); checked again, it is.
+    android.widget.CheckBox customAdd = (android.widget.CheckBox) r2.findViewWithTag("text-ready:custom-add");
+    boolean boxFirst = ((android.view.ViewGroup) customAdd.getParent()).getChildAt(0) == customAdd && ((android.view.ViewGroup) customAdd.getParent()).getChildAt(1) == customField;
+    customAdd.setChecked(false);
+    idle();
+    String customOff = body2.getText().toString().replace('\n', '|');
+    String customKept = TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM_ADD];
+    customAdd.setChecked(true);
+    idle();
+    out.append("custom box: before it ").append(boxFirst).append(" | off: ").append(customOff).append(" | kept ").append(customKept).append(" | on again ").append(body2.getText().toString().contains("Shot on film.")).append('\n');
     customField.performLongClick();
     idle();
     TextOffer.lastCustomMenu.getMenu().performIdentifierAction(2, 0);
@@ -16326,7 +16336,7 @@ public class BehaviorTest {
     String[] want = {"other program: false", "offered: true", "title shown: true",
         "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
         "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
-        "remembered: Cut after >  From file on off off off   ", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before Select file true, room true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "remembered: Cut after >  From file on off off off    on", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before its text true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
         "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
         "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "after send: ready open false, program SogniPadd.java, params open true",
         "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
@@ -16334,6 +16344,7 @@ public class BehaviorTest {
         "custom text: hidden true, list Select file, Browse sections, Custom text, shown true | A red kite over a grey sea.|Shot on film. | kept Shot on film.",
         "custom menu: Save, Add into program's group, Clear | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
         "custom cleared: A red kite over a grey sea. | kept ''",
+        "custom box: before it true | off: A red kite over a grey sea. | kept off | on again true",
         "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
         "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
         "cuts: b > c / a / a > b"};

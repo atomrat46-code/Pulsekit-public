@@ -3584,7 +3584,7 @@ final class PyJav {
         // Add: checked, the text after is added to the answer; unchecked, it is kept aside (remembered).
         final javax.swing.JCheckBox addAfter = new javax.swing.JCheckBox(TextReady.ADD_AFTER, !TextReady.OFF.equals(set[4]));
         addAfter.setName("text-ready:add-after");
-        arow.add(addAfter);
+        addAfter.setToolTipText("Checked: the text after is added");
         // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as its doers).
         final JButton pick = new JButton(TextReady.SELECT_MENU);
         pick.setName("text-ready:select-menu");
@@ -3605,15 +3605,25 @@ final class PyJav {
         after.setName("text-ready:after");
         after.setLineWrap(true);
         after.setWrapStyleWord(true);
-        bottom.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
+        // Each text with its checkbox before it: checked, that text is added.
+        JPanel afterRow = new JPanel(new java.awt.BorderLayout(4, 0));
+        afterRow.add(addAfter, java.awt.BorderLayout.WEST);
+        afterRow.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
+        bottom.add(afterRow, java.awt.BorderLayout.CENTER);
         // Custom text: the user's own, added after the answer (remembered); its right-click menu: Save, Add into program's group, Clear.
         final javax.swing.JTextArea custom = new javax.swing.JTextArea(set.length > TextReady.F_CUSTOM ? set[TextReady.F_CUSTOM] : "", 3, 52);
         custom.setName("text-ready:custom");
         custom.setLineWrap(true);
         custom.setWrapStyleWord(true);
         custom.setToolTipText(TextReady.CUSTOM_HINT);
-        final javax.swing.JScrollPane customScroll = new javax.swing.JScrollPane(custom);
-        customScroll.setBorder(javax.swing.BorderFactory.createTitledBorder(TextReady.CUSTOM_TEXT));
+        final javax.swing.JCheckBox customAdd = new javax.swing.JCheckBox("", set.length <= TextReady.F_CUSTOM_ADD || !TextReady.OFF.equals(set[TextReady.F_CUSTOM_ADD]));
+        customAdd.setName("text-ready:custom-add");
+        customAdd.setToolTipText("Checked: the custom text is added");
+        final JPanel customScroll = new JPanel(new java.awt.BorderLayout(4, 0));
+        customScroll.add(customAdd, java.awt.BorderLayout.WEST);
+        javax.swing.JScrollPane customPane = new javax.swing.JScrollPane(custom);
+        customPane.setBorder(javax.swing.BorderFactory.createTitledBorder(TextReady.CUSTOM_TEXT));
+        customScroll.add(customPane, java.awt.BorderLayout.CENTER);
         customScroll.setVisible(custom.getText().length() > 0);
         bottom.add(customScroll, java.awt.BorderLayout.SOUTH);
         final javax.swing.JPopupMenu customMenu = new javax.swing.JPopupMenu();
@@ -3652,7 +3662,8 @@ final class PyJav {
             String m = String.valueOf(mode.getSelectedItem());
             String d = delim.getText();
             String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
-                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText()};
+                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText(),
+                customAdd.isSelected() ? TextReady.ON : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
@@ -3661,6 +3672,7 @@ final class PyJav {
         };
         mode.addActionListener(e -> cut.run());
         addAfter.addActionListener(e -> cut.run());
+        customAdd.addActionListener(e -> cut.run());
         notes.addActionListener(e -> cut.run());
         sogni.addActionListener(e -> cut.run());
         section.addActionListener(e -> cut.run());

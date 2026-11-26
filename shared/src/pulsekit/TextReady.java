@@ -184,14 +184,14 @@ public final class TextReady {
    * else SogniChat's reply line with Cut after (no text after).
    */
   /** A program's settings' fields: cut, delimiter, text after, where it came from, Add, Remove note sections, Sogni cut,
-   *  Remove section, its B and E, Custom text. */
-  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, FIELDS = 11;
+   *  Remove section, its B and E, Custom text and whether it is added. */
+  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, F_CUSTOM_ADD = 11, FIELDS = 12;
 
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", ""}
-        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", ""};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON}
+        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -237,6 +237,7 @@ public final class TextReady {
     v[F_NOTES] = ON.equals(v[F_NOTES]) ? ON : OFF;
     v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
     v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
+    v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
     v[F_B] = oneLine(v[F_B]);
     v[F_E] = oneLine(v[F_E]);
     Map<String, String[]> all = load(dir);
@@ -293,6 +294,7 @@ public final class TextReady {
         v[F_NOTES] = ON.equals(v[F_NOTES]) ? ON : OFF;
         v[F_SOGNI] = ON.equals(v[F_SOGNI]) ? ON : OFF;
         v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
+        v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
         out.put(p[0], v);
       }
     } catch (Exception ignored) {
@@ -376,8 +378,9 @@ public final class TextReady {
     // Remove note sections, and Remove section (B to E): from the whole processed text (the answer and the text after it).
     if (set.length > F_NOTES && ON.equals(set[F_NOTES])) all = withoutNotes(all);
     if (set.length > F_E && ON.equals(set[F_SECTION])) all = withoutSections(all, set[F_B], set[F_E]);
-    // Custom text: the user's own, after the processed text (not cut).
-    String custom = set.length > F_CUSTOM && set[F_CUSTOM] != null ? set[F_CUSTOM].trim() : "";
+    // Custom text: the user's own, after the processed text (not cut), when its checkbox is ticked.
+    boolean customOn = set.length <= F_CUSTOM_ADD || !OFF.equals(set[F_CUSTOM_ADD]);
+    String custom = customOn && set.length > F_CUSTOM && set[F_CUSTOM] != null ? set[F_CUSTOM].trim() : "";
     if (!custom.isEmpty()) all = all.isEmpty() ? custom : all + "\n" + custom;
     return all;
   }
