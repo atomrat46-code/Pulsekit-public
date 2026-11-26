@@ -168,6 +168,23 @@ public final class DownloadMove {
   public static final String BATCH_PARAM_LABEL = "Batch folder: files made one after another (Run sections, an input folder, SogniChat's Auto render) go here instead of Download (made when missing; a single run still goes to Download)";
   public static final String BATCH_PARAM_HINT = "e.g. Batches/%ddmmyyyy-%n (under Download; Browse: another folder); % codes filled in once a batch";
 
+  /** Params' Batch group: a batch's files put in this group by themselves; %g in the output name is it. PyJav takes it off. */
+  public static final String BATCH_GROUP = "--pk-batch-group";
+  public static final String BATCH_GROUP_LABEL = "Batch group: files made one after another (Run sections, an input folder, SogniChat's Auto render) put in this group by themselves; %g in the output name is it (a single run: not used)";
+  public static final String BATCH_GROUP_HINT = "e.g. Batch %ddmmyy (made when missing); empty: none";
+
+  /** A switch's value taken off a run's arguments (PyJav's own rows), "" when none. */
+  public static String takeValue(List<String> args, String flag) {
+    String got = "";
+    for (int i = 0; args != null && i < args.size(); i++) {
+      if (!flag.equals(args.get(i))) continue;
+      args.remove(i);
+      if (i < args.size() && !args.get(i).startsWith("--")) got = args.remove(i).trim();
+      i--;
+    }
+    return got;
+  }
+
   /** The Batch folder taken off a run's arguments (the program never sees it); "" when there is none. */
   public static String takeBatch(List<String> args) {
     String got = "";

@@ -17,10 +17,21 @@ public final class FolderRuns {
   private FolderRuns() {}
 
   /** The Params rows of a folder run: not given to the program's runs. */
-  public static final String[] OWN = {"--input_dir", "--max_files", "--skip_done", "--section"};
+  public static final String[] OWN = {"--input_dir", "--max_files", "--skip_done", "--section", "--input_as"};
 
   public static boolean wanted(String program) {
-    return "SogniPedit.java".equals(program) || "SogniPadd.java".equals(program);
+    return pictures(program) || "SogniPadd.java".equals(program) || "SogniTextVideo.java".equals(program);
+  }
+
+  /** The programs whose input folder is pictures (SogniPedit edits them, SogniVideo makes videos from them); the others' is text files. */
+  public static boolean pictures(String program) {
+    return "SogniPedit.java".equals(program) || "SogniVideo.java".equals(program);
+  }
+
+  /** Where a folder's picture goes: --image, or with Input as 2 SogniPedit's --image2 (reference 2), SogniVideo's --end_image. */
+  public static String pictureRow(String program, String inputAs) {
+    if (!"2".equals(inputAs == null ? "" : inputAs.trim())) return "--image";
+    return "SogniVideo.java".equals(program) ? "--end_image" : "--image2";
   }
 
   /** A run of the program on a folder (Input folder given). */
@@ -32,7 +43,7 @@ public final class FolderRuns {
   public static boolean kind(String program, String name) {
     String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
     if (n.startsWith(".")) return false;
-    if ("SogniPedit.java".equals(program)) return n.matches(".+\\.(png|jpe?g|webp)$");
+    if (pictures(program)) return n.matches(".+\\.(png|jpe?g|webp)$");
     return n.endsWith(".txt") || n.endsWith(".prompt");
   }
 
@@ -75,7 +86,11 @@ public final class FolderRuns {
     String[] values = ProgramParams.values(ps, base == null ? "" : base, "");
     java.util.Map<String, String> defs = null;
     String text = null;
-    if (!"SogniPedit.java".equals(program)) {
+    // Input as (its value before the folder run's own rows are cleared): where the picture goes.
+    String inputAs = "";
+    for (int i = 0; i < ps.size() && i < values.length; i++) if (ps.get(i).token.equals("--input_as")) inputAs = values[i];
+    String picRow = pictures(program) ? pictureRow(program, inputAs) : null;
+    if (!pictures(program)) {
       String raw = bytes == null ? "" : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
       if (raw.startsWith("﻿")) raw = raw.substring(1);
       if (ParamDefs.looksLike(raw)) {
@@ -89,7 +104,7 @@ public final class FolderRuns {
     for (int i = 0; i < ps.size() && i < values.length; i++) {
       ProgramParams.Param p = ps.get(i);
       if (java.util.Arrays.asList(OWN).contains(p.token)) values[i] = "";
-      else if ("SogniPedit.java".equals(program) && p.token.equals("--image")) values[i] = f.getAbsolutePath();
+      else if (picRow != null && p.token.equals(picRow)) values[i] = f.getAbsolutePath();
       else if (defs != null && p.flag && defs.containsKey(p.token)) values[i] = defs.get(p.token);
       else if (text != null && p.token.equals("--prompt")) values[i] = text;
     }
@@ -119,7 +134,7 @@ public final class FolderRuns {
       todo = new ArrayList<File>(todo.subList(0, max));
     }
     if (todo.isEmpty()) {
-      notes.add(files.isEmpty() ? "No " + ("SogniPedit.java".equals(program) ? "pictures (PNG, JPEG, WebP)" : ".txt or .prompt files") + " in the folder"
+      notes.add(files.isEmpty() ? "No " + (pictures(program) ? "pictures (PNG, JPEG, WebP)" : ".txt or .prompt files") + " in the folder"
           : "Nothing new: every file in the folder was done before (Skip already processed)");
       return null;
     }
@@ -135,7 +150,7 @@ public final class FolderRuns {
     }
     List<String> params = new ArrayList<String>(), labels = new ArrayList<String>(), names = new ArrayList<String>();
     for (File f : todo) {
-      byte[] bytes = "SogniPedit.java".equals(program) ? null : java.nio.file.Files.readAllBytes(f.toPath());
+      byte[] bytes = pictures(program) ? null : java.nio.file.Files.readAllBytes(f.toPath());
       params.add(paramsFor(program, ps, base, f, bytes));
       labels.add(f.getName());
       names.add(f.getName());

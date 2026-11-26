@@ -184,6 +184,9 @@ public final class SogniVideo {
       else if (a.equals("--exact_prompt")) exact = true;
       else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
+      // Pulsekit's Input folder rows: its runs (one a file) do not have them; a run on its own leaves them out.
+      else if ((a.equals("--input_dir") || a.equals("--max_files") || a.equals("--section") || a.equals("--input_as")) && i + 1 < args.length) i++;
+      else if (a.equals("--skip_done")) continue;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--no_filter")) SogniApi.noFilter = true;
       else if (a.equals("--join") && i + 1 < args.length) joinPath = args[++i].trim();
@@ -436,7 +439,7 @@ public final class SogniVideo {
   static void usage() {
     say("Usage: java SogniVideo [output.mp4] [--prompt text] [--image picture.png] [--end_image picture.png] [--duration seconds] "
         + "[--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--join video.mp4] [--join_first] [--join_size WxH|largest] [--join_fit crop|pad] [--join_area centre|top|bottom] [--key_file credentials.txt] "
-        + "[--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
+        + "[--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--section name] [--input_as 1|2]");
   }
 
   /** 768 (also empty), 720, 1080 or 1440 ("1080p", "2K" read the same way); -1 for anything else. */

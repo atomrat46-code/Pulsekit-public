@@ -169,10 +169,12 @@ public final class ProgramParams {
     for (Param p : out) {
       known(p, drumMidi, chat);
       // SogniPedit's and SogniPadd's Input folder (FolderRuns): the program run once for each file.
-      boolean pics = has(out, "--image") && has(out, "--skin_detail"), texts = has(out, "--aspect") && has(out, "--seed") && !has(out, "--image");
+      // (SogniVideo's folder: pictures too; SogniTextVideo's: text files, as SogniPadd's.)
+      boolean pics = pic || video, texts = padd || textVideo;
       if (p.flag && p.takesValue && p.token.equals("--input_dir") && !chat && (pics || texts)) {
         p.dir = true;
-        p.label = pics ? "Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture" : "Input folder: each .txt or .prompt file's prompt rendered in turn, one run a file";
+        p.label = pics ? "Input folder: each picture (PNG, JPEG, WebP) " + (video ? "made a video" : "edited") + " in turn, one run a picture"
+            : "Input folder: each .txt or .prompt file's prompt rendered in turn, one run a file";
         p.hint = "the Params are each run's; %f in the output name: the file's name";
       }
       if (p.flag && p.takesValue && p.token.equals("--max_files") && !chat && (pics || texts)) {
@@ -180,6 +182,13 @@ public final class ProgramParams {
         p.hint = "20";
       }
       if (p.flag && !p.takesValue && p.token.equals("--skip_done") && !chat && (pics || texts)) p.label = "Skip already processed: the input folder's files done in earlier runs left out";
+      // Input as: the folder's pictures as reference image 1 or 2 (SogniVideo: its start or end picture).
+      if (p.flag && p.takesValue && p.token.equals("--input_as") && pics) {
+        p.label = "Input folder's pictures as";
+        p.dropdown = true;
+        p.choices = video ? new String[] {"Start picture (--image)", "End picture (--end_image)"} : new String[] {"Reference image 1 (--image)", "Reference image 2 (--image2)"};
+        p.choiceValues = new String[] {"", "2"};
+      }
       if (p.flag && p.takesValue && p.token.equals("--section") && (pics || texts)) {
         p.label = "Section: a saved section's entries (prompt, LoRAs...) with each file (by its name)";
         p.hint = "e.g. Soft light; empty: the Params as they are";
@@ -259,6 +268,28 @@ public final class ProgramParams {
       sub.label = DownloadMove.SUB_PARAM_LABEL;
       sub.hint = DownloadMove.SUB_PARAM_HINT;
       out.add(sub);
+    }
+    // Their Batch group: a batch's files put in that group by themselves (%g in the output name is it).
+    if ((video || pic || padd || textVideo) && !has(out, DownloadMove.BATCH_GROUP)) {
+      Param g = new Param();
+      g.token = DownloadMove.BATCH_GROUP;
+      g.flag = true;
+      g.takesValue = true;
+      g.optional = true;
+      g.label = DownloadMove.BATCH_GROUP_LABEL;
+      g.hint = DownloadMove.BATCH_GROUP_HINT;
+      out.add(g);
+    }
+    // Their Usage warning: Sogni's fair-use usage read before a batch; at it or over, the batch asks first.
+    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, SogniUsage.WARN_PARAM)) {
+      Param w = new Param();
+      w.token = SogniUsage.WARN_PARAM;
+      w.flag = true;
+      w.takesValue = true;
+      w.optional = true;
+      w.label = SogniUsage.WARN_LABEL;
+      w.hint = SogniUsage.WARN_HINT;
+      out.add(w);
     }
     // Their Batch folder: a batch's files there instead of Download (PyJav takes it off; a folder to type or browse).
     if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.BATCH_PARAM)) {

@@ -798,6 +798,18 @@ final class PyJav {
         final boolean rawKept = ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? this.programText() : null, runArgs);
         this.chatRawKept = rawKept;
         final BatchQueue inBatchQ = BatchQueue.runOf(name);
+        // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
+        String groupPattern = DownloadMove.takeValue(runArgs, DownloadMove.BATCH_GROUP);
+        // Params' Usage warning: read before a batch (batchNext), not the program's.
+        DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
+        if (inBatchQ != null && groupPattern.length() > 0) {
+            if (inBatchQ.group == null) inBatchQ.group = BatchGroup.resolve(PromptDb.dir(), groupPattern);
+            java.util.List<String> groupFilled = BatchGroup.withGroup(ProgramParams.parse(this.programText()), runArgs, inBatchQ.group);
+            if (groupFilled != runArgs) {
+                runArgs.clear();
+                runArgs.addAll(groupFilled);
+            }
+        }
         if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
             inBatchQ.outFolder = ProgramFolder.outdir(batchPattern, this.programFolder()).getAbsolutePath();
         final boolean savingRun = saving;
@@ -1251,6 +1263,14 @@ final class PyJav {
                     java.util.List<String> paths = new java.util.ArrayList<String>();
                     for (File f : savedVideos) paths.add(f.getAbsolutePath());
                     for (File f : savedPictures) paths.add(f.getAbsolutePath());
+                    // Its Batch group: the run's files put in it.
+                    if (result.code == 0 && !batch.joining && batch.group != null && batch.group.length() > 0) {
+                        java.util.List<Object[]> fs = new java.util.ArrayList<Object[]>();
+                        for (File f : savedVideos) fs.add(new Object[] {f.getName(), Long.valueOf(f.length())});
+                        for (File f : savedPictures) fs.add(new Object[] {f.getName(), Long.valueOf(f.length())});
+                        int put = BatchGroup.add(PromptDb.dir(), batch.group, fs);
+                        if (put > 0 && app.pyLog != null) app.pyLog.append("\n" + BatchGroup.said(batch.group, put));
+                    }
                     batch.done(verdict, paths);
                     this.batchNext(batch);
                 } else if (BatchQueue.start(name, argv, verdict, result.log) != null) {
@@ -2777,8 +2797,47 @@ final class PyJav {
      * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
      * Each run is the program's own, with the arguments BatchRun planned.
      */
-    void batchNext(BatchQueue q) {
+    void batchNext(final BatchQueue q) {
         if (q == null) return;
+        // Params' Usage warning: Sogni's fair-use usage read before the first run (off the window's thread); at it or over, asked.
+        if (!q.usageChecked && q.next == 0) {
+            q.usageChecked = true;
+            final int warnAt = SogniUsage.threshold(this.loadParams(q.program));
+            if (warnAt > 0) {
+                this.testNote("Reading Sogni usage…");
+                new Thread(() -> {
+                    Object got;
+                    try {
+                        got = SogniUsage.fetch();
+                    } catch (Throwable ex) {
+                        got = ex;
+                    }
+                    final Object reply = got;
+                    SwingUtilities.invokeLater(() -> {
+                        if (reply instanceof Throwable) {
+                            this.testNote("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
+                            this.batchNext(q);
+                            return;
+                        }
+                        this.testNote(SogniUsage.line(reply));
+                        String ask = SogniUsage.ask(reply, warnAt);
+                        if (ask == null) {
+                            this.batchNext(q);
+                            return;
+                        }
+                        Object[] options = {"Run anyway", "Stop batch"};
+                        int ans = JOptionPane.showOptionDialog(app, ask, "Sogni usage", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+                        if (ans == 0) this.batchNext(q);
+                        else {
+                            q.stopping = true;
+                            this.testNote("Batch: not run (Sogni usage at or over the warning)");
+                            this.batchOver(q);
+                        }
+                    });
+                }, "pulsekit-usage").start();
+                return;
+            }
+        }
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(true);
         final String program;
         java.util.List<String> args;
@@ -3154,7 +3213,7 @@ final class PyJav {
         String group = preset == null ? null : preset[1];
         File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
         dir.mkdirs();
-        int n = 0, sent = 0;
+        int n = 0, sent = 0, empty = 0;
         // The sections sent kept with one encrypted save at the end, not one for each.
         PromptVault held = null;
         try {
@@ -3165,6 +3224,11 @@ final class PyJav {
         if (held != null) held.holdSaves();
         try {
         for (JavaRun.FileOut f : answers) {
+            // Nothing left once processed (the cuts took it all): this file is passed by, the next one goes on.
+            if (TextReady.result(TextReady.text(f.bytes), set).trim().isEmpty()) {
+                empty++;
+                continue;
+            }
             if (preset != null) {
                 try {
                     if (TextReady.sendToGroup(PromptDb.vault(), preset[0], f.name, TextReady.result(TextReady.text(f.bytes), set), preset[1]).startsWith("Sent")) sent++;
@@ -3193,7 +3257,7 @@ final class PyJav {
                 }
             }
         }
-        answersSaid = ChatFolder.saved(n, dir.getPath(), set) + ChatFolder.sentNote(sent, preset);
+        answersSaid = ChatFolder.saved(n, dir.getPath(), set) + ChatFolder.sentNote(sent, preset) + ChatFolder.emptyNote(empty);
         if (app.pyLog != null) app.pyLog.append("\n" + answersSaid);
         app.setNow(answersSaid);
     }
@@ -3278,7 +3342,12 @@ final class PyJav {
     void autoRender(String target, String chat, java.util.List<PythonRun.FileOut> files) {
         String[] set = TextReady.setting(PromptDb.dir(), chat);
         java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
-        for (PythonRun.FileOut f : files) if (f.name.toLowerCase().endsWith(".txt")) answers.add(new String[] {f.name, TextReady.result(TextReady.text(f.bytes), set)});
+        for (PythonRun.FileOut f : files) {
+            if (!f.name.toLowerCase().endsWith(".txt")) continue;
+            String r = TextReady.result(TextReady.text(f.bytes), set);
+            // (Empty once processed: not rendered.)
+            if (!r.trim().isEmpty()) answers.add(new String[] {f.name, r});
+        }
         this.startAutoRender(target, answers);
     }
 

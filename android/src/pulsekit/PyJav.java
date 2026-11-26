@@ -1438,6 +1438,18 @@ final class PyJav {
         // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
         ArtJava.rawTextOff = !pulsekit.ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? PyJavParams.programTextOf(app, name) : null, argv);
         pulsekit.BatchQueue inBatchQ = pulsekit.BatchQueue.runOf(name);
+        // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
+        String groupPattern = pulsekit.DownloadMove.takeValue(argv, pulsekit.DownloadMove.BATCH_GROUP);
+        // Params' Usage warning: read before a batch (pkBatchNext), not the program's.
+        pulsekit.DownloadMove.takeValue(argv, pulsekit.SogniUsage.WARN_PARAM);
+        if (inBatchQ != null && groupPattern.length() > 0) {
+            if (inBatchQ.group == null) inBatchQ.group = pulsekit.BatchGroup.resolve(app.getFilesDir(), groupPattern);
+            java.util.List<String> groupFilled = pulsekit.BatchGroup.withGroup(pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)), argv, inBatchQ.group);
+            if (groupFilled != argv) {
+                argv.clear();
+                argv.addAll(groupFilled);
+            }
+        }
         ArtJava.batchSub = null;
         if (inBatchQ != null && batchPattern.length() > 0) {
             if (inBatchQ.outFolder == null) inBatchQ.outFolder = ArtJava.subOf(batchPattern);
@@ -2040,7 +2052,11 @@ final class PyJav {
             final java.util.List<String[]> rendered = new java.util.ArrayList<String[]>();
             if (autoTarget != null) {
                 String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
-                for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) rendered.add(new String[] {f.name, pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set)});
+                for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
+                    String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
+                    // (Empty once processed: not rendered.)
+                    if (!r.trim().isEmpty()) rendered.add(new String[] {f.name, r});
+                }
             }
             app.setNow("Saving the answers\u2026");
             Thread saving = new Thread(() -> {
@@ -2063,7 +2079,10 @@ final class PyJav {
         if (!saveHere && autoTarget != null) {
             String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
             java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
-            for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) answers.add(new String[] {f.name, pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set)});
+            for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
+                String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
+                if (!r.trim().isEmpty()) answers.add(new String[] {f.name, r});
+            }
             this.pkStartAutoRender(autoTarget, answers);
         }
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
@@ -2085,6 +2104,13 @@ final class PyJav {
         this.pkOffer("the collections", ok && "Collections.java".equals(app.pyName), () -> CollectionsScreen.show(app, MediaCollections.opened(madeLog)));
         // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
         if (batch != null && batch.takes(program)) {
+            // Its Batch group: the run's files put in it.
+            if (ok && !batch.joining && batch.group != null && batch.group.length() > 0 && made != null && made.files != null) {
+                java.util.List<Object[]> fs = new java.util.ArrayList<Object[]>();
+                for (pulsekit.JavaRun.FileOut f : made.files) if (f != null && f.bytes != null) fs.add(new Object[] {f.name, Long.valueOf(f.bytes.length)});
+                int put = pulsekit.BatchGroup.add(app.getFilesDir(), batch.group, fs);
+                if (put > 0) this.pkAddLogLine(pulsekit.BatchGroup.said(batch.group, put));
+            }
             batch.done(status, this.pkBatchCopies(made));
             this.pkBatchNext(batch);
         } else if (pulsekit.BatchQueue.start(program, argv, status, madeLog) != null) {
@@ -2355,6 +2381,9 @@ final class PyJav {
         return lp;
     }
 
+    /** The tests: the Sogni usage question shown last. */
+    static android.app.AlertDialog pkUsageAsk;
+
     /** The batch's Stop batch button (shown while a batch runs). */
     android.view.View pkBatchStopBtn;
 
@@ -2382,8 +2411,46 @@ final class PyJav {
      * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
      * Each run is the program's own, with the arguments BatchRun planned.
      */
-    void pkBatchNext(pulsekit.BatchQueue q) {
+    void pkBatchNext(final pulsekit.BatchQueue q) {
         if (q == null) return;
+        // Params' Usage warning: Sogni's fair-use usage read before the first run (off the screen's thread); at it or over, asked.
+        if (!q.usageChecked && q.next == 0) {
+            q.usageChecked = true;
+            final int warnAt = pulsekit.SogniUsage.threshold(PyJavParams.load(app, q.program));
+            if (warnAt > 0) {
+                this.pkAddLogLine("Reading Sogni usage\u2026");
+                new Thread(() -> {
+                    Object got;
+                    try {
+                        got = pulsekit.SogniUsage.fetch();
+                    } catch (Throwable ex) {
+                        got = ex;
+                    }
+                    final Object reply = got;
+                    app.runOnUiThread(() -> {
+                        if (reply instanceof Throwable) {
+                            this.pkAddLogLine("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
+                            this.pkBatchNext(q);
+                            return;
+                        }
+                        this.pkAddLogLine(pulsekit.SogniUsage.line(reply));
+                        String ask = pulsekit.SogniUsage.ask(reply, warnAt);
+                        if (ask == null) {
+                            this.pkBatchNext(q);
+                            return;
+                        }
+                        pkUsageAsk = new android.app.AlertDialog.Builder(app).setTitle("Sogni usage").setMessage(ask)
+                            .setPositiveButton("Run anyway", (d, w) -> this.pkBatchNext(q))
+                            .setNegativeButton("Stop batch", (d, w) -> {
+                                q.stopping = true;
+                                this.pkAddLogLine("Batch: not run (Sogni usage at or over the warning)");
+                                this.pkBatchOver(q);
+                            }).setCancelable(false).show();
+                    });
+                }, "pulsekit-usage").start();
+                return;
+            }
+        }
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(0);
         final String program;
         java.util.List<String> args;

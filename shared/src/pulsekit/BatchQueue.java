@@ -47,6 +47,12 @@ public final class BatchQueue {
   /** Params' Batch folder, its % codes filled in at the batch's first run (every run's files there); null: Download. */
   public String outFolder;
 
+  /** Sogni's usage read before the batch's first run (Params' Usage warning). */
+  public boolean usageChecked;
+
+  /** Params' Batch group, its % codes filled in at the batch's first run (every run's files put in it); null: none. */
+  public String group;
+
   /** The batch `program`'s run is one of (not JoinVideo at the end), or null. */
   public static BatchQueue runOf(String program) {
     BatchQueue q = current();

@@ -77,7 +77,7 @@ final class TextOffer {
         String sub = given == null ? null : ArtJava.subOf(TextReady.outDir(given, group));
         // With Output name the raw chat was not written: the answers keep their names (not <name>-trimmed) in Download.
         boolean named = !ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
-        int n = 0, sent = 0;
+        int n = 0, sent = 0, empty = 0;
         String where = null;
         // The sections sent kept with one encrypted save at the end (one for each took seconds: Android said not responding).
         PromptVault vault = null;
@@ -90,6 +90,11 @@ final class TextOffer {
         try {
         for (JavaRun.FileOut f : answers) {
             String text = TextReady.result(TextReady.text(f.bytes), set);
+            // Nothing left once processed (the cuts took it all): this file is passed by, the next one goes on.
+            if (text.trim().isEmpty()) {
+                empty++;
+                continue;
+            }
             if (vault != null) {
                 try {
                     if (TextReady.sendToGroup(vault, preset[0], f.name, text, preset[1]).startsWith("Sent")) sent++;
@@ -111,7 +116,7 @@ final class TextOffer {
                 }
             }
         }
-        String line = (n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set)) + ChatFolder.sentNote(sent, preset);
+        String line = (n == 0 ? "Could not save the answers" + (given == null ? "" : " into " + given) : ChatFolder.saved(n, where, set)) + ChatFolder.sentNote(sent, preset) + ChatFolder.emptyNote(empty);
         said = line;
         if (log != null) log.accept(line);
         return n;

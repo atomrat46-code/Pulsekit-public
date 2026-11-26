@@ -260,6 +260,11 @@ public final class ChatFolder {
     return preset == null || n == 0 ? "" : "; " + n + " sent to " + preset[0] + "'s group " + preset[1] + " as sections";
   }
 
+  /** The log's words for answers left out because nothing was left of them once processed ("" when none). */
+  public static String emptyNote(int n) {
+    return n == 0 ? "" : "; " + n + " empty after processing, left out (not saved, sent or rendered)";
+  }
+
   /** The log's line after the answers are saved. */
   public static String saved(int n, String where, String[] setting) {
     String how = TextReady.NO_CUT.equals(setting[0]) || setting[1].isEmpty() ? "whole" : setting[0].toLowerCase(Locale.ROOT) + " “" + setting[1] + "”";

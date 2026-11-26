@@ -16588,6 +16588,59 @@ public class BehaviorTest {
     java.nio.file.Files.write(new java.io.File(nd, "Testi_1.png").toPath(), new byte[] {1});
     out.append("names: ").append(SogniApi.fillName("Testi_%n%", nd)).append(", ").append(SogniApi.fillName("Testi_%n", nd)).append(", ")
         .append(SogniApi.fillName("100%% sure_%n%.png", nd)).append('\n');
+    // Batch mode: an answer empty once processed is passed by (not saved, sent or rendered).
+    TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.OFF);
+    java.util.List<JavaRun.FileOut> twoAnswers = new java.util.ArrayList<JavaRun.FileOut>();
+    twoAnswers.add(new JavaRun.FileOut("full.txt", "=== You ===\nHi\n\n=== Sogni ===\nA lighthouse.".getBytes("UTF-8")));
+    twoAnswers.add(new JavaRun.FileOut("empty.txt", "=== You ===\nHi\n\n=== Sogni ===\n".getBytes("UTF-8")));
+    int savedN = TextOffer.saveAnswers(app, "SogniChat.java", java.util.Arrays.asList("--prompt", "x", "--input_dir", "/in"), new JavaRun.Result("Succeeded", twoAnswers, 0), null);
+    out.append("empty skipped: saved ").append(savedN).append(" | ").append(TextOffer.said.replaceAll(".*;", ";")).append('\n');
+    // Video folder runs: SogniVideo's pictures as its start or end picture; SogniPedit's as reference 1 or 2; SogniTextVideo's text files as prompts.
+    java.io.File vdir = new java.io.File(app.getCacheDir(), "video-in");
+    vdir.mkdirs();
+    java.nio.file.Files.write(new java.io.File(vdir, "a.png").toPath(), new byte[] {1});
+    java.nio.file.Files.write(new java.io.File(vdir, "b.txt").toPath(), "A lighthouse at night.".getBytes("UTF-8"));
+    java.util.List<ProgramParams.Param> vps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideo.java"));
+    java.util.List<ProgramParams.Param> tps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniTextVideo.java"));
+    java.util.List<ProgramParams.Param> eps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    java.util.List<String> vargs = java.util.Arrays.asList("--input_dir", vdir.getAbsolutePath(), "--input_as", "2");
+    BatchQueue vq = FolderRuns.start("SogniVideo.java", vps, "--prompt \"x\" --input_dir \"" + vdir + "\" --input_as 2", vargs, FolderRuns.files("SogniVideo.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    BatchQueue eq = FolderRuns.start("SogniPedit.java", eps, "--prompt \"x\" --input_dir \"" + vdir + "\" --input_as 2", vargs, FolderRuns.files("SogniPedit.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    BatchQueue tq = FolderRuns.start("SogniTextVideo.java", tps, "--prompt \"x\" --input_dir \"" + vdir + "\"", java.util.Arrays.asList("--input_dir", vdir.getAbsolutePath()), FolderRuns.files("SogniTextVideo.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    String inputAsLabel = "";
+    for (ProgramParams.Param p : vps) if (p.token.equals("--input_as")) inputAsLabel = java.util.Arrays.toString(p.choices);
+    boolean rows = true;
+    for (java.util.List<ProgramParams.Param> list : java.util.Arrays.asList(vps, tps, eps, padd)) {
+      java.util.Set<String> tk = new java.util.HashSet<String>();
+      for (ProgramParams.Param p : list) tk.add(p.token);
+      rows &= tk.contains(DownloadMove.BATCH_GROUP) && tk.contains(SogniUsage.WARN_PARAM) && tk.contains(DownloadMove.BATCH_PARAM);
+      if (list != padd) rows &= tk.contains("--input_dir") && tk.contains("--max_files") && tk.contains("--skip_done");
+    }
+    out.append("video folder: ").append(vq.params.get(0).replace(vdir.getAbsolutePath(), "~")).append(" | pedit: ").append(eq.params.get(0).replace(vdir.getAbsolutePath(), "~"))
+        .append(" | text video: ").append(tq.params.get(0)).append(" | as: ").append(inputAsLabel).append(" | rows ").append(rows).append('\n');
+    // Batch group: % codes filled in once; %g in the output name; the run's files put in it.
+    String bg = BatchGroup.resolve(app.getFilesDir(), "Batch %n");
+    java.util.List<String> named = BatchGroup.withGroup(padd, java.util.Arrays.asList("Img-%g%", "--prompt", "x"), bg);
+    java.util.List<Object[]> made2 = new java.util.ArrayList<Object[]>();
+    made2.add(new Object[] {"Img-Batch 1.png", Long.valueOf(10)});
+    made2.add(new Object[] {"notes.txt", Long.valueOf(3)});
+    int put = BatchGroup.add(app.getFilesDir(), bg, made2);
+    out.append("batch group: ").append(bg).append(" | ").append(named).append(" | put ").append(put).append(" in ").append(FileGroups.in(bg, MarkFile.groupKeys(null, "Img-Batch 1.png", 10)[0]))
+        .append(" | next ").append(BatchGroup.resolve(app.getFilesDir(), "Batch %n")).append('\n');
+    // Sogni usage: the fair-use percentages read; at the warning or over, the batch asks.
+    java.io.File keyFile = new java.io.File(app.getCacheDir(), "sogni-key.txt");
+    java.nio.file.Files.write(keyFile.toPath(), "SOGNI_API_KEY=test".getBytes("UTF-8"));
+    String keyWas = SogniApi.keyFileSetting;
+    SogniApi.keyFileSetting = keyFile.getAbsolutePath();
+    SogniApi.answer = path -> SogniApi.parseJson("{\"status\":\"success\",\"data\":{\"usage\":{\"periodJobs\":12},\"fairUse\":{\"daily\":{\"usedPct\":85.5},\"monthlyPercent\":20,\"fastRenderingPaused\":false}}}");
+    Object usage = SogniUsage.fetch();
+    SogniApi.answer = null;
+    SogniApi.keyFileSetting = keyWas;
+    out.append("usage: ").append(SogniUsage.line(usage)).append(" | ask at 80 ").append(SogniUsage.ask(usage, 80) != null).append(", at 90 ").append(SogniUsage.ask(usage, 90) != null)
+        .append(" | threshold ").append(SogniUsage.threshold("--prompt \"x\" --pk-usage-warn 80")).append('\n');
     String t = out.toString();
     write("s277_stop_run_batch_folder", t);
     boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
@@ -16600,6 +16653,11 @@ public class BehaviorTest {
         && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
         && t.contains("sections: Keep  and  end [[open | empty E: a [[b]] c")
         && t.contains("names: Testi_2, Testi_2, 100% sure_1.png")
+        && t.contains("empty skipped: saved 1 | ; 1 empty after processing, left out (not saved, sent or rendered)")
+        && t.contains("video folder: ") && t.contains("--end_image ~/a.png") && t.contains("| pedit: ") && t.contains("--image2 ~/a.png") && t.contains("text video: --prompt \"A lighthouse at night.\"")
+        && t.contains("| as: [Start picture (--image), End picture (--end_image)] | rows true")
+        && t.contains("batch group: Batch 1 | [Img-Batch 1, --prompt, x] | put 1 in true | next Batch 2")
+        && t.contains("usage: Sogni usage: daily.usedPct 85.5%, monthlyPercent 20% | ask at 80 true, at 90 false | threshold 80")
         && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
         && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
         && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")

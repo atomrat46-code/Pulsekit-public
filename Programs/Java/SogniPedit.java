@@ -151,7 +151,7 @@ public final class SogniPedit {
       else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       // Pulsekit's Input folder rows: its runs (one a file) do not have them; a run on its own leaves them out.
-      else if ((a.equals("--input_dir") || a.equals("--max_files") || a.equals("--section")) && i + 1 < args.length) i++;
+      else if ((a.equals("--input_dir") || a.equals("--max_files") || a.equals("--section") || a.equals("--input_as")) && i + 1 < args.length) i++;
       else if (a.equals("--skip_done")) continue;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
@@ -340,7 +340,7 @@ public final class SogniPedit {
 
   static void usage() {
     say("Usage: java SogniPedit [output.png] [--prompt text] [--image picture.png] [--image2 reference.png] [--skin_detail N] "
-        + "[--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--section name]");
+        + "[--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--section name] [--input_as 1|2]");
   }
 
   /** "krea2-skin-detail 1.1, krea2-warm-light 0.6". */
