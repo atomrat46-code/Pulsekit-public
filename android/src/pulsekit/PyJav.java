@@ -547,6 +547,11 @@ final class PyJav {
         this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkAskStopBatch());
         this.pkBatchStopBtn.setTag("pyjav-batch-stop");
         this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
+        // A batch kept from before (no connection, Android stopped Pulsekit): offered to go on with, once a start.
+        if (!pkResumeOffered) {
+            pkResumeOffered = true;
+            app.handler.postDelayed(this::pkOfferResume, 1500);
+        }
         android.widget.LinearLayout stopRow = new android.widget.LinearLayout(app);
         stopRow.setOrientation(0);
         stopRow.addView(this.pkStopBtn, pkHalf(false));
@@ -2125,6 +2130,15 @@ final class PyJav {
             // Chain (SogniPadd): what the run made kept for the chain, which starts when the batch is over.
             if (ok && !batch.joining && !batch.chained && pulsekit.Chain.target(program, PyJavParams.load(app, program)) != null) batch.chainItems.addAll(this.pkChainItems(made, argv));
             batch.done(status, this.pkBatchCopies(made));
+            // No connection to Sogni (the phone offline, its name not found): the batch pauses, kept from this run on.
+            if (!ok && !batch.joining && pulsekit.BatchSave.offline(status + "\n" + (madeLog == null ? "" : madeLog))) {
+                pulsekit.BatchSave.save(app.getFilesDir(), batch, Math.max(0, batch.next - 1));
+                batch.kept = true;
+                batch.stopping = true;
+                this.pkAddLogLine("Batch paused: no connection to Sogni. Kept: " + (batch.runs.size() - Math.max(0, batch.next - 1)) + " runs left; Pulsekit offers to go on when it starts next (or Run again now)");
+                this.pkBatchOver(batch);
+                return;
+            }
             this.pkBatchNext(batch);
         } else if (pulsekit.BatchQueue.start(program, argv, status, madeLog) != null) {
             this.pkBatchNext(pulsekit.BatchQueue.current());
@@ -2444,6 +2458,15 @@ final class PyJav {
                     }
                     final Object reply = got;
                     app.runOnUiThread(() -> {
+                        if (reply instanceof Throwable && pulsekit.BatchSave.offline(String.valueOf(((Throwable) reply).toString()) + " " + ((Throwable) reply).getMessage())) {
+                            // No connection before the first run: the batch is not started, kept to go on with later.
+                            pulsekit.BatchSave.save(app.getFilesDir(), q, q.next);
+                            q.kept = true;
+                            q.stopping = true;
+                            this.pkAddLogLine("Batch not started: no connection to Sogni (" + ((Throwable) reply).getMessage() + "). Kept; Pulsekit offers to go on when it starts next");
+                            this.pkBatchOver(q);
+                            return;
+                        }
                         if (reply instanceof Throwable) {
                             q.usage = "Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + ")";
                             q.usageShort = "Sogni usage: not read";
@@ -2476,6 +2499,8 @@ final class PyJav {
         java.util.List<String> args;
         if (q.hasNext()) {
             program = q.program;
+            // Kept on disk from this run on: Android stopping Pulsekit (or no connection) loses nothing.
+            pulsekit.BatchSave.save(app.getFilesDir(), q, q.next);
             args = q.nextArgs();
             this.pkAddLogLine(q.progress());
         } else if (q.joinNext()) {
@@ -2525,6 +2550,8 @@ final class PyJav {
 
     void pkBatchOver(pulsekit.BatchQueue q) {
         pulsekit.BatchQueue.stop();
+        // Over (done or stopped): nothing to go on with, unless it was kept (paused, left behind).
+        if (!q.kept) pulsekit.BatchSave.clear(app.getFilesDir());
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
         this.pkAddLogLine(q.summary());
         // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
@@ -2721,6 +2748,39 @@ final class PyJav {
         this.pkAddLogLine("Batch: stopping after the run in progress");
     }
 
+    /** A kept batch offered once a start; the tests: the question shown last. */
+    static boolean pkResumeOffered;
+    static android.app.AlertDialog pkResumeAsk;
+
+    /** A kept batch (BatchSave): Go on (from the run that did not finish), Later (asked next start), or Discard. */
+    void pkOfferResume() {
+        final pulsekit.BatchSave.Kept k = pulsekit.BatchSave.load(app.getFilesDir());
+        if (k == null || pulsekit.BatchQueue.current() != null || this.pkRunGoing()) return;
+        String when = new java.text.SimpleDateFormat("d.M. HH:mm", java.util.Locale.ROOT).format(new java.util.Date(k.saved));
+        pkResumeAsk = new android.app.AlertDialog.Builder(app).setTitle("Unfinished batch")
+            .setMessage(k.said() + "\nKept " + when + ". Go on with it now?")
+            .setPositiveButton("Go on", (d, w) -> this.pkResume(k))
+            .setNeutralButton("Later", null)
+            .setNegativeButton("Discard", (d, w) -> {
+                pulsekit.BatchSave.clear(app.getFilesDir());
+                app.setNow("The kept batch was discarded");
+            }).show();
+    }
+
+    /** The kept batch gone on with: its runs left, as a batch again. */
+    void pkResume(pulsekit.BatchSave.Kept k) {
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the kept one waits");
+            return;
+        }
+        String text = PyJavParams.programTextOf(app, k.program);
+        pulsekit.BatchQueue q = pulsekit.BatchSave.resume(k, text == null ? new java.util.ArrayList<pulsekit.ProgramParams.Param>() : pulsekit.ProgramParams.parse(text));
+        app.openKitView("py");
+        app.programMenus.selectProgram("Java", k.program);
+        this.pkAddLogLine("Going on with the kept batch: " + k.said());
+        this.pkBatchNext(q);
+    }
+
     /** The tests: Stop batch's question shown last. */
     static android.app.AlertDialog pkStopAsk;
 
@@ -2752,8 +2812,9 @@ final class PyJav {
     boolean pkEndStaleBatch(String finished) {
         pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
         if (q == null || this.pkRunGoing() || (finished != null && q.takes(finished))) return false;
-        this.pkAddLogLine("Batch of " + pulsekit.SogniSections.app(q.program) + " ended: it had no run going (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " started)");
+        this.pkAddLogLine("Batch of " + pulsekit.SogniSections.app(q.program) + " ended: it had no run going (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " started); kept to go on with later");
         q.stopping = true;
+        q.kept = true;
         this.pkBatchOver(q);
         return true;
     }

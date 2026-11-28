@@ -54,6 +54,9 @@ public final class BatchQueue {
   /** Its short form for the running line ("Sogni 85.5%"). */
   public String usageShort;
 
+  /** Kept on disk to go on with later (BatchSave): no connection, or left behind; its file is not removed when it ends. */
+  public boolean kept;
+
   /** A chain's batch (Chain: SogniPadd's pictures or prompts going on); its runs chain no further. */
   public boolean chained;
   /** What the batch's runs made for a chain to go on with (SogniPadd with Chain ticked). */
@@ -107,6 +110,22 @@ public final class BatchQueue {
     q.fileNames.addAll(names);
     q.doneKey = doneKey;
     for (int i = 0; i < params.size(); i++) q.runs.add(new ArrayList<String>());
+    now = q;
+    return q;
+  }
+
+  /** A kept batch again (BatchSave): its runs, their Params (Run sections, input folders, Auto render), labels and files. */
+  public static synchronized BatchQueue restore(String program, List<ProgramParams.Param> ps, List<List<String>> runs, List<String> params, List<String> labels, List<String> names, String doneKey) {
+    BatchQueue q = new BatchQueue();
+    q.program = program;
+    if (ps != null) q.ps = ps;
+    for (List<String> r : runs) q.runs.add(new ArrayList<String>(r));
+    if (params != null) q.params.addAll(params);
+    if (labels != null) q.labels.addAll(labels);
+    boolean anyName = false;
+    if (names != null) for (String n : names) if (n != null && !n.isEmpty()) anyName = true;
+    if (anyName) q.fileNames.addAll(names);
+    q.doneKey = doneKey;
     now = q;
     return q;
   }

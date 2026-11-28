@@ -16697,6 +16697,26 @@ public class BehaviorTest {
     android.widget.Button noBack = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
     out.append("ready back: ").append(backText).append(" | to ").append(backTo).append(" | own run: ").append(noBack == null || noBack.getVisibility() != View.VISIBLE ? "no Back" : "Back").append('\n');
     PictureOffer.last.dismiss();
+    // A batch kept on disk (BatchSave): from the run that did not finish; no connection pauses it; offered next start.
+    java.util.List<String[]> three2 = new java.util.ArrayList<String[]>();
+    for (String n : new String[] {"a", "b", "c"}) three2.add(new String[] {n + ".txt", "Prompt " + n});
+    BatchQueue kq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\"", three2);
+    kq.outFolder = "Batches/run1";
+    BatchSave.save(app.getFilesDir(), kq, 1);
+    BatchSave.Kept kept = BatchSave.load(app.getFilesDir());
+    BatchQueue.stop();
+    BatchQueue rq = BatchSave.resume(kept, padd);
+    out.append("kept: ").append(kept.said()).append(" | resumed runs ").append(rq.runs.size()).append(", first ").append(rq.params.get(0).contains("Prompt b")).append(", folder ").append(rq.outFolder)
+        .append(" | offline ").append(BatchSave.offline("Failed: Unable to resolve host api.sogni.ai")).append(' ').append(BatchSave.offline("Failed: 400 bad prompt")).append('\n');
+    BatchQueue.stop();
+    PyJav.pkResumeAsk = null;
+    app.pyJav.pkOfferResume();
+    idle();
+    android.widget.TextView askMsg = PyJav.pkResumeAsk == null ? null : (android.widget.TextView) PyJav.pkResumeAsk.findViewById(android.R.id.message);
+    out.append("resume ask: ").append(askMsg == null ? "none" : askMsg.getText().toString().replaceAll("\\d+\\.\\d+\\. \\d\\d:\\d\\d", "D").replace('\n', '|')).append('\n');
+    if (PyJav.pkResumeAsk != null) PyJav.pkResumeAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("discarded: ").append(BatchSave.load(app.getFilesDir()) == null).append('\n');
     String t = out.toString();
     write("s278_chain_batch_prompt", t);
     String[] want = {
@@ -16707,6 +16727,8 @@ public class BehaviorTest {
         "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
         "params: chain to hidden true, shown true | batch text true, buttons true true",
         "ready back: Back | to SogniPadd.java | own run: no Back",
+        "kept: SogniPadd: 2 of 3 runs left (from b.txt) | resumed runs 2, first true, folder Batches/run1 | offline true false",
+        "resume ask: SogniPadd: 2 of 3 runs left (from b.txt)|Kept D. Go on with it now?", "discarded: true",
         "chained: Chain: 2 runs of SogniTextVideo | SogniTextVideo.java true --prompt \"A red kite, slow pan\" --pk-usage-warn 80"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
