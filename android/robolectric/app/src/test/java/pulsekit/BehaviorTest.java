@@ -16649,6 +16649,9 @@ public class BehaviorTest {
     idle();
     AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
     View pv = params.getWindow().getDecorView();
+    // (Chain and Batch prompt are on the Batch tab.)
+    pv.findViewWithTag("params-tab:" + ProgramParams.BATCH).performClick();
+    idle();
     View toRow = pv.findViewWithTag("params-dropdown:" + Chain.CHAIN_TO);
     boolean hiddenFirst = toRow != null && !toRow.isShown();
     ((android.widget.CheckBox) pv.findViewWithTag("params-check:" + Chain.CHAIN)).setChecked(true);
@@ -17991,7 +17994,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins - Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
         && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }

@@ -837,6 +837,7 @@ final class PyJav {
         // Params' Usage warning: read before a batch (batchNext), not the program's.
         DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
         // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
+        Chain.forChat(name, runArgs);
         Chain.strip(runArgs);
         InputGroup.strip(runArgs);
         // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).

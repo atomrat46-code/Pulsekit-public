@@ -353,7 +353,7 @@ public final class ProgramParams {
     // Section) right under the input file (SogniPedit's and SogniVideo's picture), else under the prompt.
     if ((pic || video || padd || textVideo || chat) && has(out, "--input_dir")) moveInputRows(out);
     // SogniPadd's Chain (and Chain to); the Sogni prompt programs' Batch prompt (and its text).
-    String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : null;
+    String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : chat ? "SogniChat.java" : null;
     if (chainName != null) for (Param r : Chain.rows(chainName)) if (!has(out, r.token)) out.add(r);
     // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
     if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {

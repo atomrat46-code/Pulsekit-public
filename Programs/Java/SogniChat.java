@@ -177,6 +177,7 @@ public final class SogniChat {
       // An input folder's rows given with no input folder (a one-file run): left out.
       else if (a.equals("--skip_done") || a.equals("--subfolders") || a.equals("--listed")) continue;
       else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
+      else if (a.equals("--batch_prompt") && i + 1 < args.length) batchPrompt = args[++i].trim();
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -520,6 +521,8 @@ public final class SogniChat {
       } else if (a.equals("--listed") || a.equals("--skip_done") || a.equals("--subfolders")) {
         // Pulsekit listed the folder (--dir_file), with Skip already processed leaving out the files answered before.
         if (a.equals("--listed")) listed = true;
+      } else if (a.equals("--batch_prompt") && i + 1 < args.length) {
+        i++;
       } else if (a.equals("--done_key") && i + 1 < args.length) {
         i++;
       } else rest.add(a);
@@ -590,7 +593,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto] [--batch_prompt text]");
   }
 
   /**
@@ -598,7 +601,35 @@ public final class SogniChat {
    * made as <stem>-1.png, <stem>-2.mp3...: the file names, or null after saying why it failed.
    * Steps run side by side; a call that needs another's result is not linked to it.
    */
+  /** --batch_prompt (Pulsekit's Batch prompt): added after the prompt of each Sogni tool call the model makes (its pictures, videos, music). */
+  static String batchPrompt;
+
+  /** The tool calls with the batch prompt after each one's prompt (as they are without one). */
+  @SuppressWarnings("unchecked")
+  static List<String[]> withBatchPrompt(List<String[]> calls) {
+    if (batchPrompt == null || batchPrompt.isEmpty()) return calls;
+    List<String[]> out = new ArrayList<String[]>();
+    for (String[] c : calls) {
+      try {
+        Object args = SogniApi.parseJson(c[1]);
+        if (args instanceof Map && ((Map<String, Object>) args).get("prompt") instanceof String) {
+          Map<String, Object> m = (Map<String, Object>) args;
+          String p = ((String) m.get("prompt")).trim();
+          if (!p.toLowerCase().endsWith(batchPrompt.toLowerCase())) m.put("prompt", p.isEmpty() ? batchPrompt : p + (p.matches(".*[.,;:!?]$") ? " " : ", ") + batchPrompt);
+          out.add(new String[] {c[0], SogniApi.toJson(m)});
+          continue;
+        }
+      } catch (Exception ignored) {
+        // as it is
+      }
+      out.add(c);
+    }
+    System.out.println("Batch prompt added to the tools' prompts: " + batchPrompt);
+    return out;
+  }
+
   static List<String> runCalls(SogniApi api, List<String[]> calls, String stem, boolean confirm, double maxCost) throws IOException {
+    calls = withBatchPrompt(calls);
     String id = api.start(SogniApi.toolsInput("Pulsekit chat", calls), confirm, maxCost);
     List<String> ids = new ArrayList<String>();
     ids.add(id);

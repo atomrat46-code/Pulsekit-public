@@ -22,6 +22,7 @@ public final class Chain {
   public static final String CHAIN_LABEL = "Chain: when the run or batch is over, its pictures go on to the program below (one run each)";
   public static final String CHAIN_TO_LABEL = "Chain to: a picture program gets each picture (its own prompt); a prompt-only program gets the run's prompt";
   public static final String BATCH_PROMPT_LABEL = "Batch prompt: added to the prompt a chain passes on (the chained program's own is used instead of SogniPadd's)";
+  public static final String BATCH_PROMPT_CHAT = "Batch prompt: added to the prompt of each picture, video or music the tools make (Auto render: the rendering program's own Batch prompt)";
   public static final String BATCH_TEXT_LABEL = "Batch prompt text: type it, or Select file / Browse sections";
   public static final String BATCH_TEXT_HINT = "e.g. slow camera pan, cinematic light";
   public static final String BROWSE_SECTIONS = "Browse sections";
@@ -36,7 +37,7 @@ public final class Chain {
 
   /** The programs with Batch prompt: the Sogni programs a prompt is given to. */
   public static boolean batchPrompted(String program) {
-    return Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java", "SogniPedit.java", "SogniMusic.java").contains(program);
+    return Arrays.asList("SogniPadd.java", "SogniTextVideo.java", "SogniVideo.java", "SogniPedit.java", "SogniMusic.java", "SogniChat.java").contains(program);
   }
 
   /** The program's rows: Chain and Chain to (SogniPadd), Batch prompt and its text. */
@@ -57,7 +58,7 @@ public final class Chain {
       out.add(to);
     }
     if (batchPrompted(program)) {
-      out.add(flag(BATCH_PROMPT, BATCH_PROMPT_LABEL));
+      out.add(flag(BATCH_PROMPT, "SogniChat.java".equals(program) ? BATCH_PROMPT_CHAT : BATCH_PROMPT_LABEL));
       ProgramParams.Param t = value(BATCH_TEXT, BATCH_TEXT_LABEL, BATCH_TEXT_HINT);
       // (Shown always: its Select file and Browse sections are there to fill it before it is ticked.)
       out.add(t);
@@ -89,6 +90,15 @@ public final class Chain {
   /** Batch prompt's text row (Select file and Browse sections beside it). */
   public static boolean batchTextRow(ProgramParams.Param p) {
     return p != null && BATCH_TEXT.equals(p.token);
+  }
+
+  /** SogniChat's Batch prompt (ticked, text given): given to it as --batch_prompt (its tools' prompts get it); before strip. */
+  public static void forChat(String program, List<String> argv) {
+    if (!"SogniChat.java".equals(program) || argv == null || !argv.contains(BATCH_PROMPT)) return;
+    String t = ChatFolder.arg(argv, BATCH_TEXT);
+    if (t == null || t.trim().isEmpty() || argv.contains("--batch_prompt")) return;
+    argv.add("--batch_prompt");
+    argv.add(t.trim());
   }
 
   /** The rows taken off a run's arguments. */
