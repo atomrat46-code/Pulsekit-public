@@ -16065,7 +16065,7 @@ public class BehaviorTest {
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
         "deleted left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "deleted right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: Stormy sky. |  | \u22ee | Prompt: A red kite at dusk.",
-        "send: programs SogniPedit | SogniTextVideo | SogniVideo | groups Portraits | SogniVideo Prompt: A red kite at dusk./ | SogniPedit Zebra/Portraits",
+        "send: programs Sogni_RTV | SogniPedit | SogniTextVideo | SogniVideo | groups Portraits | SogniVideo Prompt: A red kite at dusk./ | SogniPedit Zebra/Portraits",
         "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
         "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
         "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
