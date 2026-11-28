@@ -48,6 +48,8 @@ public class BehaviorTest {
     PyJavParams.shown = null;
     // Browse sections' groups all open (a tap on a group closes it while the app runs).
     PyJavParams.closedGroups.clear();
+    // Section Collection's Cut / Copy holds nothing yet.
+    SectionCollection.clip = null;
     // The Prompts page starts on its Prompts & Categories tab.
     PromptsTabs.tab = PromptsTabs.PROMPTS;
     // A long press opens a file's menu (a drag never ends here).
@@ -2083,6 +2085,23 @@ public class BehaviorTest {
     boolean left = false;
     for (java.io.File f : made) if (f.exists()) left = true;
     out.append("copies left after the run: ").append(left).append('\n');
+    // On the phone java.io.tmpdir can name a program run's folder that is gone: the copy goes beside the picture.
+    String tmp = System.getProperty("java.io.tmpdir");
+    System.setProperty("java.io.tmpdir", new java.io.File(dir, "gone-" + System.nanoTime()).getAbsolutePath());
+    try {
+      java.util.List<String> notes = new java.util.ArrayList<String>();
+      made.clear();
+      java.util.List<String> got2 = PictureCopies.withCopies(new java.util.ArrayList<String>(
+          java.util.Arrays.asList("--file", wide.getAbsolutePath())), made, notes);
+      int at = got2.indexOf("--seen_copy");
+      java.io.File copy = at < 0 ? null : new java.io.File(got2.get(at + 1));
+      out.append("temp folder gone: copy ").append(copy != null && copy.isFile() ? "made" : "missing")
+          .append(", beside the picture: ").append(copy != null && dir.equals(copy.getParentFile().getParentFile()))
+          .append(", notes: ").append(notes).append('\n');
+      PictureCopies.clean(made);
+    } finally {
+      System.setProperty("java.io.tmpdir", tmp);
+    }
     write("s57_picture_copies", out.toString());
   }
 
@@ -8766,6 +8785,18 @@ public class BehaviorTest {
     Files.write(new File(dir, name + ".txt").toPath(), text.getBytes(StandardCharsets.UTF_8));
   }
 
+  /** A list dialog's item, by its words, clicked. */
+  static void clickListItem(android.app.AlertDialog d, String label) {
+    android.widget.ListView lv = d.getListView();
+    for (int i = 0; i < lv.getAdapter().getCount(); i++) {
+      if (label.equals(String.valueOf(lv.getAdapter().getItem(i)))) {
+        lv.performItemClick(null, i, i);
+        return;
+      }
+    }
+    throw new AssertionError("no " + label + " in the list");
+  }
+
   private static void idle() {
     for (int i = 0; i < 5; i++) ShadowLooper.idleMainLooper();
     // A run's result stored in the prompt library in the background: wait for it, as a user would see.
@@ -13302,6 +13333,7 @@ public class BehaviorTest {
     Files.write(new File(work, "Image1.png").toPath(), new byte[] {1});
     Files.write(new File(kept, "Image2.jpg").toPath(), new byte[] {1});
     String was = System.getProperty("pulsekit.outdir");
+    System.clearProperty("pulsekit.given");
     System.setProperty("pulsekit.outdir", kept.getAbsolutePath());
     String n = SogniApi.fillName("Image%n", work);
     System.clearProperty("pulsekit.outdir");
@@ -15770,6 +15802,8 @@ public class BehaviorTest {
     vault.groupSogniSection(storm.id, "Weather");
     java.util.List<ProgramParams.Param> none = new java.util.ArrayList<ProgramParams.Param>();
     android.widget.EditText[] noFields = new android.widget.EditText[0];
+    // The Params' LoRAs now: Add new section lists them first.
+    PyJavParams.store(app, "SogniPadd.java", "--loras \"kite 0.4\"");
     PyJavParams.browseSections(app, "SogniPadd", none, noFields);
     idle();
     View sc = PyJavParams.lastSections.getWindow().getDecorView().findViewWithTag("sections-collection");
@@ -15790,14 +15824,23 @@ public class BehaviorTest {
     // Add new section: a name and plain text (the prompt).
     w.dialog.getWindow().getDecorView().findViewWithTag("sc-add-section").performClick();
     idle();
-    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Blue one");
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("A blue kite over the sea");
-    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    // Its own rows: name, description, prompt, the LoRAs list (the Params' first) and the group list.
+    View nv = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-name")).setText("Blue one");
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-note")).setText("Over the sea");
+    ((android.widget.EditText) nv.findViewWithTag("sc-new-prompt")).setText("A blue kite over the sea");
+    android.widget.Spinner lsp = (android.widget.Spinner) nv.findViewWithTag("sc-new-loras");
+    android.widget.Spinner gsp = (android.widget.Spinner) nv.findViewWithTag("sc-new-group");
+    StringBuilder lists = new StringBuilder();
+    for (int k = 0; k < lsp.getAdapter().getCount(); k++) lists.append(k == 0 ? "" : ", ").append(lsp.getAdapter().getItem(k));
+    lists.append(" | ");
+    for (int k = 0; k < gsp.getAdapter().getCount(); k++) lists.append(k == 0 ? "" : ", ").append(gsp.getAdapter().getItem(k));
+    out.append("new section lists: ").append(lists).append('\n');
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("added left: ").append(viewTexts(w.left)).append('\n').append("added right: ").append(viewTexts(w.right)).append('\n');
     // The zebra's ☰ dropped on Animals (what the group's drop reads).
-    out.append("drag handle: ").append(w.right.findViewWithTag("sc-drag:" + zebra.id) != null).append(", drop target: ").append(w.left.findViewWithTag("sc-group:Animals") != null).append('\n');
+    out.append("drop target: ").append(w.left.findViewWithTag("sc-group:Animals") != null).append('\n');
     w.dropOn("Animals", SectionCollection.dragText(zebra));
     idle();
     w.left.findViewWithTag("sc-open:Animals").performClick();
@@ -15807,40 +15850,92 @@ public class BehaviorTest {
     ((android.widget.EditText) w.right.findViewWithTag("sc-text:" + kite.id)).setText("Prompt: A red kite at dusk.");
     w.right.findViewWithTag("sc-text:" + kite.id).performLongClick();
     idle();
-    out.append("section menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.SAVE);
+    out.append("section menu: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
     idle();
+    // The kite's ⋮: the same menu; Move into group… lists the groups.
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(6);
+    idle();
+    out.append("move to: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    SectionCollectionScreen.lastMenu.dismiss();
+    // The zebra under Animals tapped: shown fully.
+    w.left.findViewWithTag("sc-in:" + zebra.id).performClick();
+    idle();
+    out.append("full: ").append(String.valueOf(((TextView) SectionCollectionScreen.lastFull.getWindow().getDecorView().findViewWithTag("sc-full-text")).getText()).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ")).append('\n');
+    SectionCollectionScreen.lastFull.dismiss();
     // The zebra (under Animals, on the left) held: Edit name.
     w.left.findViewWithTag("sc-in:" + zebra.id).performLongClick();
     idle();
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.EDIT_NAME);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(6);
     idle();
-    ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Zebra");
-    ((android.widget.EditText) ask.findViewWithTag("sc-ask-second")).setText("Striped");
-    out.append("edit name buttons: ").append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
-        .append(SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
-    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    // Edit data: every field, filled (its group picked); the name and description set.
+    View ev = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("edit data: prompt ").append(((android.widget.EditText) ev.findViewWithTag("sc-new-prompt")).getText()).append(", group ")
+        .append(((android.widget.Spinner) ev.findViewWithTag("sc-new-group")).getSelectedItem()).append('\n');
+    ((android.widget.EditText) ev.findViewWithTag("sc-new-name")).setText("Zebra");
+    ((android.widget.EditText) ev.findViewWithTag("sc-new-note")).setText("Striped");
+    out.append("edit name buttons: ").append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ")
+        .append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_NEUTRAL).getText()).append(" / ")
+        .append(SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_NEGATIVE).getText()).append('\n');
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     // Weather held: Rename to Sky, then Delete (its section to the right).
     w.left.findViewWithTag("sc-group-name:Weather").performLongClick();
     idle();
-    out.append("group menu: ").append(menuTitles(SectionCollectionScreen.lastMenu.getMenu())).append('\n');
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.RENAME);
+    out.append("group menu: ").append(listItems(SectionCollectionScreen.lastMenu)).append('\n');
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(1);
     idle();
     ask = SectionCollectionScreen.lastAsk.getWindow().getDecorView();
     ((android.widget.EditText) ask.findViewWithTag("sc-ask-first")).setText("Sky");
     SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("renamed left: ").append(viewTexts(w.left)).append('\n');
-    w.left.findViewWithTag("sc-group-name:Sky").performLongClick();
+    // Its ⋮: the same menu as a long press.
+    w.left.findViewWithTag("sc-group-menu:Sky").performClick();
     idle();
-    clickMenu(SectionCollectionScreen.lastMenu.getMenu(), SectionCollection.DELETE);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
     idle();
     out.append("delete asks: ").append(String.valueOf(org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastAsk).getMessage()).replace("\n", " / ")).append('\n');
     SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
     out.append("deleted left: ").append(viewTexts(w.left)).append('\n').append("deleted right: ").append(viewTexts(w.right)).append('\n');
+    // Send to other program: the kite into SogniVideo (no group); Send to other program's group: the zebra into SogniPedit › Portraits.
+    PromptVault.open(app.getFilesDir()).addSectionGroup("SogniPedit", "Portraits", "");
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(3);
+    idle();
+    String progs = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(java.util.Arrays.asList(progs.split(" \\| ")).indexOf("SogniVideo"));
+    idle();
+    w.left.findViewWithTag("sc-section-menu:" + zebra.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(3);
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(java.util.Arrays.asList(progs.split(" \\| ")).indexOf("SogniPedit"));
+    idle();
+    String gpick = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(0);
+    idle();
+    PromptVault sv = PromptVault.open(app.getFilesDir());
+    out.append("send: programs ").append(progs).append(" | groups ").append(gpick).append(" | SogniVideo ").append(sv.sogniSections("SogniVideo").size() == 1 ? sv.sogniSections("SogniVideo").get(0).text.trim() + "/" + sv.sogniSections("SogniVideo").get(0).group : "none")
+        .append(" | SogniPedit ").append(sv.sogniSections("SogniPedit").size() == 1 ? sv.sogniSections("SogniPedit").get(0).name + "/" + sv.sogniSections("SogniPedit").get(0).group : "none").append('\n');
+    // Copy the kite, then Animals' menu: Paste (the same program's section: moved into Animals).
+    w.right.findViewWithTag("sc-section-menu:" + kite.id).performClick();
+    idle();
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(2);
+    idle();
+    w.left.findViewWithTag("sc-group-menu:Animals").performClick();
+    idle();
+    String gmenu = listItems(SectionCollectionScreen.lastMenu);
+    org.robolectric.Shadows.shadowOf(SectionCollectionScreen.lastMenu).clickOnItem(1);
+    idle();
+    out.append("pasted: group menu ").append(gmenu).append(" | left ").append(viewTexts(w.left)).append('\n');
+    for (PromptVault.SogniSection x : sv.sogniSections("SogniVideo")) sv.deleteSogniSection(x.id);
+    for (PromptVault.SogniSection x : sv.sogniSections("SogniPedit")) sv.deleteSogniSection(x.id);
+    sv.deleteSectionGroup("SogniPedit", "Portraits");
     // Close: Browse sections again, the groups first.
     w.dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
     idle();
@@ -15853,24 +15948,1179 @@ public class BehaviorTest {
     for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
     out.append("kept: ").append(kept.toString().trim()).append('\n');
     for (PromptVault.SogniSection old : back.sogniSections("SogniPadd")) back.deleteSogniSection(old.id);
+    // The Params' prompt row has SC too (after ★ and G).
+    call("show", "py");
+    idle();
+    pickFromMenu("Java \u25be", "SogniPadd.java");
+    call("pkOpenParams");
+    idle();
+    AlertDialog pd = (AlertDialog) ShadowDialog.getLatestDialog();
+    View psc = pd.getWindow().getDecorView().findViewWithTag("params-collection");
+    String pscText = psc == null ? "none" : String.valueOf(((TextView) psc).getText());
+    // Export in the window's buttons after Save; Run sections… above Variations; held in its list, a section shown whole.
+    View pdv = pd.getWindow().getDecorView();
+    View exp = pdv.findViewWithTag("params-export-section");
+    android.widget.Button neutral = pd.getButton(DialogInterface.BUTTON_NEUTRAL);
+    boolean exportInBar = exp != null && exp.getParent() == neutral.getParent()
+        && ((android.view.ViewGroup) exp.getParent()).indexOfChild(exp) == ((android.view.ViewGroup) neutral.getParent()).indexOfChild(neutral) + 1;
+    View runB = pdv.findViewWithTag("params-run-sections");
+    View vars = pdv.findViewWithTag("params-field:--variations");
+    int[] at1 = new int[2], at2 = new int[2];
+    runB.getLocationInWindow(at1);
+    vars.getLocationInWindow(at2);
+    android.view.ViewGroup form = (android.view.ViewGroup) runB.getParent();
+    int runAt = form.indexOfChild(runB), varsAt = -1;
+    for (int k = 0; k < form.getChildCount(); k++) if (form.getChildAt(k) == vars || (form.getChildAt(k) instanceof android.view.ViewGroup && ((android.view.ViewGroup) form.getChildAt(k)).findViewWithTag("params-field:--variations") != null)) varsAt = k;
+
+    if (psc != null) psc.performClick();
+    idle();
+    out.append("params SC: ").append(pscText).append(", opens ").append(SectionCollectionScreen.last != null && SectionCollectionScreen.last.dialog.isShowing() && SectionCollectionScreen.last != w).append('\n');
+    // Its Add new section has the program's other rows (Aspect, Width, Height, Seed).
+    SectionCollectionScreen.last.dialog.getWindow().getDecorView().findViewWithTag("sc-add-section").performClick();
+    idle();
+    View fv = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("rows: aspect ").append(fv.findViewWithTag("sc-new-row:--aspect") != null).append(", width ").append(fv.findViewWithTag("sc-new-row:--width") != null)
+        .append(", height ").append(fv.findViewWithTag("sc-new-row:--height") != null).append(", seed ").append(fv.findViewWithTag("sc-new-row:--seed") != null)
+        .append(", prompt twice ").append(fv.findViewWithTag("sc-new-row:--prompt") != null).append('\n');
+    ((android.widget.EditText) fv.findViewWithTag("sc-new-prompt")).setText("Owl at night");
+    ((android.widget.EditText) fv.findViewWithTag("sc-new-row:--aspect")).setText("4:7");
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    PromptVault.SogniSection owl = null;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owl = x;
+    out.append("owl: ").append(owl == null ? "none" : owl.text.trim().replace("\n", " / ")).append('\n');
+    // Save as: the same entries again only under another name; the owl itself stays.
+    PromptVault ov = PromptVault.open(app.getFilesDir());
+    SectionCollection.Form copy = SectionCollection.formOf(owl);
+    String sameName = SectionCollection.saveAs(ov, owl, copy);
+    copy.name = "Owl copy";
+    String other = SectionCollection.saveAs(ov, owl, copy);
+    int owlsNow = 0;
+    for (PromptVault.SogniSection x : ov.sogniSections("SogniPadd")) if (x.text.contains("Owl")) owlsNow++;
+    out.append("save as: same name ").append(sameName).append(" | other name ").append(other).append(", owls ").append(owlsNow).append('\n');
+    for (PromptVault.SogniSection x : ov.sogniSections("SogniPadd")) if ("Owl copy".equals(x.name)) ov.deleteSogniSection(x.id);
+    PyJavParams.pickRunSections(app, "SogniPadd", picked -> { });
+    idle();
+    android.widget.ListView rl = PyJavParams.lastRunPick.getListView();
+    rl.getOnItemLongClickListener().onItemLongClick(rl, null, 0, 0);
+    idle();
+    String whole = String.valueOf(org.robolectric.Shadows.shadowOf(PyJavParams.lastRunFull).getMessage()).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ");
+    PyJavParams.lastRunFull.dismiss();
+    PyJavParams.lastRunPick.dismiss();
+    out.append("buttons: export in bar after Save ").append(exportInBar).append(", run sections above variations ").append(runAt >= 0 && varsAt > runAt).append(" | held: ").append(whole.length() > 0 && whole.contains("Saved <when>")).append('\n');
+    SectionCollectionScreen.last.dialog.dismiss();
+    idle();
+    // Save after loading the owl and changing its prompt: Overwrite or Save as new.
+    View pv = pd.getWindow().getDecorView();
+    // (As Load does: the owl is the Params' section now, its entries in the rows.)
+    SogniSections.current("SogniPadd", owl);
+    ((android.widget.EditText) pv.findViewWithTag("params-field:--prompt")).setText("Owl at dawn");
+    ((android.widget.EditText) pv.findViewWithTag("params-field:--aspect")).setText("4:7");
+    pd.getButton(DialogInterface.BUTTON_NEUTRAL).performClick();
+    idle();
+    out.append("save asks: ").append(PyJavParams.lastOverwrite != null && PyJavParams.lastOverwrite.isShowing()).append(" | ")
+        .append(PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_POSITIVE).getText()).append(" / ").append(PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_NEUTRAL).getText()).append('\n');
+    PyJavParams.lastOverwrite.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+    idle();
+    View nv2 = SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("as new: prompt ").append(((android.widget.EditText) nv2.findViewWithTag("sc-new-prompt")).getText()).append(", aspect ")
+        .append(((android.widget.EditText) nv2.findViewWithTag("sc-new-row:--aspect")).getText())
+        .append(", prompt twice ").append(nv2.findViewWithTag("sc-new-row:--prompt") != null)
+        .append(", loras twice ").append(nv2.findViewWithTag("sc-new-row:--loras") != null).append('\n');
+    ((android.widget.EditText) nv2.findViewWithTag("sc-new-name")).setText("Dawn owl");
+    SectionCollectionScreen.lastNew.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    int owls = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.contains("Owl")) owls++;
+    out.append("owls: ").append(owls).append(", said ").append(PyJavParams.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+    // Save held: Save as straight away (the section form), no Overwrite question, though the entries are a section saved already.
+    PyJavParams.lastOverwrite = null;
+    SectionCollectionScreen.lastNew = null;
+    pd.getButton(DialogInterface.BUTTON_NEUTRAL).performLongClick();
+    idle();
+    View nv3 = SectionCollectionScreen.lastNew == null ? null : SectionCollectionScreen.lastNew.getWindow().getDecorView();
+    out.append("held save: form ").append(nv3 != null && SectionCollectionScreen.lastNew.isShowing()).append(", asked ").append(PyJavParams.lastOverwrite != null)
+        .append(", prompt ").append(nv3 == null ? "" : ((android.widget.EditText) nv3.findViewWithTag("sc-new-prompt")).getText()).append('\n');
+    if (SectionCollectionScreen.lastNew != null) SectionCollectionScreen.lastNew.dismiss();
+    pd.dismiss();
     write("s272_section_collection", out.toString());
     String t = out.toString().replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>");
     String[] want = {
-        "SC button: SC", "shown: true, browse closed true", "left: Weather (1) | +", "right: \u2630 |  | Prompt: Stormy sky.".substring(0, 0) + "right: \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
-        "added left: Animals | Four legs | Weather (1) | +",
-        "added right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite. | \u2630 |  | Prompt: Zebra at noon.",
-        "drag handle: true, drop target: true",
-        "dropped left: Animals (1) | - | Four legs | \u2630 | Zebra at noon. \u00b7 <when> | Weather (1) | +",
-        "dropped right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: A red kite.",
-        "section menu: Save, Delete, Move into group [Animals, Weather], Edit name", "edit name buttons: Save / Exit", "group menu: Delete, Rename",
-        "renamed left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | +",
+        "SC button: SC",
+        "shown: true, browse closed true",
+        "left: Weather (1) | \u22ee | +",
+        "right: \u22ee | Prompt: A red kite. |  | \u22ee | Prompt: Zebra at noon.",
+        "new section lists: (no LoRAs), kite 0.4 | (no group), Animals, Weather",
+        "added left: Animals | \u22ee | Four legs | Weather (1) | \u22ee | +",
+        "added right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: A red kite. |  | \u22ee | Prompt: Zebra at noon.",
+        "drop target: true",
+        "dropped left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra at noon. \u00b7 <when> | Weather (1) | \u22ee | +",
+        "dropped right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: A red kite.",
+        "section menu: Save | Cut | Copy | Send to other program\u2026 | Send to other program's group\u2026 | Delete | Move into group\u2026 | Edit data",
+        "move to: Animals | Weather",
+        "full: Saved <when> /  / Prompt: Zebra at noon.",
+        "edit data: prompt Prompt: Zebra at noon., group Animals".replace("Prompt: ", ""), "edit name buttons: Save / Save as / Exit",
+        "group menu: Delete | Rename",
+        "renamed left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when> | Sky (1) | \u22ee | +",
         "delete asks: Delete the group Sky? /  / Its section stays, in no group (on the right).",
-        "deleted left: Animals (1) | - | Four legs | \u2630 | Zebra: Zebra at noon. \u00b7 <when>",
-        "deleted right: \u2630 | Blue one | Prompt: A blue kite over the sea | \u2630 |  | Prompt: Stormy sky. | \u2630 |  | Prompt: A red kite at dusk.",
-        "closed: true | browse: \u25be Animals (1) |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (3) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when> |       A red kite at dusk. \u00b7 <when>",
-        "kept: Animals (Four legs) | Blue one///Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+        "deleted left: Animals (1) | \u22ee | - | Four legs | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
+        "deleted right: Blue one | \u22ee | Prompt: A blue kite over the sea |  | \u22ee | Prompt: Stormy sky. |  | \u22ee | Prompt: A red kite at dusk.",
+        "send: programs SogniPedit | SogniTextVideo | SogniVideo | groups Portraits | SogniVideo Prompt: A red kite at dusk./ | SogniPedit Zebra/Portraits",
+        "pasted: group menu Delete | Paste | Rename | left Animals (2) | \u22ee | - | Four legs | \u22ee | A red kite at dusk. \u00b7 <when> | \u22ee | Zebra: Zebra at noon. \u00b7 <when>",
+        "closed: true | browse: \u25be Animals (2) |       A red kite at dusk. \u00b7 <when> |       Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) |       Blue one: A blue kite over the sea \u00b7 <when> |       Stormy sky. \u00b7 <when>",
+        "kept: Animals (Four legs) | Blue one/Over the sea//Prompt: A blue kite over the sea | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon.",
+        "params SC: SC, opens true", "rows: aspect true, width true, height true, seed false, prompt twice false", "owl: Prompt: Owl at night / aspect: 4:7", "save as: same name Save as: give the copy another name (or change an entry) | other name null, owls 2", "buttons: export in bar after Save true, run sections above variations true | held: true",
+        "save asks: true | Overwrite / Save as new\u2026", "as new: prompt Owl at dawn, aspect 4:7, prompt twice false, loras twice false",
+        "owls: 2, said Saved a SogniPadd section: Dawn owl: Owl at dawn \u00b7 loras, aspect \u00b7 <when>", "held save: form true, asked false, prompt Owl at dawn"};
     boolean ok = true;
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * Document ready after a SogniChat run: its text cut after "=== Sogni ===" (SogniChat's default),
+   * another delimiter and Cut before (remembered), Copy, Save, and Send as prompt into SogniPadd's Params
+   * (Document ready closes; SogniPadd opens with its Params).
+   */
+  @Test
+  public void s273_document_ready() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    new java.io.File(app.getFilesDir(), "text-ready.txt").delete();
+    String chat = "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n";
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("answer.txt", chat.getBytes("UTF-8")));
+    JavaRun.Result r = new JavaRun.Result("Succeeded: answer.txt", files, 0);
+    out.append("other program: ").append(TextOffer.offer(app, "SogniPadd.java", r)).append('\n');
+    out.append("offered: ").append(TextOffer.offer(app, "SogniChat.java", r)).append('\n');
+    idle();
+    AlertDialog d = TextOffer.last;
+    View root = d.getWindow().getDecorView();
+    out.append("title shown: ").append(d.isShowing()).append('\n');
+    TextView body = (TextView) root.findViewWithTag("text-ready:text");
+    android.widget.Spinner mode = (android.widget.Spinner) root.findViewWithTag("text-ready:mode");
+    android.widget.EditText delim = (android.widget.EditText) root.findViewWithTag("text-ready:delimiter");
+    TextView note = (TextView) root.findViewWithTag("text-ready:note");
+    out.append("cut: ").append(mode.getSelectedItem()).append(" [").append(delim.getText()).append("] ").append(body.getText()).append(" / ").append(note.getText()).append('\n');
+    delim.setText("Describe");
+    mode.setSelection(1);
+    idle();
+    out.append("before: ").append(body.getText().toString().replace('\n', '|')).append('\n');
+    delim.setText("nothing like it");
+    idle();
+    out.append("missing: ").append(note.getText()).append('\n');
+    delim.setText(">");
+    mode.setSelection(0);
+    idle();
+    out.append("remembered: ").append(String.join(" ", TextReady.setting(app.getFilesDir(), "SogniChat.java"))).append('\n');
+    delim.setText("=== Sogni ===");
+    idle();
+    ((android.widget.Button) root.findViewWithTag("text-ready:copy")).performClick();
+    android.content.ClipboardManager clip = (android.content.ClipboardManager) app.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+    out.append("copy: ").append(TextOffer.said).append(" | clipboard ").append(clip.getPrimaryClip().getItemAt(0).getText()).append('\n');
+    java.io.File saved = new java.io.File(app.getCacheDir(), "saved-text.txt");
+    TextOffer.saveTo = saved;
+    try {
+      ((android.widget.Button) root.findViewWithTag("text-ready:save")).performClick();
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    out.append("save: ").append(TextOffer.said).append(" | ").append(new String(java.nio.file.Files.readAllBytes(saved.toPath()), "UTF-8"))
+        .append(" | name ").append(TextReady.savedName("answer.txt")).append('\n');
+    TextOffer.sendTo = "SogniPadd.java";
+    TextOffer.sendYes = Boolean.TRUE;
+    try {
+      ((android.widget.Button) root.findViewWithTag("text-ready:send")).performClick();
+    } finally {
+      TextOffer.sendTo = null;
+      TextOffer.sendYes = null;
+    }
+    idle();
+    String padd = PyJavParams.load(app, "SogniPadd.java");
+    out.append("send: ").append(TextOffer.said).append(" | in SogniPadd ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+    // What SogniPadd then makes has Back to this Document ready.
+    out.append("send back: ").append(ReadyBack.forProgram).append(" -> ").append(ReadyBack.to).append('\n');
+    ReadyBack.clear();
+    out.append("after send: ready open ").append(d.isShowing()).append(", program ").append(app.pyName).append(", params open ").append(PyJavParams.shown != null && PyJavParams.shown.isShowing()).append('\n');
+    if (PyJavParams.shown != null) PyJavParams.shown.dismiss();
+    // Text after: From sections puts a saved section's prompt after the answer (remembered); Clear takes it away.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    vault.addSogniSection("SogniPadd", "Prompt: Moody light, film grain.\n");
+    java.util.List<String> texts = new java.util.ArrayList<String>();
+    TextReady.sectionChoices(vault, texts);
+    TextOffer.show(app, "SogniChat.java", "answer.txt", chat);
+    idle();
+    View r2 = TextOffer.last.getWindow().getDecorView();
+    out.append("buttons: ").append(r2.findViewWithTag("text-ready:select-file") != null).append(' ').append(r2.findViewWithTag("text-ready:browse-sections") != null)
+        .append(", note shown ").append(r2.findViewWithTag("text-ready:note").getVisibility() == View.VISIBLE).append('\n');
+    android.widget.EditText bodyBox = (android.widget.EditText) r2.findViewWithTag("text-ready:text"), afterBox = (android.widget.EditText) r2.findViewWithTag("text-ready:after");
+    int flags = TextOffer.last.getWindow().getAttributes().flags;
+    out.append("typed in: ").append(bodyBox.isFocusableInTouchMode() && bodyBox.isCursorVisible() && (bodyBox.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0)
+        .append(", after ").append(afterBox.isFocusableInTouchMode() && afterBox.getMaxLines() == 4 && (afterBox.getInputType() & android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0)
+        .append(", keyboard ").append((flags & (android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM | android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)) == 0).append('\n');
+    TextOffer.sectionPick = Integer.valueOf(texts.indexOf("Moody light, film grain."));
+    try {
+      ((android.widget.Button) r2.findViewWithTag("text-ready:browse-sections")).performClick();
+    } finally {
+      TextOffer.sectionPick = null;
+    }
+    idle();
+    TextView body2 = (TextView) r2.findViewWithTag("text-ready:text");
+    String[] kept = TextReady.setting(app.getFilesDir(), "SogniChat.java");
+    out.append("text after: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept ").append(kept[2]).append(" / ").append(kept[3]).append('\n');
+    // Remove note sections ticked: a note typed into the text after is taken out of the text shown; unticked: back.
+    android.widget.CheckBox notesBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:remove-notes");
+    String afterWas = afterBox.getText().toString();
+    afterBox.setText("Moody light, film grain. *Note: an aside\n*");
+    notesBox.setChecked(true);
+    idle();
+    String noteGone = ((TextView) r2.findViewWithTag("text-ready:text")).getText().toString();
+    notesBox.setChecked(false);
+    idle();
+    String noteBack = ((TextView) r2.findViewWithTag("text-ready:text")).getText().toString();
+    afterBox.setText(afterWas);
+    idle();
+    android.widget.CheckBox sogniBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:sogni-cut");
+    out.append("sogni box: ").append(sogniBox != null && !sogniBox.isChecked()).append('\n');
+    // Remove section: B "[[" to E "]]" out of the text shown (the answer's); unticked: back; remembered with B and E.
+    android.widget.CheckBox secBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:remove-section");
+    ((android.widget.EditText) r2.findViewWithTag("text-ready:section-b")).setText("red");
+    ((android.widget.EditText) r2.findViewWithTag("text-ready:section-e")).setText("over");
+    secBox.setChecked(true);
+    idle();
+    String secGone = ((TextView) r2.findViewWithTag("text-ready:text")).getText().toString();
+    String[] secKept = TextReady.setting(app.getFilesDir(), "SogniChat.java");
+    secBox.setChecked(false);
+    idle();
+    out.append("section box: ").append(secGone.replace('\n', '|')).append(" | kept ").append(secKept[TextReady.F_SECTION]).append(' ').append(secKept[TextReady.F_B]).append(' ').append(secKept[TextReady.F_E])
+        .append(" | off: ").append(((TextView) r2.findViewWithTag("text-ready:text")).getText().toString().startsWith("A red kite")).append('\n');
+    out.append("notes box: ").append(notesBox != null).append(", removed ").append(!noteGone.contains("*Note:")).append(", back ").append(noteBack.contains("*Note: an aside")).append('\n');
+    // Add unchecked: the text after kept aside, not in the answer (remembered); checked again: back in.
+    android.widget.CheckBox addBox = (android.widget.CheckBox) r2.findViewWithTag("text-ready:add-after");
+    out.append("add box: shown ").append(addBox.isShown()).append(", before its text ").append(((android.view.ViewGroup) addBox.getParent()).indexOfChild(addBox) == 0
+        && ((android.view.ViewGroup) addBox.getParent()).getChildAt(1) == r2.findViewWithTag("text-ready:after")).append('\n');
+    addBox.setChecked(false);
+    idle();
+    String offText = body2.getText().toString().replace('\n', '|');
+    String offKept = TextReady.setting(app.getFilesDir(), "SogniChat.java")[4];
+    addBox.setChecked(true);
+    idle();
+    out.append("add unchecked: ").append(offText).append(" | kept ").append(offKept).append(" | checked again ").append(body2.getText().toString().contains("Moody light")).append('\n');
+    ((android.widget.Button) r2.findViewWithTag("text-ready:clear")).performClick();
+    idle();
+    out.append("cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[2]).append("'\n");
+    // The text's buttons beside File: to the end, to the start, a page down and up (the lines the box shows at once).
+    StringBuilder longText = new StringBuilder();
+    for (int i = 1; i <= 80; i++) longText.append("Line ").append(i).append('\n');
+    ((android.widget.EditText) body2).setText(longText.toString().trim());
+    idle();
+    android.widget.EditText eb = (android.widget.EditText) body2;
+    r2.findViewWithTag("text-ready:end").performClick();
+    idle();
+    boolean atEnd = eb.getSelectionStart() == eb.getText().length();
+    r2.findViewWithTag("text-ready:start").performClick();
+    idle();
+    boolean atStart = eb.getSelectionStart() == 0;
+    android.view.ViewParent sp = eb.getParent();
+    while (sp != null && !(sp instanceof android.widget.ScrollView)) sp = sp.getParent();
+    android.widget.ScrollView outerScroll = (android.widget.ScrollView) sp;
+    int outerBefore = outerScroll.getScrollY();
+    r2.findViewWithTag("text-ready:page-down").performClick();
+    idle();
+    boolean screenStill = outerScroll.getScrollY() == outerBefore;
+    boolean boxFits = eb.getBottom() <= outerScroll.getHeight() + outerScroll.getScrollY();
+    boolean inside = eb.getScrollY() > 0;
+    int downAt = eb.getSelectionStart();
+    int downLine = eb.getLayout() == null ? -1 : eb.getLayout().getLineForOffset(downAt);
+    int shownLines = (eb.getHeight() - eb.getTotalPaddingTop() - eb.getTotalPaddingBottom()) / Math.max(1, eb.getLineHeight());
+    r2.findViewWithTag("text-ready:page-up").performClick();
+    idle();
+    out.append("text buttons: ").append(((TextView) r2.findViewWithTag("text-ready:start")).getText()).append(((TextView) r2.findViewWithTag("text-ready:page-up")).getText())
+        .append(((TextView) r2.findViewWithTag("text-ready:page-down")).getText()).append(((TextView) r2.findViewWithTag("text-ready:end")).getText())
+        .append(" | end ").append(atEnd).append(", start ").append(atStart).append(", page down a page ").append(shownLines > 1 && downLine == shownLines).append(", up again ").append(eb.getSelectionStart() == 0)
+        .append(" | screen still ").append(screenStill).append(", box fits ").append(boxFits).append(", text scrolled inside ").append(inside).append('\n');
+    // Select: a list of Select file, Browse sections and Custom text; Custom text shows its field, its text added last (remembered).
+    android.view.View customField = r2.findViewWithTag("text-ready:custom");
+    boolean customHidden = !customField.isShown();
+    r2.findViewWithTag("text-ready:select-menu").performClick();
+    idle();
+    StringBuilder pickItems = new StringBuilder();
+    for (int i = 0; i < TextOffer.lastPick.getMenu().size(); i++) pickItems.append(i == 0 ? "" : ", ").append(TextOffer.lastPick.getMenu().getItem(i).getTitle());
+    TextOffer.lastPick.getMenu().performIdentifierAction(2, 0);
+    idle();
+    boolean customShown = customField.isShown();
+    ((android.widget.EditText) customField).setText("Shot on film.");
+    idle();
+    out.append("custom text: hidden ").append(customHidden).append(", list ").append(pickItems).append(", shown ").append(customShown).append(" | ").append(body2.getText().toString().replace('\n', '|'))
+        .append(" | kept ").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM]).append('\n');
+    // Its long press: Save, Add into program's group, Clear; Save writes it, Add puts it in a group as a section named as typed.
+    customField.performLongClick();
+    idle();
+    StringBuilder cItems = new StringBuilder();
+    for (int i = 0; i < TextOffer.lastCustomMenu.getMenu().size(); i++) cItems.append(i == 0 ? "" : ", ").append(TextOffer.lastCustomMenu.getMenu().getItem(i).getTitle());
+    java.io.File customFile = new java.io.File(app.getCacheDir(), "custom-saved.txt");
+    TextOffer.saveTo = customFile;
+    try {
+      TextOffer.lastCustomMenu.getMenu().performIdentifierAction(0, 0);
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    SectionCollection.addGroup(vault, "SogniPadd", "Looks", "");
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(1, 0);
+    idle();
+    clickListItem(TextOffer.lastSections, "SogniPadd");
+    idle();
+    clickListItem(TextOffer.lastSections, "Looks");
+    idle();
+    android.widget.EditText nameField = (android.widget.EditText) TextOffer.lastNameAsk.getWindow().getDecorView().findViewWithTag("text-ready:section-name");
+    String suggested = nameField.getText().toString();
+    nameField.setText("Film look");
+    TextOffer.lastNameAsk.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+    idle();
+    boolean customIn = false;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) customIn |= "Looks".equals(x.group) && "Film look".equals(x.name) && x.text.contains("Shot on film.");
+    out.append("custom menu: ").append(cItems).append(" | saved ").append(new String(java.nio.file.Files.readAllBytes(customFile.toPath()), "UTF-8")).append(" | suggested ").append(suggested)
+        .append(" | ").append(TextOffer.said).append(" | in group ").append(customIn).append('\n');
+    // Its menu's Cut, Copy and Paste: the selection, else the whole text; Paste at the cursor.
+    android.widget.EditText cf = (android.widget.EditText) customField;
+    cf.setSelection(0, 4);
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(4, 0);
+    cf.setSelection(cf.getText().length());
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(5, 0);
+    String pasted = cf.getText().toString();
+    cf.setSelection(cf.getText().length());
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(3, 0);
+    String cutAll = cf.getText().toString();
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(5, 0);
+    idle();
+    out.append("custom clip: copy+paste ").append(pasted).append(" | cut all '").append(cutAll).append("' | pasted back ").append(cf.getText()).append('\n');
+    cf.setText("Shot on film.");
+    idle();
+    // Its checkbox before it: unchecked, the custom text is not added (remembered); checked again, it is.
+    android.widget.CheckBox customAdd = (android.widget.CheckBox) r2.findViewWithTag("text-ready:custom-add");
+    boolean boxFirst = ((android.view.ViewGroup) customAdd.getParent()).getChildAt(0) == customAdd && ((android.view.ViewGroup) customAdd.getParent()).getChildAt(1) == customField;
+    customAdd.setChecked(false);
+    idle();
+    String customOff = body2.getText().toString().replace('\n', '|');
+    String customKept = TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM_ADD];
+    customAdd.setChecked(true);
+    idle();
+    // Skip sentences with: sentences holding one of the strings left out (remembered); Auto-exclude words (SogniChat's).
+    android.widget.EditText skipF = (android.widget.EditText) r2.findViewWithTag("text-ready:skip");
+    skipF.setText("kite");
+    idle();
+    String skipped = body2.getText().toString().replace('\n', '|');
+    String skipKept = TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_SKIP];
+    skipF.setText("");
+    idle();
+    java.util.List<String> chatArgs = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x", TextReady.AUTO_EXCLUDE));
+    TextReady.takeAutoExclude(app.getFilesDir(), "SogniChat.java", chatArgs);
+    String[] autoSet = TextReady.setting(app.getFilesDir(), "SogniChat.java").clone();
+    String auto = TextReady.result("=== Sogni ===\nShe smiles. A small mole on her cheek. Soft light.", autoSet);
+    TextReady.takeAutoExclude(app.getFilesDir(), "SogniChat.java", new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x")));
+    out.append("skip: ").append(skipped).append(" | kept ").append(skipKept).append(" | auto: ").append(chatArgs).append(' ').append(auto.replace('\n', '|')).append(" | off again ")
+        .append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_AUTO]).append('\n');
+    // -/+: both text fields hidden (their texts still added when ticked; remembered), and shown again.
+    android.widget.Button fold = (android.widget.Button) r2.findViewWithTag("text-ready:fields");
+    String foldWas = fold.getText().toString();
+    fold.performClick();
+    idle();
+    String hiddenState = fold.getText() + " after " + r2.findViewWithTag("text-ready:after").isShown() + " custom " + customField.isShown() + " | text kept " + body2.getText().toString().contains("Shot on film.")
+        + " | remembered " + TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_SHOWN];
+    fold.performClick();
+    idle();
+    out.append("fields: ").append(foldWas).append(" | hidden: ").append(hiddenState).append(" | again: ").append(fold.getText()).append(" after ").append(r2.findViewWithTag("text-ready:after").isShown())
+        .append(" custom ").append(customField.isShown()).append('\n');
+    out.append("custom box: before it ").append(boxFirst).append(" | off: ").append(customOff).append(" | kept ").append(customKept).append(" | on again ").append(body2.getText().toString().contains("Shot on film.")).append('\n');
+    customField.performLongClick();
+    idle();
+    TextOffer.lastCustomMenu.getMenu().performIdentifierAction(2, 0);
+    idle();
+    out.append("custom cleared: ").append(body2.getText().toString().replace('\n', '|')).append(" | kept '").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[TextReady.F_CUSTOM]).append("'\n");
+    // The text edited before saving: Save writes it as edited.
+    ((android.widget.EditText) body2).setText("My own words.");
+    java.io.File edited = new java.io.File(app.getCacheDir(), "edited-text.txt");
+    TextOffer.saveTo = edited;
+    try {
+      ((android.widget.Button) r2.findViewWithTag("text-ready:save")).performClick();
+    } finally {
+      TextOffer.saveTo = null;
+    }
+    out.append("edited save: ").append(new String(java.nio.file.Files.readAllBytes(edited.toPath()), "UTF-8")).append('\n');
+    TextOffer.last.dismiss();
+    // Send to group: the text as a section in SogniPadd's group Moods; the answer saved into the output folder
+    // when Document ready closes, %g (in its name and folder) the group.
+    SectionCollection.addGroup(vault, "SogniPadd", "Moods", "");
+    TextOffer.show(app, "SogniChat.java", "answer-%g.txt", chat, "answers-%g");
+    idle();
+    TextOffer.groupProgram = "SogniPadd";
+    TextOffer.groupName = "Moods";
+    try {
+      ((android.widget.Button) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:send-group")).performClick();
+    } finally {
+      TextOffer.groupProgram = null;
+      TextOffer.groupName = null;
+    }
+    idle();
+    String sentSaid = TextOffer.said;
+    boolean inGroup = false;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) inGroup |= "Moods".equals(x.group) && x.text.contains("A red kite over a grey sea.") && "answer".equals(x.name);
+    TextOffer.last.dismiss();
+    idle();
+    out.append("send to group: ").append(sentSaid).append(" | in group ").append(inGroup).append(" | ").append(TextOffer.said.replaceAll("^(Answer saved: ).*?(answers-Moods/answer-Moods\\.txt)$", "$1$2")).append('\n');
+    // Send to program and group set in Params: Document ready's button sends there with one click.
+    TextOffer.show(app, "SogniChat.java", "answer.txt", chat, null, new String[] {"SogniPadd", "Presets"});
+    idle();
+    android.widget.Button preset = (android.widget.Button) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:send-preset");
+    // (Another text: the same text is in Moods already, and a section is kept once.)
+    ((android.widget.EditText) TextOffer.last.getWindow().getDecorView().findViewWithTag("text-ready:text")).setText("A kite for the presets.");
+    preset.performClick();
+    idle();
+    out.append("preset button: ").append(preset.getText()).append(" | ").append(TextOffer.said).append('\n');
+    // The actions are under the File menu: the buttons hidden, the menu lists them.
+    android.view.View dv = TextOffer.last.getWindow().getDecorView();
+    android.view.View fileMenu = dv.findViewWithTag("text-ready:file");
+    fileMenu.performClick();
+    idle();
+    StringBuilder items = new StringBuilder();
+    android.view.Menu fm = TextOffer.lastMenu.getMenu();
+    for (int i = 0; i < fm.size(); i++) items.append(i == 0 ? "" : ", ").append(fm.getItem(i).getTitle());
+    out.append("file menu: ").append(items).append(" | buttons shown ").append(preset.isShown()).append(" | File a button ").append(fileMenu instanceof android.widget.Button).append('\n');
+    TextOffer.last.dismiss();
+    // Send to group's name with % codes: %n the first number no group has yet.
+    String[] codes1 = TextReady.resolved(PromptVault.open(app.getFilesDir()), new String[] {"SogniPadd", "Uudet%n"});
+    SectionCollection.addGroup(PromptVault.open(app.getFilesDir()), "SogniPadd", codes1[1], "");
+    String[] codes2 = TextReady.resolved(PromptVault.open(app.getFilesDir()), new String[] {"SogniPadd", "Uudet%n"});
+    out.append("group codes: ").append(codes1[1]).append(", then ").append(codes2[1]).append('\n');
+    // A long folder's address in Params: a tap puts the cursor at its end.
+    android.widget.EditText path = new android.widget.EditText(app);
+    path.setText("content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage/%g%");
+    PyJavParams.endOnTap(path);
+    path.setSelection(0);
+    path.performClick();
+    idle();
+    out.append("cursor at end: ").append(path.getSelectionStart() == path.getText().length()).append('\n');
+    out.append("cuts: ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_AFTER)).append(" / ").append(TextReady.cut("a > b > c", ">", TextReady.CUT_BEFORE))
+        .append(" / ").append(TextReady.cut(" a > b ", ">", TextReady.NO_CUT)).append('\n');
+    d.dismiss();
+    String t = out.toString();
+    write("s273_document_ready", t);
+    String[] want = {"other program: false", "offered: true", "title shown: true",
+        "cut: Cut after [=== Sogni ===] A red kite over a grey sea. / The text after \u201c=== Sogni ===\u201d",
+        "before: SogniChat conversation|Model: m||=== You ===", "missing: The delimiter is not in the text: the whole text is shown",
+        "remembered: Cut after >  From file on off off off    on on  off", "section box: A  a grey sea.|Moody light, film grain. | kept on red over | off: true", "notes box: true, removed true, back true", "sogni box: true", "add box: shown true, before its text true", "add unchecked: A red kite over a grey sea. | kept off | checked again true", "copy: Copied the text (27 characters) | clipboard A red kite over a grey sea.",
+        "save: Saved the text into saved-text.txt | A red kite over a grey sea. | name answer-trimmed.txt",
+        "send: Sent the prompt into SogniPadd's Params | in SogniPadd true", "send back: SogniPadd.java -> Document ready", "after send: ready open false, program SogniPadd.java, params open true",
+        "buttons: true true, note shown false", "typed in: true, after true, keyboard true", "text after: A red kite over a grey sea.|Moody light, film grain. | kept Moody light, film grain. / From file",
+        "cleared: A red kite over a grey sea. | kept ''", "edited save: My own words.",
+        "custom text: hidden true, list Select file, Browse sections, Custom text, shown true | A red kite over a grey sea.|Shot on film. | kept Shot on film.",
+        "custom menu: Save, Add into program's group, Clear, Cut, Copy, Paste | saved Shot on film. | suggested Shot on film. | Sent to SogniPadd's group Looks as a section | in group true",
+        "custom cleared: A red kite over a grey sea. | kept ''",
+        "custom clip: copy+paste Shot on film.Shot | cut all '' | pasted back Shot on film.Shot",
+        "skip: Shot on film. | kept kite | auto: [--prompt, x] She smiles. Soft light.|Shot on film. | off again off",
+        "fields: \u2212 | hidden: + after false custom false | text kept true | remembered off | again: \u2212 after true custom true",
+        "custom box: before it true | off: A red kite over a grey sea. | kept off | on again true",
+        "text buttons: \u21e4\u25b2\u25bc\u21e5 | end true, start true, page down a page true, up again true | screen still true, box fits true, text scrolled inside true",
+        "send to group: Sent to SogniPadd's group Moods as a section | in group true | Answer saved: answers-Moods/answer-Moods.txt",
+        "preset button: Send to SogniPadd: Presets | Sent to SogniPadd's group Presets as a section", "group codes: Uudet1, then Uudet2", "cursor at end: true",
+        "cuts: b > c / a / a > b"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * SogniChat --input_dir: the folder's files SogniChat reads, at most --max_files by name, given as
+   * --dir_file; after the run each answer is cut at Document ready's delimiter and saved into --output_dir.
+   */
+  @Test
+  public void s274_chat_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    new java.io.File(app.getFilesDir(), "text-ready.txt").delete();
+    java.io.File dir = new java.io.File(app.getCacheDir(), "chat-folder-test");
+    dir.mkdirs();
+    for (String n : new String[] {"b.txt", "A.jpg", "c.mid", "skip.bin", ".hidden.txt"}) java.nio.file.Files.write(new java.io.File(dir, n).toPath(), new byte[] {1});
+    java.util.List<String> notes = new java.util.ArrayList<String>();
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Describe", "--input_dir", dir.getAbsolutePath(), "--max_files", "2",
+        "--output_dir", "answers"));
+    java.util.List<String> got = ChatFolder.expand(argv, notes);
+    StringBuilder files = new StringBuilder();
+    for (int i = 0; i + 1 < got.size(); i++) if ("--dir_file".equals(got.get(i))) files.append(new java.io.File(got.get(i + 1)).getName()).append(' ');
+    out.append("files: ").append(files.toString().trim()).append(" | ").append(notes).append('\n');
+    out.append("folder run: ").append(ChatFolder.folderRun("SogniChat.java", argv)).append(", other program ").append(ChatFolder.folderRun("SogniPadd.java", argv)).append('\n');
+    java.util.List<JavaRun.FileOut> made = new java.util.ArrayList<JavaRun.FileOut>();
+    for (String n : new String[] {"chat-A.txt", "chat-b.txt"})
+      made.add(new JavaRun.FileOut(n, ("SogniChat conversation\n\n=== You ===\nDescribe\n\n=== Sogni ===\nAnswer for " + n + "\n").getBytes("UTF-8")));
+    int n = TextOffer.saveAnswers(app, "SogniChat.java", argv, new JavaRun.Result("Succeeded", made, 0), null);
+    out.append("saved: ").append(n).append(" | ").append(TextOffer.said).append('\n');
+    // Send to program and group: each answer also a section in SogniPadd's group Folders; %g in the output folder is it.
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<String> withPreset = new java.util.ArrayList<String>(argv);
+    withPreset.set(withPreset.indexOf("answers"), "answers-%g");
+    withPreset.addAll(java.util.Arrays.asList("--send_program", "SogniPadd", "--send_group", "Folders"));
+    TextOffer.saveAnswers(app, "SogniChat.java", withPreset, new JavaRun.Result("Succeeded", made, 0), null);
+    int inFolders = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if ("Folders".equals(x.group)) inFolders++;
+    out.append("preset: ").append(TextOffer.said.replaceAll("in [^;]*answers-Folders", "in answers-Folders")).append(" | in group ").append(inFolders).append('\n');
+    // Skip already processed: the files a run answered kept (from its log); left out next time, only the new ones asked about.
+    java.io.File doneDirWas = ChatFolder.doneDir;
+    ChatFolder.doneDir = new java.io.File(app.getCacheDir(), "done-" + System.nanoTime());
+    try {
+      String runLog = "Folder chat-folder-test: 2 files\n=== File 1 of 2: A.jpg ===\nSucceeded: chat-A.txt\n=== File 2 of 2: b.txt ===\nFailed: rate limit\nFolder done: 1 of 2 answered\n";
+      out.append("answered: ").append(ChatFolder.answered(runLog)).append('\n');
+      ChatFolder.markDone(dir.getAbsolutePath(), ChatFolder.answered(runLog));
+      java.util.List<String> again = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "Describe", "--input_dir", dir.getAbsolutePath(), "--skip_done"));
+      java.util.List<String> notes2 = new java.util.ArrayList<String>();
+      java.util.List<String> got2 = ChatFolder.expand(again, notes2);
+      StringBuilder files2 = new StringBuilder();
+      for (int i = 0; i + 1 < got2.size(); i++) if ("--dir_file".equals(got2.get(i))) files2.append(new java.io.File(got2.get(i + 1)).getName()).append(' ');
+      out.append("skip done: ").append(files2.toString().trim()).append(" | ").append(notes2).append('\n');
+    } finally {
+      ChatFolder.doneDir = doneDirWas;
+    }
+    out.append("names: ").append(ChatFolder.cutName("chat-A.txt", true)).append(", without a folder ").append(ChatFolder.cutName("chat-A.txt", false)).append('\n');
+    String t = out.toString();
+    write("s274_chat_folder", t);
+    String[] want = {"files: A.jpg b.txt | [Note: 3 files in chat-folder-test; the first 2 by name are asked about (Max files)]",
+        "folder run: true, other program false", "names: chat-A.txt, without a folder chat-A-trimmed.txt", "answered: [A.jpg]",
+        "skip done: b.txt c.mid | [Note: 1 file in chat-folder-test answered before, left out (Skip already processed)]",
+        "preset: Answers saved (cut after \u201c=== Sogni ===\u201d): 2 files in answers-Folders; 2 sent to SogniPadd's group Folders as sections | in group 2"};
+    boolean ok = t.matches("(?s).*\nsaved: 2 \\| Answers saved \\(cut after \u201c=== Sogni ===\u201d\\): 2 files in [^\n]*answers\n.*");
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * Section Collection's Import sections from folder: a tap on a group's name selects it; the folder's .txt
+   * and .prompt files become sections in it, asked first; with none selected the group is asked for.
+   */
+  @Test
+  public void s275_import_sections() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    for (PromptVault.SogniSection old : vault.sogniSections("SogniPadd")) vault.deleteSogniSection(old.id);
+    SectionCollection.addGroup(vault, "SogniPadd", "Imports", "");
+    SectionCollectionScreen sc = SectionCollectionScreen.show(app, "SogniPadd", "", null, null);
+    idle();
+    out.append("button: ").append(sc.dialog.getWindow().getDecorView().findViewWithTag("sc-import") != null).append('\n');
+    ((TextView) sc.dialog.getWindow().getDecorView().findViewWithTag("sc-group-name:Imports")).performClick();
+    idle();
+    out.append("selected: ").append(sc.selected).append(" | ").append(((TextView) sc.dialog.getWindow().getDecorView().findViewWithTag("sc-group-name:Imports")).getText()).append('\n');
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    files.put("Misty forest.txt", "A misty forest at dawn.\n".getBytes("UTF-8"));
+    files.put("two.txt", "Prompt: Red kite\nLoras: kite 0.4\n----\nPrompt: Blue kite\n".getBytes("UTF-8"));
+    files.put("empty.prompt", new byte[0]);
+    sc.importFrom(files, "my folder");
+    idle();
+    out.append("asks: ").append(SectionCollectionScreen.lastAsk.isShowing()).append('\n');
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("import: ").append(SectionCollectionScreen.importSaid).append('\n');
+    // None selected: the group is asked for (a list).
+    sc.selected = null;
+    sc.refresh();
+    java.util.Map<String, byte[]> loose = new java.util.LinkedHashMap<String, byte[]>();
+    loose.put("loose.txt", "A lone tree.\n".getBytes("UTF-8"));
+    sc.importFrom(loose, "other");
+    idle();
+    android.widget.ListView groups = SectionCollectionScreen.lastMenu.getListView();
+    out.append("groups asked: ").append(SectionCollectionScreen.lastMenu.isShowing()).append(" ").append(groups.getAdapter().getCount()).append('\n');
+    groups.performItemClick(groups.getAdapter().getView(0, null, groups), 0, 0);
+    idle();
+    SectionCollectionScreen.lastAsk.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+    idle();
+    out.append("import loose: ").append(SectionCollectionScreen.importSaid).append('\n');
+    java.util.List<String> rows = new java.util.ArrayList<String>();
+    for (PromptVault.SogniSection x : vault.sogniSections("SogniPadd")) rows.add(x.name + "/" + x.group + "/" + x.text.trim().replace('\n', ' '));
+    java.util.Collections.sort(rows);
+    for (String r : rows) out.append("section ").append(r).append('\n');
+    sc.dialog.dismiss();
+    String t = out.toString();
+    write("s275_import_sections", t);
+    String[] want = {"button: true", "selected: Imports | \u25b8 Imports", "asks: true", "import: Imported 3 sections into Imports; 1 without a prompt",
+        "groups asked: true 2", "import loose: Imported 1 section into no group", "section Misty forest/Imports/Prompt: A misty forest at dawn.",
+        "section loose//Prompt: A lone tree.", "section two 1/Imports/Prompt: Red kite Loras: kite 0.4", "section two 2/Imports/Prompt: Blue kite"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /**
+   * SogniPedit's Input folder: its Params rows; the batch's runs each with one picture (--image) and the
+   * default section's entries (Section), the folder's other files left out; Max files.
+   */
+  @Test
+  public void s276_folder_runs() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<ProgramParams.Param> ps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    for (ProgramParams.Param p : ps) {
+      if (java.util.Arrays.asList(FolderRuns.OWN).contains(p.token)) out.append("row ").append(p.token).append(": ").append(p.label).append(p.dir ? " (folder)" : "").append('\n');
+    }
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    PromptVault.SogniSection soft = vault.addSogniSection("SogniPedit", "Prompt: Soft window light\nLoras: glow 0.5\n");
+    vault.nameSogniSection(soft.id, "Soft light", "");
+    java.io.File dir = new java.io.File(app.getCacheDir(), "pedit-in");
+    dir.mkdirs();
+    for (String n : new String[] {"b.jpg", "a.png", "c.webp", "notes.txt"}) java.nio.file.Files.write(new java.io.File(dir, n).toPath(), new byte[] {1});
+    java.util.List<String> argv = java.util.Arrays.asList("--prompt", "Old", "--input_dir", dir.getAbsolutePath(), "--max_files", "2", "--section", "soft light");
+    java.util.List<String> notes = new java.util.ArrayList<String>();
+    BatchQueue q = FolderRuns.start("SogniPedit.java", ps, "--prompt \"Old\" --skin_detail 1 --input_dir \"" + dir.getAbsolutePath() + "\" --max_files 2 --section \"soft light\"",
+        argv, FolderRuns.files("SogniPedit.java", dir), dir.getAbsolutePath(), vault, notes);
+    BatchQueue.stop();
+    out.append("labels: ").append(q.labels).append(" | notes ").append(notes).append('\n');
+    for (String pr : q.params) out.append("params: ").append(pr.replace(dir.getAbsolutePath(), "~")).append('\n');
+    // Auto render (SogniChat): each answer as SogniPadd's prompt, its other Params kept (an input folder's rows left out).
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"answer.txt", "A lighthouse in fog.\nSoft light."});
+    BatchQueue ar = AutoRender.start("SogniPadd.java", padd, "--prompt \"Original\" --seed 7 --input_dir \"/x\"", answers);
+    BatchQueue.stop();
+    out.append("auto render: ").append(ar.params).append(" | ").append(AutoRender.target(java.util.Arrays.asList("--send_program", "SogniPadd", "--auto_render"))).append('\n');
+    String t = out.toString();
+    write("s276_folder_runs", t);
+    boolean ok = t.contains("row --input_dir: Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture (folder)")
+        && t.contains("row --section: Section: a saved section's entries") && t.contains("labels: [a.png, b.jpg]")
+        && t.contains("3 files to run; the first 2 by name are run (Max files)") && t.contains("Section Soft light")
+        && t.contains("params: --prompt \"Soft window light\"") && t.contains("--image ~/a.png") && t.contains("--loras \"glow 0.5\"")
+        && !t.contains("--input_dir \"~") && !t.contains("--section \"soft")
+        && t.contains("auto render: [--prompt \"A lighthouse in fog. Soft light.\" --seed 7] | SogniPadd.java");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /** Picture ready's Stop run in a batch; Send to group skips the same text; Output name kept across Select program; Batch folder. */
+  /**
+   * SogniPadd's Chain: its pictures (a picture program) or its prompt (a prompt-only one) go on to the
+   * program picked, one run each as a batch; Batch prompt added to the prompt passed on, the target's instead
+   * of SogniPadd's when it has one.
+   */
+  @Test
+  public void s278_chain_batch_prompt() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<ProgramParams.Param> tv = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniTextVideo.java"));
+    java.util.List<ProgramParams.Param> vid = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideo.java"));
+    java.util.List<ProgramParams.Param> up = ProgramParams.parse(PyJavParams.programTextOf(app, "ImageUpscaler.java"));
+    java.util.List<ProgramParams.Param> pedit = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    java.util.function.Function<java.util.List<ProgramParams.Param>, String> rows = ps -> {
+      StringBuilder r = new StringBuilder();
+      for (ProgramParams.Param x : ps) if (x.token.startsWith("--pk-chain") || x.token.startsWith("--pk-batch-prompt")) r.append(x.token).append(' ');
+      return r.toString().trim();
+    };
+    String chainTo = "";
+    for (ProgramParams.Param x : padd) if (x.token.equals(Chain.CHAIN_TO)) chainTo = String.join(", ", x.choices);
+    out.append("rows: padd ").append(rows.apply(padd)).append(" | text video ").append(rows.apply(tv)).append(" | upscaler '").append(rows.apply(up)).append("'\n");
+    out.append("chain to: ").append(chainTo).append('\n');
+    String paddSaved = "--prompt \"A red kite\" " + Chain.CHAIN + " " + Chain.CHAIN_TO + " SogniTextVideo " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"slow pan\"";
+    out.append("target: ").append(Chain.target("SogniPadd.java", paddSaved)).append(", unticked ").append(Chain.target("SogniPadd.java", "--prompt x " + Chain.CHAIN_TO + " SogniVideo"))
+        .append(", batch ").append(Chain.batchPrompt(paddSaved)).append('\n');
+    java.util.List<String> argv = JavaRun.split(paddSaved);
+    Chain.strip(argv);
+    out.append("stripped: ").append(argv).append('\n');
+    // Prompt-only target: the run's prompt and SogniPadd's batch prompt; with its own batch prompt, that one instead.
+    java.util.List<Chain.Item> items = new java.util.ArrayList<Chain.Item>();
+    items.add(new Chain.Item("Testi_1.png", "A red kite", "/x/Testi_1.png"));
+    items.add(new Chain.Item("Testi_2.png", "A blue boat.", "/x/Testi_2.png"));
+    BatchQueue q1 = Chain.start("SogniPadd.java", "SogniTextVideo.java", tv, "--prompt \"old\"", items, "slow pan");
+    String tv1 = q1.params.get(0) + " / " + q1.params.get(1);
+    BatchQueue q2 = Chain.start("SogniPadd.java", "SogniTextVideo.java", tv, "--prompt \"old\" " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"zoom in\"", items, "slow pan");
+    out.append("text video: ").append(tv1).append(" | own batch: ").append(q2.params.get(0)).append(" | chained ").append(q2.chained).append('\n');
+    // Picture target: the picture its input, its own prompt with the batch prompt.
+    BatchQueue q3 = Chain.start("SogniPadd.java", "SogniVideo.java", vid, "--prompt \"Waves\"", items, "slow pan");
+    BatchQueue q4 = Chain.start("SogniPadd.java", "SogniPedit.java", pedit, "--prompt \"Make it night\"", items, null);
+    out.append("video: ").append(q3.params.get(1)).append(" | pedit: ").append(q4.params.get(0)).append(" | labels ").append(q3.labels).append('\n');
+    BatchQueue.stop();
+    // Params: Chain to shown once Chain is ticked; Batch prompt's text with Select file and Browse sections.
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    app.pyJav.pkOpenParams();
+    idle();
+    AlertDialog params = (AlertDialog) ShadowDialog.getLatestDialog();
+    View pv = params.getWindow().getDecorView();
+    // (Chain and Batch prompt are on the Batch tab.)
+    pv.findViewWithTag("params-tab:" + ProgramParams.BATCH).performClick();
+    idle();
+    View toRow = pv.findViewWithTag("params-dropdown:" + Chain.CHAIN_TO);
+    boolean hiddenFirst = toRow != null && !toRow.isShown();
+    ((android.widget.CheckBox) pv.findViewWithTag("params-check:" + Chain.CHAIN)).setChecked(true);
+    idle();
+    boolean shownAfter = toRow != null && toRow.isShown();
+    ((android.widget.CheckBox) pv.findViewWithTag("params-check:" + Chain.BATCH_PROMPT)).setChecked(true);
+    idle();
+    out.append("params: chain to hidden ").append(hiddenFirst).append(", shown ").append(shownAfter).append(" | batch text ").append(pv.findViewWithTag("params-field:" + Chain.BATCH_TEXT) != null && pv.findViewWithTag("params-field:" + Chain.BATCH_TEXT).isShown())
+        .append(", buttons ").append(pv.findViewWithTag("params-batch-file:" + Chain.BATCH_TEXT) != null).append(' ').append(pv.findViewWithTag("params-batch-sections:" + Chain.BATCH_TEXT) != null).append('\n');
+    params.dismiss();
+    idle();
+    // SogniPadd's batch over: the chain's batch starts (here held at its Usage warning, then stopped).
+    java.io.File keyFile = new java.io.File(app.getCacheDir(), "sogni-key.txt");
+    java.nio.file.Files.write(keyFile.toPath(), "SOGNI_API_KEY=test".getBytes("UTF-8"));
+    String keyWas = SogniApi.keyFileSetting;
+    SogniApi.keyFileSetting = keyFile.getAbsolutePath();
+    SogniApi.answer = path -> SogniApi.parseJson("{\"status\":\"success\",\"data\":{\"fairUse\":{\"dailyPct\":90}}}");
+    PyJavParams.store(app, "SogniPadd.java", paddSaved);
+    PyJavParams.store(app, "SogniTextVideo.java", "--prompt \"old\" --pk-usage-warn 80");
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"a.txt", "A red kite"});
+    answers.add(new String[] {"b.txt", "A blue boat."});
+    BatchQueue pq = AutoRender.start("SogniPadd.java", padd, paddSaved, answers);
+    pq.chainItems.addAll(items);
+    pq.next = pq.runs.size();
+    PyJav.pkUsageAsk = null;
+    app.pyJav.pkBatchOver(pq);
+    idle();
+    for (int i = 0; i < 100 && (PyJav.pkUsageAsk == null || !PyJav.pkUsageAsk.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    BatchQueue cq = BatchQueue.current();
+    out.append("chained: ").append(PyJav.chainSaid).append(" | ").append(cq == null ? "none" : cq.program + " " + cq.chained + " " + cq.params.get(0)).append('\n');
+    if (PyJav.pkUsageAsk != null && PyJav.pkUsageAsk.isShowing()) PyJav.pkUsageAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    SogniApi.answer = null;
+    SogniApi.keyFileSetting = keyWas;
+    PyJavParams.store(app, "SogniPadd.java", "");
+    PyJavParams.store(app, "SogniTextVideo.java", "");
+    BatchQueue.stop();
+    // The program's own batches add its Batch prompt too: Auto render (SogniChat's answer), an input folder's file.
+    String withBatch = "--prompt \"old\" " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"slow pan\"";
+    java.util.List<String[]> one = new java.util.ArrayList<String[]>();
+    one.add(new String[] {"a.txt", "A red kite"});
+    BatchQueue aq = AutoRender.start("SogniPadd.java", padd, withBatch, one);
+    String autoP = aq.params.get(0);
+    BatchQueue.stop();
+    java.io.File pf = new java.io.File(app.getCacheDir(), "p1.txt");
+    java.nio.file.Files.write(pf.toPath(), "A blue boat".getBytes("UTF-8"));
+    String folderP = FolderRuns.paramsFor("SogniPadd.java", padd, withBatch, pf, java.nio.file.Files.readAllBytes(pf.toPath()));
+    out.append("own batches: ").append(autoP.contains("--prompt \"A red kite, slow pan\"")).append(' ').append(folderP.contains("--prompt \"A blue boat, slow pan\"")).append(" | twice no ")
+        .append(Chain.withBatch("A red kite, slow pan", "slow pan", null)).append('\n');
+    // Include subfolders: a folder's subfolders' files too, named by their path (Skip already processed keeps that).
+    java.io.File deepDir = new java.io.File(app.getCacheDir(), "deep-in");
+    new java.io.File(deepDir, "sub").mkdirs();
+    java.nio.file.Files.write(new java.io.File(deepDir, "a.txt").toPath(), "A kite".getBytes("UTF-8"));
+    java.nio.file.Files.write(new java.io.File(deepDir, "sub/b.txt").toPath(), "A boat".getBytes("UTF-8"));
+    java.util.List<String> deepArgs = java.util.Arrays.asList("--input_dir", deepDir.getAbsolutePath(), "--subfolders");
+    BatchQueue dq = FolderRuns.start("SogniPadd.java", padd, "--prompt \"x\"", deepArgs, FolderRuns.files("SogniPadd.java", deepDir, true), deepDir.getAbsolutePath(),
+        PromptVault.open(app.getFilesDir()), new java.util.ArrayList<String>(), deepDir);
+    out.append("subfolders: ").append(dq == null ? "none" : dq.labels).append(" | top only ").append(FolderRuns.files("SogniPadd.java", deepDir, false).size())
+        .append(" | chat ").append(ChatFolder.files(deepDir, true).size()).append(' ').append(ChatFolder.files(deepDir, false).size()).append('\n');
+    BatchQueue.stop();
+    // Input group: the input rows under the input file (SogniPedit) or the prompt (SogniPadd); a group's sections run in turn;
+    // with an Input folder too, asked which.
+    java.util.List<ProgramParams.Param> peditPs = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    StringBuilder order = new StringBuilder();
+    for (int i = 0; i < peditPs.size() && order.length() < 200; i++) if (peditPs.get(i).flag) order.append(peditPs.get(i).token).append(' ');
+    StringBuilder paddOrder = new StringBuilder();
+    for (ProgramParams.Param x : padd) if (x.flag) paddOrder.append(x.token).append(' ');
+    PromptVault gv = PromptVault.open(app.getFilesDir());
+    SectionCollection.addGroup(gv, "SogniPadd", "Kites", "");
+    TextReady.toGroup(gv, "SogniPadd", "Red", "A red kite", "Kites");
+    TextReady.toGroup(gv, "SogniPadd", "Blue", "A blue kite", "Kites");
+    TextReady.toGroup(gv, "SogniPadd", "Loose", "A loose kite", SectionCollection.NO_GROUP_PICK);
+    java.util.List<PromptVault.SogniSection> kites = InputGroup.sections(PromptVault.open(app.getFilesDir()), "SogniPadd.java", "Kites");
+    out.append("input rows: pedit ").append(order.toString().trim().startsWith("--prompt --image --input_dir " + InputGroup.TOKEN + " --subfolders --max_files --skip_done --input_as --section"))
+        .append(", padd ").append(paddOrder.toString().contains("--prompt --input_dir " + InputGroup.TOKEN + " --subfolders --max_files --skip_done --section"))
+        .append(" | group sections ").append(kites.size()).append(", none ").append(InputGroup.sections(PromptVault.open(app.getFilesDir()), "SogniPadd.java", SectionCollection.NO_GROUP_PICK).size()).append('\n');
+    PyJavParams.store(app, "SogniPadd.java", "--prompt \"x\" --input_dir \"" + deepDir.getAbsolutePath() + "\" " + InputGroup.TOKEN + " Kites");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    PyJav.pkInputAsk = null;
+    app.pyJav.pkRunPyJav();
+    idle();
+    boolean asked = PyJav.pkInputAsk != null && PyJav.pkInputAsk.isShowing();
+    StringBuilder askItems = new StringBuilder();
+    if (asked) for (int i = 0; i < PyJav.pkInputAsk.getListView().getAdapter().getCount(); i++) askItems.append(i == 0 ? "" : ", ").append(PyJav.pkInputAsk.getListView().getAdapter().getItem(i));
+    if (asked) PyJav.pkInputAsk.getListView().performItemClick(null, 2, 2);
+    BatchQueue gq = BatchQueue.current();
+    out.append("input ask: ").append(asked).append(" | ").append(askItems).append(" | group only: ").append(gq == null ? "none" : gq.program + " " + gq.runs.size() + " " + gq.labels).append('\n');
+    BatchQueue.stop();
+    PyJavParams.store(app, "SogniPadd.java", "");
+    idle();
+    // Picture ready made by a chain: Back to the program that chained it; a run of its own: no Back.
+    android.graphics.Bitmap pbmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream ppng = new java.io.ByteArrayOutputStream();
+    pbmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, ppng);
+    java.util.List<JavaRun.FileOut> pfiles = new java.util.ArrayList<JavaRun.FileOut>();
+    pfiles.add(new JavaRun.FileOut("Testi_1.png", ppng.toByteArray()));
+    JavaRun.Result pr = new JavaRun.Result("", pfiles, 0);
+    app.programMenus.selectProgram("Java", "SogniTextVideo.java");
+    idle();
+    ReadyBack.toProgram(app, "SogniTextVideo.java", "SogniPadd.java");
+    PictureOffer.offer(app, pr);
+    idle();
+    android.widget.Button backB = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
+    String backText = backB == null ? "none" : backB.getText().toString();
+    if (backB != null) backB.performClick();
+    idle();
+    String backTo = app.pyName;
+    ReadyBack.clear();
+    PictureOffer.offer(app, pr);
+    idle();
+    android.widget.Button noBack = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
+    out.append("ready back: ").append(backText).append(" | to ").append(backTo).append(" | own run: ").append(noBack == null || noBack.getVisibility() != View.VISIBLE ? "no Back" : "Back").append('\n');
+    PictureOffer.last.dismiss();
+    // A batch kept on disk (BatchSave): from the run that did not finish; no connection pauses it; offered next start.
+    java.util.List<String[]> three2 = new java.util.ArrayList<String[]>();
+    for (String n : new String[] {"a", "b", "c"}) three2.add(new String[] {n + ".txt", "Prompt " + n});
+    BatchQueue kq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\"", three2);
+    kq.outFolder = "Batches/run1";
+    BatchSave.save(app.getFilesDir(), kq, 1);
+    BatchSave.Kept kept = BatchSave.load(app.getFilesDir());
+    BatchQueue.stop();
+    BatchQueue rq = BatchSave.resume(kept, padd);
+    out.append("kept: ").append(kept.said()).append(" | resumed runs ").append(rq.runs.size()).append(", first ").append(rq.params.get(0).contains("Prompt b")).append(", folder ").append(rq.outFolder)
+        .append(" | offline ").append(BatchSave.offline("Failed: Unable to resolve host api.sogni.ai")).append(' ').append(BatchSave.offline("Failed: 400 bad prompt")).append('\n');
+    BatchQueue.stop();
+    PyJav.pkResumeAsk = null;
+    app.pyJav.pkOfferResume();
+    idle();
+    android.widget.TextView askMsg = PyJav.pkResumeAsk == null ? null : (android.widget.TextView) PyJav.pkResumeAsk.findViewById(android.R.id.message);
+    out.append("resume ask: ").append(askMsg == null ? "none" : askMsg.getText().toString().replaceAll("\\d+\\.\\d+\\. \\d\\d:\\d\\d", "D").replace('\n', '|')).append('\n');
+    if (PyJav.pkResumeAsk != null) PyJav.pkResumeAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("discarded: ").append(BatchSave.load(app.getFilesDir()) == null).append('\n');
+    String t = out.toString();
+    write("s278_chain_batch_prompt", t);
+    String[] want = {
+        "rows: padd --pk-chain --pk-chain-to --pk-batch-prompt --pk-batch-prompt-text | text video --pk-batch-prompt --pk-batch-prompt-text | upscaler ''",
+        "chain to: SogniTextVideo (prompt), SogniVideo (picture), SogniPedit (picture), SogniMusic (prompt)",
+        "target: SogniTextVideo.java, unticked null, batch slow pan", "stripped: [--prompt, A red kite]",
+        "text video: --prompt \"A red kite, slow pan\" / --prompt \"A blue boat. slow pan\" | own batch: --prompt \"A red kite, zoom in\" --pk-batch-prompt --pk-batch-prompt-text \"zoom in\" | chained true",
+        "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
+        "params: chain to hidden true, shown true | batch text true, buttons true true",
+        "own batches: true true | twice no A red kite, slow pan",
+        "subfolders: [a.txt, sub/b.txt] | top only 1 | chat 2 1",
+        "input rows: pedit true, padd true | group sections 2, none 1",
+        "ready back: Back | to SogniPadd.java | own run: no Back",
+        "kept: SogniPadd: 2 of 3 runs left (from b.txt) | resumed runs 2, first true, folder Batches/run1 | offline true false",
+        "resume ask: SogniPadd: 2 of 3 runs left (from b.txt)|Kept D. Go on with it now?", "discarded: true",
+        "chained: Chain: 2 runs of SogniTextVideo | SogniTextVideo.java true --prompt \"A red kite, slow pan\" --pk-usage-warn 80"};
+    boolean ok = true;
+    ok &= t.contains("input ask: true | Both (group first), Folder only, Group only | group only: SogniPadd.java 2 [");
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  /** Sogni_RTV's Params (12 reference slots, the tier) and SogniVideoUpscale's; Video ready's Upscale and the Media browser's Upscale video. */
+  @Test
+  public void s279_rtv_video_upscale() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<ProgramParams.Param> rtv = ProgramParams.parse(PyJavParams.programTextOf(app, "Sogni_RTV.java"));
+    int refs = 0;
+    String ref1 = "", model = "", tabs = "";
+    for (ProgramParams.Param p : rtv) {
+      if (p.flag && p.token.matches("--ref\\d+") && p.isFile()) refs++;
+      if (p.token.equals("--ref1")) {
+        ref1 = p.label;
+        tabs += p.tab + " ";
+      }
+      if (p.token.equals("--model")) {
+        model = p.dropdown + " " + String.join(",", p.choiceValues);
+        tabs += p.tab;
+      }
+    }
+    out.append("rtv: ").append(refs).append(" slots | ").append(ref1).append(" | model ").append(model).append(" | tabs ").append(tabs).append('\n');
+    java.util.List<ProgramParams.Param> up = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideoUpscale.java"));
+    String upRows = "";
+    for (ProgramParams.Param p : up) {
+      if (!p.flag && !p.output) upRows += "input " + p.label + " " + p.isFile() + "; ";
+      if (p.token.equals("--upscaler")) upRows += "upscaler " + String.join(",", p.choiceValues) + "; ";
+      if (p.token.equals("--detail")) upRows += "detail when " + p.showWhen;
+    }
+    out.append("upscale: ").append(upRows).append('\n');
+    out.append("video items: ").append(java.util.Arrays.asList(MediaDir.kindItems("clip.mp4", false))).append('\n');
+    // Video ready: Upscale opens SogniVideoUpscale with the clip, Return back to Video ready.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    AlertDialog ready = (AlertDialog) ShadowDialog.getLatestDialog();
+    View upBtn = ready.getWindow().getDecorView().findViewWithTag("video-offer:upscale");
+    out.append("upscale button: ").append(upBtn != null).append('\n');
+    if (upBtn != null) upBtn.performClick();
+    idle();
+    for (AlertDialog d : new AlertDialog[] {PyJavParams.shown}) if (d != null && d.isShowing()) d.dismiss();
+    idle();
+    TextView args = (TextView) get("pkPyArgs");
+    out.append("program: ").append(app.pyName).append(" | input ").append(args.getText().toString().contains("walk.mp4")).append(" | ready closed ").append(!ready.isShowing())
+        .append(" | ").append(((TextView) get("pkReturnBtn")).getText()).append('\n');
+    app.pyJav.pkDoReturn();
+    idle();
+    View again = ShadowDialog.getLatestDialog() == null ? null : ShadowDialog.getLatestDialog().getWindow().getDecorView().findViewWithTag("video-offer:upscale");
+    out.append("returned: ").append(again != null && ShadowDialog.getLatestDialog().isShowing()).append('\n');
+    if (ShadowDialog.getLatestDialog() != null) ShadowDialog.getLatestDialog().dismiss();
+    idle();
+    String t = out.toString();
+    write("s279_rtv_video_upscale", t);
+    String[] want = {"rtv: 12 slots | Reference 1: a picture, video or sound | model true balanced,standard,turbo,fasth3 | tabs Input Settings",
+        "upscale: input Video to upscale true; upscaler relayvsr,flashvsr; detail when --upscaler=flashvsr",
+        "video items: [" + MediaDir.UPSCALE_VIDEO + "]", "upscale button: true",
+        "program: SogniVideoUpscale.java | input true | ready closed true | Return to Video ready", "returned: true"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
+  @Test
+  public void s277_stop_run_batch_folder() throws Exception {
+    StringBuilder out = new StringBuilder();
+    if (java.security.Security.getProvider("AndroidKeyStore") == null) java.security.Security.insertProviderAt(new FakeKeyStoreProvider(), 1);
+    // A picture made while a batch goes (Auto render's runs): Stop run, which stops the batch.
+    java.util.List<ProgramParams.Param> padd = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPadd.java"));
+    java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+    answers.add(new String[] {"a.txt", "One."});
+    answers.add(new String[] {"b.txt", "Two."});
+    BatchQueue q = AutoRender.start("SogniPadd.java", padd, "--prompt \"Original\"", answers);
+    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
+    java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, png);
+    java.util.List<JavaRun.FileOut> files = new java.util.ArrayList<JavaRun.FileOut>();
+    files.add(new JavaRun.FileOut("pic.png", png.toByteArray()));
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: pic.png", files, 0));
+    idle();
+    android.widget.Button stop = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+    String label = stop == null ? "none" : String.valueOf(stop.getText());
+    if (stop != null) stop.performClick();
+    idle();
+    out.append("picture ready in a batch: ").append(label).append(" | stopping ").append(q.stopping).append('\n');
+    BatchQueue.stop();
+    PictureOffer.offer(app, new JavaRun.Result("Succeeded: pic.png", files, 0));
+    idle();
+    android.widget.Button none = PictureOffer.last.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+    out.append("no batch: ").append(none == null || none.getVisibility() != View.VISIBLE || none.getText().length() == 0 ? "no Stop run" : String.valueOf(none.getText())).append('\n');
+    PictureOffer.last.dismiss();
+    // Send to group: the same text (case, spaces and quotes aside) not added again.
+    PromptVault vault = PromptVault.open(app.getFilesDir());
+    String first = TextReady.sendToGroup(vault, "SogniPadd", "answer.txt", "A kite over the sea.", "Moods");
+    String again = TextReady.sendToGroup(vault, "SogniPadd", "answer2.txt", "\u201ca  KITE over the sea.\u201d", "Other");
+    int kites = 0;
+    for (PromptVault.SogniSection x : PromptVault.open(app.getFilesDir()).sogniSections("SogniPadd")) if (x.text.toLowerCase().contains("kite over")) kites++;
+    out.append("send twice: ").append(first).append(" | ").append(again).append(" | sections ").append(kites).append('\n');
+    // Output name: given in Params, kept; SogniPadd selected again has it in its argument line.
+    PyJavParams.store(app, "SogniPadd.java" + ProgramParams.OUTPUT_KEY, "Image%n");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    out.append("output after select: ").append(app.pyJav.pkPyArgs.getText()).append('\n');
+    // Picked from Select program's list (Recent): its last run's line had no Output name; the Params' one put in.
+    PyJavRecent.remember(app.getFilesDir(), "SogniPadd.java", "--prompt \"A cat\"", PyJavParams.programTextOf(app, "SogniPadd.java"), null);
+    app.pyJav.pkRefreshRecent(0);
+    int recentAt = 0;
+    java.util.List<PyJavRecent.Item> recent = PyJavRecent.load(app.getFilesDir());
+    for (int i = 0; i < recent.size(); i++) if ("SogniPadd.java".equals(recent.get(i).name)) recentAt = i + 1;
+    app.pyJav.pkApplyRecent(recentAt);
+    idle();
+    out.append("output after Select program list: ").append(app.pyJav.pkPyArgs.getText()).append('\n');
+    PyJavParams.store(app, "SogniPadd.java" + ProgramParams.OUTPUT_KEY, "");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    out.append("none kept: '").append(app.pyJav.pkPyArgs.getText()).append("'\n");
+    // Batch folder: a row of the Sogni programs, taken off the run's arguments; a batch's files under it.
+    ProgramParams.Param row = null;
+    for (ProgramParams.Param p : padd) if (p.token.equals(DownloadMove.BATCH_PARAM)) row = p;
+    java.util.List<String> argv = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x", DownloadMove.BATCH_PARAM, "Batches/run%n", "--seed", "3"));
+    String taken = DownloadMove.takeBatch(argv);
+    String sub = ArtJava.subOf(taken);
+    ArtJava.batchSub = sub;
+    String used = ArtJava.runSub("SogniPadd.java", argv);
+    ArtJava.batchSub = null;
+    out.append("batch folder row: ").append(row != null && row.dir && row.typed).append(" | taken ").append(taken).append(" | left ").append(argv)
+        .append(" | folder ").append(sub).append(" | used ").append(used).append(" | single run ").append(ArtJava.runSub("SogniPadd.java", argv)).append('\n');
+    // SogniChat's raw chat: not written when Output name is given (the processed copy is saved under it: Output folder, else Download).
+    String chat = PyJavParams.programTextOf(app, "SogniChat.java");
+    out.append("raw answer kept: none ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("--prompt", "x", "--output_dir", "/o")))
+        .append(", output name ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("--prompt", "Describe it", "answer%g%", "--max_files", "3")))
+        .append(", name first ").append(ChatFolder.rawKept("SogniChat.java", chat, java.util.Arrays.asList("mine", "--prompt", "x")))
+        .append(", other program ").append(ChatFolder.rawKept("SogniPadd.java", null, java.util.Arrays.asList("pic", "--prompt", "x")))
+        .append(" | saved into: name, no folder '").append(ChatFolder.answerDir(java.util.Arrays.asList("mine"), false))
+        .append("', no name ").append(ChatFolder.answerDir(java.util.Arrays.asList("--prompt", "x"), true))
+        .append(", folder ").append(ChatFolder.answerDir(java.util.Arrays.asList("--output_dir", "/o"), false)).append('\n');
+    // Silent auto mode: only with Auto render and a Send to program; then no Document ready (as an input folder's run).
+    java.util.List<String> silentArgs = new java.util.ArrayList<String>(java.util.Arrays.asList("--prompt", "x", "--auto_render", "--silent_auto", "--send_program", "SogniPadd"));
+    java.util.List<ProgramParams.Param> chatPs = ProgramParams.parse(chat);
+    String silentLabel = "";
+    for (ProgramParams.Param p : chatPs) if (p.token.equals(ChatFolder.SILENT)) silentLabel = p.label;
+    out.append("silent: on ").append(ChatFolder.silent("SogniChat.java", silentArgs)).append(", no auto render ")
+        .append(ChatFolder.silent("SogniChat.java", java.util.Arrays.asList("--prompt", "x", "--silent_auto", "--send_program", "SogniPadd")))
+        .append(", no program ").append(ChatFolder.silent("SogniChat.java", java.util.Arrays.asList("--auto_render", "--silent_auto")))
+        .append(" | auto saved ").append(ChatFolder.autoSaved("SogniChat.java", silentArgs)).append(" | empty ").append(ChatFolder.silentEmpty("SogniChat.java", chatPs, silentArgs))
+        .append(" | all given ").append(ChatFolder.silentEmpty("SogniChat.java", chatPs, java.util.Arrays.asList("Ans", "--auto_render", "--silent_auto", "--send_program", "SogniPadd", "--output_dir", "o", "--send_group", "G")))
+        .append(" | label ").append(silentLabel.startsWith("Silent auto mode")).append('\n');
+    java.util.List<String> noAuto = new java.util.ArrayList<String>(silentArgs);
+    ChatFolder.withoutAuto(noAuto);
+    out.append("without auto: ").append(noAuto).append(" | send program set: ").append(ProgramParams.withValue(chatPs, "--prompt \"x\"", "--send_program", "SogniVideo")).append('\n');
+    // Run: Auto render with no Send to program asked first; Silent auto mode's empty fields asked first.
+    app.programMenus.selectProgram("Java", "SogniChat.java");
+    idle();
+    app.pyJav.pkPyArgs.setText("--prompt \"Hello\" --auto_render");
+    app.pyJav.pkRunPyJav();
+    idle();
+    android.app.AlertDialog ask = app.pyJav.pkAskChat;
+    out.append("ask auto: ").append(ask != null && ask.isShowing()).append(" | ").append(ask == null ? "" : ask.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getText())
+        .append(" / ").append(ask == null ? "" : ask.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).getText()).append('\n');
+    if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    app.pyJav.pkAskChat = null;
+    app.pyJav.pkPyArgs.setText("--prompt \"Hello\" --auto_render --silent_auto --send_program SogniPadd");
+    app.pyJav.pkRunPyJav();
+    idle();
+    ask = app.pyJav.pkAskChat;
+    android.widget.TextView msg = ask == null ? null : (android.widget.TextView) ask.findViewById(android.R.id.message);
+    out.append("ask silent: ").append(ask != null && ask.isShowing()).append(" | ").append(msg == null ? "" : msg.getText().toString().replace('\n', '|')).append('\n');
+    if (ask != null) ask.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    // A batch's run in the Running line: Batch k/n; Browse file and Params, Stop and Stop batch, share rows.
+    java.util.List<String[]> three = new java.util.ArrayList<String[]>();
+    for (String n : new String[] {"a", "b", "c"}) three.add(new String[] {n + ".txt", n});
+    BatchQueue bq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\"", three);
+    bq.nextArgs();
+    bq.nextArgs();
+    String batchLine = JavaRun.runningLine(null, 0);
+    BatchQueue.stop();
+    View pane = app.findViewById(android.R.id.content);
+    View browse = pane.findViewWithTag("pyjav-browse"), params = pane.findViewWithTag("pyjav-params"), stopB = pane.findViewWithTag("pyjav-stop"), stopBatch = pane.findViewWithTag("pyjav-batch-stop");
+    out.append("batch line: ").append(batchLine).append(" | after: ").append(JavaRun.runningLine(null, 0)).append(" | rows: ")
+        .append(browse != null && browse.getParent() == params.getParent()).append(' ').append(stopB != null && stopB.getParent() == stopBatch.getParent()).append('\n');
+    // A folder run's file in the Running line; its answers' sections saved once (holdSaves).
+    out.append("running: ").append(JavaRun.news("SogniChat\n=== File 3 of 20: c.txt ===\nModel m")).append(" | done: ").append(JavaRun.news("=== File 20 of 20: t.txt ===\nFolder done: 20 of 20 answered")).append('\n');
+    PromptVault hv = PromptVault.open(app.getFilesDir());
+    int w0 = PromptVault.writes;
+    hv.holdSaves();
+    for (int i = 0; i < 5; i++) TextReady.sendToGroup(hv, "SogniPadd", "held" + i + ".txt", "Held text " + i, "Held");
+    int beforeRelease = PromptVault.writes - w0;
+    hv.releaseSaves();
+    int afterRelease = PromptVault.writes - w0;
+    out.append("held saves: writes before release ").append(beforeRelease).append(", after ").append(afterRelease).append('\n');
+    // Remove note sections: "*Note: ... *" out of the processed text (and the blank lines it leaves); off: as it is.
+    String withNote = "A misty harbour at dawn.\n\n*Note: the boats are\nimplied, not shown.\n*\n\nSoft light.";
+    String[] notesOn = {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.ON};
+    String[] notesOff = {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF};
+    TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.ON, TextReady.ON);
+    out.append("notes removed: ").append(TextReady.result(withNote, notesOn).replace('\n', '|')).append(" | kept: ").append(TextReady.result(withNote, notesOff).contains("*Note:"))
+        .append(" | remembered ").append(TextReady.setting(app.getFilesDir(), "SogniChat.java")[5]).append('\n');
+    TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF);
+    // Sogni cut: each "=== Sogni ===" line and the lines after it to a blank line left out; the rest kept.
+    String chatText = "=== You ===\nDescribe it\n\n=== Sogni ===\nModel qwen\nThinking done\n\nA lighthouse in fog.\nSoft light.";
+    String[] sogniOn = {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF, TextReady.ON};
+    out.append("sogni cut: ").append(TextReady.result(chatText, sogniOn).replace('\n', '|')).append(" | off: ")
+        .append(TextReady.result(chatText, new String[] {TextReady.NO_CUT, "", "", TextReady.FROM_FILE, TextReady.ON, TextReady.OFF, TextReady.OFF}).contains("Model qwen")).append('\n');
+    out.append("sections: ").append(TextReady.withoutSections("Keep [[drop\nthis]] and [[that]] end [[open", "[[", "]]").replace('\n', '|'))
+        .append(" | empty E: ").append(TextReady.withoutSections("a [[b]] c", "[[", "")).append('\n');
+    // Output name with %n% (the closing % as in %g%): no % left in the name; %n and %% as before.
+    java.io.File nd = new java.io.File(app.getCacheDir(), "names");
+    nd.mkdirs();
+    java.nio.file.Files.write(new java.io.File(nd, "Testi_1.png").toPath(), new byte[] {1});
+    System.clearProperty("pulsekit.given");
+    // (A name %n gave stays taken: a batch's runs whose files go elsewhere get Testi_2, Testi_3...)
+    out.append("names: ").append(SogniApi.fillName("Testi_%n%", nd)).append(", ").append(SogniApi.fillName("Testi_%n", nd)).append(", ")
+        .append(SogniApi.fillName("100%% sure_%n%.png", nd)).append('\n');
+    // Sizes: an aspect ratio alone gives its size (short side 1080); %ar and %r in a name and a folder.
+    int[] s47 = SogniApi.sizeFor("4:7"), s169 = SogniApi.sizeFor("16:9");
+    SogniApi.sizeCodes("4:7", s47[0], s47[1]);
+    System.clearProperty("pulsekit.given");
+    out.append("sizes: ").append(s47[0]).append('x').append(s47[1]).append(' ').append(s169[0]).append('x').append(s169[1]).append(" | name ").append(SogniApi.fillName("Testi_%ar%_%r%", nd))
+        .append(" | folder ").append(DownloadMove.sizeCodes("Batch/%ar/%r%", java.util.Arrays.asList("--aspect", "16:9"))).append('\n');
+    // Batch mode: an answer empty once processed is passed by (not saved, sent or rendered).
+    TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.OFF);
+    java.util.List<JavaRun.FileOut> twoAnswers = new java.util.ArrayList<JavaRun.FileOut>();
+    twoAnswers.add(new JavaRun.FileOut("full.txt", "=== You ===\nHi\n\n=== Sogni ===\nA lighthouse.".getBytes("UTF-8")));
+    twoAnswers.add(new JavaRun.FileOut("empty.txt", "=== You ===\nHi\n\n=== Sogni ===\n".getBytes("UTF-8")));
+    int savedN = TextOffer.saveAnswers(app, "SogniChat.java", java.util.Arrays.asList("--prompt", "x", "--input_dir", "/in"), new JavaRun.Result("Succeeded", twoAnswers, 0), null);
+    out.append("empty skipped: saved ").append(savedN).append(" | ").append(TextOffer.said.replaceAll(".*;", ";")).append('\n');
+    // Video folder runs: SogniVideo's pictures as its start or end picture; SogniPedit's as reference 1 or 2; SogniTextVideo's text files as prompts.
+    java.io.File vdir = new java.io.File(app.getCacheDir(), "video-in");
+    vdir.mkdirs();
+    java.nio.file.Files.write(new java.io.File(vdir, "a.png").toPath(), new byte[] {1});
+    java.nio.file.Files.write(new java.io.File(vdir, "b.txt").toPath(), "A lighthouse at night.".getBytes("UTF-8"));
+    java.util.List<ProgramParams.Param> vps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideo.java"));
+    java.util.List<ProgramParams.Param> tps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniTextVideo.java"));
+    java.util.List<ProgramParams.Param> eps = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    java.util.List<String> vargs = java.util.Arrays.asList("--input_dir", vdir.getAbsolutePath(), "--input_as", "2");
+    BatchQueue vq = FolderRuns.start("SogniVideo.java", vps, "--prompt \"x\" --input_dir \"" + vdir + "\" --input_as 2", vargs, FolderRuns.files("SogniVideo.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    BatchQueue eq = FolderRuns.start("SogniPedit.java", eps, "--prompt \"x\" --input_dir \"" + vdir + "\" --input_as 2", vargs, FolderRuns.files("SogniPedit.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    BatchQueue tq = FolderRuns.start("SogniTextVideo.java", tps, "--prompt \"x\" --input_dir \"" + vdir + "\"", java.util.Arrays.asList("--input_dir", vdir.getAbsolutePath()), FolderRuns.files("SogniTextVideo.java", vdir), vdir.getAbsolutePath(), null, new java.util.ArrayList<String>());
+    BatchQueue.stop();
+    String inputAsLabel = "";
+    for (ProgramParams.Param p : vps) if (p.token.equals("--input_as")) inputAsLabel = java.util.Arrays.toString(p.choices);
+    boolean rows = true;
+    for (java.util.List<ProgramParams.Param> list : java.util.Arrays.asList(vps, tps, eps, padd)) {
+      java.util.Set<String> tk = new java.util.HashSet<String>();
+      for (ProgramParams.Param p : list) tk.add(p.token);
+      rows &= tk.contains(DownloadMove.BATCH_GROUP) && tk.contains(SogniUsage.WARN_PARAM) && tk.contains(DownloadMove.BATCH_PARAM);
+      if (list != padd) rows &= tk.contains("--input_dir") && tk.contains("--max_files") && tk.contains("--skip_done");
+    }
+    out.append("video folder: ").append(vq.params.get(0).replace(vdir.getAbsolutePath(), "~")).append(" | pedit: ").append(eq.params.get(0).replace(vdir.getAbsolutePath(), "~"))
+        .append(" | text video: ").append(tq.params.get(0)).append(" | as: ").append(inputAsLabel).append(" | rows ").append(rows).append('\n');
+    // Batch group: % codes filled in once; %g in the output name; the run's files put in it.
+    String bg = BatchGroup.resolve(app.getFilesDir(), "Batch %n");
+    java.util.List<String> named = BatchGroup.withGroup(padd, java.util.Arrays.asList("Img-%g%", "--prompt", "x"), bg);
+    java.util.List<Object[]> made2 = new java.util.ArrayList<Object[]>();
+    made2.add(new Object[] {"Img-Batch 1.png", Long.valueOf(10)});
+    made2.add(new Object[] {"notes.txt", Long.valueOf(3)});
+    int put = BatchGroup.add(app.getFilesDir(), bg, made2);
+    out.append("batch group: ").append(bg).append(" | ").append(named).append(" | put ").append(put).append(" in ").append(FileGroups.in(bg, MarkFile.groupKeys(null, "Img-Batch 1.png", 10)[0]))
+        .append(" | next ").append(BatchGroup.resolve(app.getFilesDir(), "Batch %n")).append('\n');
+    // Sogni usage: the fair-use percentages read; at the warning or over, the batch asks.
+    java.io.File keyFile = new java.io.File(app.getCacheDir(), "sogni-key.txt");
+    java.nio.file.Files.write(keyFile.toPath(), "SOGNI_API_KEY=test".getBytes("UTF-8"));
+    String keyWas = SogniApi.keyFileSetting;
+    SogniApi.keyFileSetting = keyFile.getAbsolutePath();
+    SogniApi.answer = path -> SogniApi.parseJson("{\"status\":\"success\",\"data\":{\"usage\":{\"periodJobs\":12},\"fairUse\":{\"daily\":{\"usedPct\":85.5},\"monthlyPercent\":20,\"fastRenderingPaused\":false}}}");
+    Object usage = SogniUsage.fetch();
+    // A batch: the usage read before it is kept on it (the runs' logs replace the log): its running line and summary say it.
+    PyJavParams.store(app, "SogniPadd.java", "--prompt \"x\" --pk-usage-warn 80");
+    BatchQueue uq = AutoRender.start("SogniPadd.java", padd, "--prompt \"x\" --pk-usage-warn 80", three);
+    app.pyJav.pkBatchNext(uq);
+    for (int i = 0; i < 100 && (PyJav.pkUsageAsk == null || !PyJav.pkUsageAsk.isShowing()); i++) {
+      Thread.sleep(20);
+      idle();
+    }
+    boolean usageAsked = PyJav.pkUsageAsk != null && PyJav.pkUsageAsk.isShowing();
+    uq.next = 1;
+    String usageLine = String.valueOf(BatchQueue.runCount());
+    uq.next = 0;
+    if (usageAsked) PyJav.pkUsageAsk.getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+    idle();
+    out.append("usage kept: asked ").append(usageAsked).append(" | line ").append(usageLine).append(" | summary ").append(uq.summary().replace('\n', '|')).append('\n');
+    PyJavParams.store(app, "SogniPadd.java", "");
+    SogniApi.answer = null;
+    SogniApi.keyFileSetting = keyWas;
+    out.append("usage: ").append(SogniUsage.line(usage)).append(" | ask at 80 ").append(SogniUsage.ask(usage, 80) != null).append(", at 90 ").append(SogniUsage.ask(usage, 90) != null)
+        .append(" | threshold ").append(SogniUsage.threshold("--prompt \"x\" --pk-usage-warn 80")).append('\n');
+    String t = out.toString();
+    write("s277_stop_run_batch_folder", t);
+    boolean ok = t.contains("picture ready in a batch: Stop run | stopping true") && t.contains("no batch: no Stop run")
+        && t.contains("send twice: Sent to SogniPadd's group Moods as a section | Already there: ") && t.contains("not added again | sections 1")
+        && t.contains("silent: on true, no auto render false, no program false | auto saved true | empty [Output name, Output folder, Send to group] | all given [] | label true")
+        && t.contains("without auto: [--prompt, x, --send_program, SogniPadd] | send program set: ") && t.contains("--send_program SogniVideo")
+        && t.contains("ask auto: true | Run without Auto render / Choose the program")
+        && t.contains("ask silent: true | Silent auto mode would run with these left empty:|\u2022 Output name") && t.contains("Send to group: the answer is not kept as a section||Run it like this?")
+        && t.contains("notes removed: A misty harbour at dawn.||Soft light. | kept: true | remembered on")
+        && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
+        && t.contains("sections: Keep  and  end [[open | empty E: a [[b]] c")
+        && t.contains("names: Testi_2, Testi_3, 100% sure_1.png") && t.contains("sizes: 1080x1888 1920x1080 | name Testi_4x7_1080x1888 | folder Batch/16x9/1920x1080")
+        && t.contains("empty skipped: saved 1 | ; 1 empty after processing, left out (not saved, sent or rendered)")
+        && t.contains("video folder: ") && t.contains("--end_image ~/a.png") && t.contains("| pedit: ") && t.contains("--image2 ~/a.png") && t.contains("text video: --prompt \"A lighthouse at night.\"")
+        && t.contains("| as: [Start picture (--image), End picture (--end_image)] | rows true")
+        && t.contains("batch group: Batch 1 | [Img-Batch 1, --prompt, x] | put 1 in true | next Batch 2")
+        && t.contains("usage: Sogni usage: daily.usedPct 85.5%, monthlyPercent 20% | ask at 80 true, at 90 false | threshold 80")
+        && t.contains("usage kept: asked true | line Batch 1/3 \u00b7 Sogni usage 85.5% | summary Files stopped: 0 of 3 runs succeeded, 3 not run|") && t.contains("|  Sogni usage: daily.usedPct 85.5%, monthlyPercent 20%\n")
+        && t.contains("running: Processing file 3/20 | done: null") && t.contains("batch line: Running\u2026 0:00 \u00b7 Batch 2/3 | after: Running\u2026 0:00 | rows: true true") && t.contains("held saves: writes before release 0, after 1")
+        && t.contains("output after select: Image%n") && t.contains("output after Select program list: Image%n") && t.contains("none kept: ''")
+        && t.contains("raw answer kept: none true, output name false, name first false, other program true | saved into: name, no folder '', no name null, folder /o")
+        && t.contains("batch folder row: true | taken Batches/run%n | left [--prompt, x, --seed, 3] | folder Batches/run1 | used Batches/run1 | single run null");
     if (!ok) throw new AssertionError(t);
   }
 
@@ -16804,7 +18054,7 @@ public class BehaviorTest {
     LogsScreen.entry = null;
     write("s199_clear_logs_tabs", out.toString());
     boolean ok = hiddenEmpty && shownFull && cleared && noTmp && menu.equals("Open,Delete") && afterDelete == before - 1 && asked.equals(Logs.clearAllAsk(Logs.RUNS, before - 1))
-        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
+        && runsLeft == 0 && errorsLeft >= 1 && tabs.equals("Input Output Plugins - Settings Files & locations Cymbal model Hit model ") && pluginHidden && pluginShown && "/vst/Artillery.vst3".equals(third)
         && model.equals("A 5 DrumMidi's own model (built-in) shown false | ticked: shown true, N shown false | first N kits: N shown true, value kits | Settings tab: N shown false");
     if (!ok) throw new AssertionError(out.toString());
   }

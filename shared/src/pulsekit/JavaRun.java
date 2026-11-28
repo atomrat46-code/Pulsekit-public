@@ -179,7 +179,9 @@ public final class JavaRun {
     long s = live == null ? 0 : Math.max(0, (now - live.started) / 1000);
     String time = s >= 3600 ? (s / 3600) + ":" + two((s / 60) % 60) + ":" + two(s % 60) : (s / 60) + ":" + two(s % 60);
     String news = live == null ? null : news(live.text());
-    return "Running\u2026 " + time + (news == null ? "" : " \u00b7 " + news);
+    // A batch's run (Auto render, an input folder, Run sections): which of how many.
+    String batch = BatchQueue.runCount();
+    return "Running\u2026 " + time + (batch == null ? "" : " \u00b7 " + batch) + (news == null ? "" : " \u00b7 " + news);
   }
 
   /** Appends `s` to `out` with `time` before each line that starts in it; true when `s` ends a line. */
@@ -246,6 +248,8 @@ public final class JavaRun {
   public static String news(String log) {
     String n = newsOnly(log);
     String count = trackCount(log);
+    // SogniChat's input folder (and its other batch runs): the file it is on.
+    if (count == null) count = fileCount(log);
     if (count == null) return n;
     return n == null ? count : count + " \u00b7 " + n;
   }
@@ -260,6 +264,15 @@ public final class JavaRun {
     if (at < 0 || at > 0 && log.charAt(at - 1) != '\n' && log.charAt(at - 1) != ' ') return null;
     java.util.regex.Matcher m = java.util.regex.Pattern.compile("Tracks: (\\d+) of (\\d+)").matcher(log.substring(at));
     return m.lookingAt() ? m.group(1) + "/" + m.group(2) : null;
+  }
+
+  /** A folder run's file so far ("=== File 3 of 20: a.txt ===" from SogniChat's input folder) as "Processing file 3/20", or null. */
+  static String fileCount(String log) {
+    if (log == null) return null;
+    int at = log.lastIndexOf("=== File ");
+    if (at < 0 || log.indexOf("Folder done:", at) >= 0) return null;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("=== File (\\d+) of (\\d+)").matcher(log.substring(at));
+    return m.lookingAt() ? "Processing file " + m.group(1) + "/" + m.group(2) : null;
   }
 
   private static String newsOnly(String log) {
@@ -640,8 +653,19 @@ public final class JavaRun {
       if (PictureCopies.wants(n)) {
         // SogniChat: big JPEG pictures get a smaller copy for the chat model to see.
         List<File> made = new ArrayList<File>();
+        List<String> notes = new ArrayList<String>();
         try {
-          return runJava(n, source, bytes, PictureCopies.withCopies(argv, made));
+          // --input_dir: the folder's files given one by one (--dir_file), at most --max_files (ChatFolder).
+          List<String> expanded = ChatFolder.expand(argv, notes);
+          // Nothing left in the folder (all processed before, or no files it takes): said, not run (no "Failed").
+          String nothing = ChatFolder.nothingLeft(argv, expanded);
+          if (nothing != null) return new Result(nothing, Collections.<FileOut>emptyList(), 0);
+          Result r = runJava(n, source, bytes, PictureCopies.withCopies(expanded, made, notes));
+          // Why a big JPEG got no smaller copy, first in the log.
+          if (notes.isEmpty() || r == null) return r;
+          StringBuilder sb = new StringBuilder();
+          for (String note : notes) sb.append(note).append('\n');
+          return new Result(sb + (r.log == null ? "" : r.log), r.files, r.code);
         } finally {
           PictureCopies.clean(made);
         }

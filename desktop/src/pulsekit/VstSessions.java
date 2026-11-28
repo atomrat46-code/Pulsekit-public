@@ -34,7 +34,7 @@ final class VstSessions {
         // the model comparison and leave-one-out's kits, the kits counted as new.
         "--bench_skip", "--map", "--map2", "--map3", "--map4", "--note_map",
         "--model_compare", "--model_a", "--model_a_kits", "--model_b", "--model_b_kits", "--leave_one_out", "--loo_kits", "--loo_names",
-        "--new_kits", "--new_runs", "--new_names", "--hit_loo"));
+        "--new_kits", "--new_runs", "--new_names", "--hit_loo", "--hit_band"));
 
     /** The folder rows' lists: the two input folders share one, each other kind its own. */
     static final Map<String, String> FOLDER_KEYS = new LinkedHashMap<String, String>();

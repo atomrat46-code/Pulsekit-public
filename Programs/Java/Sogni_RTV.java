@@ -1,0 +1,2893 @@
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Sogni_RTV: a video clip made with MiniMax H3 reference-to-video (Ref2VA) on Sogni's GPU network,
+ * from up to 12 reference files: pictures, videos and sounds, with native sound.
+ *
+ * --ref1 ... --ref12 are the references, each a picture (PNG, JPEG, WebP), a video (MP4, MOV,
+ * WebM) or a sound (MP3, WAV, M4A, OGG, FLAC), told apart by the file's name. At most 9 pictures,
+ * 3 videos and 3 sounds; at least one picture or video (a sound alone is not enough). The videos
+ * together may last 15 seconds at most, and the sounds together 15 seconds at most (each 2 to 15 s;
+ * the videos at 24 fps for the best timing). The references are loose: they guide who and what is
+ * seen and heard, not the first frame (SogniVideo locks a first frame).
+ *
+ * The prompt names the references by kind, each kind counted from 1 in the order of the slots:
+ * <Picture 1>, <Picture 2>... for the pictures, <Video 1>... for the videos and <Audio 1>... for the
+ * sounds (a video with its own sound counts as an <Audio N> too, before the sounds). The run prints
+ * which file is which. For example: "<Subject 1> is the woman in <Picture 1>; she walks through
+ * the street of <Picture 2> as the camera moves in <Video 1>, humming the tune of <Audio 1>." Sogni
+ * shapes the prompt into H3's six fields (subject_definitions, summary, retention_analysis,
+ * detailed_description, overall_soundscape, non_diegetic_music) unless --exact_prompt sends it as
+ * written; a prompt written in those fields keeps them on lines of their own.
+ *
+ * --model picks the tier: balanced (the default, 8 steps), standard (20 steps, slower), turbo
+ * (4 steps, 960x544) or fasth3 (FastH3 Reference, the fastest). --resolution 768 (the default) is
+ * the one-stage canvas; 720, 1080 or 1440 (2K) use the two-stage engine (not with turbo), which
+ * delivers twice the canvas for a higher price. --duration is 5 to 15 seconds (H3's own grid of
+ * 5.17 to 15.08 s). --aspect (16:9, 9:16, 1:1...) changes the shape. --no_audio makes a silent
+ * clip. --loras adds H3 video LoRAs as SogniVideo's does (id:strength pairs or Sogni's names).
+ *
+ * The API key, cost (--max_cost, --confirm_cost, --unlimited), --variations, --workflow,
+ * --saveprompt and --delete_from_sogni work as in SogniVideo. The clip is saved as
+ * sogni-rtv-<first words>.mp4 (or the output name given).
+ */
+public final class Sogni_RTV {
+  public static void main(String[] args) throws Exception {
+    int code = run(args);
+    // Inside Pulsekit (PyJav on the phone runs programs in the app's own process, and sets
+    // pulsekit.work) System.exit would close the app, so only a separate run exits with the code.
+    if (code != 0 && System.getProperty("pulsekit.work") == null) System.exit(code);
+  }
+
+  /** Printed first, so a run's log shows which Sogni_RTV ran. */
+  static final String VERSION = "Sogni_RTV 2026-11-28";
+
+  /** The largest file uploaded (Sogni's own limit: 100 MB). */
+  static final int UPLOAD_MAX = 100 * 1024 * 1024;
+
+  /** The slots, and Ref2VA's limits: pictures, videos, sounds, seconds of video and of sound. */
+  static final int SLOTS = 12, MAX_PICTURES = 9, MAX_VIDEOS = 3, MAX_SOUNDS = 3;
+  static final double MAX_SECONDS = 15.0, MIN_SECONDS = 2.0;
+
+  static String work;
+  static File promptSheet;
+  static String promptText;
+  static String resultFile;
+  static StringBuilder said;
+
+  /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
+  static int run(String[] typed) throws Exception {
+    work = System.getProperty("pulsekit.work");
+    promptSheet = null;
+    promptText = null;
+    resultFile = null;
+    said = new StringBuilder();
+    try {
+      return steps(typed);
+    } finally {
+      finishPrompt();
+    }
+  }
+
+  /** Prints a line of the log; errors and warnings are also kept for the saved prompt sheet's Result text. */
+  static void say(String line) {
+    System.out.println(line);
+    String t = line == null ? "" : line.trim();
+    if (said != null && (t.startsWith("Failed") || t.startsWith("Note") || t.startsWith("Could not") || t.startsWith("Sogni's fair use")
+        || t.startsWith("Unknown argument"))) {
+      said.append(t).append('\n');
+    }
+  }
+
+  /** Ends the sheet --saveprompt wrote with the run's result file and its errors and warnings. */
+  static void finishPrompt() {
+    if (promptSheet == null || promptText == null) return;
+    String text = said == null ? "" : said.toString().trim();
+    if (resultFile == null && text.length() == 0) text = "No result file was made";
+    StringBuilder sb = new StringBuilder(promptText);
+    sb.append("\n\n");
+    if (resultFile != null) sb.append("Result file: ").append(resultFile).append('\n');
+    if (text.length() > 0) sb.append("Result text:\n").append(text).append('\n');
+    try {
+      FileOutputStream fos = new FileOutputStream(promptSheet);
+      try {
+        fos.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+      } finally {
+        fos.close();
+      }
+    } catch (IOException ex) {
+      System.out.println("Could not add the result to " + promptSheet.getName());
+    }
+  }
+
+  /** One reference: its slot, file, kind (image, video, audio), MIME type, bytes, length in seconds (-1 unknown), and its own sound (a video). */
+  static final class Ref {
+    int slot;
+    File file;
+    String kind, mime;
+    byte[] data;
+    double seconds = -1;
+    boolean sound;
+    String label;
+  }
+
+  /** The run itself. */
+  static int steps(String[] typed) throws Exception {
+    say(VERSION);
+    String[] args = tidy(typed);
+    String out = null;
+    String prompt = null;
+    String[] slots = new String[SLOTS];
+    String keyFile = null;
+    String apiBase = null;
+    String workflowId = null;
+    String aspect = null;
+    String resolutionText = null;
+    String loraText = null;
+    String tier = "balanced";
+    double duration = 5;
+    double maxCost = 0;
+    boolean confirm = false;
+    boolean unlimited = false;
+    boolean silent = false;
+    boolean exact = false;
+    boolean savePrompt = false;
+    boolean deleteFromSogni = false;
+    SogniApi.noFilter = false;
+    SogniApi.variations = 1;
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i];
+      if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
+      else if (a.matches("--ref([1-9]|1[0-2])") && i + 1 < args.length) slots[Integer.parseInt(a.substring(5)) - 1] = args[++i].trim();
+      else if (a.equals("--model") && i + 1 < args.length) tier = args[++i].trim().toLowerCase();
+      else if (a.equals("--duration") && i + 1 < args.length) duration = number(a, args[++i]);
+      else if (a.equals("--resolution") && i + 1 < args.length) resolutionText = args[++i];
+      else if (a.equals("--aspect") && i + 1 < args.length) aspect = args[++i].trim();
+      else if (a.equals("--no_audio")) silent = true;
+      else if (a.equals("--exact_prompt")) exact = true;
+      else if (a.equals("--saveprompt")) savePrompt = true;
+      else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
+      else if (a.equals("--unlimited")) unlimited = true;
+      else if (a.equals("--no_filter")) SogniApi.noFilter = true;
+      else if (a.equals("--loras") && i + 1 < args.length) loraText = args[++i].trim();
+      else if (a.equals("--confirm_cost")) confirm = true;
+      else if (a.equals("--variations") && i + 1 < args.length) {
+        if (!SogniApi.setVariations(args[++i])) return 2;
+      }
+      else if (a.equals("--max_cost") && i + 1 < args.length) maxCost = number(a, args[++i]);
+      else if (a.equals("--workflow") && i + 1 < args.length) workflowId = args[++i].trim();
+      else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
+      else if (a.equals("--api_base") && i + 1 < args.length) apiBase = args[++i];
+      else if (a.equals("-h") || a.equals("--help")) {
+        usage();
+        return 0;
+      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
+      else {
+        say("Unknown argument: " + a);
+        usage();
+        return 2;
+      }
+    }
+    if (Double.isNaN(duration) || Double.isNaN(maxCost)) return 2;
+    if (aspect != null && aspect.length() == 0) aspect = null;
+    if (tier.length() == 0) tier = "balanced";
+    if (workflowId != null && workflowId.length() == 0) workflowId = null;
+    if ((prompt == null || prompt.trim().length() == 0) && workflowId == null) {
+      say("Failed: give --prompt, what happens in the clip, naming the references (<Picture 1>, <Video 1>, <Audio 1>...), for example "
+          + "--prompt \"The woman in <Picture 1> walks through the market of <Picture 2>, the camera follows as in <Video 1>\"");
+      usage();
+      return 2;
+    }
+    if (!Arrays.asList("balanced", "standard", "turbo", "fasth3").contains(tier)) {
+      say("Failed: --model is balanced, standard, turbo or fasth3 (not " + tier + ")");
+      return 2;
+    }
+    int resolution = resolution(resolutionText);
+    if (resolution < 0) {
+      say("Failed: --resolution is 768 (the one-stage canvas), or 720, 1080 or 1440 (2K) for the two-stage engine");
+      return 2;
+    }
+    if (resolution != 768 && tier.equals("turbo")) {
+      say("Failed: turbo has no two-stage engine; use --resolution 768, or --model balanced, standard or fasth3 for " + (resolution == 1440 ? "2K" : resolution + "p"));
+      return 2;
+    }
+    if (duration < 5 || duration > 15.1) {
+      say("Failed: --duration is 5 to 15 seconds (MiniMax H3 makes 5.17 to 15.08 s)");
+      return 2;
+    }
+    if (aspect != null && !aspect.matches("\\d{1,2}:\\d{1,2}|\\d{3,4}x\\d{3,4}")) {
+      say("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
+      return 2;
+    }
+    List<String> loras = new ArrayList<String>();
+    List<Double> strengths = new ArrayList<Double>();
+    String given = loraText != null && loraText.length() > 0 ? loraText : "none";
+    if (!given.equalsIgnoreCase("none")) {
+      for (String[] pair : SogniApi.loraList(given, SogniApi.H3_LORAS)) {
+        String lid = pair[0];
+        double strength = 1;
+        if (pair[1] != null) {
+          strength = number("--loras (" + lid + ")", pair[1]);
+          if (Double.isNaN(strength)) return 2;
+        }
+        if (!lid.matches("[A-Za-z0-9][A-Za-z0-9._-]*")) {
+          say("Failed: --loras takes H3 LoRA ids such as h3-better-motion:0.6 or their names such as Better Motion 0.6, not \"" + lid + "\". Known: " + SogniApi.loraNames(SogniApi.H3_LORAS));
+          return 2;
+        }
+        if (strength <= 0 || strength > 2) {
+          say("Failed: " + lid + " at " + SogniApi.number(strength) + ": H3 LoRA strengths are above 0, up to 2 (leave a LoRA out to turn it off)");
+          return 2;
+        }
+        if (!SogniApi.noFilter && (lid.equals("h3-vbvr-video-reasoning") || lid.equals("h3-mystic-xxx-v4"))) {
+          say("Failed: " + lid + " needs the content filter off (--no_filter); Sogni refuses it with the filter on");
+          return 2;
+        }
+        loras.add(lid);
+        strengths.add(Double.valueOf(strength));
+      }
+    }
+    if (loras.size() > 8) {
+      say("Failed: " + loras.size() + " LoRAs; one render takes 8 at most");
+      return 2;
+    }
+    if (unlimited && maxCost > 0) say("Note: --max_cost is not used with the Unlimited Plan");
+    // The references, slot by slot.
+    List<Ref> refs = new ArrayList<Ref>();
+    if (workflowId == null) {
+      for (int s = 0; s < SLOTS; s++) {
+        if (slots[s] == null || slots[s].length() == 0) continue;
+        Ref r = readRef(s + 1, new File(slots[s]));
+        if (r == null) return 2;
+        refs.add(r);
+      }
+      String problem = check(refs);
+      if (problem != null) {
+        say("Failed: " + problem);
+        return 2;
+      }
+      label(refs);
+      for (Ref r : refs) say("Reference " + r.slot + ": " + r.file.getName() + " is " + r.label + (r.seconds >= 0 ? " (" + SogniApi.number(Math.round(r.seconds * 10) / 10.0) + " s)" : ""));
+      unnamed(prompt, refs);
+    }
+    String model = model(tier, resolution);
+    if (savePrompt && workflowId == null) {
+      String sheetName = out != null ? new File(out.trim()).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, "");
+      List<String> names = new ArrayList<String>();
+      for (Ref r : refs) names.add(r.file.getName());
+      File sheet = savePrompt(sheetName, "Sogni " + model, prompt.trim() + settingsLine(tier, duration, resolution, aspect, silent, refs)
+          + (loras.isEmpty() ? "" : " LoRAs: " + loraLine(loras, strengths) + "."), names);
+      say(sheet == null ? "Could not save the prompt" : "Saved prompt " + sheet.getName());
+    }
+    String key = SogniApi.findKey(keyFile);
+    if (key == null) {
+      say("Failed: no Sogni API key. Choose a key file in File > Drum Midi Settings (Sogni API key file), give --key_file "
+          + "with a text file holding SOGNI_API_KEY=<your key>, or set SOGNI_API_KEY. Get the key at https://dashboard.sogni.ai (account menu).");
+      return 1;
+    }
+    SogniApi api = new SogniApi(apiBase, key);
+    if (workflowId != null) {
+      say("Fetching the clip of workflow " + workflowId);
+    } else {
+      say("Video: " + prompt.trim());
+      say("Model " + model + ", " + SogniApi.number(duration) + " s, " + (resolution == 1440 ? "2K" : resolution + "p") + (aspect != null ? ", " + aspect : "")
+          + (silent ? ", silent" : ", with sound") + (exact ? ", prompt as written" : ""));
+      say(loras.isEmpty() ? "LoRAs: none" : "LoRAs: " + loraLine(loras, strengths));
+      if (unlimited) say("Unlimited Plan: the subscription pays; Sogni's daily and monthly fair use limits apply");
+      if (SogniApi.noFilter) say("Content filter: off (Sogni's Safe Content Filter does not check this run)");
+    }
+    try {
+      String id = workflowId;
+      if (id == null) {
+        List<Map<String, Object>> media = new ArrayList<Map<String, Object>>();
+        for (int i = 0; i < refs.size(); i++) {
+          Ref r = refs.get(i);
+          Map<String, Object> ref = api.uploadMedia(r.kind, r.mime, r.data, i + 1, r.file.getName());
+          media.add(ref);
+          say("Uploaded " + r.file.getName() + " (" + size(r.data.length) + ") as " + SogniApi.str(ref.get("id")));
+          r.data = null;
+        }
+        String input = rtvInput("Pulsekit reference video", prompt.trim(), refs, model, duration, resolution, !silent, exact, aspect, loras, strengths);
+        id = api.start(input, confirm || unlimited, unlimited ? 0 : maxCost, media, unlimited ? "subscription" : null);
+      }
+      say("Workflow: " + id);
+      Map<String, Object> wf = api.waitFor(id, 55 * 60 * 1000L, new SogniApi.Log() {
+        public void line(String s) {
+          say(s);
+        }
+      });
+      String status = SogniApi.str(wf.get("status"));
+      List<Map<String, Object>> clips = SogniApi.videoArtifacts(wf);
+      if (clips.isEmpty()) {
+        say("Failed: " + why(api, id, wf));
+        return 1;
+      }
+      List<Map<String, Object>> keep = SogniApi.variationsOf(wf, clips);
+      String name = out != null ? out.trim().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") : clipName(prompt, id);
+      File file = null;
+      for (int v = 0; v < keep.size(); v++) {
+        String url = SogniApi.str(keep.get(v).get("url"));
+        String extV = SogniApi.mediaExtension(url, SogniApi.mimeOf(keep.get(v)), ".mp4");
+        String nameV = SogniApi.variationName(name, v);
+        byte[] data = api.download(url);
+        File saved = saveData(nameV + extV, data);
+        if (saved == null) {
+          say("Failed: could not save " + nameV + extV);
+          return 1;
+        }
+        say("Wrote " + saved.getName() + " (" + size(data.length) + ")");
+        if (file == null) {
+          file = saved;
+          resultFile = saved.getName();
+        }
+      }
+      if (keep.size() > 1) say("Variations: " + keep.size());
+      if (!"completed".equals(status)) say("Note: workflow " + status);
+      if (deleteFromSogni) for (String line : api.deleteProjects(wf, inWork("sogni_workflow_record.txt"))) say(line);
+      say("Succeeded: " + file.getName());
+    } catch (SogniApi.ApiException ex) {
+      say("Failed: " + ex.getMessage());
+      if (unlimited && (ex.status == 429 || String.valueOf(ex.getMessage()).toLowerCase().contains("fair use"))) {
+        say("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
+            + (ex.retryAfter > 0 ? " (Sogni says in about " + wait(ex.retryAfter) + ")" : "") + ".");
+      }
+      return 1;
+    } catch (IOException ex) {
+      say("Failed: " + ex.getMessage());
+      String m = String.valueOf(ex.getMessage());
+      if (m.startsWith("Timed out; the workflow ")) say("It may still finish on Sogni: run again with --workflow " + m.substring(24).split(" ")[0] + " to download it.");
+      return 1;
+    }
+    return 0;
+  }
+
+  /** The tier's Sogni selector: one-stage at 768, else its two-stage form. */
+  static String model(String tier, int resolution) {
+    boolean two = resolution == 720 || resolution == 1080 || resolution == 1440;
+    if (tier.equals("standard")) return two ? "minimax-h3-r2v-2stage" : "minimax-h3-r2v";
+    if (tier.equals("turbo")) return "minimax-h3-r2v-turbo";
+    if (tier.equals("fasth3")) return two ? "minimax-h3-fasth3-r2v-turbo-2stage" : "minimax-h3-fasth3-r2v-turbo";
+    return two ? "minimax-h3-r2v-balanced-2stage" : "minimax-h3-r2v-balanced";
+  }
+
+  /** Why the references cannot go (Ref2VA's limits), or null. */
+  static String check(List<Ref> refs) {
+    int pictures = 0, videos = 0, sounds = 0;
+    double videoSeconds = 0, soundSeconds = 0;
+    for (Ref r : refs) {
+      if (r.kind.equals("image")) pictures++;
+      else if (r.kind.equals("video")) videos++;
+      else sounds++;
+      if (r.seconds >= 0 && !r.kind.equals("image") && (r.seconds < MIN_SECONDS - 0.05 || r.seconds > MAX_SECONDS + 0.05))
+        return r.file.getName() + " lasts " + SogniApi.number(Math.round(r.seconds * 10) / 10.0) + " s; a reference " + (r.kind.equals("video") ? "video" : "sound") + " lasts 2 to 15 s";
+      if (r.seconds > 0 && r.kind.equals("video")) videoSeconds += r.seconds;
+      if (r.seconds > 0 && r.kind.equals("audio")) soundSeconds += r.seconds;
+    }
+    if (refs.isEmpty()) return "give at least one reference picture or video (--ref1 ... --ref12)";
+    if (pictures + videos == 0) return "the references are sounds only; give at least one picture or video too (a sound alone is not enough)";
+    if (pictures > MAX_PICTURES) return pictures + " pictures; Ref2VA takes 9 at most";
+    if (videos > MAX_VIDEOS) return videos + " videos; Ref2VA takes 3 at most";
+    if (sounds > MAX_SOUNDS) return sounds + " sounds; Ref2VA takes 3 at most";
+    if (videoSeconds > MAX_SECONDS + 0.05) return "the videos last " + SogniApi.number(Math.round(videoSeconds * 10) / 10.0) + " s together; 15 s at most";
+    if (soundSeconds > MAX_SECONDS + 0.05) return "the sounds last " + SogniApi.number(Math.round(soundSeconds * 10) / 10.0) + " s together; 15 s at most";
+    return null;
+  }
+
+  /** Each reference's name in the prompt: <Picture N>, <Video N>, <Audio N> (a video with sound: also an <Audio N>, before the sounds). */
+  static void label(List<Ref> refs) {
+    int p = 0, v = 0, a = 0;
+    for (Ref r : refs) {
+      if (r.kind.equals("image")) r.label = "<Picture " + (++p) + ">";
+      else if (r.kind.equals("video")) r.label = "<Video " + (++v) + ">";
+    }
+    for (Ref r : refs) if (r.kind.equals("video") && r.sound) r.label += " (its sound <Audio " + (++a) + ">)";
+    for (Ref r : refs) if (r.kind.equals("audio")) r.label = "<Audio " + (++a) + ">";
+  }
+
+  /** A note for each reference the prompt does not name (Sogni's shaping still uses it, as a loose reference). */
+  static void unnamed(String prompt, List<Ref> refs) {
+    String p = prompt.toLowerCase();
+    for (Ref r : refs) {
+      String tag = r.label.replaceAll(" \\(.*", "").toLowerCase();
+      if (p.indexOf(tag) < 0) say("Note: the prompt does not name " + r.label.replaceAll(" \\(.*", "") + " (" + r.file.getName() + ")");
+    }
+  }
+
+  /** A reference from its file, or null after saying why it cannot be used. */
+  static Ref readRef(int slot, File f) {
+    String low = f.getName().toLowerCase();
+    Ref r = new Ref();
+    r.slot = slot;
+    r.file = f;
+    if (low.matches(".+\\.(png|jpe?g|webp)")) r.kind = "image";
+    else if (low.matches(".+\\.(mp4|m4v|mov|webm)")) r.kind = "video";
+    else if (low.matches(".+\\.(mp3|wav|wave|m4a|aac|ogg|oga|flac)")) r.kind = "audio";
+    else {
+      say("Failed: reference " + slot + " (" + f.getName() + ") is not a picture (PNG, JPEG, WebP), a video (MP4, MOV, WebM) or a sound (MP3, WAV, M4A, OGG, FLAC)");
+      return null;
+    }
+    if (!f.isFile()) {
+      say("Failed: reference " + slot + ": no file " + f.getPath());
+      return null;
+    }
+    if (f.length() > UPLOAD_MAX) {
+      say("Failed: " + f.getName() + " is " + size(f.length()) + "; Sogni takes files of up to " + size(UPLOAD_MAX));
+      return null;
+    }
+    try {
+      r.data = java.nio.file.Files.readAllBytes(f.toPath());
+    } catch (IOException ex) {
+      say("Failed: could not read " + f.getName() + ": " + ex.getMessage());
+      return null;
+    }
+    if (r.kind.equals("image")) {
+      r.mime = pictureType(r.data);
+      if (r.mime == null) {
+        say("Failed: " + f.getName() + " is not a PNG, JPEG or WebP picture");
+        return null;
+      }
+      return r;
+    }
+    if (r.kind.equals("video")) {
+      r.mime = low.endsWith(".mov") ? "video/quicktime" : low.endsWith(".webm") ? "video/webm" : "video/mp4";
+      if (!low.endsWith(".webm")) {
+        r.seconds = mp4Seconds(r.data);
+        r.sound = mp4HasSound(r.data);
+      }
+    } else {
+      r.mime = low.endsWith(".mp3") ? "audio/mpeg" : low.matches(".+\\.wave?") ? "audio/wav" : low.matches(".+\\.(m4a|aac)") ? "audio/mp4"
+          : low.endsWith(".flac") ? "audio/flac" : "audio/ogg";
+      r.seconds = low.matches(".+\\.wave?") ? wavSeconds(r.data) : low.endsWith(".m4a") ? mp4Seconds(r.data) : low.endsWith(".mp3") ? mp3Seconds(r.data) : -1;
+    }
+    if (r.seconds < 0) say("Note: the length of " + f.getName() + " could not be read here; Sogni checks it (15 s at most together)");
+    return r;
+  }
+
+  /** An MP4's (MOV's, M4A's) length from its movie header (mvhd), or -1. */
+  static double mp4Seconds(byte[] d) {
+    int i = find(d, "mvhd", 0);
+    if (i < 0 || i + 28 > d.length) return -1;
+    int version = d[i + 4] & 0xff;
+    long scale, length;
+    if (version == 1) {
+      if (i + 36 > d.length) return -1;
+      scale = u32(d, i + 24);
+      length = (u32(d, i + 28) << 32) | u32(d, i + 32);
+    } else {
+      scale = u32(d, i + 16);
+      length = u32(d, i + 20);
+    }
+    return scale <= 0 ? -1 : length / (double) scale;
+  }
+
+  /** Whether an MP4 has a sound track (a handler of type "soun"). */
+  static boolean mp4HasSound(byte[] d) {
+    for (int i = find(d, "hdlr", 0); i >= 0; i = find(d, "hdlr", i + 4)) {
+      if (i + 16 <= d.length && d[i + 12] == 's' && d[i + 13] == 'o' && d[i + 14] == 'u' && d[i + 15] == 'n') return true;
+    }
+    return false;
+  }
+
+  /** A WAV's length from its fmt and data chunks, or -1. */
+  static double wavSeconds(byte[] d) {
+    if (d.length < 12 || d[0] != 'R' || d[1] != 'I' || d[2] != 'F' || d[3] != 'F') return -1;
+    long byteRate = -1, data = -1;
+    for (int i = 12; i + 8 <= d.length;) {
+      String id = new String(d, i, 4, StandardCharsets.ISO_8859_1);
+      long n = le32(d, i + 4);
+      if (id.equals("fmt ") && i + 20 <= d.length) byteRate = le32(d, i + 16);
+      if (id.equals("data")) {
+        data = Math.min(n, d.length - i - 8);
+        break;
+      }
+      i += 8 + (int) n + (int) (n & 1);
+    }
+    return byteRate > 0 && data >= 0 ? data / (double) byteRate : -1;
+  }
+
+  /** An MP3's length: its frames counted from their headers (constant or variable bit rate), or -1. */
+  static double mp3Seconds(byte[] d) {
+    int[][] rates = {{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}, {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160}};
+    int[][] hz = {{44100, 48000, 32000}, {22050, 24000, 16000}, {11025, 12000, 8000}};
+    int i = 0;
+    // An ID3v2 tag first.
+    if (d.length > 10 && d[0] == 'I' && d[1] == 'D' && d[2] == '3') i = 10 + ((d[6] & 0x7f) << 21 | (d[7] & 0x7f) << 14 | (d[8] & 0x7f) << 7 | (d[9] & 0x7f));
+    double seconds = 0;
+    int frames = 0;
+    while (i + 4 <= d.length) {
+      int b1 = d[i + 1] & 0xff, b2 = d[i + 2] & 0xff;
+      if ((d[i] & 0xff) != 0xff || (b1 & 0xe0) != 0xe0) {
+        if (frames > 0) break;
+        i++;
+        continue;
+      }
+      int ver = (b1 >> 3) & 3, layer = (b1 >> 1) & 3, rateIx = b2 >> 4, hzIx = (b2 >> 2) & 3, pad = (b2 >> 1) & 1;
+      if (ver == 1 || layer != 1 || rateIx == 0 || rateIx == 15 || hzIx == 3) {
+        if (frames > 0) break;
+        i++;
+        continue;
+      }
+      boolean mpeg1 = ver == 3;
+      int rate = rates[mpeg1 ? 0 : 1][rateIx] * 1000, sample = hz[ver == 3 ? 0 : ver == 2 ? 1 : 2][hzIx];
+      int samples = mpeg1 ? 1152 : 576;
+      int len = samples / 8 * rate / sample + pad;
+      if (len < 4) break;
+      seconds += samples / (double) sample;
+      frames++;
+      i += len;
+    }
+    return frames > 0 ? seconds : -1;
+  }
+
+  static int find(byte[] d, String tag, int from) {
+    byte a = (byte) tag.charAt(0), b = (byte) tag.charAt(1), c = (byte) tag.charAt(2), e = (byte) tag.charAt(3);
+    for (int i = Math.max(0, from); i + 4 <= d.length; i++) if (d[i] == a && d[i + 1] == b && d[i + 2] == c && d[i + 3] == e) return i;
+    return -1;
+  }
+
+  static long u32(byte[] d, int i) {
+    return ((long) (d[i] & 0xff) << 24) | ((d[i + 1] & 0xff) << 16) | ((d[i + 2] & 0xff) << 8) | (d[i + 3] & 0xff);
+  }
+
+  static long le32(byte[] d, int i) {
+    return ((long) (d[i + 3] & 0xff) << 24) | ((d[i + 2] & 0xff) << 16) | ((d[i + 1] & 0xff) << 8) | (d[i] & 0xff);
+  }
+
+  /**
+   * H3 Ref2VA's six fields (subject_definitions, summary, retention_analysis, detailed_description,
+   * overall_soundscape, non_diegetic_music) each on a paragraph of its own: Params joins a prompt's
+   * lines into one, and Sogni reads the fields only at line starts. Any other prompt as it is.
+   */
+  static String rtvFields(String prompt) {
+    if (prompt == null || prompt.indexOf("subject_definitions") < 0) return prompt;
+    return prompt.replaceAll("\\s*(?<![A-Za-z0-9_])(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music)\\s*:\\s*", "\n\n$1:\n").trim();
+  }
+
+  /** The one-step generate_video workflow: the uploads as loose references, by kind (-1 the first of its kind). */
+  static String rtvInput(String title, String prompt, List<Ref> refs, String model, double duration, int resolution, boolean audio, boolean exact, String aspect,
+      List<String> loras, List<Double> strengths) {
+    Map<String, Object> args = new LinkedHashMap<String, Object>();
+    args.put("prompt", rtvFields(prompt));
+    args.put("videoModel", model);
+    if (duration > 0) args.put("duration", Double.valueOf(duration));
+    if (resolution == 720 || resolution == 1080 || resolution == 1440) args.put("targetResolution", Integer.valueOf(resolution));
+    if (!audio) args.put("generateAudio", Boolean.FALSE);
+    if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
+    if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+    args.put("numberOfVariations", Integer.valueOf(SogniApi.variations));
+    List<Object> pics = new ArrayList<Object>(), vids = new ArrayList<Object>(), auds = new ArrayList<Object>();
+    for (Ref r : refs) {
+      List<Object> to = r.kind.equals("image") ? pics : r.kind.equals("video") ? vids : auds;
+      to.add(Integer.valueOf(-(to.size() + 1)));
+    }
+    if (!pics.isEmpty()) args.put("referenceImageIndices", pics);
+    if (!vids.isEmpty()) args.put("referenceVideoIndices", vids);
+    if (!auds.isEmpty()) args.put("referenceAudioIndices", auds);
+    if (loras != null && !loras.isEmpty()) {
+      args.put("loras", new ArrayList<Object>(loras));
+      List<Object> s = new ArrayList<Object>();
+      for (Double d : strengths) s.add(d);
+      args.put("loraStrengths", s);
+    }
+    Map<String, Object> step = new LinkedHashMap<String, Object>();
+    step.put("id", "video");
+    step.put("toolName", "generate_video");
+    step.put("arguments", args);
+    List<Object> steps = new ArrayList<Object>();
+    steps.add(step);
+    Map<String, Object> input = new LinkedHashMap<String, Object>();
+    if (title != null && title.length() > 0) input.put("title", title);
+    input.put("steps", steps);
+    return SogniApi.toJson(input);
+  }
+
+  /** "h3-better-motion 0.6, ...". */
+  static String loraLine(List<String> loras, List<Double> strengths) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < loras.size(); i++) sb.append(i == 0 ? "" : ", ").append(loras.get(i)).append(' ').append(SogniApi.number(strengths.get(i).doubleValue()));
+    return sb.toString();
+  }
+
+  static void usage() {
+    say("Usage: java Sogni_RTV [output.mp4] [--prompt text] [--ref1 file] [--ref2 file] [--ref3 file] [--ref4 file] [--ref5 file] [--ref6 file] [--ref7 file] [--ref8 file] "
+        + "[--ref9 file] [--ref10 file] [--ref11 file] [--ref12 file] [--model balanced|standard|turbo|fasth3] [--duration seconds] [--resolution 768|720|1080|1440] "
+        + "[--aspect 16:9|9:16|1:1] [--no_audio] [--exact_prompt] [--saveprompt] [--unlimited] [--no_filter] [--loras id:strength,...] [--key_file credentials.txt] "
+        + "[--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
+  }
+
+  /** 768 (also empty), 720, 1080 or 1440 ("1080p", "2K" read the same way); -1 for anything else. */
+  static int resolution(String value) {
+    String v = value == null ? "" : value.trim().toLowerCase().replaceAll("p$", "");
+    if (v.length() == 0 || v.equals("768")) return 768;
+    if (v.equals("2k")) return 1440;
+    if (v.equals("720") || v.equals("1080") || v.equals("1440")) return Integer.parseInt(v);
+    return -1;
+  }
+
+  /** "image/png", "image/jpeg" or "image/webp" from the file's first bytes, else null. */
+  static String pictureType(byte[] d) {
+    if (d.length >= 8 && (d[0] & 0xff) == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') return "image/png";
+    if (d.length >= 3 && (d[0] & 0xff) == 0xff && (d[1] & 0xff) == 0xd8 && (d[2] & 0xff) == 0xff) return "image/jpeg";
+    if (d.length >= 12 && d[0] == 'R' && d[1] == 'I' && d[2] == 'F' && d[3] == 'F' && d[8] == 'W' && d[9] == 'E' && d[10] == 'B' && d[11] == 'P') return "image/webp";
+    return null;
+  }
+
+  /** The clip's settings under the prompt in a saved sheet: model, duration, resolution, shape, sound, and the references with their names in the prompt. */
+  static String settingsLine(String tier, double duration, int resolution, String aspect, boolean silent, List<Ref> refs) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Model: ").append(tier).append(". ");
+    sb.append("Duration: ").append(SogniApi.number(duration)).append(" s. ");
+    sb.append("Resolution: ").append(resolution == 1440 ? "2K" : resolution + "p").append(resolution == 768 ? "" : " (two-stage)").append(". ");
+    if (aspect != null) sb.append("Shape: ").append(aspect).append(". ");
+    if (silent) sb.append("Sound: none. ");
+    for (Ref r : refs) sb.append("Reference ").append(r.slot).append(": ").append(r.file.getName()).append(" ").append(r.label).append(". ");
+    return "\n\n" + sb.toString().trim();
+  }
+
+
+  /**
+   * Writes `prompt` as a Pulsekit prompt sheet (PKPROMPT1, as PromptRun.encode writes it):
+   * name, category video, the model, the pictures as reference files (1 the first frame, 2 the
+   * last), type AI, then the prompt. Never over an existing file.
+   */
+  static File savePrompt(String name, String model, String prompt, List<String> pictures) {
+    String ref1 = pictures.size() > 0 ? pictures.get(0) : "";
+    String ref2 = pictures.size() > 1 ? pictures.get(1) : "";
+    StringBuilder sb = new StringBuilder();
+    sb.append("PKPROMPT1\n").append(name).append("\n\n\n").append(ref1).append('\n').append(ref2).append('\n');
+    sb.append("Category: video\n");
+    sb.append("Model: ").append(model).append('\n');
+    sb.append("Reference file 1: ").append(ref1).append('\n');
+    sb.append("Reference file 2: ").append(ref2).append('\n');
+    sb.append("Type: ai\n");
+    sb.append("---\n");
+    sb.append(prompt);
+    File file = saveData(name + ".prompt", sb.toString().getBytes(StandardCharsets.UTF_8));
+    promptSheet = file;
+    promptText = sb.toString();
+    return file;
+  }
+
+  /** sogni-rtv-<first words of the prompt>, or sogni-rtv-<run> when there is no prompt. */
+  static String clipName(String prompt, String id) {
+    String words = prompt == null ? "" : prompt.toLowerCase().replaceAll("[^a-z0-9]+", " ").trim();
+    StringBuilder sb = new StringBuilder();
+    for (String w : words.split(" ")) {
+      if (w.length() == 0 || sb.length() + w.length() > 24) break;
+      sb.append(sb.length() > 0 ? "-" : "").append(w);
+    }
+    if (sb.length() == 0) sb.append(id.replaceAll("[^A-Za-z0-9]", "").substring(0, Math.min(8, id.replaceAll("[^A-Za-z0-9]", "").length())));
+    return "sogni-rtv-" + sb;
+  }
+
+  /** "800 KB" or "1.2 MB". */
+  static String size(long bytes) {
+    if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
+    return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+  }
+
+  /** "3 h 20 min", "12 min" or "45 s" for a wait in seconds. */
+  static String wait(int seconds) {
+    if (seconds >= 3600) return (seconds / 3600) + " h " + ((seconds % 3600) / 60) + " min";
+    if (seconds >= 60) return (seconds / 60) + " min";
+    return seconds + " s";
+  }
+
+  /**
+   * A file in the work folder. On the phone PyJav runs programs inside the app, where a bare name
+   * would land in the process's own folder ("/", read-only), so names are placed under PyJav's
+   * work folder (pulsekit.work, else user.dir); an absolute path stays as given.
+   */
+  static File inWork(String name) {
+    File f = new File(name);
+    if (f.isAbsolute()) return f;
+    // Android ignores setting user.dir (it stays "/", read-only), so PyJav's own work folder comes first.
+    String dir = work != null && work.length() > 0 ? work : System.getProperty("user.dir", ".");
+    return new File(dir, name);
+  }
+
+  /** Writes `data` as `name` in the work folder, never over an existing file (name(1).mp4...). Null if it could not. */
+  static File saveData(String name, byte[] data) {
+    File file = inWork(name);
+    String path = file.getPath();
+    int dot = path.lastIndexOf('.');
+    String stem = dot > path.lastIndexOf(File.separatorChar) ? path.substring(0, dot) : path;
+    String ext = dot > path.lastIndexOf(File.separatorChar) ? path.substring(dot) : "";
+    for (int n = 1; file.exists(); n++) file = new File(stem + "(" + n + ")" + ext);
+    try {
+      FileOutputStream fos = new FileOutputStream(file);
+      try {
+        fos.write(data);
+      } finally {
+        fos.close();
+      }
+      return file;
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Why a run made no clip: the failed step's own words, from the record or the event list. When
+   * Sogni gives none, the record is saved as sogni_workflow_failed.json to look at.
+   */
+  static String why(SogniApi api, String id, Map<String, Object> wf) {
+    String why = SogniApi.problem(wf);
+    if (!why.startsWith("workflow ")) return why;
+    try {
+      List<String> found = new ArrayList<String>();
+      SogniApi.reasons(api.events(id), found);
+      if (!found.isEmpty()) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < found.size() && i < 3; i++) sb.append(i == 0 ? "" : "; ").append(found.get(i));
+        return sb.toString();
+      }
+    } catch (IOException ignored) {
+      // Fall back to the saved record.
+    }
+    File raw = saveData("sogni_workflow_failed.json", SogniApi.toJson(wf).getBytes(StandardCharsets.UTF_8));
+    return raw == null ? why : why + " (Sogni gave no reason; the workflow record is saved as " + raw.getName() + ")";
+  }
+
+  /**
+   * Arguments as typed by hand: "--workflow wf_1" given as one argument becomes the switch and its
+   * value, and a switch given twice in a row (--workflow --workflow wf_1) counts once.
+   */
+  static String[] tidy(String[] args) {
+    List<String> out = new ArrayList<String>();
+    for (String a : args) {
+      String t = a == null ? "" : a.trim();
+      int sp = t.startsWith("--") ? t.indexOf(' ') : -1;
+      List<String> parts = new ArrayList<String>();
+      if (sp > 0) {
+        parts.add(t.substring(0, sp));
+        parts.add(t.substring(sp + 1).trim());
+      } else {
+        parts.add(a);
+      }
+      for (String p : parts) {
+        if (p.startsWith("--") && !out.isEmpty() && p.equals(out.get(out.size() - 1))) continue;
+        out.add(p);
+      }
+    }
+    return out.toArray(new String[0]);
+  }
+
+  /** A number for `flag`, or NaN after saying what is wrong. */
+  static double number(String flag, String value) {
+    try {
+      return Double.parseDouble(value.trim());
+    } catch (NumberFormatException ex) {
+      say("Failed: " + flag + " needs a number, not \"" + value + "\"");
+      return Double.NaN;
+    }
+  }
+
+
+  /** shared/src/pulsekit/SogniApi.java, copied here (programs see only the Java runtime); android/build.sh checks they match. */
+  static final class SogniApi {
+    // --- SogniApi begin ---
+    /** --variations: how many results a run asks Sogni for (numberOfVariations); each one is saved. */
+    public static int variations = 1;
+    public static final int MAX_VARIATIONS = 4;
+
+    /** --variations N: 1 to MAX_VARIATIONS; false (said why) otherwise. */
+    public static boolean setVariations(String text) {
+      int n;
+      try {
+        n = Integer.parseInt(text.trim());
+      } catch (Exception ex) {
+        n = 0;
+      }
+      if (n < 1 || n > MAX_VARIATIONS) {
+        System.out.println("Failed: --variations is 1 to " + MAX_VARIATIONS + " (how many results Sogni makes; each is saved)");
+        return false;
+      }
+      variations = n;
+      return true;
+    }
+
+    /** The results to save: each variation the workflow made (its artifacts), else the first one found. */
+    public static List<Map<String, Object>> variationsOf(Map<String, Object> record, List<Map<String, Object>> made) {
+      List<Map<String, Object>> art = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), art);
+      if (art.isEmpty() || made.size() <= 1) return new ArrayList<Map<String, Object>>(made.subList(0, Math.min(1, made.size())));
+      return made;
+    }
+    public static final String BASE = "https://api.sogni.ai";
+    public static final String APP_SOURCE = "pulsekit";
+    /**
+     * --no_filter: Sogni's Safe Content Filter off for what this run starts (a workflow, a chat
+     * and the tools it runs), as Sogni's own tools' --no-filter. On by default: Sogni can then pause
+     * a run for a safety review (waiting_for_user, safety_review_required). Set by each program on
+     * every run (PyJav runs programs in the app, where this stays between runs).
+     */
+    public static boolean noFilter;
+    public static final String[] DONE = {"completed", "partial_failure", "failed", "cancelled", "waiting_for_user"};
+
+    /** Progress lines (status changes, waits). */
+    public interface Log {
+      void line(String s);
+    }
+
+    /** A request Sogni refused, with its HTTP status and, for 429, the seconds to wait. */
+    public static final class ApiException extends IOException {
+      public final int status;
+      public final int retryAfter;
+
+      public ApiException(String message, int status, int retryAfter) {
+        super(message);
+        this.status = status;
+        this.retryAfter = retryAfter;
+      }
+    }
+
+    public final String base;
+    public final String apiKey;
+    public int timeoutMs = 60000;
+
+    public SogniApi(String base, String apiKey) {
+      String b = base == null || base.length() == 0 ? BASE : base;
+      while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+      this.base = b;
+      this.apiKey = apiKey;
+    }
+
+    /** The key file set in Pulsekit's settings (File > Drum Midi Settings), or null. Set by ApiKeys. */
+    public static String keyFileSetting;
+
+    /**
+     * The API key: SOGNI_API_KEY in the environment, else SOGNI_API_KEY=... (or the key alone) in
+     * keyFile when given, in the settings' key file, or in ~/.config/sogni/credentials. Null when
+     * none is found.
+     */
+    public static String findKey(String keyFile) {
+      String env = System.getenv("SOGNI_API_KEY");
+      if (env != null && env.trim().length() > 0) return env.trim();
+      List<File> files = new ArrayList<File>();
+      if (keyFile != null && keyFile.length() > 0) files.add(new File(keyFile));
+      if (keyFileSetting != null && keyFileSetting.length() > 0) files.add(new File(keyFileSetting));
+      String home = System.getProperty("user.home");
+      if (home != null) files.add(new File(home, ".config/sogni/credentials"));
+      for (File f : files) {
+        String k = keyIn(f);
+        if (k != null) return k;
+      }
+      return null;
+    }
+
+    /** The key in a file: a SOGNI_API_KEY=... line, or a line holding only the key. Null if none. */
+    public static String keyIn(File f) {
+      if (f == null || !f.isFile()) return null;
+      try {
+        return keyInText(new String(readAll(new java.io.FileInputStream(f)), StandardCharsets.UTF_8));
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    public static String keyInText(String text) {
+      if (text == null) return null;
+      for (String line : text.split("\r?\n")) {
+        String t = line.trim();
+        if (t.startsWith("export ")) t = t.substring(7).trim();
+        if (t.startsWith("SOGNI_API_KEY=")) {
+          String v = t.substring(14).trim();
+          if (v.length() > 1 && (v.startsWith("\"") && v.endsWith("\"") || v.startsWith("'") && v.endsWith("'"))) v = v.substring(1, v.length() - 1);
+          if (v.length() > 0) return v;
+        }
+        // A file holding only the key.
+        if (t.length() >= 16 && t.indexOf('=') < 0 && t.indexOf(' ') < 0 && !t.startsWith("#")) return t;
+      }
+      return null;
+    }
+
+    /**
+     * A one-step generate_music workflow. Zero or empty values are left to Sogni's defaults
+     * (30 s, 120 BPM, C major, 4/4, turbo).
+     */
+    public static String musicInput(String title, String prompt, double duration, double bpm, String keyscale, int timesig, String model, String lyrics) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      if (duration > 0) args.put("duration", Double.valueOf(duration));
+      if (bpm > 0) args.put("bpm", Double.valueOf(bpm));
+      if (keyscale != null && keyscale.length() > 0) args.put("keyscale", keyscale);
+      if (timesig > 0) args.put("timesig", Integer.valueOf(timesig));
+      if (model != null && model.length() > 0) args.put("model", model);
+      if (lyrics != null && lyrics.length() > 0) args.put("lyrics", lyrics);
+      args.put("numberOfVariations", Integer.valueOf(variations));
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "music");
+      step.put("toolName", "generate_music");
+      step.put("arguments", args);
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
+     * A one-step MiniMax H3 FastH3 video workflow. With no picture it is text-to-video
+     * (generate_video); one picture (the first upload) is the start frame (animate_photo); two are
+     * the first and last frames. `resolution` 768 or 0 is FastH3's own 768p canvas; 720, 1080 or 1440
+     * pick the two-stage engine, which renders a canvas and delivers it at twice the size. Zero
+     * duration is Sogni's default (5 s; H3 makes 5.17 to 15.08 s). `exact` sends the prompt as
+     * written; `audio` false asks for a silent clip; `aspect` ("16:9", "9:16"...) only when given.
+     */
+    public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect) {
+      return videoInput(title, prompt, pictures, duration, resolution, audio, exact, aspect, null, null);
+    }
+
+    /**
+     * H3's structured prompt ("integrated_multimodal_description: ... overall_soundscape: ...
+     * non_diegetic_music: ...") with each field starting a paragraph again: Params joins a prompt's
+     * lines into one, and Sogni reads the fields only at line starts ("received none"). A left-out
+     * non_diegetic_music is added as N/A (no score). Any other prompt is sent as it is.
+     */
+    public static String h3Fields(String prompt) {
+      if (prompt == null || prompt.indexOf("integrated_multimodal_description") < 0) return prompt;
+      String out = prompt.replaceAll("\\s*(?<![A-Za-z0-9_])(integrated_multimodal_description|overall_soundscape|non_diegetic_music)\\s*:\\s*", "\n\n$1: ").trim();
+      if (out.indexOf("non_diegetic_music:") < 0) out = out + "\n\nnon_diegetic_music: N/A";
+      return out;
+    }
+
+    /** As above, with H3 video LoRAs in order (`strengths` positional; positive only, 0 off). */
+    public static String videoInput(String title, String prompt, int pictures, double duration, int resolution, boolean audio, boolean exact, String aspect,
+        List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", h3Fields(prompt));
+      args.put("videoModel", videoModel(pictures, resolution));
+      if (duration > 0) args.put("duration", Double.valueOf(duration));
+      args.put("targetResolution", Integer.valueOf(resolution == 720 || resolution == 1080 || resolution == 1440 ? resolution : 768));
+      if (!audio) args.put("generateAudio", Boolean.FALSE);
+      if (exact) args.put("skipPromptProcessing", Boolean.TRUE);
+      if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+      args.put("numberOfVariations", Integer.valueOf(variations));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "video");
+      step.put("toolName", pictures > 0 ? "animate_photo" : "generate_video");
+      step.put("arguments", args);
+      if (pictures > 0) {
+        // The uploaded pictures (media_references, in order) are the frames: -1 the first upload, -2 the second.
+        args.put("sourceImageIndex", Integer.valueOf(-1));
+        args.put("frameRole", pictures >= 2 ? "both" : "start");
+        if (pictures >= 2) args.put("endImageIndex", Integer.valueOf(-2));
+        List<Object> deps = new ArrayList<Object>();
+        for (int i = 0; i < Math.min(pictures, 2); i++) {
+          Map<String, Object> d = new LinkedHashMap<String, Object>();
+          d.put("sourceStepId", "$input_media");
+          d.put("targetArgument", i == 0 ? "sourceImageIndex" : "endImageIndex");
+          d.put("transform", "image_index");
+          d.put("sourceArtifactIndex", Integer.valueOf(i));
+          d.put("mediaType", "image");
+          d.put("required", Boolean.TRUE);
+          deps.add(d);
+        }
+        step.put("dependsOn", deps);
+      }
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
+     * A one-step text-to-image workflow (generate_image) with `model` (a hosted model key such as
+     * dark-beast-krea2), one picture out. Zero width and height leave Sogni's size (1024 square);
+     * `aspect` ("16:9", "4:5"...) only when given; a negative seed is random. `loras` and `strengths`
+     * are applied in order (Krea 2 based models only). Steps and sampler are left to the model: the
+     * hosted generate_image tool takes none of them.
+     */
+    public static String imageInput(String title, String prompt, String model, int width, int height, String aspect, long seed, List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      if (model != null && model.length() > 0) args.put("model", model);
+      if (width > 0) args.put("width", Integer.valueOf(width));
+      if (height > 0) args.put("height", Integer.valueOf(height));
+      if (aspect != null && aspect.length() > 0) args.put("aspectRatio", aspect);
+      if (seed >= 0) args.put("seed", Long.valueOf(seed));
+      args.put("numberOfVariations", Integer.valueOf(variations));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "image");
+      step.put("toolName", "generate_image");
+      step.put("arguments", args);
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
+     * A one-step Krea 2 Identity Edit workflow (edit_image, model krea-identity-edit): the uploaded
+     * pictures are the references (the first is the one edited, a second one guides it), one picture
+     * out. `loras` and `strengths` are Krea 2 LoRA ids and their strengths, in order (strengths
+     * positional; each LoRA needs one). Steps, guidance and sampler are left to the model: the hosted
+     * edit_image tool takes none of them.
+     */
+    public static String imageEditInput(String title, String prompt, int pictures, List<String> loras, List<Double> strengths) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("prompt", prompt);
+      args.put("model", "krea-identity-edit");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      args.put("numberOfVariations", Integer.valueOf(variations));
+      if (loras != null && !loras.isEmpty()) {
+        args.put("loras", new ArrayList<Object>(loras));
+        List<Object> s = new ArrayList<Object>();
+        for (Double d : strengths) s.add(d);
+        args.put("loraStrengths", s);
+      }
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "edit");
+      step.put("toolName", "edit_image");
+      step.put("arguments", args);
+      if (pictures > 0) {
+        // The first upload is the picture edited; a second upload goes along as a context image.
+        List<Object> deps = new ArrayList<Object>();
+        Map<String, Object> d = new LinkedHashMap<String, Object>();
+        d.put("sourceStepId", "$input_media");
+        d.put("targetArgument", "sourceImageIndex");
+        d.put("transform", "image_index");
+        d.put("sourceArtifactIndex", Integer.valueOf(0));
+        d.put("mediaType", "image");
+        d.put("required", Boolean.TRUE);
+        deps.add(d);
+        step.put("dependsOn", deps);
+      }
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /**
+     * A promptless picture upscale (upscale_image: NVIDIA RTX VSR) of the first uploaded picture:
+     * `scale` 2, 3 or 4, or `targetLongestEdge` pixels (512-15360) when it is more than 0. Sogni keeps
+     * the shape, aligns both edges to 8 px and returns a JPG above 7680 px.
+     */
+    public static String upscaleInput(String title, int scale, int targetLongestEdge) {
+      Map<String, Object> args = new LinkedHashMap<String, Object>();
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      if (targetLongestEdge > 0) args.put("targetLongestEdge", Integer.valueOf(targetLongestEdge));
+      else args.put("scale", Integer.valueOf(scale < 2 ? 2 : scale > 4 ? 4 : scale));
+      Map<String, Object> step = new LinkedHashMap<String, Object>();
+      step.put("id", "upscale");
+      step.put("toolName", "upscale_image");
+      step.put("arguments", args);
+      List<Object> deps = new ArrayList<Object>();
+      Map<String, Object> d = new LinkedHashMap<String, Object>();
+      d.put("sourceStepId", "$input_media");
+      d.put("targetArgument", "sourceImageIndex");
+      d.put("transform", "image_index");
+      d.put("sourceArtifactIndex", Integer.valueOf(0));
+      d.put("mediaType", "image");
+      d.put("required", Boolean.TRUE);
+      deps.add(d);
+      step.put("dependsOn", deps);
+      List<Object> steps = new ArrayList<Object>();
+      steps.add(step);
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    private static final java.util.regex.Pattern PROJECT_URL = java.util.regex.Pattern.compile(
+      "/projects?/([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})");
+
+    /**
+     * The Sogni projects (renders) a workflow record names: projectId / project_id / projectIds
+     * values anywhere in it, and project ids in its result links (.../projects/<id>/...). The ones
+     * Sogni's app deletes with DELETE /v1/projects/<id>. In the order found, each once.
+     */
+    public static List<String> projectIds(Object record) {
+      List<String> out = new ArrayList<String>();
+      collectProjects(record, null, out);
+      return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectProjects(Object v, String key, List<String> out) {
+      String k = key == null ? "" : key.toLowerCase(java.util.Locale.ROOT).replace("_", "");
+      boolean named = k.equals("projectid") || k.equals("projectids") || k.equals("sogniprojectid");
+      if (v instanceof Map) {
+        for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) collectProjects(e.getValue(), e.getKey(), out);
+      } else if (v instanceof List) {
+        for (Object o : (List<Object>) v) collectProjects(o, named ? key : null, out);
+      } else if (v instanceof String) {
+        String t = ((String) v).trim();
+        if (named && t.matches("[A-Za-z0-9_-]{6,80}")) {
+          if (!out.contains(t)) out.add(t);
+        } else {
+          java.util.regex.Matcher m = PROJECT_URL.matcher(t);
+          while (m.find()) if (!out.contains(m.group(1))) out.add(m.group(1));
+        }
+      }
+    }
+
+    /** Deletes a Sogni project (a render and its files), as Sogni's app does: DELETE /v1/projects/<id>. */
+    public void deleteProject(String id) throws IOException {
+      HttpURLConnection c = this.open("DELETE", "/v1/projects/" + enc(id));
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      c.disconnect();
+    }
+
+    /**
+     * Delete from Sogni after download: each project the workflow record names deleted; a line for
+     * the log each. When it names none, `record` (when given) gets the record, so what Sogni sends
+     * can be read, and a note says nothing was deleted.
+     */
+    public List<String> deleteProjects(Map<String, Object> wf, File record) {
+      List<String> lines = new ArrayList<String>();
+      List<String> ids = projectIds(wf);
+      if (ids.isEmpty()) {
+        String saved = "";
+        if (record != null) {
+          try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(record);
+            try {
+              fos.write(toJson(wf).getBytes(StandardCharsets.UTF_8));
+            } finally {
+              fos.close();
+            }
+            saved = "; Sogni's record of the run is saved as " + record.getName();
+          } catch (IOException ex) {
+            // the note says enough
+          }
+        }
+        lines.add("Note: Sogni's record of this run names no project, so nothing was deleted on Sogni" + saved);
+        return lines;
+      }
+      for (String id : ids) {
+        try {
+          this.deleteProject(id);
+          lines.add("Deleted from Sogni: project " + id);
+        } catch (IOException ex) {
+          lines.add("Note: could not delete Sogni project " + id + " (" + ex.getMessage() + ")");
+        }
+      }
+      return lines;
+    }
+
+    /** The picture results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
+    public static List<Map<String, Object>> imageArtifacts(Map<String, Object> record) {
+      List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), found);
+      if (found.isEmpty()) collectMedia(record, found);
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      for (Map<String, Object> m : found) {
+        String ext = mediaExtension(str(m.get("url")), mimeOf(m), "");
+        if (ext.equals(".png") || ext.equals(".jpg") || ext.equals(".jpeg") || ext.equals(".webp")) out.add(m);
+      }
+      return out;
+    }
+
+    /** The FastH3 selector: t2v, i2v (a start frame) or flf2v (first and last frames); -2stage for 720, 1080 or 1440. */
+    public static String videoModel(int pictures, int resolution) {
+      String mode = pictures >= 2 ? "flf2v" : pictures == 1 ? "i2v" : "t2v";
+      return "minimax-h3-fasth3-" + mode + "-turbo" + (resolution == 720 || resolution == 1080 || resolution == 1440 ? "-2stage" : "");
+    }
+
+    /** Starts a workflow from input JSON ({"steps": [...]}) and returns its id. */
+    public String start(String inputJson, boolean confirmCost, double maxCost) throws IOException {
+      return this.start(inputJson, confirmCost, maxCost, null, null);
+    }
+
+    /**
+     * As above, with uploaded files (uploadMedia) as media_references for the steps, and a billing
+     * mode ("subscription" for an Unlimited Plan; null for Sogni's default).
+     */
+    public String start(String inputJson, boolean confirmCost, double maxCost, List<Map<String, Object>> media, String billingMode) throws IOException {
+      StringBuilder body = new StringBuilder();
+      body.append("{\"input\":").append(inputJson);
+      body.append(",\"token_type\":\"spark\",\"app_source\":").append(quote(APP_SOURCE));
+      if (confirmCost) body.append(",\"confirm_cost\":true");
+      if (maxCost > 0) body.append(",\"max_estimated_capacity_units\":").append(number(maxCost));
+      if (media != null && !media.isEmpty()) body.append(",\"media_references\":").append(toJson(media));
+      if (billingMode != null && billingMode.length() > 0) body.append(",\"billing_mode\":").append(quote(billingMode));
+      if (noFilter) body.append(",\"safe_content_filter\":false");
+      body.append('}');
+      long started = System.currentTimeMillis();
+      Object reply = this.request("POST", "/v1/creative-agent/workflows", body.toString());
+      Map<String, Object> wf = workflowOf(reply);
+      String id = str(wf.get("workflowId"));
+      if (id == null) id = str(wf.get("id"));
+      // Only a real id (a word such as "require" in its place is not one: Resume could never find it).
+      String odd = id != null && !validId(id) ? id : null;
+      if (odd != null) id = null;
+      // Elsewhere in the reply (another shape of it), else the workflow Sogni lists as just started.
+      if (id == null) id = workflowIdIn(reply, 0);
+      if (id == null) {
+        System.out.println("Note: Sogni's reply had no workflow id where it used to be (" + (odd != null ? "\"" + odd + "\" in its place; " : "") + shapeOf(reply, 0) + "); looking for the workflow just started");
+        id = this.newestWorkflow(started);
+        if (id != null) System.out.println("Workflow " + id + " (the newest one on Sogni)");
+      }
+      if (id == null) throw new IOException("Sogni did not return a workflow id (its reply: " + shapeOf(reply, 0) + ")");
+      return id;
+    }
+
+    /** Whether a text can be a workflow id: "wf_…", or letters, digits, - and _ with a digit among them (not a word such as "require"). */
+    static boolean validId(String id) {
+      if (id == null) return false;
+      if (id.startsWith("wf_") && id.length() > 3) return true;
+      return id.matches("[A-Za-z0-9_-]+") && id.matches(".*[0-9].*");
+    }
+
+    /** A workflow id anywhere in a reply: workflowId, workflow_id, or an id starting "wf_" (the shallowest first). */
+    @SuppressWarnings("unchecked")
+    static String workflowIdIn(Object o, int depth) {
+      if (o == null || depth > 6) return null;
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String[] keys = {"workflowId", "workflow_id", "workflowID"};
+        for (String k : keys) if (m.get(k) instanceof String && validId((String) m.get(k))) return (String) m.get(k);
+        if (m.get("id") instanceof String && ((String) m.get("id")).startsWith("wf_")) return (String) m.get("id");
+        for (Object v : m.values()) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) {
+          String found = workflowIdIn(v, depth + 1);
+          if (found != null) return found;
+        }
+      }
+      return null;
+    }
+
+    /** A reply's fields without their values ("status, data{workflow{status, input}}"), for the log. */
+    @SuppressWarnings("unchecked")
+    static String shapeOf(Object o, int depth) {
+      if (o instanceof List) return "[" + (((List<Object>) o).isEmpty() || depth > 3 ? "" : shapeOf(((List<Object>) o).get(0), depth + 1)) + "]";
+      if (!(o instanceof Map)) return o == null ? "nothing" : "a value";
+      StringBuilder sb = new StringBuilder();
+      for (Map.Entry<String, Object> e : ((Map<String, Object>) o).entrySet()) {
+        if (sb.length() > 0) sb.append(", ");
+        sb.append(e.getKey());
+        if (depth < 3 && (e.getValue() instanceof Map || e.getValue() instanceof List)) sb.append(e.getValue() instanceof Map ? "{" + shapeOf(e.getValue(), depth + 1) + "}" : shapeOf(e.getValue(), depth + 1));
+      }
+      return sb.toString();
+    }
+
+    /** The newest workflow Sogni lists that started at most two minutes before `since` (null: none, or the list failed). */
+    @SuppressWarnings("unchecked")
+    String newestWorkflow(long since) {
+      try {
+        Object r = this.request("GET", "/v1/creative-agent/workflows?limit=10", null);
+        Object data = r instanceof Map ? ((Map<String, Object>) r).get("data") : null;
+        Object list = data instanceof Map ? ((Map<String, Object>) data).get("workflows") : data instanceof List ? data : null;
+        if (!(list instanceof List)) return null;
+        String best = null;
+        long bestAt = Long.MIN_VALUE;
+        for (Object o : (List<Object>) list) {
+          if (!(o instanceof Map)) continue;
+          Map<String, Object> w = (Map<String, Object>) o;
+          String id = str(w.get("workflowId"));
+          if (id == null) id = str(w.get("id"));
+          if (id == null) continue;
+          long at = timeOf(w.get("createdAt") != null ? w.get("createdAt") : w.get("created_at"));
+          if (at > 0 && at < since - 120000) continue;
+          // Without times the list's first (newest) is taken.
+          if (best == null || at > bestAt) {
+            best = id;
+            bestAt = at;
+          }
+          if (at <= 0) break;
+        }
+        return best;
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** A time as Sogni writes it: milliseconds, seconds, or "2026-10-30T12:34:56.789Z"; 0 when unknown. */
+    static long timeOf(Object v) {
+      if (v instanceof Number) {
+        long n = ((Number) v).longValue();
+        return n < 100000000000L ? n * 1000 : n;
+      }
+      if (!(v instanceof String)) return 0;
+      String t = ((String) v).trim();
+      if (t.length() < 19) return 0;
+      try {
+        java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ROOT);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return f.parse(t.substring(0, 19)).getTime();
+      } catch (java.text.ParseException ex) {
+        return 0;
+      }
+    }
+
+    /** The workflow record. */
+    public Map<String, Object> workflow(String id) throws IOException {
+      return workflowOf(this.request("GET", "/v1/creative-agent/workflows/" + enc(id), null));
+    }
+
+    /** The workflow's event list (what happened, step by step), as Sogni returns it. */
+    public Object events(String id) throws IOException {
+      return this.request("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events", null);
+    }
+
+    // ---- Chat (Sogni Intelligence, OpenAI-style /v1/chat/completions) ----
+
+    /** The hosted chat model Sogni's own tools use by default. */
+    public static final String CHAT_MODEL = "qwen3.6-35b-a3b-gguf-iq4xs";
+
+    /**
+     * A plain text chat request: no Sogni tools, so the reply is text only. `turns` are
+     * {role, text} pairs ("user" or "assistant") after the optional system text; a user turn can add
+     * pictures after its text, as data: URIs (PNG or JPEG), which a vision model sees. maxTokens 0
+     * leaves Sogni's default. `thinking` lets the model reason before it answers (slower, more tokens).
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking) {
+      return chatInput(model, system, turns, maxTokens, thinking, null);
+    }
+
+    /**
+     * As above, with Sogni's tool surface offered to the model ("creative-tools"), or null for none.
+     * The tools are never run by the chat (sogni_tool_execution false): the model only proposes tool
+     * calls (chatToolCalls), which the caller may run as a workflow (toolsInput, start) under a cost limit.
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools) {
+      return chatInput(model, system, turns, maxTokens, thinking, tools, false);
+    }
+
+    /**
+     * As above; `execute` lets Sogni run the tools inside the chat (sogni_tool_execution), with no cost
+     * check here: for an Unlimited Plan, where only Sogni's fair use limits apply. The reply then names
+     * the workflows it started (chatWorkflows).
+     */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute) {
+      return chatInput(model, system, turns, maxTokens, thinking, tools, execute, null);
+    }
+
+    /** As above, with uploaded files (uploadMedia) as media_references, for Sogni's tools to work on. */
+    public static String chatInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, String tools, boolean execute,
+        List<Map<String, Object>> media) {
+      Map<String, Object> body = new LinkedHashMap<String, Object>();
+      body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
+      body.put("messages", chatMessages(system, turns));
+      if (maxTokens > 0) body.put("max_tokens", Integer.valueOf(maxTokens));
+      body.put("token_type", "spark");
+      body.put("app_source", APP_SOURCE);
+      body.put("sogni_tools", tools == null || tools.length() == 0 ? (Object) Boolean.FALSE : tools);
+      body.put("sogni_tool_execution", Boolean.valueOf(execute && tools != null && tools.length() > 0));
+      Map<String, Object> kwargs = new LinkedHashMap<String, Object>();
+      kwargs.put("enable_thinking", Boolean.valueOf(thinking));
+      body.put("chat_template_kwargs", kwargs);
+      if (media != null && !media.isEmpty()) body.put("media_references", media);
+      // The filter for the chat's own check and for the tools Sogni runs in it.
+      if (noFilter) body.put("safe_content_filter", Boolean.FALSE);
+      return toJson(body);
+    }
+
+    /**
+     * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
+     * tools on its side and the run goes on when the connection drops, so a long job (a video) does
+     * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
+     * Pictures in `turns` are inline data: URIs; `media` are the uploads
+     * (uploadMedia), named as media references and as the run's starting media.
+     */
+    public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {
+      Map<String, Object> body = new LinkedHashMap<String, Object>();
+      body.put("model", model == null || model.length() == 0 ? CHAT_MODEL : model);
+      body.put("messages", chatMessages(system, turns));
+      Map<String, Object> sampling = new LinkedHashMap<String, Object>();
+      if (maxTokens > 0) sampling.put("max_tokens", Integer.valueOf(maxTokens));
+      sampling.put("think", Boolean.valueOf(thinking));
+      body.put("sampling", sampling);
+      body.put("token_type", "spark");
+      body.put("app_source", APP_SOURCE);
+      if (noFilter) {
+        Map<String, Object> runtime = new LinkedHashMap<String, Object>();
+        runtime.put("safeContentFilter", Boolean.FALSE);
+        body.put("runtime_config", runtime);
+      }
+      if (media != null && !media.isEmpty()) {
+        body.put("media_references", media);
+        Map<String, Object> context = new LinkedHashMap<String, Object>();
+        List<Object> images = new ArrayList<Object>(), videos = new ArrayList<Object>(), audio = new ArrayList<Object>();
+        for (Map<String, Object> m : media) {
+          String kind = str(m.get("kind"));
+          ("video".equals(kind) ? videos : "audio".equals(kind) ? audio : images).add(m.get("url"));
+        }
+        context.put("images", new ArrayList<Object>());
+        context.put("videos", new ArrayList<Object>());
+        context.put("audio", new ArrayList<Object>());
+        context.put("uploadedImages", images);
+        context.put("uploadedVideos", videos);
+        context.put("uploadedAudio", audio);
+        body.put("media_context", context);
+      }
+      return toJson(body);
+    }
+
+    /** OpenAI-style messages: the system text, then each turn; a turn's entries after its text are picture URLs. */
+    static List<Object> chatMessages(String system, List<String[]> turns) {
+      List<Object> messages = new ArrayList<Object>();
+      if (system != null && system.trim().length() > 0) messages.add(message("system", system));
+      for (String[] t : turns) {
+        if (t.length <= 2) {
+          messages.add(message(t[0], t[1]));
+          continue;
+        }
+        // Text and pictures in one message, as OpenAI-style vision input.
+        List<Object> parts = new ArrayList<Object>();
+        Map<String, Object> text = new LinkedHashMap<String, Object>();
+        text.put("type", "text");
+        text.put("text", t[1]);
+        parts.add(text);
+        for (int i = 2; i < t.length; i++) {
+          Map<String, Object> url = new LinkedHashMap<String, Object>();
+          url.put("url", t[i]);
+          Map<String, Object> image = new LinkedHashMap<String, Object>();
+          image.put("type", "image_url");
+          image.put("image_url", url);
+          parts.add(image);
+        }
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put("role", t[0]);
+        m.put("content", parts);
+        messages.add(m);
+      }
+      return messages;
+    }
+
+    static Map<String, Object> message(String role, String text) {
+      Map<String, Object> m = new LinkedHashMap<String, Object>();
+      m.put("role", role);
+      m.put("content", text);
+      return m;
+    }
+
+    /**
+     * Sends a chat request (chatInput) and returns Sogni's reply as it came. A 502, 503 or 504 (Sogni's
+     * gateway got no answer from the model in time, or it is busy) is asked again twice, after 15 s and 30 s.
+     */
+    public Object chat(String inputJson) throws IOException {
+      for (int attempt = 0; ; attempt++) {
+        try {
+          return this.request("POST", "/v1/chat/completions", inputJson);
+        } catch (ApiException ex) {
+          if (attempt >= 2 || (ex.status != 502 && ex.status != 503 && ex.status != 504)) throw ex;
+          int wait = 15 * (attempt + 1);
+          System.out.println("Sogni answered " + ex.status + (ex.status == 504 ? " (gateway timeout: the model did not answer in time)" : " (busy)") + "; asking again in " + wait + " s");
+          try {
+            Thread.sleep(wait * 1000L);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw ex;
+          }
+        }
+      }
+    }
+
+    /** The reply's text (choices[0].message.content, also inside "data"), without a <think> part; null if none. */
+    @SuppressWarnings("unchecked")
+    public static String chatReply(Object payload) {
+      if (!(payload instanceof Map)) return null;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object data = p.get("data");
+      if (!(p.get("choices") instanceof List) && data instanceof Map) p = (Map<String, Object>) data;
+      Object choices = p.get("choices");
+      if (!(choices instanceof List) || ((List<Object>) choices).isEmpty()) return null;
+      Object first = ((List<Object>) choices).get(0);
+      if (!(first instanceof Map)) return null;
+      Object m = ((Map<String, Object>) first).get("message");
+      if (!(m instanceof Map)) m = ((Map<String, Object>) first).get("delta");
+      if (!(m instanceof Map)) return null;
+      String text = str(((Map<String, Object>) m).get("content"));
+      if (text == null) return null;
+      int close = text.lastIndexOf("</think>");
+      if (close >= 0) text = text.substring(close + 8);
+      return text.trim();
+    }
+
+    /** "120 in, 340 out" from the reply's token counts, or null. */
+    @SuppressWarnings("unchecked")
+    public static String chatUsage(Object payload) {
+      if (!(payload instanceof Map)) return null;
+      Object u = ((Map<String, Object>) payload).get("usage");
+      if (!(u instanceof Map) && ((Map<String, Object>) payload).get("data") instanceof Map) u = ((Map<String, Object>) ((Map<String, Object>) payload).get("data")).get("usage");
+      if (!(u instanceof Map)) return null;
+      Object inN = ((Map<String, Object>) u).get("prompt_tokens");
+      Object outN = ((Map<String, Object>) u).get("completion_tokens");
+      String in = inN instanceof Number ? number(((Number) inN).doubleValue()) : str(inN);
+      String out = outN instanceof Number ? number(((Number) outN).doubleValue()) : str(outN);
+      if (in == null && out == null) return null;
+      return (in == null ? "?" : in) + " in, " + (out == null ? "?" : out) + " out";
+    }
+
+    /** The tool calls in a chat reply, as {name, arguments JSON}; empty when the model proposed none. */
+    @SuppressWarnings("unchecked")
+    public static List<String[]> chatToolCalls(Object payload) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (!(payload instanceof Map)) return out;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      if (!(p.get("choices") instanceof List) && p.get("data") instanceof Map) p = (Map<String, Object>) p.get("data");
+      Object choices = p.get("choices");
+      if (!(choices instanceof List) || ((List<Object>) choices).isEmpty() || !(((List<Object>) choices).get(0) instanceof Map)) return out;
+      Map<String, Object> first = (Map<String, Object>) ((List<Object>) choices).get(0);
+      Object m = first.get("message") instanceof Map ? first.get("message") : first.get("delta");
+      if (!(m instanceof Map)) return out;
+      Object calls = ((Map<String, Object>) m).get("tool_calls");
+      if (calls == null) calls = ((Map<String, Object>) m).get("toolCalls");
+      if (!(calls instanceof List)) return out;
+      for (Object c : (List<Object>) calls) {
+        if (!(c instanceof Map)) continue;
+        Object fn = ((Map<String, Object>) c).get("function");
+        Map<String, Object> f = fn instanceof Map ? (Map<String, Object>) fn : (Map<String, Object>) c;
+        String name = str(f.get("name"));
+        if (name == null) continue;
+        Object args = f.get("arguments");
+        out.add(new String[] {name, args == null ? "{}" : args instanceof String ? (String) args : toJson(args)});
+      }
+      return out;
+    }
+
+    /** The workflow ids a chat reply says Sogni started (creative_workflows), in order; empty when none. */
+    @SuppressWarnings("unchecked")
+    public static List<String> chatWorkflows(Object payload) {
+      List<String> out = new ArrayList<String>();
+      if (!(payload instanceof Map)) return out;
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object list = p.get("creative_workflows");
+      if (list == null) list = p.get("creativeWorkflows");
+      if (list == null && p.get("data") instanceof Map) {
+        Map<String, Object> d = (Map<String, Object>) p.get("data");
+        list = d.get("creative_workflows") != null ? d.get("creative_workflows") : d.get("creativeWorkflows");
+      }
+      if (!(list instanceof List)) return out;
+      for (Object o : (List<Object>) list) {
+        String id = o instanceof Map ? str(((Map<String, Object>) o).get("workflowId")) : str(o);
+        if (id == null && o instanceof Map) id = str(((Map<String, Object>) o).get("id"));
+        if (id != null && !out.contains(id)) out.add(id);
+      }
+      return out;
+    }
+
+    /** A workflow input that runs these tool calls ({name, arguments JSON}), one step each. */
+    public static String toolsInput(String title, List<String[]> calls) {
+      List<Object> steps = new ArrayList<Object>();
+      for (int i = 0; i < calls.size(); i++) {
+        Object args;
+        try {
+          args = parseJson(calls.get(i)[1]);
+        } catch (RuntimeException ex) {
+          args = null;
+        }
+        Map<String, Object> step = new LinkedHashMap<String, Object>();
+        step.put("id", "step" + (i + 1));
+        step.put("toolName", calls.get(i)[0]);
+        step.put("arguments", args instanceof Map ? args : new LinkedHashMap<String, Object>());
+        steps.add(step);
+      }
+      Map<String, Object> input = new LinkedHashMap<String, Object>();
+      if (title != null && title.length() > 0) input.put("title", title);
+      input.put("steps", steps);
+      return toJson(input);
+    }
+
+    /** The chat model ids Sogni offers (/v1/models). */
+    @SuppressWarnings("unchecked")
+    public List<String> chatModels() throws IOException {
+      Object payload = this.request("GET", "/v1/models", null);
+      List<String> out = new ArrayList<String>();
+      Object list = payload instanceof Map ? ((Map<String, Object>) payload).get("data") : payload;
+      if (list instanceof Map) list = ((Map<String, Object>) list).get("data");
+      if (list instanceof List) {
+        for (Object o : (List<Object>) list) {
+          String id = o instanceof Map ? str(((Map<String, Object>) o).get("id")) : str(o);
+          if (id != null) out.add(id);
+        }
+      }
+      return out;
+    }
+
+    /**
+     * Follows the workflow until it stops (completed, failed, cancelled, or waiting for the user)
+     * and returns its record. Reads the event stream, one long request; if that breaks, looks again
+     * every 20 seconds, waiting longer when Sogni asks (429).
+     */
+    public Map<String, Object> waitFor(String id, long timeoutMs, Log log) throws IOException {
+      long end = System.currentTimeMillis() + timeoutMs;
+      String last = null;
+      try {
+        last = this.stream(id, end, log);
+      } catch (IOException ex) {
+        if (log != null) log.line("Reconnecting: the event stream stopped (" + ex.getMessage() + "); checking every 20 s");
+      }
+      String note = null;
+      while (true) {
+        Map<String, Object> wf;
+        try {
+          wf = this.workflow(id);
+        } catch (ApiException ex) {
+          if (ex.status != 429 && ex.status < 500) throw ex;
+          if (System.currentTimeMillis() > end) throw ex;
+          int wait = Math.max(ex.retryAfter, 20);
+          if (log != null) log.line(ex.status == 429 ? "Queued: Sogni asks to wait " + wait + " s" : "Reconnecting: Sogni answered " + ex.status + "; again in " + wait + " s");
+          sleep(wait * 1000L);
+          continue;
+        } catch (IOException ex) {
+          // The network went away for a moment (the phone changed networks, slept): asked again.
+          if (System.currentTimeMillis() > end) throw ex;
+          if (log != null) log.line("Reconnecting: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()) + "; again in 20 s");
+          sleep(20000L);
+          continue;
+        }
+        String status = str(wf.get("status"));
+        if (status != null && !status.equals(last) && log != null) log.line("Status: " + status);
+        last = status;
+        String now = progressNote(wf, note);
+        if (now != null && log != null) log.line(now);
+        if (now != null) note = now;
+        if (isDone(status)) return wf;
+        if (System.currentTimeMillis() > end) throw new IOException("Timed out; the workflow " + id + " is still " + status + " on Sogni");
+        sleep(20000L);
+      }
+    }
+
+    /** Starts a durable chat run (chatRunInput); returns its record (runId, status). */
+    public Map<String, Object> startChatRun(String inputJson) throws IOException {
+      return runOf(this.request("POST", "/v1/chat/runs", inputJson));
+    }
+
+    /** A chat run's record: status, finalResponse, artifacts, childWorkflowIds, failureReason, waiting. */
+    public Map<String, Object> chatRun(String id) throws IOException {
+      return runOf(this.request("GET", "/v1/chat/runs/" + enc(id), null));
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> runOf(Object payload) throws IOException {
+      if (!(payload instanceof Map)) throw new IOException("Unexpected reply from Sogni");
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object data = p.get("data");
+      if (data instanceof Map && ((Map<String, Object>) data).get("run") instanceof Map) return (Map<String, Object>) ((Map<String, Object>) data).get("run");
+      if (p.get("run") instanceof Map) return (Map<String, Object>) p.get("run");
+      if (data instanceof Map) return (Map<String, Object>) data;
+      return p;
+    }
+
+    /**
+     * Follows a chat run until it stops (completed, partial_failure, failed, cancelled, or waiting
+     * for the user) and returns its record. Reads the run's event stream, telling what the tools do;
+     * if that breaks, looks again every 20 seconds.
+     */
+    public Map<String, Object> waitForRun(String id, long timeoutMs, Log log) throws IOException {
+      long end = System.currentTimeMillis() + timeoutMs;
+      String last = null;
+      try {
+        this.runStream(id, end, log);
+      } catch (IOException ex) {
+        if (log != null) log.line("Reconnecting: the event stream stopped (" + ex.getMessage() + "); checking every 20 s");
+      }
+      while (true) {
+        Map<String, Object> run;
+        try {
+          run = this.chatRun(id);
+        } catch (ApiException ex) {
+          if (ex.status != 429 && ex.status < 500) throw ex;
+          int wait = Math.max(ex.retryAfter, 20);
+          if (log != null) log.line("Sogni asks to wait (" + ex.getMessage() + "); again in " + wait + " s");
+          sleep(wait * 1000L);
+          continue;
+        }
+        String status = str(run.get("status"));
+        if (status != null && !status.equals(last) && !isDone(status) && log != null) log.line("Status: " + status);
+        last = status;
+        if (isDone(status)) return run;
+        if (System.currentTimeMillis() > end) throw new IOException("Timed out; the chat run " + id + " is still " + status + " on Sogni");
+        sleep(20000L);
+      }
+    }
+
+    /** Reads a chat run's events until it stops or the stream ends, telling each tool call and its progress. */
+    @SuppressWarnings("unchecked")
+    void runStream(String id, long end, Log log) throws IOException {
+      HttpURLConnection c = this.open("GET", "/v1/chat/runs/" + enc(id) + "/events/stream");
+      c.setRequestProperty("Accept", "text/event-stream");
+      c.setReadTimeout((int) Math.max(1000L, Math.min(Integer.MAX_VALUE, end - System.currentTimeMillis())));
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+      try {
+        StringBuilder data = new StringBuilder();
+        String event = null;
+        long shownTens = -1;
+        String shownStep = null;
+        String line;
+        while ((line = in.readLine()) != null) {
+          if (line.startsWith("event:")) {
+            event = line.substring(6).trim();
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            data.append(data.length() > 0 ? "\n" : "").append(line.substring(5).trim());
+            continue;
+          }
+          if (line.length() > 0 || data.length() == 0) continue;
+          Map<String, Object> ev = null;
+          try {
+            Object o = parseJson(data.toString());
+            if (o instanceof Map) ev = (Map<String, Object>) o;
+          } catch (RuntimeException ignored) {
+            // Not JSON: a keep-alive or a note.
+          }
+          data.setLength(0);
+          String name = event;
+          event = null;
+          if (ev == null) continue;
+          String type = str(ev.get("type"));
+          if (type == null) type = name;
+          Map<String, Object> pay = ev.get("payload") instanceof Map ? (Map<String, Object>) ev.get("payload") : ev;
+          if ("run_status".equals(type) || "run_status".equals(name)) {
+            if (isDone(str(pay.get("status")))) break;
+            continue;
+          }
+          String tool = str(pay.get("toolName"));
+          if (tool == null) tool = str(pay.get("name"));
+          if ("tool_call_dispatched".equals(type)) {
+            if (log != null) log.line("Tool: " + (tool == null ? "started" : tool));
+            shownTens = -1;
+            shownStep = null;
+          } else if ("tool_call_progress".equals(type)) {
+            String step = str(pay.get("stepLabel"));
+            if (step == null) step = str(pay.get("jobLabel"));
+            if (step != null && !step.equals(shownStep)) {
+              if (log != null) log.line("  " + step);
+              shownStep = step;
+            }
+            if (pay.get("progress") instanceof Number) {
+              double p = ((Number) pay.get("progress")).doubleValue();
+              long pct = Math.round(p <= 1 ? p * 100 : p);
+              if (pct / 10 != shownTens) {
+                shownTens = pct / 10;
+                Object eta = pay.get("etaSeconds");
+                if (log != null) log.line("  " + pct + "%" + (eta instanceof Number ? ", about " + Math.round(((Number) eta).doubleValue()) + " s left" : ""));
+              }
+            }
+          } else if ("tool_call_resolved".equals(type)) {
+            String st = str(pay.get("status"));
+            if (log != null) log.line("Tool finished" + (tool == null ? "" : ": " + tool) + (st == null ? "" : " (" + st + ")"));
+          } else if ("run_waiting_for_user".equals(type) || "run_completed".equals(type) || "run_failed".equals(type)
+              || "run_partial_failure".equals(type) || "run_cancelled".equals(type)) {
+            break;
+          }
+        }
+      } finally {
+        in.close();
+        c.disconnect();
+      }
+    }
+
+    /** The run's answer: finalResponse.content, else its last assistant message; without a <think> part. Null if none. */
+    @SuppressWarnings("unchecked")
+    public static String runReply(Map<String, Object> run) {
+      String text = null;
+      if (run.get("finalResponse") instanceof Map) text = str(((Map<String, Object>) run.get("finalResponse")).get("content"));
+      if ((text == null || text.trim().length() == 0) && run.get("messages") instanceof List) {
+        for (Object o : (List<Object>) run.get("messages")) {
+          if (!(o instanceof Map) || !"assistant".equals(str(((Map<String, Object>) o).get("role")))) continue;
+          Object c = ((Map<String, Object>) o).get("content");
+          if (c instanceof String && ((String) c).trim().length() > 0) text = (String) c;
+        }
+      }
+      if (text == null) return null;
+      return text.replaceAll("(?s)<think>.*?</think>", "").trim();
+    }
+
+    /** The question a chat run answers: its last user message's text (request.messages, else messages); null if none. */
+    @SuppressWarnings("unchecked")
+    public static String runQuestion(Map<String, Object> run) {
+      Object list = run.get("request") instanceof Map ? ((Map<String, Object>) run.get("request")).get("messages") : null;
+      if (!(list instanceof List) || ((List<Object>) list).isEmpty()) list = run.get("messages");
+      if (!(list instanceof List)) return null;
+      String text = null;
+      for (Object o : (List<Object>) list) {
+        if (!(o instanceof Map) || !"user".equals(str(((Map<String, Object>) o).get("role")))) continue;
+        Object c = ((Map<String, Object>) o).get("content");
+        if (c instanceof String) text = (String) c;
+        if (c instanceof List) {
+          for (Object part : (List<Object>) c) {
+            if (part instanceof Map && "text".equals(str(((Map<String, Object>) part).get("type")))) text = str(((Map<String, Object>) part).get("text"));
+          }
+        }
+      }
+      return text == null || text.trim().length() == 0 ? null : text.trim();
+    }
+
+    /** The chat model a run used (request.model, else model); null if it does not say. */
+    @SuppressWarnings("unchecked")
+    public static String runModel(Map<String, Object> run) {
+      String m = run.get("request") instanceof Map ? str(((Map<String, Object>) run.get("request")).get("model")) : null;
+      return m != null ? m : str(run.get("model"));
+    }
+
+    /** The pictures, audio and video a chat run made (its artifacts), once each. */
+    public static List<Map<String, Object>> runArtifacts(Map<String, Object> run) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectMedia(run.get("artifacts"), out);
+      return out;
+    }
+
+    /** The workflow ids a chat run started (childWorkflowIds); empty when none. */
+    @SuppressWarnings("unchecked")
+    public static List<String> runWorkflows(Map<String, Object> run) {
+      List<String> out = new ArrayList<String>();
+      if (run.get("childWorkflowIds") instanceof List) {
+        for (Object o : (List<Object>) run.get("childWorkflowIds")) if (str(o) != null) out.add(str(o));
+      }
+      return out;
+    }
+
+    /** Why a chat run stopped short: its failure reason, or what it waits for. */
+    @SuppressWarnings("unchecked")
+    public static String runProblem(Map<String, Object> run) {
+      String why = str(run.get("failureReason"));
+      if (why == null) why = str(run.get("cancellationReason"));
+      if (why == null && run.get("waiting") instanceof Map) {
+        Map<String, Object> w = (Map<String, Object>) run.get("waiting");
+        String reason = str(w.get("reason"));
+        String message = str(w.get("message"));
+        why = "cost_approval_required".equals(reason) ? "it waits for a cost approval" : message != null ? message : reason != null ? "it waits: " + reason.replace('_', ' ') : null;
+      }
+      return why;
+    }
+
+    /** Reads the workflow's event stream until a final status or the stream ends; returns the last status seen. */
+    String stream(String id, long end, Log log) throws IOException {
+      HttpURLConnection c = this.open("GET", "/v1/creative-agent/workflows/" + enc(id) + "/events/stream");
+      c.setRequestProperty("Accept", "text/event-stream");
+      c.setReadTimeout((int) Math.max(1000L, Math.min(Integer.MAX_VALUE, end - System.currentTimeMillis())));
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      String last = null;
+      String note = null;
+      java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+      try {
+        StringBuilder data = new StringBuilder();
+        String line;
+        while ((line = in.readLine()) != null) {
+          if (line.startsWith("data:")) {
+            data.append(line.substring(5).trim());
+            continue;
+          }
+          if (line.length() > 0) continue;
+          if (data.length() == 0) continue;
+          String status = null;
+          Object ev = null;
+          try {
+            ev = parseJson(data.toString());
+            if (ev instanceof Map) {
+              Map<?, ?> m = (Map<?, ?>) ev;
+              status = str(m.get("status"));
+              if (status == null && m.get("data") instanceof Map) status = str(((Map<?, ?>) m.get("data")).get("status"));
+              if (status == null && m.get("workflow") instanceof Map) status = str(((Map<?, ?>) m.get("workflow")).get("status"));
+            }
+          } catch (RuntimeException ignored) {
+            // Not JSON: a keep-alive or a note.
+          }
+          data.setLength(0);
+          if (status != null && !status.equals(last)) {
+            if (log != null) log.line("Status: " + status);
+            last = status;
+          }
+          String now = progressNote(ev, note);
+          if (now != null && log != null) log.line(now);
+          if (now != null) note = now;
+          if (isDone(status)) break;
+        }
+      } finally {
+        in.close();
+        c.disconnect();
+      }
+      return last;
+    }
+
+    /**
+     * "Progress: 40%" or "Queued: position 3" from a workflow event or record (its progress,
+     * percent or queue position, at most a few levels down), when it says more than `last` did:
+     * the percent moved by 5 or more (or reached 100), or the queue position changed. Else null.
+     */
+    public static String progressNote(Object record, String last) {
+      Double pct = findNumber(record, new String[] {"progressPercent", "percent", "percentage", "progress"}, 0);
+      if (pct != null) {
+        double v = pct.doubleValue();
+        if (v > 0 && v <= 1.0 && !String.valueOf(findRaw(record, "progress", 0)).matches("\\d+")) v = v * 100.0;
+        int p = (int) Math.round(Math.max(0, Math.min(100, v)));
+        String note = "Progress: " + p + "%";
+        int before = -100;
+        if (last != null && last.startsWith("Progress: ")) {
+          try {
+            before = Integer.parseInt(last.substring(10, last.length() - 1));
+          } catch (NumberFormatException ignored) {
+            before = -100;
+          }
+        }
+        if (p - before >= 5 || (p == 100 && before != 100)) return note;
+        return null;
+      }
+      Double pos = findNumber(record, new String[] {"queuePosition", "queue_position", "positionInQueue"}, 0);
+      if (pos != null) {
+        String note = "Queued: position " + pos.intValue();
+        return note.equals(last) ? null : note;
+      }
+      return null;
+    }
+
+    private static Double findNumber(Object record, String[] keys, int depth) {
+      if (!(record instanceof Map) || depth > 3) return null;
+      Map<?, ?> m = (Map<?, ?>) record;
+      for (String k : keys) {
+        Object v = m.get(k);
+        if (v instanceof Number) return Double.valueOf(((Number) v).doubleValue());
+        if (v instanceof String && ((String) v).trim().matches("\\d+(\\.\\d+)?%?")) return Double.valueOf(((String) v).trim().replace("%", ""));
+      }
+      for (Object v : m.values()) {
+        if (!(v instanceof Map)) continue;
+        Double d = findNumber(v, keys, depth + 1);
+        if (d != null) return d;
+      }
+      return null;
+    }
+
+    private static Object findRaw(Object record, String key, int depth) {
+      if (!(record instanceof Map) || depth > 3) return null;
+      Map<?, ?> m = (Map<?, ?>) record;
+      if (m.containsKey(key)) return m.get(key);
+      for (Object v : m.values()) {
+        Object d = findRaw(v, key, depth + 1);
+        if (d != null) return d;
+      }
+      return null;
+    }
+
+    public static boolean isDone(String status) {
+      if (status == null) return false;
+      for (String d : DONE) if (d.equals(status)) return true;
+      return false;
+    }
+
+    /** Audio results anywhere in a workflow record: objects with a URL that is audio by type or extension. */
+    public static List<Map<String, Object>> audioArtifacts(Object record) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectAudio(record, out);
+      return out;
+    }
+
+    /** The video results in a workflow record (its artifacts first, so an uploaded input is not taken for one). */
+    @SuppressWarnings("unchecked")
+    public static List<Map<String, Object>> videoArtifacts(Map<String, Object> record) {
+      List<Map<String, Object>> found = new ArrayList<Map<String, Object>>();
+      collectMedia(record.get("artifacts"), found);
+      if (found.isEmpty()) collectMedia(record, found);
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      for (Map<String, Object> m : found) {
+        String ext = mediaExtension(str(m.get("url")), mimeOf(m), "");
+        if (ext.equals(".mp4") || ext.equals(".webm") || ext.equals(".mov")) out.add(m);
+      }
+      return out;
+    }
+
+    /** Every picture, audio and video result in a workflow record (url plus its details), once each. */
+    public static List<Map<String, Object>> mediaArtifacts(Object record) {
+      List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+      collectMedia(record, out);
+      return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    static void collectMedia(Object o, List<Map<String, Object>> out) {
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String url = str(m.get("url"));
+        if (url != null && url.startsWith("http") && mediaExtension(url, mimeOf(m), null) != null) {
+          for (Map<String, Object> seen : out) if (url.equals(seen.get("url"))) return;
+          out.add(m);
+          return;
+        }
+        for (Object v : m.values()) collectMedia(v, out);
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) collectMedia(v, out);
+      }
+    }
+
+    /** The MIME type a result names (mimeType, mediaType, contentType or type), or null. */
+    public static String mimeOf(Map<String, Object> m) {
+      for (String k : new String[] {"mimeType", "mediaType", "contentType", "type"}) {
+        String v = str(m.get(k));
+        if (v != null && v.indexOf('/') > 0) return v;
+      }
+      // A chat run's artifacts name only the kind.
+      String kind = str(m.get("mediaType"));
+      if ("video".equals(kind)) return "video/mp4";
+      if ("image".equals(kind)) return "image/png";
+      if ("audio".equals(kind)) return "audio/mpeg";
+      return null;
+    }
+
+    /** A picture's, video's or audio file's extension from its URL path, else its MIME type; fallback when neither says. */
+    public static String mediaExtension(String url, String mime, String fallback) {
+      String path = url == null ? "" : url.toLowerCase();
+      int q = path.indexOf('?');
+      if (q >= 0) path = path.substring(0, q);
+      for (String e : new String[] {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".glb"}) if (path.endsWith(e)) return e;
+      String audio = extension(url, null);
+      if (audio != null) return audio;
+      String t = mime == null ? "" : mime.toLowerCase();
+      if (t.startsWith("image/png")) return ".png";
+      if (t.startsWith("image/jpeg") || t.startsWith("image/jpg")) return ".jpg";
+      if (t.startsWith("image/webp")) return ".webp";
+      if (t.startsWith("image/gif")) return ".gif";
+      if (t.startsWith("video/mp4")) return ".mp4";
+      if (t.startsWith("video/webm")) return ".webm";
+      if (t.startsWith("video/quicktime")) return ".mov";
+      if (t.startsWith("audio/")) return extension(t, ".mp3");
+      return fallback;
+    }
+
+    @SuppressWarnings("unchecked")
+    static void collectAudio(Object o, List<Map<String, Object>> out) {
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        String url = str(m.get("url"));
+        if (url != null && url.startsWith("http") && isAudio(m, url)) {
+          for (Map<String, Object> seen : out) if (url.equals(seen.get("url"))) return;
+          out.add(m);
+          return;
+        }
+        for (Object v : m.values()) collectAudio(v, out);
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) collectAudio(v, out);
+      }
+    }
+
+    static boolean isAudio(Map<String, Object> m, String url) {
+      for (String k : new String[] {"mediaType", "mimeType", "type", "contentType"}) {
+        String v = str(m.get(k));
+        if (v != null && v.toLowerCase().startsWith("audio")) return true;
+      }
+      return extension(url, null) != null;
+    }
+
+    /** ".mp3", ".wav", ".flac", ".m4a", ".ogg" or ".aac" from the URL path or a MIME type; fallback when neither says. */
+    public static String extension(String url, String fallback) {
+      String path = url == null ? "" : url.toLowerCase();
+      int q = path.indexOf('?');
+      if (q >= 0) path = path.substring(0, q);
+      for (String e : new String[] {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}) if (path.endsWith(e)) return e;
+      if (path.startsWith("audio/")) {
+        if (path.contains("mpeg") || path.contains("mp3")) return ".mp3";
+        if (path.contains("wav")) return ".wav";
+        if (path.contains("flac")) return ".flac";
+        if (path.contains("mp4") || path.contains("m4a")) return ".m4a";
+        if (path.contains("ogg")) return ".ogg";
+      }
+      return fallback;
+    }
+
+    /**
+     * Uploads a file to Sogni's media storage, as Sogni's own CLI does, and returns it as a
+     * media_references entry: {id media_ref_<n>, kind, mime_type, url, filename, ...}. `kind` is
+     * "image", "audio" or "video"; `n` counts the request's files from 1. The file is stored for the
+     * hosted tools (edit_image, animate_photo, sound_to_video, video_to_video...) to read.
+     */
+    public Map<String, Object> uploadMedia(String kind, String mime, byte[] data, int n, String filename) throws IOException {
+      String id = "media_ref_" + n;
+      String jobId = "pulsekit-" + System.currentTimeMillis() + "-" + n + "-" + Long.toHexString(Double.doubleToLongBits(Math.random()) & 0xffffffffL);
+      String type = "audio".equals(kind) ? "referenceAudio" : "video".equals(kind) ? "referenceVideo" : "contextImage" + Math.min(n, 16);
+      String query = "?type=" + enc(type) + "&jobId=" + enc(jobId) + "&contentType=" + enc(mime) + ("image".equals(kind) ? "&imageId=" : "&id=") + enc(id);
+      String endpoint = "image".equals(kind) ? "/v1/image/" : "/v1/media/";
+      String uploadUrl = storedUrl(this.request("GET", endpoint + "uploadUrl" + query, null), "uploadUrl");
+      this.put(uploadUrl, mime, data);
+      String url = storedUrl(this.request("GET", endpoint + "downloadUrl" + query, null), "downloadUrl");
+      Map<String, Object> ref = new LinkedHashMap<String, Object>();
+      ref.put("id", id);
+      ref.put("source", APP_SOURCE);
+      ref.put("flag", "audio".equals(kind) ? "--ref-audio" : "video".equals(kind) ? "--ref-video" : "-c/--context");
+      ref.put("kind", kind);
+      ref.put("mime_type", mime);
+      ref.put("url", url);
+      ref.put("filename", filename);
+      ref.put("byte_length", Integer.valueOf(data.length));
+      ref.put("prompt_label", filename);
+      Map<String, Object> storage = new LinkedHashMap<String, Object>();
+      storage.put("jobId", jobId);
+      storage.put("type", type);
+      ref.put("storage", storage);
+      return ref;
+    }
+
+    /** The uploadUrl or downloadUrl in Sogni's reply (also inside "data"). */
+    @SuppressWarnings("unchecked")
+    static String storedUrl(Object payload, String key) throws IOException {
+      if (payload instanceof Map) {
+        Map<String, Object> p = (Map<String, Object>) payload;
+        String v = str(p.get(key));
+        if (v == null && p.get("data") instanceof Map) v = str(((Map<String, Object>) p.get("data")).get(key));
+        if (v != null && v.length() > 0) return v;
+      }
+      throw new IOException("Sogni did not return " + key + " for the upload");
+    }
+
+    /** Sends a file to a signed upload URL (no key: the URL carries its own permission). */
+    void put(String url, String mime, byte[] data) throws IOException {
+      HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+      c.setRequestMethod("PUT");
+      c.setConnectTimeout(this.timeoutMs);
+      c.setReadTimeout(Math.max(this.timeoutMs, 300000));
+      c.setDoOutput(true);
+      c.setFixedLengthStreamingMode(data.length);
+      c.setRequestProperty("Content-Type", mime);
+      if (url.startsWith(this.base + "/")) this.authorize(c);
+      OutputStream out = c.getOutputStream();
+      try {
+        out.write(data);
+      } finally {
+        out.close();
+      }
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      c.disconnect();
+    }
+
+    /** Downloads a result URL (signed; no key is sent to hosts other than the API). */
+    public byte[] download(String url) throws IOException {
+      HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+      c.setConnectTimeout(this.timeoutMs);
+      c.setReadTimeout(this.timeoutMs);
+      if (url.startsWith(this.base + "/")) this.authorize(c);
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      try {
+        byte[] data = readCounting(c.getInputStream(), c.getContentLengthLong());
+        // The Sogni job id it carries: PyJav keeps it with the run's workflow (SogniHistory.jobs).
+        String job = jobIn(data);
+        if (job != null) System.out.println("Sogni job: " + job);
+        return data;
+      } finally {
+        c.disconnect();
+      }
+    }
+
+    /** The error a stopped workflow reports, or its waiting reason. */
+    public static String problem(Map<String, Object> wf) {
+      String status = str(wf.get("status"));
+      if ("waiting_for_user".equals(status)) {
+        String why = str(wf.get("waitingReason"));
+        if (Boolean.TRUE.equals(wf.get("awaitingCostApproval")) || "cost_approval_required".equals(why)) {
+          return "Sogni wants the cost approved. Run again with --confirm_cost.";
+        }
+        if ("safety_review_required".equals(why)) {
+          return "Sogni's safety check paused this run (safety_review_required)" + (noFilter ? "" : ": try another picture or prompt, or run again with --no_filter (Content filter off)");
+        }
+        return "Sogni is waiting for input: " + (why == null ? "unknown reason" : why);
+      }
+      List<String> why = new ArrayList<String>();
+      reasons(wf, why);
+      if (!why.isEmpty()) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < why.size() && i < 3; i++) sb.append(i == 0 ? "" : "; ").append(why.get(i));
+        return sb.toString();
+      }
+      return status == null ? "no status" : "workflow " + status;
+    }
+
+    /**
+     * Error text anywhere in a record or event list: values of error, lastError, failureReason,
+     * errorMessage and reason, or the message beside them. The workflow's own "workflow failed"
+     * status says nothing, so the failed step's words are what count.
+     */
+    @SuppressWarnings("unchecked")
+    public static void reasons(Object o, List<String> out) {
+      if (o instanceof Map) {
+        Map<String, Object> m = (Map<String, Object>) o;
+        for (Map.Entry<String, Object> e : m.entrySet()) {
+          String k = e.getKey().toLowerCase();
+          Object v = e.getValue();
+          boolean errorKey = k.equals("error") || k.equals("lasterror") || k.equals("failurereason") || k.equals("errormessage")
+              || k.equals("reason") || k.equals("failure");
+          if (errorKey && v instanceof String) addReason(out, (String) v);
+          else if (errorKey && v instanceof Map) {
+            Map<String, Object> em = (Map<String, Object>) v;
+            String msg = str(em.get("message"));
+            String code = str(em.get("code"));
+            if (msg == null) msg = str(em.get("errorMessage"));
+            if (msg != null) addReason(out, code != null && !msg.contains(code) ? msg + " (" + code + ")" : msg);
+          }
+        }
+        String status = str(m.get("status"));
+        if (status != null && (status.contains("fail") || status.contains("error")) && m.get("message") instanceof String) addReason(out, (String) m.get("message"));
+        for (Object v : m.values()) if (v instanceof Map || v instanceof List) reasons(v, out);
+      } else if (o instanceof List) {
+        for (Object v : (List<Object>) o) reasons(v, out);
+      }
+    }
+
+    static void addReason(List<String> out, String s) {
+      String t = s == null ? "" : s.trim();
+      if (t.length() == 0 || t.equalsIgnoreCase("workflow failed") || out.contains(t)) return;
+      out.add(t);
+    }
+
+    // ---- HTTP ----
+
+    /** The tests' Sogni: "METHOD path" to the reply (null: the real one). */
+    static java.util.function.Function<String, Object> answer;
+
+    Object request(String method, String path, String body) throws IOException {
+      if (answer != null) return answer.apply(method + " " + path);
+      HttpURLConnection c = this.open(method, path);
+      if (body != null) {
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "application/json");
+        OutputStream out = c.getOutputStream();
+        try {
+          out.write(body.getBytes(StandardCharsets.UTF_8));
+        } finally {
+          out.close();
+        }
+      }
+      int code = c.getResponseCode();
+      if (code / 100 != 2) throw failure(c, code);
+      try {
+        String text = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
+        return text.trim().length() == 0 ? new LinkedHashMap<String, Object>() : parseJson(text);
+      } finally {
+        c.disconnect();
+      }
+    }
+
+    HttpURLConnection open(String method, String path) throws IOException {
+      HttpURLConnection c = (HttpURLConnection) new URL(this.base + path).openConnection();
+      c.setRequestMethod(method);
+      c.setConnectTimeout(this.timeoutMs);
+      c.setReadTimeout(this.timeoutMs);
+      c.setRequestProperty("Accept", "application/json");
+      this.authorize(c);
+      return c;
+    }
+
+    void authorize(HttpURLConnection c) {
+      c.setRequestProperty("Authorization", "Bearer " + this.apiKey);
+      c.setRequestProperty("api-key", this.apiKey);
+    }
+
+    static ApiException failure(HttpURLConnection c, int code) {
+      String text = "";
+      try {
+        InputStream err = c.getErrorStream();
+        if (err != null) text = new String(readAll(err), StandardCharsets.UTF_8);
+      } catch (IOException ignored) {
+        // The status alone still says what went wrong.
+      }
+      String message = null;
+      try {
+        Object p = parseJson(text);
+        if (p instanceof Map) {
+          message = str(((Map<?, ?>) p).get("message"));
+          Object e = ((Map<?, ?>) p).get("error");
+          if (message == null && e instanceof Map) message = str(((Map<?, ?>) e).get("message"));
+        }
+      } catch (RuntimeException ignored) {
+        if (text.trim().length() > 0 && text.length() < 300) message = text.trim();
+      }
+      int retry = 0;
+      try {
+        String ra = c.getHeaderField("Retry-After");
+        if (ra != null) retry = Integer.parseInt(ra.trim());
+      } catch (NumberFormatException ignored) {
+        retry = 60;
+      }
+      String what = code == 401 ? "Sogni refused the API key (401)" : code == 429 ? "Sogni rate limit (429)" : "Sogni API error " + code;
+      c.disconnect();
+      return new ApiException(message == null ? what : what + ": " + message, code, retry);
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> workflowOf(Object payload) throws IOException {
+      if (!(payload instanceof Map)) throw new IOException("Unexpected reply from Sogni");
+      Map<String, Object> p = (Map<String, Object>) payload;
+      Object data = p.get("data");
+      if (data instanceof Map && ((Map<String, Object>) data).get("workflow") instanceof Map) return (Map<String, Object>) ((Map<String, Object>) data).get("workflow");
+      if (p.get("workflow") instanceof Map) return (Map<String, Object>) p.get("workflow");
+      if (data instanceof Map) return (Map<String, Object>) data;
+      return p;
+    }
+
+    static String enc(String s) {
+      try {
+        return URLEncoder.encode(s, "UTF-8").replace("+", "%20");
+      } catch (java.io.UnsupportedEncodingException e) {
+        return s;
+      }
+    }
+
+    /**
+     * The download, saying how far it is: "Downloading: 40% (12.3 of 30.1 MB)" at each tenth when
+     * its size is known, else every 5 MB.
+     */
+    static byte[] readCounting(InputStream in, long total) throws IOException {
+      try {
+        // Sized to the download when its size is known, and handed over as it is (no second copy: a
+        // video held twice ran the phone short of memory, and Android closed Pulsekit).
+        ExactBytes out = new ExactBytes(total > 0 && total < Integer.MAX_VALUE ? (int) total : 65536);
+        byte[] buf = new byte[65536];
+        long got = 0, said = 0;
+        int n;
+        while ((n = in.read(buf)) > 0) {
+          out.write(buf, 0, n);
+          got += n;
+          if (total > 0) {
+            long tenth = got * 10 / total;
+            if (tenth > said && tenth < 10) {
+              said = tenth;
+              System.out.println(String.format(java.util.Locale.ROOT, "Downloading: %d%% (%.1f of %.1f MB)", tenth * 10, got / 1048576.0, total / 1048576.0));
+            }
+          } else if (got / (5L << 20) > said) {
+            said = got / (5L << 20);
+            System.out.println(String.format(java.util.Locale.ROOT, "Downloading: %.1f MB", got / 1048576.0));
+          }
+        }
+        return out.bytes();
+      } finally {
+        in.close();
+      }
+    }
+
+    /** A ByteArrayOutputStream whose bytes are its own array when it was filled exactly (no copy). */
+    static final class ExactBytes extends ByteArrayOutputStream {
+      ExactBytes(int size) {
+        super(size);
+      }
+
+      byte[] bytes() {
+        return this.count == this.buf.length ? this.buf : this.toByteArray();
+      }
+    }
+
+    static byte[] readAll(InputStream in) throws IOException {
+      try {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[65536];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        return out.toByteArray();
+      } finally {
+        in.close();
+      }
+    }
+
+    static void sleep(long ms) throws IOException {
+      try {
+        Thread.sleep(ms);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("Interrupted");
+      }
+    }
+
+    static String str(Object o) {
+      return o == null ? null : String.valueOf(o);
+    }
+
+    // ---- JSON: just what these calls need ----
+
+    public static String quote(String s) {
+      StringBuilder sb = new StringBuilder("\"");
+      for (int i = 0; i < s.length(); i++) {
+        char ch = s.charAt(i);
+        if (ch == '"' || ch == '\\') sb.append('\\').append(ch);
+        else if (ch == '\n') sb.append("\\n");
+        else if (ch == '\r') sb.append("\\r");
+        else if (ch == '\t') sb.append("\\t");
+        else if (ch < 0x20) sb.append(String.format("\\u%04x", Integer.valueOf(ch)));
+        else sb.append(ch);
+      }
+      return sb.append('"').toString();
+    }
+
+    static String number(double d) {
+      return d == Math.rint(d) && Math.abs(d) < 1e15 ? String.valueOf((long) d) : String.valueOf(d);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static String toJson(Object o) {
+      if (o == null) return "null";
+      if (o instanceof String) return quote((String) o);
+      if (o instanceof Double || o instanceof Float) return number(((Number) o).doubleValue());
+      if (o instanceof Number || o instanceof Boolean) return String.valueOf(o);
+      StringBuilder sb = new StringBuilder();
+      if (o instanceof Map) {
+        sb.append('{');
+        boolean first = true;
+        for (Map.Entry<String, Object> e : ((Map<String, Object>) o).entrySet()) {
+          if (!first) sb.append(',');
+          first = false;
+          sb.append(quote(e.getKey())).append(':').append(toJson(e.getValue()));
+        }
+        return sb.append('}').toString();
+      }
+      if (o instanceof List) {
+        sb.append('[');
+        boolean first = true;
+        for (Object v : (List<Object>) o) {
+          if (!first) sb.append(',');
+          first = false;
+          sb.append(toJson(v));
+        }
+        return sb.append(']').toString();
+      }
+      return quote(String.valueOf(o));
+    }
+
+    /** Maps, lists, strings, doubles, booleans and nulls. Throws IllegalArgumentException on bad JSON. */
+    public static Object parseJson(String text) {
+      int[] at = {0};
+      Object v = value(text, at);
+      skip(text, at);
+      if (at[0] != text.length()) throw new IllegalArgumentException("Trailing text in JSON at " + at[0]);
+      return v;
+    }
+
+    static Object value(String s, int[] at) {
+      skip(s, at);
+      if (at[0] >= s.length()) throw new IllegalArgumentException("JSON ended early");
+      char ch = s.charAt(at[0]);
+      if (ch == '{') {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        at[0]++;
+        skip(s, at);
+        if (s.charAt(at[0]) == '}') {
+          at[0]++;
+          return m;
+        }
+        while (true) {
+          skip(s, at);
+          String k = string(s, at);
+          skip(s, at);
+          expect(s, at, ':');
+          m.put(k, value(s, at));
+          skip(s, at);
+          if (s.charAt(at[0]) == ',') {
+            at[0]++;
+            continue;
+          }
+          expect(s, at, '}');
+          return m;
+        }
+      }
+      if (ch == '[') {
+        List<Object> l = new ArrayList<Object>();
+        at[0]++;
+        skip(s, at);
+        if (s.charAt(at[0]) == ']') {
+          at[0]++;
+          return l;
+        }
+        while (true) {
+          l.add(value(s, at));
+          skip(s, at);
+          if (s.charAt(at[0]) == ',') {
+            at[0]++;
+            continue;
+          }
+          expect(s, at, ']');
+          return l;
+        }
+      }
+      if (ch == '"') return string(s, at);
+      if (s.startsWith("true", at[0])) {
+        at[0] += 4;
+        return Boolean.TRUE;
+      }
+      if (s.startsWith("false", at[0])) {
+        at[0] += 5;
+        return Boolean.FALSE;
+      }
+      if (s.startsWith("null", at[0])) {
+        at[0] += 4;
+        return null;
+      }
+      int start = at[0];
+      while (at[0] < s.length() && "+-0123456789.eE".indexOf(s.charAt(at[0])) >= 0) at[0]++;
+      if (start == at[0]) throw new IllegalArgumentException("Bad JSON at " + start);
+      return Double.valueOf(s.substring(start, at[0]));
+    }
+
+    static String string(String s, int[] at) {
+      expect(s, at, '"');
+      StringBuilder sb = new StringBuilder();
+      while (at[0] < s.length()) {
+        char ch = s.charAt(at[0]++);
+        if (ch == '"') return sb.toString();
+        if (ch != '\\') {
+          sb.append(ch);
+          continue;
+        }
+        char e = s.charAt(at[0]++);
+        if (e == 'n') sb.append('\n');
+        else if (e == 't') sb.append('\t');
+        else if (e == 'r') sb.append('\r');
+        else if (e == 'b') sb.append('\b');
+        else if (e == 'f') sb.append('\f');
+        else if (e == 'u') {
+          sb.append((char) Integer.parseInt(s.substring(at[0], at[0] + 4), 16));
+          at[0] += 4;
+        } else sb.append(e);
+      }
+      throw new IllegalArgumentException("Unterminated JSON string");
+    }
+
+    static void skip(String s, int[] at) {
+      while (at[0] < s.length() && Character.isWhitespace(s.charAt(at[0]))) at[0]++;
+    }
+
+    static void expect(String s, int[] at, char ch) {
+      if (at[0] >= s.length() || s.charAt(at[0]) != ch) throw new IllegalArgumentException("Expected " + ch + " in JSON at " + at[0]);
+      at[0]++;
+    }
+
+    /** MiniMax H3 video LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] H3_LORAS = {
+      {"h3-mystic-xxx-v4", "Mystic X v4"},
+      {"h3-vbvr-video-reasoning", "VBVR Video Reasoning"},
+      {"h3-better-motion", "Better Motion"},
+      {"h3-natural-face-speech", "Natural Face & Speech"},
+      {"h3-combat-base-v2", "Combat Base V2"},
+    };
+
+    /** Krea 2 LoRAs Sogni offers (October 2026): id, then the name its app shows. */
+    public static final String[][] KREA2_LORAS = {
+      {"krea2-mystic-x", "Mystic X"}, {"krea2-realism-engine", "Realism Engine v3"}, {"krea2-skin-detail", "Skin Detail"},
+      {"krea2-breast", "Chest Size"}, {"krea2-weight", "Weight"}, {"krea2-height", "Height"}, {"krea2-age", "Age"},
+      {"krea2-hourglass-figure", "Figure"}, {"krea2-chest-firmness", "Natural Sag → Firm"}, {"krea2-filter-bypass-2", "Krea2FilterBypass 2vector"},
+      {"krea2-filter-bypass-3", "Krea2FilterBypass 3vector"}, {"krea2-detail-enhancer", "Detail Enhancer"}, {"krea2-amateur", "Professional ↔ Amateur"},
+      {"krea2-candid", "Editorial ↔ Candid"}, {"krea2-realism", "Illustrated ↔ Realistic"}, {"krea2-bloomgirls", "BloomGirls UltraRealism"},
+      {"krea2-aberrant", "Aberrant"}, {"krea2-afterlight", "Afterlight"}, {"krea2-purple-grainy", "Purple Grainy"},
+      {"krea2-scene-complexity", "Scene Complexity"}, {"krea2-skin-tone", "Skin Tone"}, {"krea2-warm-light", "Warm Light"},
+      {"krea2-wetness", "Wetness"}, {"krea2-zoom", "Zoom"}, {"krea2-nipple-projection", "Nipple Flat → Protruding"},
+    };
+
+    /**
+     * A LoRA list as typed in Params: entries separated by commas, semicolons or new lines, each an
+     * id with its strength (h3-better-motion:0.6) or the name Sogni's app shows (Better Motion 0.6,
+     * or Better Motion: 0.6). Several id:strength pairs may also share an entry, separated by spaces.
+     * Each result is {id, strength}: a name in `known` (any case, symbols ignored) becomes its id,
+     * anything else is kept as typed for the program to check; the strength is null when not given.
+     */
+    public static List<String[]> loraList(String text, String[][] known) {
+      List<String[]> out = new ArrayList<String[]>();
+      if (text == null) return out;
+      for (String entry : text.split("[,;\\r\\n]+")) {
+        String e = entry.trim();
+        if (e.length() == 0) continue;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(.*?)(?:\\s*:\\s*|\\s+)(-?\\d*\\.?\\d+)$").matcher(e);
+        String name = m.matches() ? m.group(1).trim() : e;
+        String strength = m.matches() ? m.group(2) : null;
+        String id = loraId(name, known);
+        if (id != null) {
+          out.add(new String[] {id, strength});
+          continue;
+        }
+        if (e.matches("[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?(\\s+[A-Za-z0-9][A-Za-z0-9._]*-[A-Za-z0-9._-]*(:-?\\d*\\.?\\d+)?)+")) {
+          // id:strength pairs separated by spaces (ids have hyphens; an unknown name is kept whole for the program to refuse).
+          for (String token : e.split("\\s+")) {
+            int colon = token.lastIndexOf(':');
+            String tid = colon > 0 ? token.substring(0, colon) : token;
+            String found = loraId(tid, known);
+            out.add(new String[] {found != null ? found : tid, colon > 0 ? token.substring(colon + 1) : null});
+          }
+          continue;
+        }
+        out.add(new String[] {name, strength});
+      }
+      return out;
+    }
+
+    /** The id for a LoRA's id or shown name in `known` (any case, symbols and spaces ignored), or null. */
+    public static String loraId(String name, String[][] known) {
+      String key = loraKey(name);
+      if (key.length() == 0 || known == null) return null;
+      for (String[] k : known) {
+        if (loraKey(k[0]).equals(key) || loraKey(k[1]).equals(key)) return k[0];
+      }
+      return null;
+    }
+
+    static String loraKey(String s) {
+      return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+    }
+
+    /** "Better Motion (h3-better-motion), ..." for a message: the names `known` gives. */
+    public static String loraNames(String[][] known) {
+      StringBuilder sb = new StringBuilder();
+      for (String[] k : known) sb.append(sb.length() > 0 ? ", " : "").append(k[1]).append(" (").append(k[0]).append(')');
+      return sb.toString();
+    }
+    /**
+     * The Sogni job id a made file carries in its metadata ("_sogni_job" in the prompt Sogni writes into
+     * a PNG/JPEG/WebP text chunk, an MP3's ID3 tag or an MP4's tags), or null. Plain, UTF-16 (ID3) and
+     * compressed (PNG zTXt/iTXt) text are read.
+     */
+    public static String jobIn(byte[] data) {
+      if (data == null) return null;
+      String job = jobAfter(data, data.length);
+      if (job != null) return job;
+      // UTF-16 text (ID3 frames): the same bytes without their zeros.
+      byte[] narrow = new byte[data.length];
+      int n = 0;
+      for (byte b : data) if (b != 0) narrow[n++] = b;
+      job = jobAfter(narrow, n);
+      if (job != null) return job;
+      // A PNG's compressed text chunks.
+      if (data.length > 8 && (data[0] & 0xff) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') {
+        int at = 8;
+        while (at + 8 <= data.length) {
+          int len = ((data[at] & 0xff) << 24) | ((data[at + 1] & 0xff) << 16) | ((data[at + 2] & 0xff) << 8) | (data[at + 3] & 0xff);
+          String type = new String(data, at + 4, 4, StandardCharsets.ISO_8859_1);
+          if (len < 0 || at + 8 + len > data.length) break;
+          if (type.equals("zTXt") || type.equals("iTXt")) {
+            int s = at + 8, end = s + len, k = s;
+            while (k < end && data[k] != 0) k++;
+            int from = -1;
+            if (type.equals("zTXt")) from = k + 2;
+            else if (k + 2 < end && data[k + 1] == 1) {
+              int z = k + 3;
+              for (int field = 0; field < 2 && z < end; z++) if (data[z] == 0) field++;
+              from = z;
+            }
+            if (from > s && from < end) {
+              byte[] text = inflate(data, from, end - from);
+              job = text == null ? null : jobAfter(text, text.length);
+              if (job != null) return job;
+            }
+          }
+          if (type.equals("IEND")) break;
+          at += 12 + len;
+        }
+      }
+      return null;
+    }
+
+    /** jobIn of a file's first and last 2 MB (an MP4's tags may be at its end). */
+    public static String jobIn(File f) {
+      if (f == null || !f.isFile()) return null;
+      try {
+        java.io.RandomAccessFile in = new java.io.RandomAccessFile(f, "r");
+        try {
+          long size = in.length();
+          int part = 2 * 1024 * 1024;
+          byte[] head = new byte[(int) Math.min(size, part)];
+          in.readFully(head);
+          String job = jobIn(head);
+          if (job != null || size <= part) return job;
+          byte[] tail = new byte[(int) Math.min(size - part, part)];
+          in.seek(size - tail.length);
+          in.readFully(tail);
+          return jobIn(tail);
+        } finally {
+          in.close();
+        }
+      } catch (IOException ex) {
+        return null;
+      }
+    }
+
+    /** The id after the first "_sogni_job" key in `data` (quotes, escapes, ':' and '=' skipped). */
+    static String jobAfter(byte[] data, int length) {
+      String text = new String(data, 0, length, StandardCharsets.ISO_8859_1);
+      for (int at = text.indexOf("_sogni_job"); at >= 0; at = text.indexOf("_sogni_job", at + 1)) {
+        int i = at + 10;
+        while (i < text.length() && "\"\\': =\t".indexOf(text.charAt(i)) >= 0) i++;
+        int s = i;
+        while (i < text.length() && (Character.isLetterOrDigit(text.charAt(i)) || text.charAt(i) == '-' || text.charAt(i) == '_') && text.charAt(i) < 128) i++;
+        if (i - s >= 8) return text.substring(s, i);
+      }
+      return null;
+    }
+
+    static byte[] inflate(byte[] data, int from, int length) {
+      java.util.zip.Inflater z = new java.util.zip.Inflater();
+      try {
+        z.setInput(data, from, length);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        while (!z.finished() && out.size() < 4 * 1024 * 1024) {
+          int n = z.inflate(buf);
+          if (n == 0 && (z.needsInput() || z.needsDictionary())) break;
+          out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+      } catch (java.util.zip.DataFormatException ex) {
+        return null;
+      } finally {
+        z.end();
+      }
+    }
+    /**
+     * An aspect ratio's size when no width and height are given: its short side 1080 pixels, the long one from
+     * the ratio (at most 2560), both multiples of 8 (16:9 is 1920x1080, 4:7 1080x1888). Null for no ratio.
+     */
+    public static int[] sizeFor(String aspect) {
+      if (aspect == null || !aspect.trim().matches("\\d{1,2}:\\d{1,2}")) return null;
+      String[] p = aspect.trim().split(":");
+      double a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+      if (a <= 0 || b <= 0) return null;
+      double w = a >= b ? 1080 * a / b : 1080, h = a >= b ? 1080 : 1080 * b / a;
+      double over = Math.max(w, h) / 2560.0;
+      if (over > 1) {
+        w /= over;
+        h /= over;
+      }
+      return new int[] {(int) Math.max(256, Math.round(w / 8.0) * 8), (int) Math.max(256, Math.round(h / 8.0) * 8)};
+    }
+
+    /** The %ar and %r codes of an output name for this run: the aspect ratio ("16x9") and the size ("1920x1080"). */
+    public static void sizeCodes(String aspect, int width, int height) {
+      System.setProperty("pulsekit.ar", aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "");
+      System.setProperty("pulsekit.res", width > 0 && height > 0 ? width + "x" + height : "");
+    }
+
+    /**
+     * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
+     * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
+     * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
+     * (pulsekit.outdir), has as its name (any extension): Image%n is Image1,
+     * then Image2. The extension, when one is typed, stays; the program adds its own otherwise.
+     */
+    public static String fillName(String name, File dir) {
+      if (name == null || name.indexOf('%') < 0) return name;
+      java.util.Calendar now = java.util.Calendar.getInstance();
+      String one = fillCodes(name, now, 1);
+      if (one.equals(fillCodes(name, now, 2))) return one;
+      for (int n = 1; n < 100000; n++) {
+        String made = fillCodes(name, now, n);
+        if (!nameTaken(dir, made) && !takenInOutDirs(made) && !givenBefore(made)) {
+          given(made);
+          return made;
+        }
+      }
+      return one;
+    }
+
+    /**
+     * The names %n has given in this process (a batch's runs: their files may go to a folder %n cannot
+     * see, or be moved away): kept in a system property, as each program has its own copy of this class.
+     */
+    static synchronized boolean givenBefore(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      return ("\n" + all + "\n").contains("\n" + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "\n");
+    }
+
+    static synchronized void given(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      System.setProperty("pulsekit.given", (all.isEmpty() ? "" : all + "\n") + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", ""));
+    }
+
+    /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
+    static boolean nameTaken(File dir, String name) {
+      File f = new File(name);
+      File in = f.isAbsolute() ? f.getParentFile() : f.getParent() == null ? dir : new File(dir, f.getParent());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+      String[] all = in == null ? null : in.list();
+      if (all == null) return false;
+      for (String one : all) {
+        String s = one.replaceAll("\\.[A-Za-z0-9]{1,5}$", "");
+        if (s.equals(stem) || s.startsWith(stem + "_Variated") || s.startsWith(stem + "(")) return true;
+      }
+      return false;
+    }
+
+    /** A file of that name (any extension) in one of the folders Pulsekit saves results in (pulsekit.outdir or PULSEKIT_OUTDIR, path separated). */
+    static boolean takenInOutDirs(String name) {
+      String dirs = System.getProperty("pulsekit.outdir");
+      if (dirs == null || dirs.length() == 0) dirs = System.getenv("PULSEKIT_OUTDIR");
+      if (dirs == null || dirs.length() == 0) return false;
+      for (String d : dirs.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+        if (d.length() > 0 && nameTaken(new File(d), new File(name).getName())) return true;
+      }
+      return false;
+    }
+
+    /** The % codes filled in, n as `n`. */
+    static String fillCodes(String pattern, java.util.Calendar now, int n) {
+      StringBuilder out = new StringBuilder();
+      for (int i = 0; i < pattern.length(); i++) {
+        char c = pattern.charAt(i);
+        if (c != '%') {
+          out.append(c);
+          continue;
+        }
+        if (i + 1 < pattern.length() && pattern.charAt(i + 1) == '%') {
+          out.append('%');
+          i++;
+          continue;
+        }
+        int j = i + 1;
+        while (j < pattern.length()) {
+          String rest = pattern.substring(j);
+          if (rest.startsWith("ar")) {
+            out.append(System.getProperty("pulsekit.ar", ""));
+            j += 2;
+          } else if (rest.startsWith("r")) {
+            out.append(System.getProperty("pulsekit.res", ""));
+            j += 1;
+          } else if (rest.startsWith("yyyy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
+            j += 4;
+          } else if (rest.startsWith("yy")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.YEAR) % 100));
+            j += 2;
+          } else if (rest.startsWith("dd")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.DAY_OF_MONTH)));
+            j += 2;
+          } else if (rest.startsWith("d")) {
+            out.append(now.get(java.util.Calendar.DAY_OF_MONTH));
+            j += 1;
+          } else if (rest.startsWith("mm")) {
+            out.append(String.format(java.util.Locale.ROOT, "%02d", now.get(java.util.Calendar.MONTH) + 1));
+            j += 2;
+          } else if (rest.startsWith("m")) {
+            out.append(now.get(java.util.Calendar.MONTH) + 1);
+            j += 1;
+          } else if (rest.startsWith("n")) {
+            out.append(n);
+            j += 1;
+          } else {
+            break;
+          }
+        }
+        if (j == i + 1) out.append('%');
+        // %n% (as %g% is written): the % closing the codes is not part of the name.
+        else if (j < pattern.length() && pattern.charAt(j) == '%' && !(j + 1 < pattern.length() && pattern.charAt(j + 1) == '%')) j++;
+        i = j - 1;
+      }
+      return out.toString();
+    }
+
+    /** A variation's name (--variations): the first as named, then <name>_Variated2, _Variated3... */
+    public static String variationName(String name, int v) {
+      return v == 0 ? name : name + "_Variated" + (v + 1);
+    }
+
+    // --- SogniApi end ---
+  }
+}

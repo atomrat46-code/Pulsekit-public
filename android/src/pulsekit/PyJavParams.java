@@ -113,9 +113,16 @@ public final class PyJavParams {
     });
     // Where each row's views start in the page (vst_render's rows then go onto its tabs).
     final int[] rowStarts = new int[ps.size()];
+    // Run sections… (Sogni programs): above Variations; what it does is set once the Params' OK is made, below.
+    final Runnable[] runPick = new Runnable[1];
+    boolean runPlaced = false;
     for (int i = 0; i < ps.size(); i++) {
       final ProgramParams.Param p = ps.get(i);
       final int index = i;
+      if (SogniSections.shown(name) && !runPlaced && p.token.equals("--variations")) {
+        box.addView(runSectionsButton(activity, runPick));
+        runPlaced = true;
+      }
       rowStarts[i] = box.getChildCount();
       if (p.flag && !p.takesValue) {
         android.widget.CheckBox check = new android.widget.CheckBox(activity);
@@ -139,6 +146,18 @@ public final class PyJavParams {
         for (View b : clipButtons(activity, name, p.token, () -> fields[index])) withClip.addView(b);
         // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
         if (p.token.equals("--prompt")) for (View b : markButtons(activity, SogniSections.app(name), ps, fields)) withClip.addView(b);
+        // SC: Section Collection (the program's sections in groups).
+        if (p.token.equals("--prompt") && SogniSections.shown(name)) {
+          android.widget.Button sc = clipButton(activity, SectionCollection.BUTTON, "params-collection");
+          sc.setContentDescription(SectionCollection.BUTTON_TIP);
+          // (The LoRAs row as it is now: Add new section lists it first.)
+          sc.setOnClickListener(v -> {
+            String loras = "";
+            for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals("--loras") && fields[k] != null) loras = ProgramParams.oneLine(fields[k].getText().toString());
+            SectionCollectionScreen.show(activity, SogniSections.app(name), loras, ps, null);
+          });
+          withClip.addView(sc);
+        }
         box.addView(withClip);
       } else {
         box.addView(label);
@@ -160,6 +179,8 @@ public final class PyJavParams {
         path.setSingleLine(true);
         path.setHint(p.hint);
         path.setText(values[i]);
+        // A long path: a tap puts the cursor at its end (where codes are added), the end shown.
+        endOnTap(path);
         path.addTextChangedListener(new android.text.TextWatcher() {
           public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
 
@@ -457,6 +478,50 @@ public final class PyJavParams {
         box.addView(spaced(activity, row));
         continue;
       }
+      if (InputGroup.TOKEN.equals(p.token)) {
+        // Input group: typed, or picked from the program's groups (Browse groups).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button groups = new android.widget.Button(activity);
+        groups.setText(InputGroup.BROWSE);
+        groups.setTag("params-input-group:" + p.token);
+        final String forApp = SogniSections.app(name);
+        groups.setOnClickListener(v -> {
+          try {
+            final java.util.List<String> picks = SectionCollection.groupPicks(PromptVault.open(activity.getFilesDir()), forApp);
+            lastGroups = new AlertDialog.Builder(activity).setTitle(forApp + ": " + SectionCollection.GROUP).setItems(picks.toArray(new String[0]), (d, w) -> target.setText(picks.get(w)))
+                .setNegativeButton("Cancel", null).show();
+          } catch (Exception ex) {
+            android.widget.Toast.makeText(activity, "Could not read the groups: " + ex.getMessage(), 1).show();
+          }
+        });
+        row.addView(groups);
+        box.addView(spaced(activity, row));
+        continue;
+      }
+      if (Chain.batchTextRow(p)) {
+        // Batch prompt's text: typed, or from a text file (Select file) or a saved section (Browse sections).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button select = new android.widget.Button(activity);
+        select.setText("Select file");
+        select.setTag("params-batch-file:" + p.token);
+        select.setOnClickListener(v -> pickPromptFile(activity, target));
+        row.addView(select);
+        android.widget.Button secs = new android.widget.Button(activity);
+        secs.setText(Chain.BROWSE_SECTIONS);
+        secs.setTag("params-batch-sections:" + p.token);
+        secs.setOnClickListener(v -> {
+          if (activity instanceof MainActivity) TextOffer.pickSection((MainActivity) activity, target);
+        });
+        row.addView(secs);
+        box.addView(spaced(activity, row));
+        continue;
+      }
       if (ProgramParams.promptFromFile(p)) {
         // The prompt from a text file (an Answer Prompt 1.txt made by Extract prompt): Select file or Browse DB.
         box.addView(field);
@@ -629,15 +694,6 @@ public final class PyJavParams {
       });
       box.addView(backButton, 0);
     }
-    if (SogniSections.shown(name)) {
-      // Export (Save is the window's button): the rows Save keeps, written into a file picked.
-      android.widget.Button export = new android.widget.Button(activity);
-      export.setText(ParamsClip.EXPORT);
-      export.setTag("params-export-section");
-      export.setAllCaps(false);
-      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
-      box.addView(export);
-    }
     ScrollView scroll = new ScrollView(activity);
     scroll.addView(box);
     shownFor = name;
@@ -656,6 +712,8 @@ public final class PyJavParams {
         store(activity, name + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         String switches = ProgramParams.build(ps, values);
+        // The Output name kept too: Select program starts the argument line from the usage (it was lost there).
+        store(activity, name + ProgramParams.OUTPUT_KEY, ProgramParams.outputValue(ps, values));
         // The prompt kept among the program's six last (Recent prompts).
         for (int i = 0; i < ps.size(); i++) if (ProgramParams.promptFromFile(ps.get(i))) PromptHistory.add(activity.getFilesDir(), name, values[i]);
         activity.getSharedPreferences(PREFS, 0).edit().putString(name, switches).apply();
@@ -681,16 +739,13 @@ public final class PyJavParams {
     };
     if (SogniSections.shown(name)) {
       // Run sections…: several sections (or a group) picked, the program run with each in turn; the Params close as with OK.
-      android.widget.Button runSections = new android.widget.Button(activity);
-      runSections.setText(SogniSections.RUN);
-      runSections.setTag("params-run-sections");
-      runSections.setAllCaps(false);
-      runSections.setOnClickListener(v -> pickRunSections(activity, SogniSections.app(name), picked -> {
+      runPick[0] = () -> pickRunSections(activity, SogniSections.app(name), picked -> {
         save.onClick(self[0], android.content.DialogInterface.BUTTON_POSITIVE);
         if (self[0] != null) self[0].dismiss();
         if (activity instanceof MainActivity && ((MainActivity) activity).pyJav != null) ((MainActivity) activity).pyJav.pkRunSections(name, ps, picked);
-      }));
-      box.addView(runSections);
+      });
+      // (A program without Variations: at the end.)
+      if (!runPlaced) box.addView(runSectionsButton(activity, runPick));
     }
     // Instrument sessions: ticking one unticks the others, unless Multi-instrument session is ticked.
     // (A folder row's Use box counts as its tick: Add to the AudioMixer and DrumMidi's folder untick each other.)
@@ -728,7 +783,23 @@ public final class PyJavParams {
         .show();
     self[0] = shown;
     android.widget.Button saveSection = shown.getButton(AlertDialog.BUTTON_NEUTRAL);
-    if (saveSection != null && SogniSections.shown(name)) saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+    if (saveSection != null && SogniSections.shown(name)) {
+      saveSection.setOnClickListener(v -> saveSection(activity, SogniSections.app(name), ps, fields));
+      // Held: Save as (the section form), whatever section was loaded.
+      saveSection.setOnLongClickListener(v -> {
+        saveAs(activity, SogniSections.app(name), ps, fields);
+        return true;
+      });
+    }
+    // Export: in the window's buttons, between Save and Cancel (the rows Save keeps, written into a file picked).
+    if (saveSection != null && SogniSections.shown(name) && saveSection.getParent() instanceof android.view.ViewGroup) {
+      android.widget.Button export = new android.widget.Button(activity, null, android.R.attr.buttonBarButtonStyle);
+      export.setText(ParamsClip.EXPORT);
+      export.setTag("params-export-section");
+      export.setOnClickListener(v -> exportSection(activity, SogniSections.app(name), ps, fields));
+      android.view.ViewGroup bar = (android.view.ViewGroup) saveSection.getParent();
+      bar.addView(export, bar.indexOfChild(saveSection) + 1);
+    }
   }
 
   /** The tests: Export's file (else the system's save dialog), Paste's answer (true: replace), Send's program and answer. */
@@ -738,6 +809,8 @@ public final class PyJavParams {
   static Boolean sendYes;
   static volatile String clipSaid = "";
   static AlertDialog lastClip;
+  /** The tests: Input group's list of groups shown last. */
+  static AlertDialog lastGroups;
 
   static void clipSay(Activity activity, String text) {
     clipSaid = text;
@@ -876,6 +949,23 @@ public final class PyJavParams {
     return java.util.Arrays.<View>asList(copy, paste, send);
   }
 
+  /** A one-line field whose text is long (a folder's address): the cursor goes to its end when it is tapped or gets focus. */
+  static void endOnTap(final EditText f) {
+    f.setOnFocusChangeListener((v, has) -> {
+      if (!has) return;
+      f.setSelection(f.getText().length());
+      f.post(() -> f.setSelection(f.getText().length()));
+    });
+    // (A tap on a field that has the focus already: to the end too, unless text is selected.)
+    f.setOnClickListener(v -> {
+      if (f.getSelectionStart() != f.getSelectionEnd()) return;
+      f.setSelection(f.getText().length());
+      f.post(() -> {
+        if (f.getSelectionStart() == f.getSelectionEnd()) f.setSelection(f.getText().length());
+      });
+    });
+  }
+
   static android.widget.Button clipButton(Activity activity, String symbol, String tag) {
     android.widget.Button b = new android.widget.Button(activity, null, android.R.attr.buttonStyleSmall);
     b.setText(symbol);
@@ -883,9 +973,10 @@ public final class PyJavParams {
     b.setAllCaps(false);
     b.setMinWidth(0);
     b.setMinimumWidth(0);
-    b.setPadding(dp(activity, 8), 0, dp(activity, 8), 0);
+    // Narrow: the prompt row has Copy, Paste, Send, ★, G and SC after its label.
+    b.setPadding(dp(activity, 5), 0, dp(activity, 5), 0);
     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    lp.leftMargin = dp(activity, 4);
+    lp.leftMargin = dp(activity, 2);
     b.setLayoutParams(lp);
     return b;
   }
@@ -916,26 +1007,80 @@ public final class PyJavParams {
   }
 
   /** Save: the rows kept as the program's section, unless the same one is saved already. True when they are saved now. */
-  static boolean saveSection(Activity activity, String program, List<ProgramParams.Param> ps, EditText[] fields) {
-    java.util.Map<String, String> now = sectionFields(ps, fields);
+  /** Save's overwrite question shown last (the tests). */
+  static AlertDialog lastOverwrite;
+
+  static boolean saveSection(final Activity activity, final String program, final List<ProgramParams.Param> ps, EditText[] fields) {
+    final java.util.Map<String, String> now = sectionFields(ps, fields);
     if (now.isEmpty()) {
       sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
       return false;
     }
     try {
-      PromptVault vault = PromptVault.open(activity.getFilesDir());
-      String text = SogniSections.text(now);
+      final PromptVault vault = PromptVault.open(activity.getFilesDir());
+      final String text = SogniSections.text(now);
       PromptVault.SogniSection same = vault.findSogniSection(program, text);
       if (same != null) {
+        SogniSections.current(program, same);
         sectionSay(activity, "This section is saved already: " + SogniSections.label(same));
         return true;
       }
+      // Entries that differ from the section loaded (or saved last): saved over it, or a new one through the section form.
+      final PromptVault.SogniSection cur = SogniSections.current(vault, program);
+      if (cur != null) {
+        lastOverwrite = new AlertDialog.Builder(activity).setTitle(SogniSections.SAVE).setMessage(SogniSections.overwriteAsk(cur))
+            .setPositiveButton(SogniSections.OVERWRITE, (d, w) -> {
+              try {
+                PromptVault.open(activity.getFilesDir()).updateSogniSection(cur.id, text);
+                sectionSay(activity, "Saved over: " + SogniSections.label(cur));
+              } catch (Exception ex) {
+                sectionSay(activity, "Could not save the section: " + ex.getMessage());
+              }
+            })
+            .setNeutralButton(SogniSections.SAVE_NEW, (d, w) -> saveAs(activity, program, ps, now))
+            .setNegativeButton("Cancel", null).show();
+        return false;
+      }
       PromptVault.SogniSection sec = vault.addSogniSection(program, text);
+      SogniSections.current(program, sec);
       sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(sec));
       return true;
     } catch (Exception ex) {
       sectionSay(activity, "Could not save the section: " + ex.getMessage());
       return false;
+    }
+  }
+
+  /** Save held: Save as, the section form with the entries now (a new section, whatever was loaded). */
+  static void saveAs(final Activity activity, final String program, final List<ProgramParams.Param> ps, EditText[] fields) {
+    java.util.Map<String, String> now = sectionFields(ps, fields);
+    if (now.isEmpty()) {
+      sectionSay(activity, "Nothing to save: the prompt and the other rows are empty");
+      return;
+    }
+    saveAs(activity, program, ps, now);
+  }
+
+  /** The section form with `now` filled in; OK adds it as a new section (the current one after). */
+  static void saveAs(final Activity activity, final String program, final List<ProgramParams.Param> ps, final java.util.Map<String, String> now) {
+    try {
+      PromptVault vault = PromptVault.open(activity.getFilesDir());
+      SectionCollection.Form init = SectionCollection.formOf(now);
+      SectionCollectionScreen.form(activity, SectionCollection.ADD_SECTION, init, SectionCollection.lorasFor(vault, program, "", init),
+          SectionCollection.groupPicks(vault, program), ps, f -> {
+            try {
+              String bad = SectionCollection.add(PromptVault.open(activity.getFilesDir()), program, f);
+              if (bad != null) sectionSay(activity, bad);
+              else {
+                SogniSections.current(program, SectionCollection.lastAdded);
+                sectionSay(activity, "Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
+              }
+            } catch (Exception ex) {
+              sectionSay(activity, "Could not save the section: " + ex.getMessage());
+            }
+          });
+    } catch (Exception ex) {
+      sectionSay(activity, "Could not save the section: " + ex.getMessage());
     }
   }
 
@@ -1038,7 +1183,8 @@ public final class PyJavParams {
     sc.setContentDescription(SectionCollection.BUTTON_TIP);
     sc.setOnClickListener(v -> {
       if (lastSections != null) lastSections.dismiss();
-      SectionCollectionScreen.show(activity, program, () -> browseSections(activity, program, ps, fields));
+      SectionCollectionScreen.show(activity, program, load(activity, program + ".java") == null ? "" : SectionCollection.lorasIn(load(activity, program + ".java")), ps,
+          () -> browseSections(activity, program, ps, fields));
     });
     top.addView(sc);
     box.addView(top);
@@ -1389,11 +1535,24 @@ public final class PyJavParams {
       String v = f.get(ps.get(i).token);
       fields[i].setText(v == null ? "" : v);
     }
+    SogniSections.current(sec.app, sec);
     sectionSay(activity, "Loaded: " + SogniSections.label(sec));
   }
 
+  /** Run sections… as a button: what `run` holds when pressed. */
+  static android.widget.Button runSectionsButton(Activity activity, final Runnable[] run) {
+    android.widget.Button b = new android.widget.Button(activity);
+    b.setText(SogniSections.RUN);
+    b.setTag("params-run-sections");
+    b.setAllCaps(false);
+    b.setOnClickListener(v -> {
+      if (run[0] != null) run[0].run();
+    });
+    return b;
+  }
+
   /** Run sections…' picker shown last, and the tests' answer (the sections in, the indexes to run out; null: asked). */
-  static AlertDialog lastRunPick;
+  static AlertDialog lastRunPick, lastRunFull;
   static java.util.function.Function<List<PromptVault.SogniSection>, int[]> runSectionsAnswer;
 
   /** Run sections…' picker: the program's sections ticked by hand, or by favourites or a group; `go` gets the ones ticked. */
@@ -1437,6 +1596,12 @@ public final class PyJavParams {
         .setNeutralButton("Pick\u2026", null)
         .setNegativeButton("Cancel", null).show();
     lastRunPick = dlg[0];
+    // Held: the section shown whole.
+    dlg[0].getListView().setOnItemLongClickListener((parent, view, position, id) -> {
+      lastRunFull = new AlertDialog.Builder(activity).setTitle(SogniSections.label(all.get(position))).setMessage(SogniSections.full(all.get(position)))
+          .setPositiveButton("Close", null).show();
+      return true;
+    });
     // Pick…: none, the favourites or a group ticked at once.
     dlg[0].getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> new AlertDialog.Builder(activity).setTitle(SogniSections.RUN_ASK)
         .setItems(picks.toArray(new String[0]), (d2, w2) -> {

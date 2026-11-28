@@ -341,6 +341,12 @@ final class PyJav {
         String out = pulsekit.PyJavHints.outputFile(this.pkPyInputPath, hint, dir.getAbsolutePath());
         // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
         String filled = pulsekit.PyJavHints.fillArgs("", hint, this.pkPyInputToken, this.pkPyInputPath, dir.getAbsolutePath());
+        // The Output name given in its Params last, back in (the usage alone had lost it).
+        String keptOut = PyJavParams.load(app, app.pyName + pulsekit.ProgramParams.OUTPUT_KEY);
+        if (keptOut != null && !keptOut.isEmpty() && app.pyName != null && app.pyName.endsWith(".java")) {
+            String text = PyJavParams.programTextOf(app, app.pyName);
+            if (text != null) filled = pulsekit.ProgramParams.withOutput(pulsekit.ProgramParams.parse(text), filled, keptOut);
+        }
         if (this.pkPyArgs != null) this.pkPyArgs.setText(filled);
         if (out.length() > 0) {
             this.pkPyOutputPath = out;
@@ -384,6 +390,9 @@ final class PyJav {
         if (!this.pkRecentAsRun) {
             String saved = pulsekit.PyJavParams.load(app, item.name);
             if (saved != null) args = pulsekit.ProgramParams.withSaved(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, saved);
+            // The Output name as its Params have it now (the last run's line may have had none, or another).
+            String keptOut = pulsekit.PyJavParams.load(app, item.name + pulsekit.ProgramParams.OUTPUT_KEY);
+            if (keptOut != null) args = pulsekit.ProgramParams.withOutput(pulsekit.ProgramParams.parse(pulsekit.PyJavHints.programText(item.name, source, binary ? app.pkPyBytes : null)), args, keptOut, true);
         }
         this.pkRecentAsRun = false;
         if (this.pkPyArgs != null) this.pkPyArgs.setText(args);
@@ -512,12 +521,17 @@ final class PyJav {
         this.pkPromptModes.setVisibility(8);
         this.pkSetPromptRun(this.pkPromptRun == null ? "bash" : this.pkPromptRun);
         slot = slot + 1;
-        app.pyPane.addView(app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app)), slot);
-        slot = slot + 1;
+        // Browse file and Params side by side (a gap between them).
+        android.widget.LinearLayout fileRow = new android.widget.LinearLayout(app);
+        fileRow.setOrientation(0);
+        android.widget.TextView browseBtn = app.action("Browse file", ELEV, FG, pulsekit.PyJavUi.browse(app));
+        browseBtn.setTag("pyjav-browse");
         // Params and Run apart, and in different colours: a tap meant for Params no longer starts a run.
         android.widget.TextView paramsBtn = app.action("Params", ELEV, FG, pulsekit.PyJavUi.params(app));
         paramsBtn.setTag("pyjav-params");
-        app.pyPane.addView(paramsBtn, slot);
+        fileRow.addView(browseBtn, pkHalf(false));
+        fileRow.addView(paramsBtn, pkHalf(true));
+        app.pyPane.addView(fileRow, slot);
         slot = slot + 1;
         android.widget.TextView runBtn = app.action("Run", FG, BG, pulsekit.PyJavUi.click(app));
         runBtn.setTag("pyjav-run");
@@ -529,7 +543,20 @@ final class PyJav {
         this.pkStopBtn = app.action("Stop", ELEV, FG, v -> this.pkStopRun());
         this.pkStopBtn.setTag("pyjav-stop");
         this.pkStopBtn.setVisibility(this.pkLive != null && !this.pkLive.done && !this.pkLive.aborted() ? 0 : 8);
-        app.pyPane.addView(this.pkStopBtn, slot);
+        // Stop batch beside it (BatchRun's runs end after the one in progress); either alone takes the row.
+        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkAskStopBatch());
+        this.pkBatchStopBtn.setTag("pyjav-batch-stop");
+        this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
+        // A batch kept from before (no connection, Android stopped Pulsekit): offered to go on with, once a start.
+        if (!pkResumeOffered) {
+            pkResumeOffered = true;
+            app.handler.postDelayed(this::pkOfferResume, 1500);
+        }
+        android.widget.LinearLayout stopRow = new android.widget.LinearLayout(app);
+        stopRow.setOrientation(0);
+        stopRow.addView(this.pkStopBtn, pkHalf(false));
+        stopRow.addView(this.pkBatchStopBtn, pkHalf(true));
+        app.pyPane.addView(stopRow, slot);
         slot = slot + 1;
         // Return: back to what opened this program (the Media browser, for Upscale/resize image).
         this.pkReturnBtn = app.action("Return to Media browser", ELEV, FG, v -> this.pkDoReturn());
@@ -543,12 +570,6 @@ final class PyJav {
         app.pyPane.addView(this.pkBackBtn, slot);
         slot = slot + 1;
         this.pkShowBack();
-        // Stop batch: BatchRun's runs end after the one in progress.
-        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
-        this.pkBatchStopBtn.setTag("pyjav-batch-stop");
-        this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
-        app.pyPane.addView(this.pkBatchStopBtn, slot);
-        slot = slot + 1;
         // The run's output, set apart under its own headline.
         android.widget.TextView outHead = app.text("Output", 13, true);
         outHead.setTag("pyjav-output-head");
@@ -573,6 +594,30 @@ final class PyJav {
             return true;
         });
         app.pyPane.addView(this.pkPyLog, slot);
+    }
+
+    /**
+     * Back on a program while a run or batch goes: the code window gives up the cursor (it is not needed
+     * meanwhile) and the page shows the run's buttons, status and the output from its start.
+     */
+    void pkScrollToRun() {
+        if (!this.pkRunGoing() && pulsekit.BatchQueue.current() == null) return;
+        if (app.pyEditor != null && app.pyEditor.hasFocus()) app.pyEditor.clearFocus();
+        final android.view.View anchor = this.pkPyHint != null ? this.pkPyHint : this.pkPyLog;
+        if (anchor == null) return;
+        anchor.post(() -> {
+            android.view.ViewParent up = anchor.getParent();
+            android.view.View child = anchor;
+            int y = anchor.getTop();
+            while (up != null && !(up instanceof android.widget.ScrollView)) {
+                if (up instanceof android.view.View) {
+                    child = (android.view.View) up;
+                    y += child.getTop();
+                }
+                up = up.getParent();
+            }
+            if (up instanceof android.widget.ScrollView) ((android.widget.ScrollView) up).scrollTo(0, Math.max(0, y - app.dp(8)));
+        });
     }
 
     /** The Output menu shown last (for the tests). */
@@ -1105,6 +1150,11 @@ final class PyJav {
 
     /** SogniMusic's test without drums: Run anyway was pressed (the next run goes on), and the question, for the tests. */
     boolean pkDrumsWarned;
+    /** The tests: the thread saving a folder run's answers (joined before looking). */
+    static volatile Thread pkAnswersThread;
+    /** SogniChat's questions before a run (Auto render with no Send to program; Silent auto mode's empty fields), and their answers. */
+    android.app.AlertDialog pkAskChat;
+    boolean pkChatNoAuto, pkChatAsked;
     android.app.AlertDialog pkAskDrums;
 
     /** Run was answered Yes ("run a new session while the current task is incomplete"): the next check passes. */
@@ -1305,6 +1355,11 @@ final class PyJav {
     static pulsekit.JavaRun.Result lastPlsRun;
 
     public void pkRunPyJav() {
+        // A run started here (not by a batch) while a batch has no run going: that batch was left behind
+        // (its run never came back: Android stopped Pulsekit, or the run did not start); it is ended.
+        boolean byBatch = this.pkFromBatch;
+        this.pkFromBatch = false;
+        if (!byBatch) this.pkEndStaleBatch(null);
         if (this.pkMustWait(app.pyName, true)) return;
         // A playlist: PlayList.java plays it.
         if (app.pyName != null && app.pyName.toLowerCase().endsWith(".pls")) {
@@ -1346,6 +1401,48 @@ final class PyJav {
         String savedNow = pulsekit.PyJavParams.load(app, name);
         String field = extra;
         extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, savedNow);
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns);
+        // its Input group: each section of the group (Run sections); both set: asked which (not within a batch's run).
+        final java.util.List<String> given = pulsekit.JavaRun.split(extra);
+        boolean ownRun = pulsekit.BatchQueue.runOf(name) == null;
+        final String inGroup = ownRun && pulsekit.FolderRuns.wanted(name) ? pulsekit.InputGroup.of(given) : null;
+        final boolean inFolder = ownRun && pulsekit.FolderRuns.folderRun(name, given);
+        if (inGroup != null || inFolder) {
+            String choice = this.pkInputChoice;
+            this.pkInputChoice = null;
+            if (inGroup != null && inFolder && choice == null) {
+                final String[] picks = {pulsekit.InputGroup.BOTH, pulsekit.InputGroup.FOLDER, pulsekit.InputGroup.GROUP};
+                pkInputAsk = new android.app.AlertDialog.Builder(app).setTitle(pulsekit.InputGroup.ASK).setItems(picks, (d, w) -> {
+                    this.pkInputChoice = picks[w];
+                    this.pkRunPyJav();
+                }).setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+                return;
+            }
+            boolean doGroup = inGroup != null && !pulsekit.InputGroup.FOLDER.equals(choice);
+            boolean doFolder = inFolder && !pulsekit.InputGroup.GROUP.equals(choice);
+            if (doGroup) {
+                java.util.List<pulsekit.PromptVault.SogniSection> secs;
+                try {
+                    secs = pulsekit.InputGroup.sections(pulsekit.PromptVault.open(app.getFilesDir()), name, inGroup);
+                } catch (Exception ex) {
+                    secs = new java.util.ArrayList<pulsekit.PromptVault.SogniSection>();
+                }
+                if (secs.isEmpty()) {
+                    this.pkAddLogLine(pulsekit.SogniSections.app(name) + ": no sections in group " + inGroup);
+                    if (!doFolder) return;
+                } else {
+                    final java.util.List<pulsekit.ProgramParams.Param> rp = runParams;
+                    final String folderProgram = name;
+                    // Both: the folder's runs after the group's (when it was not stopped).
+                    if (doFolder) this.pkAfterBatch = () -> this.pkStartFolderRun(folderProgram, rp, given);
+                    this.pkAddLogLine("Group " + inGroup + ": " + secs.size() + " section" + (secs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(name));
+                    this.pkRunSections(name, runParams, secs);
+                    return;
+                }
+            }
+            this.pkStartFolderRun(name, runParams, given);
+            return;
+        }
         // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
         if (savedNow != null && pulsekit.ProgramParams.typed(runParams, field).length() > 0)
             pulsekit.PyJavParams.store(app, name, pulsekit.ProgramParams.build(runParams, pulsekit.ProgramParams.values(runParams, pulsekit.ProgramParams.typed(runParams, extra), "")));
@@ -1406,6 +1503,37 @@ final class PyJav {
         while (argv.remove(pulsekit.PromptKeep.SAVE_RUN)) this.pkSaveRun = true;
         // Params' Destination subfolder: taken off too, kept with the run's download (Downloads' Move uses it).
         final String subPattern = pulsekit.DownloadMove.takeSub(argv);
+        // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
+        // there instead of Download (the folder's % codes filled in once, at the batch's first run).
+        String batchPattern = pulsekit.DownloadMove.takeBatch(argv);
+        // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
+        ArtJava.rawTextOff = !pulsekit.ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? PyJavParams.programTextOf(app, name) : null, argv);
+        pulsekit.BatchQueue inBatchQ = pulsekit.BatchQueue.runOf(name);
+        // A run of its own (not a batch's): its Picture ready or Video ready has no Back.
+        if (inBatchQ == null && !name.equals(ReadyBack.forProgram)) ReadyBack.clear();
+        // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
+        String groupPattern = pulsekit.DownloadMove.takeValue(argv, pulsekit.DownloadMove.BATCH_GROUP);
+        // Params' Usage warning: read before a batch (pkBatchNext), not the program's.
+        pulsekit.DownloadMove.takeValue(argv, pulsekit.SogniUsage.WARN_PARAM);
+        // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
+        pulsekit.Chain.forChat(name, argv);
+        pulsekit.Chain.strip(argv);
+        pulsekit.InputGroup.strip(argv);
+        // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
+        pulsekit.TextReady.takeAutoExclude(app.getFilesDir(), name, argv);
+        if (inBatchQ != null && groupPattern.length() > 0) {
+            if (inBatchQ.group == null) inBatchQ.group = pulsekit.BatchGroup.resolve(app.getFilesDir(), groupPattern);
+            java.util.List<String> groupFilled = pulsekit.BatchGroup.withGroup(pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)), argv, inBatchQ.group);
+            if (groupFilled != argv) {
+                argv.clear();
+                argv.addAll(groupFilled);
+            }
+        }
+        ArtJava.batchSub = null;
+        if (inBatchQ != null && batchPattern.length() > 0) {
+            if (inBatchQ.outFolder == null) inBatchQ.outFolder = ArtJava.subOf(pulsekit.DownloadMove.sizeCodes(batchPattern, argv));
+            ArtJava.batchSub = inBatchQ.outFolder;
+        }
         // A prompt sheet's run: its mode, reference files and output name (as on the desktop, only for a
         // .prompt: ImageUpscaler opened after one was given the sheet's files too).
         if (name.toLowerCase().endsWith(".prompt")) {
@@ -1426,6 +1554,39 @@ final class PyJav {
             }
         } catch (Exception ignored) {
             // the program says what it misses
+        }
+        // SogniChat: Run without Auto render chosen (its Send to program empty): both auto rows left out of this run.
+        if (this.pkChatNoAuto) pulsekit.ChatFolder.withoutAuto(argv);
+        this.pkChatNoAuto = false;
+        // Auto render with no Send to program: run without it, or choose the program (kept in the Params).
+        if (pulsekit.ChatFolder.autoWithoutProgram(name, argv)) {
+            final String chatName = name;
+            this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Auto render").setMessage(pulsekit.ChatFolder.AUTO_NO_PROGRAM)
+                .setPositiveButton(pulsekit.ChatFolder.RUN_WITHOUT_AUTO, (d, w) -> {
+                    this.pkChatNoAuto = true;
+                    this.pkRunPyJav();
+                })
+                .setNeutralButton(pulsekit.ChatFolder.CHOOSE_PROGRAM, (d, w) -> this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Render with")
+                    .setItems(pulsekit.ChatFolder.RENDER_PROGRAMS, (d2, which) -> {
+                        java.util.List<pulsekit.ProgramParams.Param> cps = pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, chatName));
+                        PyJavParams.store(app, chatName, pulsekit.ProgramParams.withValue(cps, PyJavParams.load(app, chatName), "--send_program", pulsekit.ChatFolder.RENDER_PROGRAMS[which]));
+                        this.pkRunPyJav();
+                    }).setNegativeButton("Cancel", null).show())
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+            return;
+        }
+        // Silent auto mode with Output name, Output folder or Send to group empty: asked first.
+        java.util.List<String> chatEmpty = this.pkChatAsked ? new java.util.ArrayList<String>()
+            : pulsekit.ChatFolder.silentEmpty(name, "SogniChat.java".equals(name) ? pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)) : new java.util.ArrayList<pulsekit.ProgramParams.Param>(), argv);
+        this.pkChatAsked = false;
+        if (!chatEmpty.isEmpty()) {
+            this.pkAskChat = new android.app.AlertDialog.Builder(app).setTitle("Silent auto mode").setMessage(pulsekit.ChatFolder.silentEmptyAsk(chatEmpty))
+                .setPositiveButton(pulsekit.ChatFolder.RUN_ANYWAY, (d, w) -> {
+                    this.pkChatAsked = true;
+                    this.pkRunPyJav();
+                })
+                .setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+            return;
         }
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
         String drums = this.pkDrumsWarned ? null : pulsekit.Midi2WavTest.drumsWarning(name, argv);
@@ -1475,6 +1636,8 @@ final class PyJav {
         if (downloadRun != null) {
             pulsekit.SogniDownloads.argv(downloadRun.longValue(), argv);
             if (subPattern.length() > 0) pulsekit.SogniDownloads.subfolder(downloadRun.longValue(), subPattern);
+            // Its files in the Batch folder: Move (automatically) leaves them there.
+            if (ArtJava.batchSub != null) pulsekit.DownloadMove.keep(downloadRun.longValue());
             live.download(downloadRun.longValue());
         }
         if (note != null) live.add(note + "\n");
@@ -1954,6 +2117,60 @@ final class PyJav {
         this.pkOffer("the pictures", ok && !upscaling && !inBatch, () -> PictureOffer.offer(app, made));
         // A video it made (SogniVideo's clip, a SogniChat tool result) is played, with its controls.
         this.pkOffer("the video", ok && !inBatch, () -> VideoOffer.offer(app, made));
+        // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
+        // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
+        // (Silent auto mode too: no Document ready, the answer saved, sent and rendered by itself.)
+        final boolean chatFolder = ok && pulsekit.ChatFolder.autoSaved(program, argv);
+        // The folder's files answered kept (Skip already processed leaves them out next time), also after a run some failed in.
+        if (pulsekit.ChatFolder.folderRun(program, argv)) pulsekit.ChatFolder.markDone(pulsekit.ChatFolder.key(argv), pulsekit.ChatFolder.answered(madeLog));
+        // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
+        final boolean readyShown = ok && !inBatch && !chatFolder && pulsekit.TextReady.wanted(program) && pulsekit.TextReady.textOf(made == null ? null : made.files) != null;
+        // (Saved, sent as sections and then rendered off the screen's thread: a folder's answers took long enough
+        // there that Android said not responding and closed the app before any was rendered.)
+        final boolean saveHere = ok && !readyShown && (chatFolder || PictureCopies.wants(program) && pulsekit.ChatFolder.arg(argv, "--output_dir") != null);
+        final String autoTarget = chatFolder && !inBatch ? pulsekit.AutoRender.target(argv) : null;
+        if (saveHere) {
+            final java.util.List<String[]> rendered = new java.util.ArrayList<String[]>();
+            if (autoTarget != null) {
+                String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
+                for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
+                    String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
+                    // (Empty once processed: not rendered.)
+                    if (!r.trim().isEmpty()) rendered.add(new String[] {f.name, r});
+                }
+            }
+            app.setNow("Saving the answers\u2026");
+            // Said in the log too: the run is over but the answers are still being saved (and sent) before Auto render.
+            this.pkAddLogLine("Saving the answers" + (autoTarget != null ? " (into the database and folders); Auto render of " + rendered.size() + " starts after" : "") + "\u2026");
+            Thread saving = new Thread(() -> {
+                try {
+                    TextOffer.saveAnswers(app, program, argv, made, line -> app.runOnUiThread(() -> this.pkAddLogLine(line)));
+                } catch (Throwable ex) {
+                    app.runOnUiThread(() -> this.pkAddLogLine("Could not save the answers: " + ex.getMessage()));
+                }
+                // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
+                if (autoTarget != null) app.runOnUiThread(() -> {
+                    this.pkAddLogLine("Answers saved: Auto render goes on");
+                    this.pkStartAutoRender(autoTarget, rendered);
+                });
+            }, "pulsekit-answers");
+            saving.start();
+            pkAnswersThread = saving;
+        }
+        // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
+        // (With Output name the raw chat was not written: the processed one is saved on closing, in Download when no Output folder.)
+        final boolean rawKept = pulsekit.ChatFolder.rawKept(program, "SogniChat.java".equals(program) ? PyJavParams.programTextOf(app, program) : null, argv);
+        this.pkOffer("the text", readyShown, () -> TextOffer.offer(app, program, made, pulsekit.ChatFolder.answerDir(argv, rawKept), pulsekit.TextReady.preset(argv), pulsekit.AutoRender.target(argv)));
+        // (Auto render with the answers saved: above, after the saving thread. A folder run with nothing to save renders too.)
+        if (!saveHere && autoTarget != null) {
+            String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
+            java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+            for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
+                String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
+                if (!r.trim().isEmpty()) answers.add(new String[] {f.name, r});
+            }
+            this.pkStartAutoRender(autoTarget, answers);
+        }
         // MidiDrumGen's groove is played with the kit's sounds, with Play / Stop.
         // With --towav or --test it goes on to Midi2Wav (and its test) instead.
         final boolean toWav = ok && pulsekit.Midi2WavTest.fromGen(program, argv) && this.pkGenToWav(made, argv);
@@ -1973,10 +2190,31 @@ final class PyJav {
         this.pkOffer("the collections", ok && "Collections.java".equals(app.pyName), () -> CollectionsScreen.show(app, MediaCollections.opened(madeLog)));
         // BatchRun's plan starts the batch; each run of it (and JoinVideo at the end) leads to the next step.
         if (batch != null && batch.takes(program)) {
+            // Its Batch group: the run's files put in it.
+            if (ok && !batch.joining && batch.group != null && batch.group.length() > 0 && made != null && made.files != null) {
+                java.util.List<Object[]> fs = new java.util.ArrayList<Object[]>();
+                for (pulsekit.JavaRun.FileOut f : made.files) if (f != null && f.bytes != null) fs.add(new Object[] {f.name, Long.valueOf(f.bytes.length)});
+                int put = pulsekit.BatchGroup.add(app.getFilesDir(), batch.group, fs);
+                if (put > 0) this.pkAddLogLine(pulsekit.BatchGroup.said(batch.group, put));
+            }
+            // Chain (SogniPadd): what the run made kept for the chain, which starts when the batch is over.
+            if (ok && !batch.joining && !batch.chained && pulsekit.Chain.target(program, PyJavParams.load(app, program)) != null) batch.chainItems.addAll(this.pkChainItems(made, argv));
             batch.done(status, this.pkBatchCopies(made));
+            // No connection to Sogni (the phone offline, its name not found): the batch pauses, kept from this run on.
+            if (!ok && !batch.joining && pulsekit.BatchSave.offline(status + "\n" + (madeLog == null ? "" : madeLog))) {
+                pulsekit.BatchSave.save(app.getFilesDir(), batch, Math.max(0, batch.next - 1));
+                batch.kept = true;
+                batch.stopping = true;
+                this.pkAddLogLine("Batch paused: no connection to Sogni. Kept: " + (batch.runs.size() - Math.max(0, batch.next - 1)) + " runs left; Pulsekit offers to go on when it starts next (or Run again now)");
+                this.pkBatchOver(batch);
+                return;
+            }
             this.pkBatchNext(batch);
         } else if (pulsekit.BatchQueue.start(program, argv, status, madeLog) != null) {
             this.pkBatchNext(pulsekit.BatchQueue.current());
+        } else if (ok && batch == null && pulsekit.Chain.target(program, PyJavParams.load(app, program)) != null) {
+            // Chain after a single run: its pictures (or prompt) go on.
+            this.pkStartChain(program, this.pkChainItems(made, argv));
         }
         } catch (Throwable ex) {
             String m = ex.getMessage();
@@ -2236,6 +2474,16 @@ final class PyJav {
         });
     }
 
+    /** One of two buttons sharing a row: half the width each, a gap between them (`second`: the gap before it). */
+    android.widget.LinearLayout.LayoutParams pkHalf(boolean second) {
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(0, -2, 1f);
+        if (second) lp.leftMargin = app.dp(10);
+        return lp;
+    }
+
+    /** The tests: the Sogni usage question shown last. */
+    static android.app.AlertDialog pkUsageAsk;
+
     /** The batch's Stop batch button (shown while a batch runs). */
     android.view.View pkBatchStopBtn;
 
@@ -2263,13 +2511,66 @@ final class PyJav {
      * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
      * Each run is the program's own, with the arguments BatchRun planned.
      */
-    void pkBatchNext(pulsekit.BatchQueue q) {
+    void pkBatchNext(final pulsekit.BatchQueue q) {
         if (q == null) return;
+        // Params' Usage warning: Sogni's fair-use usage read before the first run (off the screen's thread); at it or over, asked.
+        if (!q.usageChecked && q.next == 0) {
+            q.usageChecked = true;
+            final int warnAt = pulsekit.SogniUsage.threshold(PyJavParams.load(app, q.program));
+            if (warnAt > 0) {
+                this.pkAddLogLine("Reading Sogni usage\u2026");
+                new Thread(() -> {
+                    Object got;
+                    try {
+                        got = pulsekit.SogniUsage.fetch();
+                    } catch (Throwable ex) {
+                        got = ex;
+                    }
+                    final Object reply = got;
+                    app.runOnUiThread(() -> {
+                        if (reply instanceof Throwable && pulsekit.BatchSave.offline(String.valueOf(((Throwable) reply).toString()) + " " + ((Throwable) reply).getMessage())) {
+                            // No connection before the first run: the batch is not started, kept to go on with later.
+                            pulsekit.BatchSave.save(app.getFilesDir(), q, q.next);
+                            q.kept = true;
+                            q.stopping = true;
+                            this.pkAddLogLine("Batch not started: no connection to Sogni (" + ((Throwable) reply).getMessage() + "). Kept; Pulsekit offers to go on when it starts next");
+                            this.pkBatchOver(q);
+                            return;
+                        }
+                        if (reply instanceof Throwable) {
+                            q.usage = "Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + ")";
+                            q.usageShort = "Sogni usage: not read";
+                            this.pkAddLogLine("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
+                            this.pkBatchNext(q);
+                            return;
+                        }
+                        q.usage = pulsekit.SogniUsage.line(reply);
+                        q.usageShort = pulsekit.SogniUsage.brief(reply);
+                        this.pkAddLogLine(q.usage);
+                        String ask = pulsekit.SogniUsage.ask(reply, warnAt);
+                        if (ask == null) {
+                            this.pkBatchNext(q);
+                            return;
+                        }
+                        pkUsageAsk = new android.app.AlertDialog.Builder(app).setTitle("Sogni usage").setMessage(ask)
+                            .setPositiveButton("Run anyway", (d, w) -> this.pkBatchNext(q))
+                            .setNegativeButton("Stop batch", (d, w) -> {
+                                q.stopping = true;
+                                this.pkAddLogLine("Batch: not run (Sogni usage at or over the warning)");
+                                this.pkBatchOver(q);
+                            }).setCancelable(false).show();
+                    });
+                }, "pulsekit-usage").start();
+                return;
+            }
+        }
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(0);
         final String program;
         java.util.List<String> args;
         if (q.hasNext()) {
             program = q.program;
+            // Kept on disk from this run on: Android stopping Pulsekit (or no connection) loses nothing.
+            pulsekit.BatchSave.save(app.getFilesDir(), q, q.next);
             args = q.nextArgs();
             this.pkAddLogLine(q.progress());
         } else if (q.joinNext()) {
@@ -2295,9 +2596,10 @@ final class PyJav {
                 String was = pulsekit.PyJavParams.load(app, program);
                 // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
                 String line = this.pkPyArgs != null ? this.pkPyArgs.getText().toString() : null;
-                if (line != null) this.pkPyArgs.setText(pulsekit.ProgramParams.strip(q.ps, line));
+                if (line != null) this.pkPyArgs.setText(q.withFile(pulsekit.ProgramParams.strip(q.ps, line)));
                 pulsekit.PyJavParams.store(app, program, sectionParams);
                 this.pkRunConfirmed = true;
+                this.pkFromBatch = true;
                 try {
                     this.pkRunPyJav();
                 } finally {
@@ -2311,14 +2613,30 @@ final class PyJav {
             this.pkForcedArgs = run;
             // A batch's next run goes on without asking (the run before may still be storing).
             this.pkRunConfirmed = true;
+            this.pkFromBatch = true;
             this.pkRunPyJav();
         });
     }
 
     void pkBatchOver(pulsekit.BatchQueue q) {
         pulsekit.BatchQueue.stop();
+        // Over (done or stopped): nothing to go on with, unless it was kept (paused, left behind).
+        if (!q.kept) pulsekit.BatchSave.clear(app.getFilesDir());
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
         this.pkAddLogLine(q.summary());
+        // Input folder and group both: the folder's runs after the group's (not after Stop batch).
+        Runnable after = this.pkAfterBatch;
+        this.pkAfterBatch = null;
+        if (after != null && !q.stopping) {
+            app.handler.post(after);
+            return;
+        }
+        // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
+        if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
+            final java.util.List<pulsekit.Chain.Item> items = new java.util.ArrayList<pulsekit.Chain.Item>(q.chainItems);
+            final String from = q.program;
+            app.handler.post(() -> this.pkStartChain(from, items));
+        }
         // Run sections: what each section's run made, in a window too.
         if (q.bySections()) {
             runSectionsSaid = q.summary();
@@ -2347,13 +2665,240 @@ final class PyJav {
         this.pkBatchNext(q);
     }
 
-    /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
+    /** What Auto render did last (the tests). */
+    static volatile String autoRenderSaid = "";
+
+    /** What Chain did last (the tests). */
+    static volatile String chainSaid = "";
+
+    /** A run's pictures for a chain: each copied into the cache (its own name, numbered), with the run's prompt; a run without one, its prompt alone. */
+    java.util.List<pulsekit.Chain.Item> pkChainItems(pulsekit.JavaRun.Result made, java.util.List<String> argv) {
+        java.util.List<pulsekit.Chain.Item> out = new java.util.ArrayList<pulsekit.Chain.Item>();
+        String prompt = pulsekit.Chain.promptOf(argv);
+        java.io.File dir = new java.io.File(app.getCacheDir(), "pyjav-chain");
+        if (!dir.isDirectory()) dir.mkdirs();
+        if (made != null && made.files != null) {
+            for (pulsekit.JavaRun.FileOut f : made.files) {
+                if (f == null || f.bytes == null || !pulsekit.Chain.picture(f.name)) continue;
+                try {
+                    java.io.File copy = new java.io.File(dir, System.nanoTime() + "-" + f.name);
+                    java.nio.file.Files.write(copy.toPath(), f.bytes);
+                    out.add(new pulsekit.Chain.Item(f.name, prompt, copy.getAbsolutePath()));
+                } catch (Exception ignored) {
+                    // left out of the chain
+                }
+            }
+        }
+        if (out.isEmpty() && prompt.length() > 0) out.add(new pulsekit.Chain.Item("prompt", prompt, null));
+        return out;
+    }
+
+    /** Chain: `from`'s pictures (or prompts) run by the program its Params chain to, one run each as a batch. */
+    void pkStartChain(String from, java.util.List<pulsekit.Chain.Item> items) {
+        String fromSaved = PyJavParams.load(app, from);
+        String target = pulsekit.Chain.target(from, fromSaved);
+        if (target == null || items.isEmpty()) return;
+        this.pkEndStaleBatch(from);
+        if (pulsekit.BatchQueue.current() != null) {
+            chainSaid = "A batch is running: Chain left out";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        String text = PyJavParams.programTextOf(app, target);
+        if (text == null) {
+            chainSaid = "Chain: " + target + " not found";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        pulsekit.BatchQueue q = pulsekit.Chain.start(from, target, pulsekit.ProgramParams.parse(text), PyJavParams.load(app, target), items, pulsekit.Chain.batchPrompt(fromSaved));
+        if (q == null) {
+            chainSaid = "Chain: nothing for " + pulsekit.SogniSections.app(target) + " (no " + (pulsekit.Chain.takesPicture(target) ? "pictures" : "prompt") + ")";
+            this.pkAddLogLine(chainSaid);
+            return;
+        }
+        chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
+        this.pkAddLogLine(chainSaid);
+        // Their Back: the program that chained them.
+        ReadyBack.toProgram(app, target, from);
+        this.pkBatchNext(q);
+    }
+
+    /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
+    void pkStartAutoRender(String target, java.util.List<String[]> answers) {
+        this.pkEndStaleBatch("SogniChat.java");
+        if (pulsekit.BatchQueue.current() != null) {
+            autoRenderSaid = "A batch is running: Auto render left out";
+            this.pkAddLogLine(autoRenderSaid);
+            return;
+        }
+        String text = pulsekit.PyJavParams.programTextOf(app, target);
+        if (text == null) {
+            autoRenderSaid = "Auto render: " + target + " not found";
+            this.pkAddLogLine(autoRenderSaid);
+            return;
+        }
+        pulsekit.BatchQueue q = pulsekit.AutoRender.start(target, pulsekit.ProgramParams.parse(text), pulsekit.PyJavParams.load(app, target), answers);
+        if (q == null) return;
+        // Its pictures' Back: SogniChat's page (Document ready, when it chained them, sets itself after this).
+        ReadyBack.toProgram(app, target, "SogniChat.java");
+        autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(target);
+        this.pkAddLogLine(autoRenderSaid);
+        this.pkBatchNext(q);
+    }
+
+    /** Input folder (SogniPedit, SogniPadd): the folder's files, one run each, as a batch (Stop batch ends it). */
+    void pkStartFolderRun(String program, java.util.List<pulsekit.ProgramParams.Param> ps, java.util.List<String> argv) {
+        if (this.pkPyLog != null) this.pkPyLog.setText("");
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
+        }
+        final String folder = pulsekit.ChatFolder.arg(argv, "--input_dir");
+        final String app0 = pulsekit.SogniSections.app(program);
+        if (folder.startsWith("content://")) {
+            // A folder picked with the system's picker: its files copied in first (the program reads files),
+            // off the screen's thread (a big folder took longer than Android waits: not responding).
+            final java.io.File into = new java.io.File(new java.io.File(app.getCacheDir(), "folder-run"), app0);
+            this.pkAddLogLine(app0 + ": reading the folder " + pulsekit.MediaDir.label(folder) + "\u2026");
+            new Thread(() -> {
+                int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), into, argv.contains("--subfolders"));
+                app.runOnUiThread(() -> {
+                    this.pkAddLogLine(app0 + ": " + n + " file" + (n == 1 ? "" : "s") + " from " + pulsekit.MediaDir.label(folder));
+                    this.pkFolderRunFrom(program, ps, argv, folder, app0, into);
+                });
+            }, "pulsekit-folder-copy").start();
+            return;
+        }
+        this.pkFolderRunFrom(program, ps, argv, folder, app0, new java.io.File(folder));
+    }
+
+    /** The folder run once its files are where the program reads them. */
+    void pkFolderRunFrom(String program, java.util.List<pulsekit.ProgramParams.Param> ps, java.util.List<String> argv, String folder, String app0, java.io.File dir) {
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
+        }
+        if (!dir.isDirectory()) {
+            this.pkAddLogLine(app0 + ": the input folder is not there: " + folder);
+            return;
+        }
+        java.util.List<String> notes = new java.util.ArrayList<String>();
+        try {
+            pulsekit.BatchQueue q = pulsekit.FolderRuns.start(program, ps, pulsekit.PyJavParams.load(app, program), argv,
+                pulsekit.FolderRuns.files(program, dir, argv.contains("--subfolders")), folder, pulsekit.PromptVault.open(app.getFilesDir()), notes, dir);
+            for (String n : notes) this.pkAddLogLine(app0 + ": " + n);
+            if (q == null) return;
+            this.pkAddLogLine("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + app0 + " on " + dir.getName() + ", one after another");
+            this.pkBatchNext(q);
+        } catch (Exception ex) {
+            this.pkAddLogLine("Could not start the folder's runs: " + ex.getMessage());
+        }
+    }
+
+    /** Files made one after another: a batch going, or a folder run (SogniChat's input folder) in progress. */
+    boolean pkMultiRunning() {
+        if (pulsekit.BatchQueue.going()) return true;
+        pulsekit.JavaRun.Live live = this.pkLive;
+        @SuppressWarnings("unchecked")
+        java.util.List<String> argv = (java.util.List<String>) this.pkLastArgv;
+        return live != null && !live.done && !live.aborted() && argv != null
+            && (pulsekit.ChatFolder.folderRun(app.pyName, argv) || pulsekit.FolderRuns.folderRun(app.pyName, argv));
+    }
+
+    /** Picture ready's and Video ready's Stop run: the batch stopped and the run in progress too. */
+    void pkStopMulti() {
+        this.pkStopBatch();
+        this.pkStopRun();
+    }
+
+    /** Stop batch: no run after the one in progress (JoinVideo is left out too); with no run going, the batch ends now. */
     void pkStopBatch() {
         pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
         if (this.pkBatchStopBtn != null && q == null) this.pkBatchStopBtn.setVisibility(8);
         if (q == null) return;
         q.stopping = true;
+        if (!this.pkRunGoing()) {
+            this.pkAddLogLine("Batch: stopped (no run of it was going)");
+            this.pkBatchOver(q);
+            return;
+        }
         this.pkAddLogLine("Batch: stopping after the run in progress");
+    }
+
+    /** A kept batch offered once a start; the tests: the question shown last. */
+    static boolean pkResumeOffered;
+    static android.app.AlertDialog pkResumeAsk;
+
+    /** A kept batch (BatchSave): Go on (from the run that did not finish), Later (asked next start), or Discard. */
+    void pkOfferResume() {
+        final pulsekit.BatchSave.Kept k = pulsekit.BatchSave.load(app.getFilesDir());
+        if (k == null || pulsekit.BatchQueue.current() != null || this.pkRunGoing()) return;
+        String when = new java.text.SimpleDateFormat("d.M. HH:mm", java.util.Locale.ROOT).format(new java.util.Date(k.saved));
+        pkResumeAsk = new android.app.AlertDialog.Builder(app).setTitle("Unfinished batch")
+            .setMessage(k.said() + "\nKept " + when + ". Go on with it now?")
+            .setPositiveButton("Go on", (d, w) -> this.pkResume(k))
+            .setNeutralButton("Later", null)
+            .setNegativeButton("Discard", (d, w) -> {
+                pulsekit.BatchSave.clear(app.getFilesDir());
+                app.setNow("The kept batch was discarded");
+            }).show();
+    }
+
+    /** The kept batch gone on with: its runs left, as a batch again. */
+    void pkResume(pulsekit.BatchSave.Kept k) {
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the kept one waits");
+            return;
+        }
+        String text = PyJavParams.programTextOf(app, k.program);
+        pulsekit.BatchQueue q = pulsekit.BatchSave.resume(k, text == null ? new java.util.ArrayList<pulsekit.ProgramParams.Param>() : pulsekit.ProgramParams.parse(text));
+        app.openKitView("py");
+        app.programMenus.selectProgram("Java", k.program);
+        this.pkAddLogLine("Going on with the kept batch: " + k.said());
+        this.pkBatchNext(q);
+    }
+
+    /** The tests: Stop batch's question shown last. */
+    static android.app.AlertDialog pkStopAsk;
+
+    /** The Stop batch button: asked first (a long batch is not stopped by a slip of the finger). */
+    void pkAskStopBatch() {
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
+        if (q == null) {
+            this.pkStopBatch();
+            return;
+        }
+        String what = q.runs.size() > 0 ? " (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " runs started)" : "";
+        pkStopAsk = new android.app.AlertDialog.Builder(app).setTitle("Stop batch?").setMessage("Stop the batch of " + pulsekit.SogniSections.app(q.program) + what + " after the run in progress?")
+            .setPositiveButton("Stop batch", (d, w) -> this.pkStopBatch()).setNegativeButton("Go on", null).show();
+    }
+
+    /** Input folder and group both set: the choice made (Both, Folder only, Group only), the question, and what runs after the group's batch. */
+    String pkInputChoice;
+    static android.app.AlertDialog pkInputAsk;
+    Runnable pkAfterBatch;
+
+    /** A run started by a batch (pkBatchNext): not a run of its own, so the batch is not taken as left behind. */
+    boolean pkFromBatch;
+
+    /** A program run going on now. */
+    boolean pkRunGoing() {
+        pulsekit.JavaRun.Live live = this.pkLive;
+        return live != null && !live.done && !live.aborted();
+    }
+
+    /**
+     * A batch with no run going (and not the batch `finished` belongs to, whose run just ended): left
+     * behind when its run never came back. Ended, said in the log; true when one was.
+     */
+    boolean pkEndStaleBatch(String finished) {
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
+        if (q == null || this.pkRunGoing() || (finished != null && q.takes(finished))) return false;
+        this.pkAddLogLine("Batch of " + pulsekit.SogniSections.app(q.program) + " ended: it had no run going (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " started); kept to go on with later");
+        q.stopping = true;
+        q.kept = true;
+        this.pkBatchOver(q);
+        return true;
     }
 
     void pkRunTestCompare(java.util.List<String> args) {

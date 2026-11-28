@@ -160,6 +160,43 @@ public final class DownloadMove {
   public static final String SUB_PARAM_LABEL = "Destination subfolder: Downloads' Move puts this run's files in it, under their type's folder (made when missing)";
   public static final String SUB_PARAM_HINT = "e.g. %g/%ddmmyyyy; % codes: g group, c or c1 category, c2 a second one, t1 first tag, t2 second; dd mm yyyy n as in Downloads (%g% works too)";
 
+  /**
+   * Params' Batch folder (the Sogni programs): where a batch's files go (Run sections, an input folder's runs,
+   * SogniChat's Auto render) in place of Download. PyJav takes it off; a single run leaves it unused.
+   */
+  public static final String BATCH_PARAM = "--pk-batch-dir";
+  public static final String BATCH_PARAM_LABEL = "Batch folder: files made one after another (Run sections, an input folder, SogniChat's Auto render) go here instead of Download (made when missing; a single run still goes to Download)";
+  public static final String BATCH_PARAM_HINT = "e.g. Batches/%ddmmyyyy-%n (under Download; Browse: another folder); % codes filled in once a batch";
+
+  /** Params' Batch group: a batch's files put in this group by themselves; %g in the output name is it. PyJav takes it off. */
+  public static final String BATCH_GROUP = "--pk-batch-group";
+  public static final String BATCH_GROUP_LABEL = "Batch group: files made one after another (Run sections, an input folder, SogniChat's Auto render) put in this group by themselves; %g in the output name is it (a single run: not used)";
+  public static final String BATCH_GROUP_HINT = "e.g. Batch %ddmmyy (made when missing); empty: none";
+
+  /** A switch's value taken off a run's arguments (PyJav's own rows), "" when none. */
+  public static String takeValue(List<String> args, String flag) {
+    String got = "";
+    for (int i = 0; args != null && i < args.size(); i++) {
+      if (!flag.equals(args.get(i))) continue;
+      args.remove(i);
+      if (i < args.size() && !args.get(i).startsWith("--")) got = args.remove(i).trim();
+      i--;
+    }
+    return got;
+  }
+
+  /** The Batch folder taken off a run's arguments (the program never sees it); "" when there is none. */
+  public static String takeBatch(List<String> args) {
+    String got = "";
+    for (int i = 0; args != null && i < args.size(); i++) {
+      if (!BATCH_PARAM.equals(args.get(i))) continue;
+      args.remove(i);
+      if (i < args.size() && !args.get(i).startsWith("--")) got = args.remove(i).trim();
+      i--;
+    }
+    return got;
+  }
+
   /** The Destination subfolder taken off a run's arguments (the program never sees it); "" when there is none. */
   public static String takeSub(List<String> args) {
     String got = "";
@@ -451,11 +488,43 @@ public final class DownloadMove {
    * The finished downloads to move now: of a ticked kind with a folder, still in Download. {run, item}
    * pairs, the oldest run first (the folder gets them in the order they were made).
    */
+  /** A folder pattern's %ar and %r (%ar%, %r%): the run's aspect ratio ("16x9") and size ("1920x1080"), from --aspect, --width, --height. */
+  public static String sizeCodes(String pattern, List<String> argv) {
+    if (pattern == null || pattern.indexOf('%') < 0 || argv == null) return pattern;
+    String aspect = ChatFolder.arg(argv, "--aspect"), w = ChatFolder.arg(argv, "--width"), h = ChatFolder.arg(argv, "--height");
+    int width = 0, height = 0;
+    try {
+      if (w != null && h != null) {
+        width = (int) Double.parseDouble(w.trim());
+        height = (int) Double.parseDouble(h.trim());
+      }
+    } catch (NumberFormatException ignored) {
+      width = height = 0;
+    }
+    if (width <= 0 && aspect != null && SogniApi.sizeFor(aspect) != null) {
+      int[] wh = SogniApi.sizeFor(aspect);
+      width = wh[0];
+      height = wh[1];
+    }
+    String ar = aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "";
+    String res = width > 0 ? width + "x" + height : "";
+    return pattern.replace("%ar%", ar).replace("%ar", ar).replace("%r%", res).replaceAll("%r(?![a-z])", java.util.regex.Matcher.quoteReplacement(res));
+  }
+
+  /** Runs whose files went into a Batch folder: Move (now, automatically) leaves them where they are. */
+  private static final java.util.Set<Long> KEPT = new java.util.HashSet<Long>();
+
+  /** A batch run that saved into its Batch folder: its files are not moved. */
+  public static synchronized void keep(long runId) {
+    KEPT.add(Long.valueOf(runId));
+  }
+
   public static synchronized List<Object[]> due() {
     List<Object[]> out = new ArrayList<Object[]>();
     List<SogniDownloads.Run> runs = new ArrayList<SogniDownloads.Run>(SogniDownloads.tab(SogniDownloads.FINISHED));
     java.util.Collections.sort(runs, (a, b) -> Long.compare(a.started, b.started));
     for (SogniDownloads.Run r : runs) {
+      if (KEPT.contains(Long.valueOf(r.id))) continue;
       for (SogniDownloads.Item item : r.items) {
         String k = item.kind();
         if (item.away || !isTicked(k) || folderOf(k).length() == 0 || item.where == null || item.where.length() == 0) continue;

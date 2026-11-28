@@ -349,7 +349,7 @@ final class VideoOffer {
     }
 
     /** Shows the run's first video; false when it made none. */
-    static boolean offer(final MainActivity app, JavaRun.Result result) {
+    static boolean offer(final MainActivity app, final JavaRun.Result result) {
         if (result == null || result.files == null) return false;
         List<JavaRun.FileOut> videos = new ArrayList<JavaRun.FileOut>();
         for (JavaRun.FileOut f : result.files) if (isVideo(f.name) && f.bytes != null && f.bytes.length > 0) videos.add(f);
@@ -432,7 +432,15 @@ final class VideoOffer {
         stop.setTag("video-offer:stop");
         p.mute = app.pill(p.muted ? "Unmute" : "Mute", p.muted, v -> p.toggleMute(app));
         p.mute.setTag("video-offer:mute");
-        for (TextView b : new TextView[] {p.play, stop, p.mute}) {
+        // Upscale: SogniVideoUpscale with the clip (its Params ask the size); Return opens this Video ready again.
+        final JavaRun.FileOut upClip = clip;
+        TextView upscale = app.pill(VideoUp.BUTTON, false, v -> {
+            if (last != null && last.dialog != null && last.dialog.isShowing()) last.dialog.dismiss();
+            VideoUp.start(app, upClip.name, upClip.bytes, "Return to Video ready", () -> offer(app, result));
+        });
+        upscale.setTag("video-offer:upscale");
+        TextView[] row = AppSettings.showSogni() ? new TextView[] {p.play, stop, p.mute, upscale} : new TextView[] {p.play, stop, p.mute};
+        for (TextView b : row) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMargins(app.dp(3), 0, app.dp(3), 0);
             buttons.addView(b, lp);
@@ -476,11 +484,15 @@ final class VideoOffer {
         col.addView(volumeRow);
         android.widget.ScrollView scroll = new android.widget.ScrollView(app);
         scroll.addView(col);
-        AlertDialog dialog = new AlertDialog.Builder(app)
+        AlertDialog.Builder vb = new AlertDialog.Builder(app)
             .setTitle("Video ready")
             .setView(scroll)
-            .setPositiveButton("Close", null)
-            .create();
+            .setPositiveButton("Close", null);
+        // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+        if (app.pyJav != null && app.pyJav.pkMultiRunning()) vb.setNegativeButton(BatchQueue.STOP_RUN, (d, w) -> app.pyJav.pkStopMulti());
+        // Made by a chain (SogniPadd's Chain, Document ready's Auto render): Back to the screen that chained it.
+        ReadyBack.addTo(vb);
+        AlertDialog dialog = vb.create();
         // Turned sideways: the clip full screen from where it is (upright again: back here).
         final SidewaysVideo.Small wide = new SidewaysVideo.Small() {
             @Override

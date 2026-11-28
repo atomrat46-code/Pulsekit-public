@@ -157,7 +157,8 @@ for bad in (["--model_b", "kits", "--model_b_kits", "5"], ["--model_b", "kits"],
 # out (one plugin: kit by kit) and the model learned from both, then that model file used.
 hout = os.path.join(work, "hits-out")
 vr.main(["--hit_bench", "--hit_loo", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar])
-learned = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-") and f.endswith(".txt")]
+learned = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-") and not f.startswith("hit-model-even-") and f.endswith(".txt")]
+learned_even = [f for f in sorted(os.listdir(hout)) if f.startswith("hit-model-even-") and f.endswith(".txt")]
 for f in sorted(os.listdir(hout)):
     if f.endswith(".zip"):
         with zipfile.ZipFile(os.path.join(hout, f)) as z:
@@ -165,7 +166,31 @@ for f in sorted(os.listdir(hout)):
             for line in z.read("summary.txt").decode().splitlines()[:3]:
                 print("  " + line)
 print("hit model file:", len(learned), open(os.path.join(hout, learned[0])).read().split("\n")[0] if learned else "")
+print("hit model file, kits even:", len(learned_even), open(os.path.join(hout, learned_even[0])).read().split("\n")[0] if learned_even else "")
 vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", hout, "--drummidi", jar, "--hit_model_file", os.path.join(hout, learned[0])])
+# Another Output folder: the hit bench finds the results kept in the earlier one (no DrumMidi run).
+import contextlib as _cl
+import io as _io
+_said = _io.StringIO()
+with _cl.redirect_stdout(_said):
+    vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", os.path.join(work, "hits-out2"), "--drummidi", jar])
+print("hit elsewhere:", [l.split(" (")[0] for l in _said.getvalue().splitlines() if l.startswith("DrumMidi's results kept")],
+      "| DrumMidi ran", sum(1 for l in _said.getvalue().splitlines() if "from the last bench" not in l and l.startswith("Kit ") and ": kick " in l))
+# --hit_band: each kit's songs also with a band over them, as their own kit ("<kit> (band)"), learned from too.
+import contextlib as _cl2
+import io as _io2
+_band = _io2.StringIO()
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+with _cl2.redirect_stdout(_band):
+    vr.main(["--hit_bench", "--hit_loo", "--hit_band", "--hit_dir", os.path.join(work, "runs"), "--bench_unzip", unz, "--outdir", os.path.join(work, "band-out"), "--drummidi", jar])
+_bl = _band.getvalue().splitlines()
+bz = [f for f in sorted(os.listdir(os.path.join(work, "band-out"))) if f.endswith(".zip")]
+with zipfile.ZipFile(os.path.join(work, "band-out", bz[0])) as z:
+    bsum = z.read("summary.txt").decode()
+print("band:", len([l for l in _bl if " with a band: kick " in l]), "kits with a band;",
+      "band rows in the summary", sum(1 for l in bsum.splitlines() if "(band)" in l), "| models learned from",
+      [l for l in _bl if l.startswith("Learning the models from")][:1])
 # A kit named again (KVLT_Mexico 1998, then KVLT: Mexico 1998): one kit, its newest run's.
 again = os.path.join(work, "again")
 os.makedirs(again, exist_ok=True)
@@ -184,8 +209,9 @@ import contextlib
 import io
 # (The earlier benches' work folders forgotten here and below: their kept results would be copied, and DrumMidi would not run.)
 works_file = os.path.join(os.path.expanduser("~"), ".pulsekit", vr.BENCH_WORKS)
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 bout = os.path.join(work, "both-out")
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
@@ -199,8 +225,9 @@ print("both: unpacked %d times, shared said %s, hit bench's own unzip folder %s,
     text.count("DrumMidi ran on each")))
 # --bench_keep: the renders kept after the bench; a bench run again (its kept results gone, another DrumMidi) unpacks nothing.
 kout = os.path.join(work, "keep-out")
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
@@ -209,12 +236,44 @@ kunz = os.path.join(kout, "cymbal-bench", "kits")
 kept = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
 import shutil
 shutil.rmtree(os.path.join(kout, "cymbal-bench", "data"))
-if os.path.isfile(works_file):
-    os.remove(works_file)
+for wf in (works_file, os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    if os.path.isfile(wf):
+        os.remove(wf)
 said = io.StringIO()
 with contextlib.redirect_stdout(said):
     vr.main(["--cymbal_bench", "--model_compare", "--bench_keep", "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
 print("keep: unpacked %d, renders kept %d, again unpacked %d, DrumMidi ran %d" % (first, len(kept), said.getvalue().count("unpacking"), said.getvalue().count("DrumMidi ran on each")))
+# Don't delete ticked: the hit bench (run separately, its results not kept yet) uses the kits the cymbal bench left unpacked,
+# where they are: nothing unpacked again; and it does not delete the cymbal bench's renders.
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--hit_dir", os.path.join(work, "runs"), "--bench_dir", os.path.join(work, "runs"), "--outdir", kout, "--drummidi", jar])
+still = sorted(d for d in os.listdir(kunz) if any(os.path.isdir(os.path.join(kunz, d, s)) for s in ("mp3", "wav")))
+print("hit after keep: unpacked %d, used there %d, DrumMidi ran %d, cymbal renders still %d, own unzip folder %s" % (
+    said.getvalue().count("unpacking"), said.getvalue().count("unpacked already in"),
+    sum(1 for l in said.getvalue().splitlines() if l.startswith("Kit ") and ": kick " in l and "from the last bench" not in l), len(still),
+    os.path.isdir(os.path.join(kout, "hit-bench", "kits"))))
+# The hit bench alone with Don't delete, in its own unzip folder: DrumMidi runs and the renders stay; its zips changed
+# (another run of a kit added), the kit unpacked over what is there: a file of the folder's own not deleted.
+hkout = os.path.join(work, "hit-keep-out")
+if os.path.isfile(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS)):
+    os.remove(os.path.join(os.path.expanduser("~"), ".pulsekit", vr.HIT_WORKS))
+hunz = os.path.join(work, "hit-keep-unzip")
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    vr.main(["--hit_bench", "--bench_keep", "--hit_dir", os.path.join(work, "runs"), "--hit_unzip", hunz, "--outdir", hkout, "--drummidi", jar])
+hk = sorted(d for d in os.listdir(hunz) if any(os.path.isdir(os.path.join(hunz, d, s)) for s in ("mp3", "wav")))
+mine = os.path.join(hunz, hk[0], "my-notes.txt")
+open(mine, "w").write("x")
+open(os.path.join(hunz, hk[0], "unpacked.txt"), "w").write("changed")
+with contextlib.redirect_stdout(io.StringIO()):
+    vr.main(["--hit_bench", "--bench_keep", "--hit_dir", os.path.join(work, "runs"), "--hit_unzip", hunz, "--outdir", hkout, "--drummidi", jar])
+print("hit keep: unpacked %d, renders kept %d of %d, after zips changed: own file kept %s, renders %s" % (
+    said.getvalue().count("unpacking"), len(hk), len(os.listdir(hunz)), os.path.isfile(mine),
+    any(os.path.isdir(os.path.join(hunz, hk[0], s)) for s in ("mp3", "wav"))))
+vr.BENCH_KEEP[0] = False
 # Another output folder (so another work folder): the earlier bench's kept results are found and copied, DrumMidi does not run.
 said = io.StringIO()
 with contextlib.redirect_stdout(said):

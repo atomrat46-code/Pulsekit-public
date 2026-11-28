@@ -1177,7 +1177,28 @@ public final class PromptVault {
     save();
   }
 
+  /** holdSaves: saves wait until releaseSaves (many changes, one encrypted write: a folder's answers sent as sections). */
+  private int held;
+  private boolean dirty;
+
+  public synchronized void holdSaves() {
+    held++;
+  }
+
+  /** The hold ended: one save when something changed meanwhile. */
+  public synchronized void releaseSaves() throws Exception {
+    if (held > 0) held--;
+    if (held == 0 && dirty) {
+      dirty = false;
+      save();
+    }
+  }
+
   private synchronized void save() throws Exception {
+    if (held > 0) {
+      dirty = true;
+      return;
+    }
     begin("Saving the encrypted database");
     try {
       write();
@@ -1186,7 +1207,11 @@ public final class PromptVault {
     }
   }
 
+  /** The tests: encrypted writes so far. */
+  public static volatile int writes;
+
   private void write() throws Exception {
+    writes++;
     ByteArrayOutputStream plain = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(plain);
     out.writeInt(MAGIC);
@@ -1485,6 +1510,14 @@ public final class PromptVault {
     return out;
   }
 
+  /** The programs that have sections saved (their names as sections keep them: "SogniPedit"), A to Z. */
+  public synchronized List<String> sogniSectionApps() {
+    java.util.TreeMap<String, String> by = new java.util.TreeMap<String, String>();
+    for (SogniSection sec : sogniSections) by.put(sec.app.toLowerCase(java.util.Locale.ROOT), sec.app);
+    for (SectionGroup g : sectionGroups) by.put(g.app.toLowerCase(java.util.Locale.ROOT), g.app);
+    return new ArrayList<String>(by.values());
+  }
+
   /** The program's section with the same entries (SogniSections.same), or null. */
   public synchronized SogniSection findSogniSection(String app, String text) {
     for (SogniSection sec : sogniSections) if (sec.app.equalsIgnoreCase(app) && SogniSections.same(sec.text, text)) return sec;
@@ -1493,7 +1526,12 @@ public final class PromptVault {
 
   /** The entries kept as the program's new section; null when the same is saved already. */
   public synchronized SogniSection addSogniSection(String app, String text) throws Exception {
-    if (findSogniSection(app, text) != null) return null;
+    return addSogniSection(app, text, false);
+  }
+
+  /** As above; `copy`: kept even when a section has the same entries (Edit data's Save as, under another name). */
+  public synchronized SogniSection addSogniSection(String app, String text, boolean copy) throws Exception {
+    if (!copy && findSogniSection(app, text) != null) return null;
     SogniSection sec = new SogniSection();
     sec.id = nextId++;
     sec.app = app;

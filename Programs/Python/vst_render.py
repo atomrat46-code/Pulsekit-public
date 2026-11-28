@@ -1,7 +1,7 @@
 """
 vst_render.py: plays a MIDI file through a VST2 or VST3 instrument and saves what it sounds like as a WAV.
 
-Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--bench_keep] [--hit_loo] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
+Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugin2 <plugin>] [--plugin3 <plugin>] [--plugin4 <plugin>] [--padset SET] [--vary N] [--max_wait N] [--wait_rounds N] [--parts <parts>] [--carla <carlaproject>] [--clap <clapplugin>] [--clap_id ID] [--drumgizmo <drumkit>] [--midimap <mapfile>] [--state <file>] [--wav <input.wav>] [--effect <plugin>] [--effect_state <file>] [--bpm N] [--bpm_from_name] [--rate N] [--tail N] [--volume N] [--bits N] [--edit] [--dir <folder>] [--dir2 <folder>] [--recursive] [--outdir <folder>] [--skip_existing] [--test] [--no-toms] [--snare-leak] [--faded-opens] [--no-kit] [--no-cymbal-check] [--results_no_beats] [--results_no_hits] [--compare_kits] [--map <notes>] [--no-map] [--map2 <notes>] [--map3 <notes>] [--map4 <notes>] [--note_map <notes>] [--chokes <notes>] [--kit_name NAME] [--kit_name2 NAME] [--kit_name3 NAME] [--kit_name4 NAME] [--mp3 KBPS] [--keep_wav] [--zip] [--zip_mb N] [--zip_outdir <folder>] [--zip_nowav] [--check] [--scan] [--cymbal_bench] [--cymbal_bench_when WHEN] [--bench_dir <folder>] [--bench_unzip <folder>] [--bench_skip NAMES] [--model_compare] [--model_a MODEL] [--model_a_kits N] [--model_b MODEL] [--model_b_kits N] [--leave_one_out] [--loo_kits KITS] [--loo_names NAMES] [--new_kits KITS] [--new_runs N] [--new_names NAMES] [--bench_work <folder>] [--hit_bench] [--hit_bench_when WHEN] [--bench_keep] [--hit_loo] [--hit_band] [--hit_model_file <file>] [--hit_dir <folder>] [--hit_unzip <folder>] [--hit_zip_outdir <folder>]
 
   song.mid        the MIDI played (every channel; a drum plugin hears the drum channel as it is).
   output.wav      the WAV made; <song>-<plugin>.wav when it is not given.
@@ -247,6 +247,10 @@ Usage: python vst_render.py [song.mid] [output.wav] [--plugin <plugin>] [--plugi
   --hit_loo       leave one out too: each kit told by a model learned from the other plugins' kits (it
                   never saw their samples), and the model learned from all of them: hit-model-<date>.txt
                   in --outdir (and in the zip).
+  --hit_band      each kit's songs also with a band over them (bass and distorted guitar, piano, synth or
+                  clean guitar, one a song in turn, as loud as the drums): their own row ("<kit> (band)"),
+                  learned from too, so the hit model also learns drums under other instruments (DrumMidi
+                  runs twice as long on the kits).
   --hit_dir       its input folder when run separately: the tests' zips (vst-render-*.zip), its
                   subfolders too (run last reads the run's own zips).
   --hit_unzip     where the kits' zips are unpacked (a drive with room); not given: hit-bench/kits in
@@ -4523,6 +4527,8 @@ def bench_sig(zips):
 # The benches' scratch folders for each DrumMidi run: under their own work folder, not the system's
 # temp folder (a temp cleaner deleting it mid-run left DrumMidi's results unwritten and the song out).
 BENCH_TMP = [None]
+# --bench_keep (Don't delete): no bench deletes a kit's unpacked files by itself (Delete extracted files does).
+BENCH_KEEP = [False]
 
 
 def bench_tmp(work):
@@ -4560,24 +4566,43 @@ def bench_map(fn, songs, jobs, label):
         return list(pool.map(one, songs))
 
 
-def bench_unpack(key, zips, root, audio, label=""):
+def bench_unpacked(into, sig, audio):
+    """Whether <into> holds the kit unpacked from these zips (with `audio`: its renders too)."""
+    mark = os.path.join(into, "unpacked.txt")
+    try:
+        had = open(mark, encoding="utf-8").read().split() if os.path.isfile(mark) else []
+    except OSError:
+        had = []
+    return had[:1] == [sig] and (not audio or "audio" in had and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav")))
+
+
+def bench_unpack(key, zips, root, audio, label="", also=()):
     """A kit's zips unpacked into <root>/<key> (--bench_unzip): its MIDI, report, run line and kit profile,
     and with `audio` its MP3s or WAVs too (not its dm/ MIDI: the bench runs DrumMidi itself). Once: what
-    is there already is kept. The folder."""
+    is there already is kept. The other bench's unzip folders (`also`) are looked in first: a kit unpacked
+    there (Don't delete ticked) is used where it is, not unpacked again. The folder."""
     import zipfile
     import shutil
     import time
     into = os.path.join(root, key)
     sig = bench_sig(zips)
-    mark = os.path.join(into, "unpacked.txt")
-    had = open(mark, encoding="utf-8").read().split() if os.path.isfile(mark) else []
-    if had[:1] == [sig] and (not audio or "audio" in had):
+    if bench_unpacked(into, sig, audio):
         return into
-    if os.path.isdir(into):
-        shutil.rmtree(into, ignore_errors=True)
-    os.makedirs(into)
+    for other in also:
+        there = os.path.join(other, key) if other else None
+        if there and os.path.normcase(os.path.abspath(there)) != os.path.normcase(os.path.abspath(into)) and bench_unpacked(there, sig, audio):
+            print("%sunpacked already in %s: used there" % (label, other), flush=True)
+            return there
+    mark = os.path.join(into, "unpacked.txt")
+    # The kit there without its renders (deleted after an earlier bench): only the renders unpacked, the rest kept.
+    only_audio = audio and bench_unpacked(into, sig, False)
+    if not only_audio:
+        # (Don't delete ticked: unpacked over what is there, nothing deleted.)
+        if os.path.isdir(into) and not BENCH_KEEP[0]:
+            shutil.rmtree(into, ignore_errors=True)
+        os.makedirs(into, exist_ok=True)
     # Big runs are dozens of zips: said as it goes (Pulsekit stops a run that says nothing for 10 minutes).
-    print("%sunpacking %d zip%s…" % (label, len(zips), "" if len(zips) == 1 else "s"), flush=True)
+    print("%sunpacking %d zip%s%s…" % (label, len(zips), "" if len(zips) == 1 else "s", " (the renders only)" if only_audio else ""), flush=True)
     last = time.time()
     for zn, z in enumerate(zips):
         if time.time() - last > 30:
@@ -4590,6 +4615,8 @@ def bench_unpack(key, zips, root, audio, label=""):
                 if n.endswith("/") or n.startswith("dm/") or ".." in n.split("/") or n.startswith("/"):
                     continue
                 if not audio and n.startswith(("mp3/", "wav/")):
+                    continue
+                if only_audio and not n.startswith(("mp3/", "wav/")):
                     continue
                 target = os.path.join(into, *n.split("/"))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -4709,7 +4736,9 @@ BENCH_DATA = "v2"
 
 # DrumMidi_CRT.jar builds that find the same hits as earlier ones (only other switches changed): their
 # kept bench results are used as they are, not made again. 48f6adb3d23a (v546: --keep-stems) = 7f03164539be.
-SAME_DRUMMIDI = {"48f6adb3d23a": ["7f03164539be"]}
+# (b8acbaf73a86, 24.11.: the song-aware cymbal model and its gate; the bench runs DrumMidi without its cymbal
+# model, and its kicks, snares and toms are as they were, so its results are those of 48f6adb3d23a.)
+SAME_DRUMMIDI = {"48f6adb3d23a": ["7f03164539be"], "b8acbaf73a86": ["48f6adb3d23a", "7f03164539be"]}
 
 
 def bench_reuse(cache, sig, alt_of):
@@ -4728,19 +4757,20 @@ def bench_reuse(cache, sig, alt_of):
 
 
 BENCH_WORKS = "bench-work-folders.txt"
+HIT_WORKS = "hit-bench-work-folders.txt"
 
 
-def bench_works(work):
-    """The work folders earlier benches used (~/.pulsekit/bench-work-folders.txt, the newest first), this one
-    added; the others returned."""
-    path = os.path.join(os.path.expanduser("~"), ".pulsekit", BENCH_WORKS)
+def bench_works(work, listed=None, sub="data"):
+    """The work folders earlier benches used (~/.pulsekit/bench-work-folders.txt, the newest first; the hit
+    bench's: hit-bench-work-folders.txt, its results in hits/), this one added; the others returned."""
+    path = os.path.join(os.path.expanduser("~"), ".pulsekit", listed or BENCH_WORKS)
     try:
         with open(path, encoding="utf-8") as f:
             known = [l.strip() for l in f if l.strip()]
     except OSError:
         known = []
     me = os.path.abspath(work)
-    others = [w for w in known if os.path.normcase(os.path.abspath(w)) != os.path.normcase(me) and os.path.isdir(os.path.join(w, "data"))]
+    others = [w for w in known if os.path.normcase(os.path.abspath(w)) != os.path.normcase(me) and os.path.isdir(os.path.join(w, sub))]
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -4750,13 +4780,14 @@ def bench_works(work):
     return others
 
 
-def bench_elsewhere(cache, works, sig, key, zips):
+def bench_elsewhere(cache, works, sig, key, zips, where=None):
     """A kit's DrumMidi results kept in an earlier work folder (this DrumMidi or one finding the same hits),
-    copied here; True when there were some."""
+    copied here; True when there were some. `where(work, sig)`: the results' path there (else the cymbal
+    bench's)."""
     import shutil
     for w in works:
         for s in [sig] + SAME_DRUMMIDI.get(sig, []):
-            alt = bench_cache(w, s, key, zips)
+            alt = where(w, s) if where else bench_cache(w, s, key, zips)
             if os.path.isfile(alt):
                 os.makedirs(os.path.dirname(cache), exist_ok=True)
                 shutil.copyfile(alt, cache)
@@ -4810,7 +4841,13 @@ class BenchKit(object):
     def __init__(self, name, key, stamp, where, folder, info, d):
         import numpy as np
         self.name, self.key, self.stamp, self.where = name, key, stamp, where
+        # Each array read once: d["..."] of a kept .npz unpacks the whole array again at every reading
+        # (once a hit and a cymbal made a big kit take hours).
+        if hasattr(d, "files"):
+            d = dict((f, d[f]) for f in d.files)
         self.X = d["X"].astype(np.float64)
+        # Cymbals whose inputs DrumMidi left undefined (not a number): no model moves them (left as written).
+        self.undefined = int((~np.isfinite(self.X)).any(1).sum()) if len(self.X) else 0
         self.cym_i = d["cym_i"]
         notes = d["hit_n"]
         self.wrote = np.array([BENCH_KIND.get(int(n), 1) for n in notes[self.cym_i]], int)
@@ -4819,11 +4856,16 @@ class BenchKit(object):
         self.songs = []
         label = np.zeros(len(self.cym_i), int)
         cym_of = {}
-        for j, i in enumerate(self.cym_i):
-            cym_of.setdefault(int(d["hit_s"][i]), []).append(j)
+        hit_s, hit_t = d["hit_s"], d["hit_t"]
+        for j, s in enumerate(hit_s[self.cym_i].tolist()):
+            cym_of.setdefault(int(s), []).append(j)
+        # Each song's hits (their indices, in order), by one sort rather than a search a song.
+        order = np.argsort(hit_s, kind="stable")
+        bounds = np.searchsorted(hit_s[order], np.arange(len(d["song_midi"]) + 1))
+        times, kinds = hit_t.tolist(), notes.tolist()
         for s, mid in enumerate(d["song_midi"]):
-            at = np.where(d["hit_s"] == s)[0]
-            found = [(float(d["hit_t"][i]), int(notes[i])) for i in at]
+            at = order[bounds[s]:bounds[s + 1]]
+            found = [(float(times[i]), int(kinds[i])) for i in at.tolist()]
             length, played = midi_notes(os.path.join(folder, str(mid)))
             played = mapped(played, info["map"])
             end = length + 0.05
@@ -4834,7 +4876,7 @@ class BenchKit(object):
             pc = sorted((t, BENCH_KIND[n]) for t, n in played if n in BENCH_KIND)
             ptimes = np.array([t for t, _ in pc])
             for j in cym_of.get(s, []):
-                t = float(d["hit_t"][self.cym_i[j]])
+                t = float(times[int(self.cym_i[j])])
                 if len(ptimes):
                     k = int(np.argmin(np.abs(ptimes - (t + shift))))
                     if abs(ptimes[k] - (t + shift)) <= 0.03:
@@ -4923,9 +4965,11 @@ def bench_ride_share(model, X):
     import numpy as np
     mu, sd, W, b = model
     z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
-    z -= z.max(1, keepdims=True)
-    p = np.exp(z)
-    return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
+    # (Undefined inputs: their cymbals' shares are not numbers, and DrumMidi's runs leave them as they are.)
+    with np.errstate(invalid="ignore"):
+        z -= z.max(1, keepdims=True)
+        p = np.exp(z)
+        return p[:, 2] / (p[:, 2] + p[:, 0] + 1e-300)
 
 
 def bench_runs(notes, cyms):
@@ -4956,12 +5000,14 @@ def bench_relabel(model, X, wrote, margin):
     import numpy as np
     mu, sd, W, b = model
     z = ((X[:, :len(mu)] - mu) / sd) @ W + b  # (a model reads the inputs it learned from: the first len(mu))
-    z -= z.max(1, keepdims=True)
-    p = np.exp(z)
-    p /= p.sum(1, keepdims=True)
-    best = p.argmax(1) + 1
-    mine = p[np.arange(len(p)), wrote - 1]
-    return np.where(p.max(1) - mine > margin, best, wrote)
+    # (Undefined inputs: their cymbals' chances are not numbers, so they stay as DrumMidi wrote them.)
+    with np.errstate(invalid="ignore"):
+        z -= z.max(1, keepdims=True)
+        p = np.exp(z)
+        p /= p.sum(1, keepdims=True)
+        best = p.argmax(1) + 1
+        mine = p[np.arange(len(p)), wrote - 1]
+        return np.where(p.max(1) - mine > margin, best, wrote)
 
 
 def bench_fit(kits, reg=1e-2, it=400, lr=0.5, even=False, context=False, cap=None, start=None):
@@ -5015,10 +5061,12 @@ LOO_CAP = 20000
 LOO_ROUNDS = 150
 
 
-def bench_gains(k, model):
-    """Each of the kit's songs: how many more of its cymbals `model` got right than DrumMidi's built-in one."""
+def bench_gains(k, model, context=False):
+    """Each of the kit's songs: how many more of its cymbals `model` got right than DrumMidi's built-in one
+    (`context`: a song-aware model, reading each cymbal's inputs with its song's look)."""
     import numpy as np
-    return np.array([cymbals_right(m) - cymbals_right(b) for m, b in zip(k.song_scores(model), k.song_scores(k.builtin))], float)
+    with_m = k.song_scores(model, k.context_inputs() if context else None)
+    return np.array([cymbals_right(m) - cymbals_right(b) for m, b in zip(with_m, k.song_scores(k.builtin))], float)
 
 
 def bench_gate_fit(kits, gains, reg=1e-2, it=600, lr=0.5):
@@ -5057,11 +5105,11 @@ def bench_gate_fit(kits, gains, reg=1e-2, it=600, lr=0.5):
     return mu, sd, v, b
 
 
-def bench_gated(k, gate, model):
+def bench_gated(k, gate, model, context=False):
     """A kit scored with `model` on the songs the gate says it helps and the built-in model on the
-    others: (cymbals right, songs given the model)."""
+    others: (cymbals right, songs given the model). `context`: a song-aware model."""
     import numpy as np
-    with_m, with_b = k.song_scores(model), k.song_scores(k.builtin)
+    with_m, with_b = k.song_scores(model, k.context_inputs() if context else None), k.song_scores(k.builtin)
     if gate is None:
         return sum(cymbals_right(r) for r in with_b), 0
     mu, sd, v, b = gate
@@ -5193,6 +5241,33 @@ def busy(what, fn, *args):
         done.set()
 
 
+def bench_own(into, unzip):
+    """Whether the kit's folder is this bench's own (one the other bench unpacked is not emptied by this one)."""
+    return os.path.normcase(os.path.abspath(os.path.dirname(into))) == os.path.normcase(os.path.abspath(unzip))
+
+
+def cymbal_unzips(opts):
+    """Where the cymbal bench may have kits unpacked: its unzip folder as given or as model_bench works it out."""
+    out = []
+    try:
+        c = cymbal_unzip(opts)
+    except Exception:
+        c = None
+    for f in (opts.get("--bench_unzip"), c):
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
+def hit_unzips(opts, outdir):
+    """Where the hit bench may have kits unpacked: its unzip folder, else hit-bench/kits in the output folder."""
+    out = []
+    for f in (opts.get("--hit_unzip"), os.path.join(opts.get("--outdir") or outdir, "hit-bench", "kits")):
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
 def cymbal_unzip(opts):
     """The cymbal bench's unzip folder, as model_bench works it out (None without its input folder)."""
     folder = (bench_folders(opts["--bench_dir"] or opts["--dir"]) or [None])[0]
@@ -5207,6 +5282,7 @@ def model_bench(opts, switches):
     """--model_compare and --leave_one_out: the test renders' zips in --dir (with --recursive, its
     subfolders too) scored with DrumMidi's cymbal model as it is and as learned from the kits found;
     each in its own zip in --outdir (and --zip_outdir)."""
+    BENCH_KEEP[0] = "--bench_keep" in switches
     import hashlib
     import time
     import zipfile
@@ -5268,7 +5344,7 @@ def model_bench(opts, switches):
     for n, (key, stamp, zips, where) in enumerate(found):
         cache = bench_cache(work, sig, key, zips)
         bench_reuse(cache, sig, lambda old: bench_cache(work, old, key, zips))
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key), hit_unzips(opts, outdir))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
@@ -5278,7 +5354,7 @@ def model_bench(opts, switches):
         # The renders are not needed again (DrumMidi's results are kept): the unzip folder keeps little.
         # (Shared with the hit bench before it: the renders it kept for this bench go now too.)
         # (--bench_keep: kept for the next bench; the tabs' Delete extracted files deletes them.)
-        if "--bench_keep" not in switches and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
+        if "--bench_keep" not in switches and bench_own(into, unzip) and (ran or opts.get("_share_unzip") and any(os.path.isdir(os.path.join(into, sub)) for sub in ("mp3", "wav"))):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5388,8 +5464,9 @@ def model_bench(opts, switches):
                  "DrumMidi wrote, cymbals a second), so the model can tell kinds of material apart.",
                  "Gated: the even model only on songs a gate (learned from the other kits' songs: their look against whether the",
                  "model helped them) says it helps; DrumMidi's built-in model on the others. [n/m]: songs given the model.",
+                 "Gated song-aware: the same with the song-aware model (its own gate). [n/m] after it: its songs.",
                  "Cymbals right: closed hat, open hat, ride and crash found where the MIDI played them (within 30 ms).",
-                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s" % (width, "Kit", "built-in", "pooled", "even", "song-aware", "gated")]
+                 BENCH_HOW, "", "%-*s %9s %15s %15s %15s %15s %15s" % (width, "Kit", "built-in", "pooled", "even", "song-aware", "gated", "gated aware")]
         details = []
         # The gate's lessons: each song's gain with the even model learned from all the kits (once: learning them
         # again for each kit left out would score every song 60 times over; the kit left out still teaches its gate nothing).
@@ -5401,11 +5478,12 @@ def model_bench(opts, switches):
         aware_all = bench_fit(kits, even=True, context=True, cap=LOO_CAP)
         print("Leave one out: each song's gain with the even model (the gate's lessons)\u2026", flush=True)
         gains = dict((id(o), bench_gains(o, even_all)) for o in kits)
-        sums = [0, 0, 0, 0, 0]
-        rel = [0.0] * 5
-        better = [0] * 5
-        worse = [0] * 5
-        gate_songs = [0, 0]
+        gains_aware = dict((id(o), bench_gains(o, aware_all, context=True)) for o in kits)
+        sums = [0] * 6
+        rel = [0.0] * 6
+        better = [0] * 6
+        worse = [0] * 6
+        gate_songs = [0, 0, 0]
         for n, k in enumerate(which):
             rest = [o for o in kits if o is not k]
             pooled = bench_fit(rest, cap=LOO_CAP, start=pooled_all, it=LOO_ROUNDS)
@@ -5416,22 +5494,28 @@ def model_bench(opts, switches):
             v = [cymbals_right(x) for x in r]
             g, used = bench_gated(k, gate, even)
             v.append(g)
+            gate2 = bench_gate_fit(rest, gains_aware)
+            g2, used2 = bench_gated(k, gate2, aware, context=True)
+            v.append(g2)
             gate_songs[0] += used
             gate_songs[1] += len(k.songs)
-            for i in range(5):
+            gate_songs[2] += used2
+            for i in range(6):
                 sums[i] += v[i]
                 rel[i] += (v[i] - v[0]) / float(max(1, v[0]))
                 better[i] += v[i] > v[0]
                 worse[i] += v[i] < v[0]
-            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 5))
-                         + "  [%d/%d]" % (used, len(k.songs)))
+            lines.append("%-*s %9d" % (width, k.name, v[0]) + "".join(" %8d (%+5d)" % (v[i], v[i] - v[0]) for i in range(1, 6))
+                         + "  [%d/%d] [%d/%d]" % (used, len(k.songs), used2, len(k.songs)))
             details += ["%s, %s: %s" % (k.name, l, score_line(x)) for l, x in zip(("built-in", "pooled", "even", "song-aware"), r)] + [""]
             print("(%d of %d) %s" % (n + 1, len(which), lines[-1]), flush=True)
-        lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 5)),
-                  "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 5)),
-                  "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 5)),
-                  "Gated: the model on %d of %d songs." % tuple(gate_songs)]
-        print("\n".join(lines[-4:]))
+        lines += ["", "%-*s %9d" % (width, "All", sums[0]) + "".join(" %8d (%+5d)" % (sums[i], sums[i] - sums[0]) for i in range(1, 6)),
+                  "%-*s %9s" % (width, "Mean change per kit", "") + "".join(" %15s" % ("%+.1f%%" % (100.0 * rel[i] / max(1, len(which)))) for i in range(1, 6)),
+                  "%-*s %9s" % (width, "Kits better / worse than built-in", "") + "".join(" %15s" % ("%d / %d" % (better[i], worse[i])) for i in range(1, 6)),
+                  "Gated: the even model on %d of %d songs; gated aware: the song-aware model on %d." % (gate_songs[0], gate_songs[1], gate_songs[2]),
+                  "Cymbals whose inputs DrumMidi left undefined (no model moves them; left as DrumMidi wrote them): %d of %d."
+                  % (sum(k.undefined for k in which), sum(len(k.X) for k in which))]
+        print("\n".join(lines[-5:]))
         # The models learned from all the kits, for DrumMidi (as Compare writes its models): even, song-aware
         # (its inputs: the cymbal's, then its song's look) and the gate with the even model.
         files = {"summary.txt": "\n".join(lines) + "\n", "details.txt": "\n".join(details), "kits.txt": kit_list}
@@ -5439,6 +5523,12 @@ def model_bench(opts, switches):
             text, java = bench_model_text(m, kits)
             files["model-%d-kits-%s.txt" % (len(kits), name)] = text
             files["model-%d-kits-%s-java.txt" % (len(kits), name)] = java
+        gate_aware = bench_gate_fit(kits, gains_aware)
+        if gate_aware is not None:
+            mu, sd, v, b = gate_aware
+            files["gate-%d-kits-song-aware.txt" % len(kits)] = ("# When DrumMidi's song-aware cymbal model (model-%d-kits-song-aware.txt) helps a song: as gate-%d-kits.txt\n" % (len(kits), len(kits))
+                                                               + "mu " + " ".join("%.8g" % a for a in mu) + "\nsd " + " ".join("%.8g" % a for a in sd)
+                                                               + "\nw " + " ".join("%.8g" % a for a in v) + "\nb %.8g\n" % b)
         gate = bench_gate_fit(kits, gains)
         if gate is not None:
             mu, sd, v, b = gate
@@ -5472,19 +5562,178 @@ HIT_MODEL_FILE = [None]
 HIT_RULES = 60
 
 
-def hit_dump(java, jar, audio, extra, kit, model_file):
+# --hit_band: each song also heard with a band over it (made here, laid over by DrumMidi: -Ddm.mixWith), one of these
+# a song in turn, as loud as the drums. (tools/accomp_mix.py's parts: a synthetic bass, distorted guitar power
+# chords, piano chords and melody, a synth pad and arpeggio, clean strummed guitar.)
+BAND_KINDS = (("bass", "guitar"), ("piano",), ("synth",), ("clean",))
+
+
+def band_note(f, dur, sr, harm, decay, bright_decay, attack=0.004, dist=0.0):
+    import numpy as np
+    t = np.arange(int(dur * sr)) / sr
+    out = np.zeros_like(t)
+    for k in range(1, harm + 1):
+        if f * k > sr / 2.2:
+            break
+        out += np.sin(2 * np.pi * f * k * t + k) / k * np.exp(-t * (decay + bright_decay * (k - 1)))
+    env = np.minimum(1, t / attack) * np.exp(-t * decay * 0.2)
+    out *= env
+    rel = int(min(len(t), 0.01 * sr))
+    if rel:
+        out[-rel:] *= np.linspace(1, 0, rel)
+    if dist:
+        out = np.tanh(out * dist) / np.tanh(dist)
+    return out
+
+
+def band_part(kind, n, sr, bpm, rng):
+    """One band part, n samples at bpm (accomp_mix.py's)."""
+    import numpy as np
+    beat = 60.0 / bpm
+    out = np.zeros(n)
+    synth_bass = kind == "synth" and rng.random() < 0.5
+    root = rng.choice([41.2, 43.65, 46.25, 49.0, 55.0, 58.27, 61.74])
+    prog = [1, 1, 4 / 3.0, 3 / 2.0, 6 / 5.0, 9 / 8.0]
+    t = 0.0
+    note = band_note
+    while t < n / sr:
+        r = root * prog[rng.integers(len(prog))]
+        for step in range(8):
+            at = t + step * beat / 2
+            if at >= n / sr:
+                break
+            if kind == "bass":
+                if rng.random() < 0.25:
+                    continue
+                d = beat / 2 * (2 if rng.random() < 0.3 else 1)
+                v = note(r * (2 if rng.random() < 0.15 else 1), d, sr, 14, 3.0, 1.2, 0.003) * (0.9 + 0.2 * rng.random())
+            elif kind == "guitar":
+                f = r * 2
+                mute = rng.random() < 0.4
+                d = beat / 2 if not mute else beat / 4
+                v = sum(note(f * m, d, sr, 30, 1.5 if not mute else 12, 0.15, 0.002) for m in (1, 1.5, 2))
+                v = np.tanh(v * 6) * (0.6 if mute else 1.0)
+            elif kind == "piano":
+                if step % 2 and rng.random() < 0.55:
+                    continue
+                d = beat * (1.0 if step % 2 == 0 else 0.5)
+                v = np.zeros(int(d * sr))
+                for m in (4, 5, 6) if rng.random() < 0.5 else (4, 5, 6, 8):
+                    v += 0.5 * note(r * m, d, sr, 10, 2.5, 0.9, 0.002)
+                if rng.random() < 0.6:
+                    v += 0.6 * note(r * rng.choice([8, 9, 10, 12, 16]), d, sr, 8, 3.0, 1.2, 0.002)
+                if step in (0, 4):
+                    v += 0.5 * note(r * 2, d, sr, 12, 1.8, 0.6, 0.003)
+            elif kind == "synth":
+                v = np.zeros(int(beat / 2 * sr))
+                if step == 0:
+                    pad = sum(note(r * m, beat * 4, sr, 25, 0.25, 0.08, 0.12) for m in (4, 5, 6))
+                    v = np.zeros(len(pad))
+                    v += 0.35 * pad
+                for half in (0, 1):
+                    if rng.random() < 0.3:
+                        continue
+                    pl = 0.5 * note(r * rng.choice([8, 10, 12, 16]), beat / 4, sr, 20, 9.0, 2.5, 0.002)
+                    o = int(half * beat / 4 * sr)
+                    v[o:o + len(pl)] += pl[: max(0, len(v) - o)]
+                if synth_bass and rng.random() < 0.8:
+                    sb = 0.9 * note(r, beat / 2 * 0.9, sr, 20, 4.0, 3.0, 0.002)
+                    v[:len(sb)] += sb[:len(v)]
+            else:
+                if step % 2 and rng.random() < 0.6:
+                    continue
+                f = r * 2
+                d = beat * 0.95
+                v = np.zeros(int(d * sr) + int(0.04 * sr))
+                for i, m in enumerate((1, 1.5, 2, 2.5, 3, 4)):
+                    s = note(f * m, d, sr, 12, 2.0, 0.6, 0.002)
+                    o = int(i * 0.006 * sr)
+                    v[o:o + len(s)] += s
+            a = int(at * sr)
+            v = v[: n - a]
+            out[a:a + len(v)] += v
+        t += beat * 4
+    return out
+
+
+def band_wav(path, mid, which):
+    """The band for the song played from `mid` (as long as it, at its tempo): BAND_KINDS[which], written as a WAV."""
+    import numpy as np
+    import wave
+    import zlib
+    sr = 22050
+    length = midi_notes(mid)[0] + 2.0
+    bpm = file_tempo(mid) or 120.0
+    rng = np.random.default_rng(zlib.crc32(os.path.basename(mid).encode("utf-8")))
+    kinds = BAND_KINDS[which % len(BAND_KINDS)]
+    n = int(length * sr)
+    acc = sum(band_part(k, n, sr, bpm, rng) for k in kinds)
+    peak = float(np.abs(acc).max()) or 1.0
+    w = wave.open(path, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(sr)
+    w.writeframes((acc / peak * 0.9 * 32767).astype("<i2").tobytes())
+    w.close()
+    return "+".join(kinds)
+
+
+# The rules-alone runs kept per song (hit_dump), by the DrumMidi build without its hit model: a new built-in
+# model (only DrumMidi_CRT$HitModel.class changed) runs only the model pass again, not the rules' (half the time).
+RULES_CACHE = [None]
+
+
+def jar_rules_sig(jar):
+    """The DrumMidi jar's signature without its hit model class: its rules' runs are the same while it holds."""
+    import hashlib
+    import zipfile
+    h = hashlib.sha1()
+    with zipfile.ZipFile(jar) as z:
+        for n in sorted(z.namelist()):
+            if n.endswith("$HitModel.class") or n.endswith("/"):
+                continue
+            h.update(n.encode("utf-8"))
+            h.update(z.read(n))
+    return h.hexdigest()[:12]
+
+
+def song_key(audio, extra, kit, kind):
+    """A song's key in RULES_CACHE: the render (its path, size and time), DrumMidi's switches, the kit, dry or which band."""
+    try:
+        st = os.stat(audio)
+        stamp = "%d %d" % (st.st_size, int(st.st_mtime))
+    except OSError:
+        stamp = "?"
+    return "\n".join([os.path.abspath(audio), stamp, " ".join(extra or []), os.path.abspath(kit) if kit else "", kind])
+
+
+def hit_dump(java, jar, audio, extra, kit, model_file, props=(), rkey=None):
     """DrumMidi_CRT on a render twice: the rules alone (-Ddm.hitModel=0, writing each onset that could be a
     kick, snare or tom and its inputs: -Ddm.hitFeatures) and with the hit model (its own, or `model_file`).
-    ([(time, inputs)], the rules' notes, the model's notes) or why not."""
+    ([(time, inputs)], the rules' notes, the model's notes) or why not. `rkey`: the song's key in RULES_CACHE
+    (the rules' run read from there when kept)."""
+    import hashlib
     import subprocess
     import tempfile
     import shutil
+    import numpy as np
     where = tempfile.mkdtemp(prefix="pulsekit-hits-", dir=BENCH_TMP[0])
+    kept = None
+    if RULES_CACHE[0] and rkey:
+        kept = os.path.join(RULES_CACHE[0], hashlib.sha1(rkey.encode("utf-8")).hexdigest()[:20] + ".npz")
     try:
         feats = os.path.join(where, "inputs.txt")
         more = list(extra) + (["--kit", os.path.abspath(kit)] if kit else [])
-        runs = (([java, "-Ddm.hitModel=0", "-Ddm.hitFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "rules.mid"] + more),
-                ([java, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "model.mid"] + more + (["--hit-model", os.path.abspath(model_file)] if model_file else [])))
+        rules_run = [java] + list(props) + ["-Ddm.hitModel=0", "-Ddm.hitFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "rules.mid"] + more
+        model_run = [java] + list(props) + ["-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "model.mid"] + more + (["--hit-model", os.path.abspath(model_file)] if model_file else [])
+        cached = None
+        if kept and os.path.isfile(kept):
+            try:
+                d = np.load(kept, allow_pickle=False)
+                cached = ([(float(t), [float(v) for v in x]) for t, x in zip(d["T"], d["X"])], [(float(t), int(n)) for t, n in d["N"]])
+            except Exception:
+                cached = None
+        runs = (model_run,) if cached is not None else (rules_run, model_run)
         for argv in runs:
             try:
                 r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
@@ -5493,6 +5742,8 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
             if not os.path.isfile(os.path.join(where, argv[argv.index("DrumMidi_CRT") + 2])):
                 lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
                 return "DrumMidi_CRT failed (%s)" % ((lines[-1:] or ["no MIDI written"])[0])
+        if cached is not None:
+            return cached[0], cached[1], midi_notes(os.path.join(where, "model.mid"))[1]
         if not os.path.isfile(feats):
             return "DrumMidi_CRT wrote no hit inputs (an older DrumMidi_CRT.jar?)"
         rows = []
@@ -5500,12 +5751,38 @@ def hit_dump(java, jar, audio, extra, kit, model_file):
             p = line.split()
             if p and not p[0].startswith("#"):
                 rows.append((float(p[0]), [float(v) for v in p[1:]]))
-        return rows, midi_notes(os.path.join(where, "rules.mid"))[1], midi_notes(os.path.join(where, "model.mid"))[1]
+        rules = midi_notes(os.path.join(where, "rules.mid"))[1]
+        if kept:
+            try:
+                os.makedirs(os.path.dirname(kept), exist_ok=True)
+                width = len(rows[0][1]) if rows else 0
+                tmp = kept[:-4] + ".part.npz"
+                np.savez_compressed(tmp, T=np.array([t for t, _ in rows], np.float64), X=np.array([x for _, x in rows], np.float32).reshape(len(rows), width),
+                                    N=np.array([(t, n) for t, n in rules], np.float64).reshape(len(rules), 2))
+                os.replace(tmp, kept)
+            except Exception:
+                pass
+        return rows, rules, midi_notes(os.path.join(where, "model.mid"))[1]
     finally:
         shutil.rmtree(where, ignore_errors=True)
 
 
-def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
+def hit_band_dump(java, jar, song, k, extra, kit, model_file):
+    """hit_dump on the song with a band over it (band_wav: the k-th of BAND_KINDS), the band's WAV gone after."""
+    import tempfile
+    fd, band = tempfile.mkstemp(prefix="pulsekit-band-", suffix=".wav", dir=BENCH_TMP[0])
+    os.close(fd)
+    try:
+        band_wav(band, song[1], k)
+        return hit_dump(java, jar, song[0], extra, kit, model_file, ["-Ddm.mixWith=" + band, "-Ddm.mixLevel=1"], song_key(song[0], extra, kit, "band%d" % k))
+    finally:
+        try:
+            os.remove(band)
+        except OSError:
+            pass
+
+
+def hit_data(cache, folder, info, java, jar, jobs, model_file, label="", band=False):
     """The kit's songs through DrumMidi (kept in `cache` for later benches): each onset's inputs and what was
     played there (kick, snare, tom: the labels a model learns), and per family (played, found, matched) with
     the rules alone and with the hit model."""
@@ -5513,7 +5790,12 @@ def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
     if os.path.isfile(cache):
         return np.load(cache, allow_pickle=False), 0
     songs = bench_songs(folder)
-    done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs, jobs, label)
+    if band:
+        # Each song with a band over it: the kinds in turn (the kit's first song bass and guitar, its next piano...).
+        indexed = [(s, i) for i, s in enumerate(songs)]
+        done = bench_map(lambda si: hit_band_dump(java, jar, si[0], si[1], info["extra"], info["kit"], model_file), indexed, jobs, label)
+    else:
+        done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file, (), song_key(s[0], info["extra"], info["kit"], "dry")), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -5548,10 +5830,11 @@ def hit_data(cache, folder, info, java, jar, jobs, model_file, label=""):
     return np.load(cache, allow_pickle=False), len(songs)
 
 
-def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3):
+def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3, w=None):
     """The hit model as DrumMidi has it (tools/hit_model.py fit): one hidden layer of ReLU units, three
-    outputs (kick, snare, tom), learned with Adam."""
+    outputs (kick, snare, tom), learned with Adam. `w`: each onset's weight (hit_rows: kits even)."""
     import numpy as np
+    w = None if w is None else (w / w.mean())[:, None]
     r = np.random.default_rng(seed)
     mu = X.mean(0)
     sd = X.std(0) + 1e-6
@@ -5569,6 +5852,8 @@ def hit_fit(X, Y, hidden=32, epochs=6, seed=0, lr=2e-3):
             a = z @ W1 + b1
             h = np.maximum(a, 0)
             g = (1 / (1 + np.exp(-(h @ W2 + b2))) - y) / len(i)
+            if w is not None:
+                g = g * w[i]
             gh = g @ W2.T * (a > 0)
             grads = [z.T @ gh + 1e-4 * W1, gh.sum(0), h.T @ g, g.sum(0)]
             t += 1
@@ -5618,6 +5903,35 @@ def hit_model_text(model, cuts, kits):
     return text, java
 
 
+# Leave one out learns from at most this many of each kit's onsets (picked evenly, each standing for the ones
+# left out): a big kit's millions of onsets would make each model take most of an hour.
+HIT_CAP = 20000
+
+
+def hit_rows(kits, even=False, cap=None):
+    """The kits' onsets to learn from: (X, Y, weights). `even`: each kit weighs the same (a kit with thousands
+    of songs does not decide the model); `cap`: at most that many of a kit's onsets, each standing for the
+    ones left out (so the kit weighs as before)."""
+    import numpy as np
+    xs, ys, ws = [], [], []
+    for k in kits:
+        n = len(k["X"])
+        if not n:
+            continue
+        keep = np.arange(n) if not cap or n <= cap else np.linspace(0, n - 1, cap).astype(int)
+        xs.append(k["X"][keep])
+        ys.append(k["Y"][keep])
+        ws.append(np.full(len(keep), (1.0 / n if even else 1.0) * n / len(keep)))
+    return np.vstack(xs), np.vstack(ys), np.concatenate(ws)
+
+
+def hit_all_f(fs):
+    """One F (%) of a kit's kicks, snares and toms together, from each drum's (F, matched, wrong, missed)."""
+    tp = sum(f[1] for f in fs)
+    bad = sum(f[2] + f[3] for f in fs)
+    return 200.0 * tp / max(1, 2 * tp + bad)
+
+
 def hit_plugin(name):
     """The plugin of a kit's test name ("Ugritone Drums (KVLT Mexico 1998)": Ugritone Drums): its kits share
     samples, so leave one out leaves them out together."""
@@ -5643,6 +5957,7 @@ def hit_bench(opts, switches):
     """--hit_bench: the test renders' zips in --bench_dir (its subfolders too) run through DrumMidi with its
     rules alone and with its hit model (or --hit_model_file); with --hit_loo, each kit with a model learned
     from the other plugins' kits, and the model learned from them all (hit-model.txt). A zip in --outdir."""
+    BENCH_KEEP[0] = "--bench_keep" in switches
     import hashlib
     import time
     try:
@@ -5687,20 +6002,66 @@ def hit_bench(opts, switches):
              "and set Settings' Hit model bench to Run last (the bench then reads the run's zips)" % folder)
     print("Hit model bench: %d tested kits' zips in %s; unzip folder %s; DrumMidi's results kept in %s" % (len(found), folder, unzip, os.path.join(work, "hits")))
     sig = hashlib.sha1(open(jar, "rb").read() + (open(model_file, "rb").read() if model_file else b"")).hexdigest()[:12]
-    jobs = max(1, min(8, os.cpu_count() or 1))
+    # Every core: DrumMidi's runs are the long part.
+    jobs = max(1, os.cpu_count() or 1)
+    try:
+        RULES_CACHE[0] = os.path.join(work, "hits-rules", jar_rules_sig(jar))
+        print("Rules' runs kept per song in %s (a new hit model alone runs only the model pass)" % RULES_CACHE[0], flush=True)
+    except Exception:
+        RULES_CACHE[0] = None
     kits = []
+    hits_at = lambda w, s, key, zips: os.path.join(w, "hits", s, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
+    # Earlier hit benches' work folders (another Output folder) are looked in too: a kit's DrumMidi results
+    # made there are copied here, not made again. (Its own hit model file changes what it finds: not then.)
+    works = bench_works(work, HIT_WORKS, "hits")
+    # Also where an earlier hit bench kept them with no Output folder given: each input folder's hit-bench (and
+    # the one above it), as the work folder was the first input folder's (several folders: another may have been first).
+    for f in folders:
+        for cand in (os.path.join(f, "hit-bench"), os.path.join(os.path.dirname(os.path.abspath(f)), "hit-bench")):
+            if os.path.normcase(os.path.abspath(cand)) != os.path.normcase(os.path.abspath(work)) and os.path.isdir(os.path.join(cand, "hits")) \
+                    and not any(os.path.normcase(os.path.abspath(cand)) == os.path.normcase(os.path.abspath(w)) for w in works):
+                works.append(cand)
+    have = 0
+    for key, stamp, zips, where in found:
+        cache = hits_at(work, sig, key, zips)
+        if os.path.isfile(cache) or not model_file and (bench_reuse(cache, sig, lambda old: hits_at(work, old, key, zips))
+                                                        or bench_elsewhere(cache, works, sig, key, zips, lambda w, s: hits_at(w, s, key, zips))):
+            have += 1
+    print("DrumMidi's results kept: %d of %d kits (DrumMidi_CRT.jar %s, in %s%s)%s" % (
+        have, len(found), sig, os.path.join(work, "hits"), "; earlier work folders looked in: %s" % "; ".join(works) if works else "",
+        "" if have == len(found) else ": DrumMidi runs on the other %d kits' songs (the long part)" % (len(found) - have)), flush=True)
+    if have < len(found):
+        # Results of another DrumMidi build (or hit model file) are not used: they can find other hits. Said, so it is
+        # clear whether the long part is needed or another build's results are there.
+        other = {}
+        for w in [work] + works:
+            root = os.path.join(w, "hits")
+            for old in (os.listdir(root) if os.path.isdir(root) else []):
+                if old == sig or not os.path.isdir(os.path.join(root, old)):
+                    continue
+                n = sum(1 for key, stamp, zips, where in found if os.path.isfile(hits_at(w, old, key, zips)))
+                if n:
+                    other["%s (%s)" % (old, w)] = n
+        if other:
+            print("Results of another DrumMidi build or hit model file (not used: they can find other hits): %s" % "; ".join("%d kits with %s" % (n, k) for k, n in other.items()), flush=True)
+        else:
+            print("No results of these kits from any DrumMidi build in those folders: this is the hit bench's first run on them", flush=True)
+    # --hit_band: each kit's songs also with a band over them (their own kit in the bench: "<kit> (band)").
+    band = "--hit_band" in switches
     for n, (key, stamp, zips, where) in enumerate(found):
-        cache = os.path.join(work, "hits", sig, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
-        # (Its own hit model file changes what it finds: no earlier results then.)
-        if not model_file:
-            bench_reuse(cache, sig, lambda old: os.path.join(work, "hits", old, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA)))
-        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache), "Kit %d of %d (%s): " % (n + 1, len(found), key))
+        cache = hits_at(work, sig, key, zips)
+        cache_band = hits_at(work, sig, key + "-band", zips) if band else None
+        into = bench_unpack(key, zips, unzip, not os.path.isfile(cache) or bool(cache_band) and not os.path.isfile(cache_band), "Kit %d of %d (%s): " % (n + 1, len(found), key), [] if shared else cymbal_unzips(opts) + [os.path.join(x, "cymbal-bench", "kits") for x in [outdir] + list(folders)]
+                            + ([os.path.join(opts["--bench_work"], "kits")] if opts.get("--bench_work") else []))
         info = bench_kit_info(into)
         if info is None:
             print("Kit %d of %d: %s left out (no vst-test report in its zips)" % (n + 1, len(found), key))
             continue
         d, ran = hit_data(cache, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s): " % (n + 1, len(found), info["name"]))
-        if ran and not shared and "--bench_keep" not in switches:
+        db, ran_band = (None, 0)
+        if band:
+            db, ran_band = hit_data(cache_band, into, info, opts["--java"], jar, jobs, model_file, "Kit %d of %d (%s, band): " % (n + 1, len(found), info["name"]), band=True)
+        if (ran or ran_band) and not shared and "--bench_keep" not in switches and bench_own(into, unzip):
             bench_drop_audio(into, zips)
         if isinstance(d, str):
             print("Kit %d of %d: %s left out (%s)" % (n + 1, len(found), info["name"], d))
@@ -5710,6 +6071,14 @@ def hit_bench(opts, switches):
         r, m = hit_fs(d["rules"]), hit_fs(d["model"])
         print("Kit %d of %d: %s: kick %s, snare %s, toms %s%s" % (n + 1, len(found), info["name"], hit_pair(r[0], m[0]).strip(), hit_pair(r[1], m[1]).strip(),
                                                               hit_pair(r[2], m[2]).strip(), "" if ran else " (from the last bench)"), flush=True)
+        if band and not isinstance(db, str) and db is not None:
+            kits.append({"name": info["name"] + " (band)", "plugin": hit_plugin(info["name"]), "X": db["X"].astype(np.float64), "Y": db["Y"].astype(np.float64),
+                         "rules": db["rules"], "model": db["model"]})
+            r, m = hit_fs(db["rules"]), hit_fs(db["model"])
+            print("Kit %d of %d: %s with a band: kick %s, snare %s, toms %s%s" % (n + 1, len(found), info["name"], hit_pair(r[0], m[0]).strip(), hit_pair(r[1], m[1]).strip(),
+                                                                              hit_pair(r[2], m[2]).strip(), "" if ran_band else " (from the last bench)"), flush=True)
+        elif band and isinstance(db, str):
+            print("Kit %d of %d: %s with a band left out (%s)" % (n + 1, len(found), info["name"], db))
     if not kits:
         fail("The hit model bench has no kit to score")
     width = max(len(k["name"]) for k in kits)
@@ -5742,39 +6111,67 @@ def hit_bench(opts, switches):
         print("Leave one out: %s (%d kits)…" % ("each plugin's kits scored with a model learned from the other plugins' kits" if by == "plugin"
                                                  else "each kit scored with a model learned from the other kits (one plugin's kits only)", len(kits)), flush=True)
         lines += ["", "Leave one out: the onsets DrumMidi considers (any that could be a kick, snare or tom), told by its rules and by a model",
-                  "learned without the kit%s, F in %%." % (" and its plugin's other kits (they share samples: it never heard them)" if by == "plugin" else " (it never heard it)"),
-                  "", "%-*s %15s %15s %15s" % (width, "Kit", "Kick", "Snare", "Toms")]
-        sums = np.zeros((2, 3, 3))
+                  "learned without the kit%s, F in %%." % (" and its plugin's other kits (they share samples: it never heard them)" if by == "plugin" else " (it never heard it)")]
+        lines += ["Each drum: rules -> pooled model -> kits-even model. Pooled: each onset weighs the same (kits with many songs",
+                  "decide); kits even: each kit weighs the same. Each model learns from at most %d of a kit's onsets." % HIT_CAP, "",
+                  "%-*s %23s %23s %23s %23s" % (width, "Kit", "Kick", "Snare", "Toms", "All")]
+        sums = np.zeros((3, 3, 3))
+        per = []
         for g in (plugins if by == "plugin" else [k["name"] for k in kits]):
             held = [k for k in kits if k[by] == g]
             rest = [k for k in kits if k[by] != g]
-            m, cuts = hit_fit(np.vstack([k["X"] for k in rest]), np.vstack([k["Y"] for k in rest]))
+            models = []
+            for even in (False, True):
+                X, Y, w = hit_rows(rest, even, HIT_CAP)
+                models.append(hit_fit(X, Y, w=w))
             for k in held:
-                P = hit_predict(m, k["X"])
-                row = []
+                cols, fs = [], [[], [], []]
                 for d in range(3):
-                    a = hit_f(k["X"][:, HIT_RULES + d] > 0.5, k["Y"][:, d])
-                    b = hit_f(P[:, d] >= cuts[d], k["Y"][:, d])
-                    sums[0, d] += a[1:]
-                    sums[1, d] += b[1:]
-                    none = not (k["Y"][:, d] > 0).any() and not (k["X"][:, HIT_RULES + d] > 0.5).any() and not (P[:, d] >= cuts[d]).any()
-                    row.append(hit_pair(None, None) if none else hit_pair(a[0], b[0]))
-                lines.append("%-*s %s" % (width, k["name"], " ".join(row)))
+                    got = [hit_f(k["X"][:, HIT_RULES + d] > 0.5, k["Y"][:, d])]
+                    for m, cuts in models:
+                        got.append(hit_f(hit_predict(m, k["X"])[:, d] >= cuts[d], k["Y"][:, d]))
+                    for a in range(3):
+                        sums[a, d] += got[a][1:]
+                        fs[a].append(got[a])
+                    none = not (k["Y"][:, d] > 0).any() and all(g[1] + g[2] == 0 for g in got)
+                    cols.append("%23s" % ("-" if none else "%5.1f -> %5.1f -> %5.1f" % tuple(g[0] for g in got)))
+                alls = [hit_all_f(f) for f in fs]
+                per.append(alls)
+                lines.append("%-*s %s %23s" % (width, k["name"], " ".join(cols), "%5.1f -> %5.1f -> %5.1f" % tuple(alls)))
                 print(lines[-1], flush=True)
         f = lambda v: 200.0 * v[0] / max(1, 2 * v[0] + v[1] + v[2])
-        lines += ["", "%-*s %s" % (width, "All", " ".join(hit_pair(f(sums[0, d]), f(sums[1, d])) for d in range(3)))]
+        tot = [200.0 * sum(sums[a, d, 0] for d in range(3)) / max(1, sum(2 * sums[a, d, 0] + sums[a, d, 1] + sums[a, d, 2] for d in range(3))) for a in range(3)]
+        lines += ["", "%-*s %s %23s" % (width, "All", " ".join("%23s" % ("%5.1f -> %5.1f -> %5.1f" % tuple(f(sums[a, d]) for a in range(3))) for d in range(3)),
+                                        "%5.1f -> %5.1f -> %5.1f" % tuple(tot))]
         print(lines[-1])
-        print("Learning the model from all %d kits…" % len(kits), flush=True)
+        per = np.array(per)
+        for a, label in ((1, "pooled"), (2, "kits even")):
+            ch = per[:, a] - per[:, 0]
+            lines.append("%s: mean change per kit %+.2f F points; kits better / worse than the rules %d / %d; worst kit %+.1f" % (
+                label, ch.mean(), int((ch > 0.05).sum()), int((ch < -0.05).sum()), ch.min()))
+            print(lines[-1])
+        print("Learning the models from all %d kits…" % len(kits), flush=True)
+        X, Y, w = hit_rows(kits, True)
+        m2, cuts2 = hit_fit(X, Y, w=w)
+        text2, java2 = hit_model_text(m2, cuts2, [k["name"] for k in kits])
+        files["hit-model-even.txt"] = text2
+        files["hit-model-even-java.txt"] = java2
         m, cuts = hit_fit(np.vstack([k["X"] for k in kits]), np.vstack([k["Y"] for k in kits]))
         text, java = hit_model_text(m, cuts, [k["name"] for k in kits])
         files["hit-model.txt"] = text
         files["hit-model-java.txt"] = java
-        lines += ["", "hit-model.txt: the model learned from all %d kits. DrumMidi uses it with --hit-model <file>;" % len(kits),
-                  "vst_render with --hit_model_file (the Hit model tab's Hit model file): its tests and this bench."]
-        saved = os.path.join(outdir, "hit-model-%s.txt" % time.strftime("%Y%m%d-%H%M%S"))
+        lines += ["", "hit-model.txt: the pooled model learned from all %d kits (hit-model-even.txt: kits even). DrumMidi uses one with" % len(kits),
+                  "--hit-model <file>; vst_render with --hit_model_file (the Hit model tab's Hit model file): its tests and this bench."]
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        saved = os.path.join(outdir, "hit-model-%s.txt" % stamp)
         with open(saved, "w", encoding="utf-8") as fh:
             fh.write(text)
         print("Hit model file: %s" % saved)
+        # The kits-even model beside it too (for the Hit model tab's Hit model file, as the pooled one).
+        saved_even = os.path.join(outdir, "hit-model-even-%s.txt" % stamp)
+        with open(saved_even, "w", encoding="utf-8") as fh:
+            fh.write(text2)
+        print("Hit model file (kits even): %s" % saved_even)
     files["summary.txt"] = "\n".join(lines) + "\n"
     made = bench_zip(os.path.join(outdir, "hit-bench-%s.zip" % time.strftime("%Y%m%d-%H%M%S")), files)
     print("Zip: %s" % made)
@@ -5782,7 +6179,7 @@ def hit_bench(opts, switches):
     # (Run last: with no zip folder of its own, the run's: with %n the run's own numbered folder.)
     copy_to = opts["--hit_zip_outdir"] or (opts["--zip_outdir"] if HIT_STAGE[0] == "bench" else None)
     if copy_to:
-        copy_zips([made] + ([saved] if loo else []), expand_folder(copy_to, newest=True))
+        copy_zips([made] + ([saved, saved_even] if loo else []), expand_folder(copy_to, newest=True))
     print("Succeeded: the hit model bench")
 
 
@@ -5901,7 +6298,7 @@ def main(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--preflight", "--bench_keep"):
+        if a in ("--edit", "--scan", "--recursive", "--test", "--no-toms", "--snare-leak", "--faded-opens", "--no-kit", "--compare_kits", "--no-map", "--zip", "--zip_nowav", "--skip_existing", "--keep_wav", "--bpm_from_name", "--check", "--model_compare", "--leave_one_out", "--cymbal_bench", "--no-cymbal-check", "--results_no_beats", "--results_no_hits", "--hit_bench", "--hit_loo", "--hit_band", "--preflight", "--bench_keep"):
             switches.add(a)
         elif a.startswith("--"):
             fail("unknown switch %s" % a)

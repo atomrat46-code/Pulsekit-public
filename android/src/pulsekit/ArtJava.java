@@ -191,6 +191,13 @@ public final class ArtJava {
     for (int i = 0; i < args.length; i++) shown = shown + " " + args[i];
     final String logHead = shown;
     java.util.HashSet<String> before = new java.util.HashSet<String>();
+    // The argument files outside the work folder as they were: only one the run writes (an output given
+    // as a path) is saved after it, not an input (a picture, a prompt file) it only read.
+    final java.util.Map<String, Long> argWas = new java.util.HashMap<String, Long>();
+    for (int i = 0; args != null && i < args.length; i++) {
+      File a = new File(args[i]);
+      argWas.put(args[i], Long.valueOf(a.isFile() ? a.lastModified() * 31 + a.length() : -1L));
+    }
     File[] prior = work.listFiles();
     if (prior != null) {
       for (int i = 0; i < prior.length; i++) {
@@ -258,8 +265,14 @@ public final class ArtJava {
         // A prompt sheet (--saveprompt) is written to disk after the run, once PyJav knows where it
         // goes (and not at all when it is the same as one in the library already: PromptSave).
         if (PromptSave.isSheetFile(out)) continue;
+        // SogniChat's raw answer when its processed copy is saved (an Output folder given): read, not written.
+        if (fn.toLowerCase(java.util.Locale.ROOT).endsWith(".txt") && rawTextOff) continue;
         String saved = publish(ctx, fn, body, sub);
         if (saved != null) ps.println("saved " + saved);
+        if (fellBack != null) {
+          ps.println(fellBack);
+          fellBack = null;
+        }
       }
     }
     File[] zips = zipsIn.listFiles();
@@ -285,9 +298,11 @@ public final class ArtJava {
           if (extra.getName().equals(files.get(j).name)) seen = true;
         }
         if (seen || extra.length() > 3000000L) continue;
+        Long was = argWas.get(args[i]);
+        if (was != null && was.longValue() == extra.lastModified() * 31 + extra.length()) continue;
         byte[] body = read(extra);
         files.add(new JavaRun.FileOut(extra.getName(), body));
-        String saved = publish(ctx, extra.getName(), body);
+        String saved = publish(ctx, extra.getName(), body, sub);
         if (saved != null) ps.println("saved " + saved);
       }
     }
@@ -865,10 +880,23 @@ public final class ArtJava {
     return android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
   }
 
-  /** A run's --outdir under Download (SogniMusic's), its % codes filled in; null when it has none. */
+  /** A run's --outdir under Download (SogniMusic's), its % codes filled in; else a batch's Batch folder; null when none. */
   static String runSub(String program, List<String> argv) {
+    // A batch's Batch folder comes first: it overrides the program's own folder settings.
+    if (batchSub != null) return batchSub;
     return subOf(ProgramFolder.outdirArg(program, argv));
   }
+
+  /** SogniChat's run going on has Output name: its raw chat not written (PyJav sets it at each run's start). */
+  static volatile boolean rawTextOff;
+
+  /** Params' Batch folder of the batch run going on (PyJav sets it at each run's start), or null. */
+  static volatile String batchSub;
+
+  /** Why the last write into a picked folder failed (the run's log says it). */
+  static volatile String treeError;
+  /** A save meant for a picked folder that went into Download instead: what the run's log says (once). */
+  static volatile String fellBack;
 
   /** A folder given in Params (--outdir, --zip_outdir) as Download's subfolder (% codes filled in), or a picked folder's address. */
   static String subOf(String pattern) {
@@ -902,7 +930,11 @@ public final class ArtJava {
       int bar = sub.indexOf(TREE_SUB);
       String tree = bar < 0 ? sub : sub.substring(0, bar), inside = bar < 0 ? null : sub.substring(bar + TREE_SUB.length());
       String picked = toTree(ctx, tree, ProgramFolder.labelOf(tree), inside, name.replace('\\', '_').replace('/', '_'), data);
-      return picked != null ? picked : publish(ctx, name, data);
+      if (picked != null) return picked;
+      // The folder could not be written (its permission lost): said in the run's log, saved into Download instead.
+      String fallback = publish(ctx, name, data);
+      fellBack = "Could not write into the folder " + ProgramFolder.labelOf(tree) + (treeError != null ? " (" + treeError + ")" : "") + ": saved into Download instead; pick the folder again with Browse";
+      return fallback;
     }
     String chosen = ProgramFolder.get() != null ? toTree(ctx, ProgramFolder.get(), ProgramFolder.label(), sub, name.replace('\\', '_').replace('/', '_'), data) : null;
     if (chosen != null) return chosen;
@@ -1058,6 +1090,7 @@ public final class ArtJava {
       SAVED.put(shown, file.toString());
       return shown;
     } catch (Throwable ex) {
+      treeError = ex.getMessage() == null ? ex.toString() : ex.getMessage();
       return null;
     }
   }

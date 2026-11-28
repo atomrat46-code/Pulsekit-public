@@ -21,20 +21,36 @@ import java.util.Set;
 final class SectionCollectionScreen {
   private final Activity activity;
   private final String app;
+  /** The LoRAs the Params have now (Add new section lists them first), or "". */
+  private final String lorasNow;
   final LinearLayout left;
   final LinearLayout right;
   final AlertDialog dialog;
   /** The groups open (+ pressed), by name in lower case. */
   final Set<String> open = new HashSet<String>();
+  /** The group picked with a tap on its name (Import sections from folder puts the sections in it); null: none. */
+  String selected;
+  /** Import sections from folder's request (the system's folder picker), and the window it is for. */
+  static final int IMPORT_DIR = 114;
+  static SectionCollectionScreen importing;
+  /** The tests: the group when none is selected (else asked), and what Import said. */
+  static String importGroup;
+  static volatile String importSaid = "";
 
   /** The window shown last, its menu and the question asked last (the tests). */
   static SectionCollectionScreen last;
-  static android.widget.PopupMenu lastMenu;
+  /** The menu shown last (a list: a section's or a group's, or Move into group's groups), the full view shown last. */
+  static AlertDialog lastMenu, lastFull;
   static AlertDialog lastAsk;
 
-  private SectionCollectionScreen(Activity activity, String app, final Runnable closed) {
+  /** The program's other rows a section keeps (Aspect, Width, Height...), from its Params; may be none. */
+  private final List<ProgramParams.Param> extras;
+
+  private SectionCollectionScreen(Activity activity, String app, String lorasNow, List<ProgramParams.Param> ps, final Runnable closed) {
     this.activity = activity;
     this.app = app;
+    this.extras = SectionCollection.extraRows(ps);
+    this.lorasNow = lorasNow == null ? "" : lorasNow;
     LinearLayout root = new LinearLayout(activity);
     root.setOrientation(LinearLayout.HORIZONTAL);
     // Left: Add new, then the groups (scrolled).
@@ -43,6 +59,9 @@ final class SectionCollectionScreen {
     android.widget.Button addGroup = button(SectionCollection.ADD_GROUP, "sc-add-group");
     addGroup.setOnClickListener(v -> this.addGroup());
     leftSide.addView(addGroup, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    android.widget.Button importDir = button(SectionCollection.IMPORT, "sc-import");
+    importDir.setOnClickListener(v -> this.importFolder());
+    leftSide.addView(importDir, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
     this.left = new LinearLayout(activity);
     this.left.setOrientation(LinearLayout.VERTICAL);
     ScrollView ls = new ScrollView(activity);
@@ -79,7 +98,17 @@ final class SectionCollectionScreen {
 
   /** Shows the program's Section Collection; `closed` runs when it closes (Browse sections listed again). */
   static SectionCollectionScreen show(Activity activity, String app, Runnable closed) {
-    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, closed);
+    return show(activity, app, PyJavParams.load(activity, app + ".java") == null ? "" : SectionCollection.lorasIn(PyJavParams.load(activity, app + ".java")), null, closed);
+  }
+
+  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, Runnable closed) {
+    return show(activity, app, lorasNow, null, closed);
+  }
+
+  /** Shows it with the LoRAs the Params have now (Add new section's list has them first). */
+  /** Shows it with the Params' LoRAs now and the program's rows (Add new section and Edit data have its other rows). */
+  static SectionCollectionScreen show(Activity activity, String app, String lorasNow, List<ProgramParams.Param> ps, Runnable closed) {
+    SectionCollectionScreen sc = new SectionCollectionScreen(activity, app, lorasNow, ps, closed);
     last = sc;
     sc.dialog.show();
     // Most of the screen: both sides have room for their lists.
@@ -138,6 +167,84 @@ final class SectionCollectionScreen {
         .setNegativeButton(cancel, null).show();
   }
 
+  /** Import sections from folder: the system's folder picker; importPicked goes on with the folder. */
+  void importFolder() {
+    importing = this;
+    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    this.activity.startActivityForResult(intent, IMPORT_DIR);
+  }
+
+  /** The folder picked: its .txt and .prompt files read (by name), then the group and the question. */
+  static void importPicked(Activity activity, android.net.Uri tree) {
+    SectionCollectionScreen sc = importing;
+    importing = null;
+    if (sc == null) return;
+    java.util.TreeMap<String, String> docs = new java.util.TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER);
+    android.database.Cursor c = null;
+    try {
+      c = activity.getContentResolver().query(android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree)),
+          new String[] {android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null);
+      while (c != null && c.moveToNext()) if (SectionCollection.importable(c.getString(1))) docs.put(c.getString(1), c.getString(0));
+    } catch (Exception ex) {
+      sc.say("Could not read the folder: " + ex.getMessage());
+      return;
+    } finally {
+      if (c != null) c.close();
+    }
+    java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<String, byte[]>();
+    for (java.util.Map.Entry<String, String> e : docs.entrySet()) {
+      try (java.io.InputStream in = activity.getContentResolver().openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, e.getValue()))) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] b = new byte[8192];
+        for (int n; in != null && (n = in.read(b)) > 0; ) out.write(b, 0, n);
+        files.put(e.getKey(), out.toByteArray());
+      } catch (Exception ignored) {
+        // left out
+      }
+    }
+    sc.importFrom(files, MediaDir.label(tree.toString()));
+  }
+
+  /** The files (name -> bytes) into the selected group, or the one asked for; asked first. */
+  void importFrom(final java.util.Map<String, byte[]> files, final String folder) {
+    if (files.isEmpty()) {
+      importSaid = "No .txt or .prompt files in " + folder;
+      this.say(importSaid);
+      return;
+    }
+    final java.util.function.Consumer<String> ask = group -> {
+      lastAsk = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.IMPORT).setMessage(SectionCollection.importAsk(files.size(), folder, this.app, group))
+          .setPositiveButton("Import", (d, w) -> {
+            try {
+              int[] r = SectionCollection.importAll(this.vault(), this.app, files, group);
+              if (!SectionCollection.NO_GROUP_PICK.equals(group)) this.open.add(group.toLowerCase(java.util.Locale.ROOT));
+              this.refresh();
+              importSaid = SectionCollection.imported(r, group);
+            } catch (Exception ex) {
+              importSaid = "Could not import the sections: " + ex.getMessage();
+            }
+            this.say(importSaid);
+          })
+          .setNegativeButton("Cancel", null).show();
+    };
+    if (this.selected != null) {
+      ask.accept(this.selected);
+      return;
+    }
+    if (importGroup != null) {
+      ask.accept(importGroup);
+      return;
+    }
+    try {
+      final List<String> picks = SectionCollection.groupPicks(this.vault(), this.app);
+      lastMenu = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.IMPORT_GROUP_ASK)
+          .setItems(picks.toArray(new String[0]), (d, w) -> ask.accept(picks.get(w))).setNegativeButton("Cancel", null).show();
+    } catch (Exception ex) {
+      this.say("Could not read the groups: " + ex.getMessage());
+    }
+  }
+
   void confirm(String text, final Runnable yes) {
     lastAsk = new AlertDialog.Builder(this.activity).setTitle(SectionCollection.DELETE).setMessage(text)
         .setPositiveButton(SectionCollection.DELETE, (d, w) -> yes.run()).setNegativeButton("Cancel", null).show();
@@ -155,17 +262,131 @@ final class SectionCollectionScreen {
     });
   }
 
-  void addSection() {
-    this.ask(SectionCollection.ADD_SECTION, SectionCollection.SECTION_NAME, "", SectionCollection.SECTION_TEXT, "", true, "OK", "Cancel", (name, text) -> {
-      try {
-        String bad = SectionCollection.addSection(this.vault(), this.app, name, text);
-        if (bad != null) this.say(bad);
-      } catch (Exception ex) {
-        this.say("Could not add the section: " + ex.getMessage());
-      }
-      this.refresh();
-    });
+  /** The section form shown last (the tests). */
+  static AlertDialog lastNew;
+
+  /**
+   * The section form (Add new section, Edit data, the Params' Save as new): name, description, prompt,
+   * LoRAs (a list), group (a list) and the program's other rows; `done` gets the form as OK left it.
+   */
+  static void form(final Activity activity, String title, SectionCollection.Form init, final List<String> loras, final List<String> groups,
+      List<ProgramParams.Param> extras, final java.util.function.Consumer<SectionCollection.Form> done) {
+    final float dpx = activity.getResources().getDisplayMetrics().density;
+    LinearLayout box = new LinearLayout(activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(Math.round(20 * dpx), Math.round(8 * dpx), Math.round(20 * dpx), 0);
+    final EditText name = field(activity, box, SectionCollection.SECTION_NAME, "sc-new-name", 1, init.name);
+    final EditText note = field(activity, box, SectionCollection.DESCRIPTION, "sc-new-note", 2, init.note);
+    final EditText prompt = field(activity, box, SectionCollection.PROMPT, "sc-new-prompt", 4, init.prompt);
+    final android.widget.Spinner lp = pick(activity, box, SectionCollection.LORAS, "sc-new-loras", loras, init.loras);
+    final android.widget.Spinner gp = pick(activity, box, SectionCollection.GROUP, "sc-new-group", groups, init.group);
+    // The program's other rows (and any other entry the section has): a field each.
+    final java.util.LinkedHashMap<String, EditText> other = new java.util.LinkedHashMap<String, EditText>();
+    java.util.LinkedHashMap<String, String> labels = new java.util.LinkedHashMap<String, String>();
+    for (ProgramParams.Param x : SectionCollection.extraRows(extras)) labels.put(x.token, SectionCollection.rowLabel(x));
+    for (java.util.Map.Entry<String, String> e : labels.entrySet())
+      other.put(e.getKey(), field(activity, box, e.getValue(), "sc-new-row:" + e.getKey(), 1, init.extra.containsKey(e.getKey()) ? init.extra.get(e.getKey()) : ""));
+    ScrollView sv = new ScrollView(activity);
+    sv.addView(box);
+    boolean edit = SectionCollection.EDIT_NAME.equals(title);
+    final java.util.function.Function<Boolean, SectionCollection.Form> read = asNew -> {
+      SectionCollection.Form f = new SectionCollection.Form();
+      f.asNew = asNew;
+      f.name = name.getText().toString();
+      f.note = note.getText().toString();
+      f.prompt = prompt.getText().toString();
+      f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
+      f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
+      f.extra.putAll(init.extra);
+      for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
+      return f;
+    };
+    AlertDialog.Builder b = new AlertDialog.Builder(activity).setTitle(title).setView(sv);
+    // Edit data: Save as too (a new section, the one edited kept).
+    if (edit) b.setNeutralButton(SectionCollection.SAVE_AS, (d, w) -> done.accept(read.apply(true)));
+    lastNew = b
+        .setPositiveButton(edit ? SectionCollection.SAVE : "OK", (d, w) -> {
+          SectionCollection.Form f = new SectionCollection.Form();
+          f.name = name.getText().toString();
+          f.note = note.getText().toString();
+          f.prompt = prompt.getText().toString();
+          f.loras = loras.get(Math.max(0, lp.getSelectedItemPosition()));
+          f.group = groups.get(Math.max(0, gp.getSelectedItemPosition()));
+          f.extra.putAll(init.extra);
+      for (java.util.Map.Entry<String, EditText> e : other.entrySet()) f.extra.put(e.getKey(), e.getValue().getText().toString());
+          done.accept(f);
+        })
+        .setNegativeButton(edit ? SectionCollection.EXIT : "Cancel", null).show();
   }
+
+  /** Add new section: the form, empty (the Params' LoRAs listed first). */
+  void addSection() {
+    try {
+      form(this.activity, SectionCollection.ADD_SECTION, new SectionCollection.Form(), SectionCollection.recentLoras(this.vault(), this.app, this.lorasNow),
+          SectionCollection.groupPicks(this.vault(), this.app), this.extras, f -> {
+            try {
+              String bad = SectionCollection.add(this.vault(), this.app, f);
+              if (bad != null) this.say(bad);
+            } catch (Exception ex) {
+              this.say("Could not add the section: " + ex.getMessage());
+            }
+            this.refresh();
+          });
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+    }
+  }
+
+  /** Edit data: the section's form, every field (its rows too). */
+  void editData(final PromptVault.SogniSection s) {
+    SectionCollection.Form init = SectionCollection.formOf(s);
+    try {
+      form(this.activity, SectionCollection.EDIT_NAME, init, SectionCollection.lorasFor(this.vault(), this.app, this.lorasNow, init),
+          SectionCollection.groupPicks(this.vault(), this.app), this.extras, f -> {
+            try {
+              String bad = f.asNew ? SectionCollection.saveAs(this.vault(), s, f) : SectionCollection.update(this.vault(), s, f);
+              if (bad != null) this.say(bad);
+            } catch (Exception ex) {
+              this.say("Could not save the section: " + ex.getMessage());
+            }
+            this.refresh();
+          });
+    } catch (Exception ex) {
+      this.say("Could not read the sections: " + ex.getMessage());
+    }
+  }
+
+  static EditText field(Activity activity, LinearLayout box, String label, String tag, int lines, String now) {
+    TextView l = new TextView(activity);
+    l.setText(label);
+    box.addView(l);
+    EditText e = new EditText(activity);
+    e.setTag(tag);
+    if (lines == 1) e.setSingleLine(true);
+    else {
+      e.setMinLines(lines);
+      e.setGravity(android.view.Gravity.TOP);
+    }
+    e.setText(now == null ? "" : now);
+    box.addView(e);
+    return e;
+  }
+
+  static android.widget.Spinner pick(Activity activity, LinearLayout box, String label, String tag, List<String> items, String now) {
+    TextView l = new TextView(activity);
+    l.setText(label);
+    l.setPadding(0, Math.round(6 * activity.getResources().getDisplayMetrics().density), 0, 0);
+    box.addView(l);
+    android.widget.Spinner sp = new android.widget.Spinner(activity);
+    sp.setTag(tag);
+    android.widget.ArrayAdapter<String> a = new android.widget.ArrayAdapter<String>(activity, android.R.layout.simple_spinner_item, items);
+    a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+    sp.setAdapter(a);
+    sp.setSelection(Math.max(0, items.indexOf(now)));
+    box.addView(sp);
+    return sp;
+  }
+
 
   /** Both sides drawn again from the library. */
   void refresh() {
@@ -205,11 +426,22 @@ final class SectionCollectionScreen {
     head.setGravity(android.view.Gravity.CENTER_VERTICAL);
     TextView name = new TextView(this.activity);
     name.setTag("sc-group-name:" + g.name);
-    name.setText(SectionCollection.groupLabel(g));
+    final boolean picked = g.name.equalsIgnoreCase(this.selected);
+    name.setText((picked ? "\u25b8 " : "") + SectionCollection.groupLabel(g));
+    if (picked) name.setBackgroundColor(0x553D7BFD);
+    // A tap on the name selects the group (again: none); Import sections from folder puts its sections there.
+    name.setOnClickListener(v -> {
+      this.selected = picked ? null : g.name;
+      this.refresh();
+    });
     name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
     name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
     name.setPadding(dp(4), dp(8), dp(4), dp(8));
     head.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+    // ⋮: the group's menu (as a long press on its name).
+    android.widget.Button more = this.small("\u22ee", "sc-group-menu:" + g.name);
+    more.setOnClickListener(v -> this.groupMenu(v, g));
+    head.addView(more);
     final boolean isOpen = this.open.contains(g.name.toLowerCase(java.util.Locale.ROOT));
     if (!g.sections.isEmpty()) {
       android.widget.Button plus = button(isOpen ? SectionCollection.SHUT : SectionCollection.OPEN, "sc-open:" + g.name);
@@ -218,7 +450,7 @@ final class SectionCollectionScreen {
         if (!this.open.remove(k)) this.open.add(k);
         this.refresh();
       });
-      head.addView(plus, new LinearLayout.LayoutParams(dp(44), dp(44)));
+      head.addView(plus, new LinearLayout.LayoutParams(dp(40), dp(40)));
     }
     row.addView(head);
     if (!g.note.isEmpty()) {
@@ -246,11 +478,10 @@ final class SectionCollectionScreen {
     row.setOnDragListener(drop);
     if (isOpen) {
       for (final PromptVault.SogniSection s : g.sections) {
+        // Its ⋮ on a row above it, the text the row's whole width.
         LinearLayout one = new LinearLayout(this.activity);
-        one.setOrientation(LinearLayout.HORIZONTAL);
-        one.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        one.setPadding(dp(14), 0, 0, 0);
-        TextView handle = this.handle(s);
+        one.setOrientation(LinearLayout.VERTICAL);
+        one.setPadding(dp(10), 0, 0, dp(4));
         TextView label = new TextView(this.activity);
         label.setTag("sc-in:" + s.id);
         label.setText(SectionCollection.shortLabel(s));
@@ -259,29 +490,18 @@ final class SectionCollectionScreen {
           this.sectionMenu(v, s, null);
           return true;
         });
-        one.addView(handle);
-        one.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        // A tap: the section shown fully (its row may be cut short).
+        label.setOnClickListener(v -> this.showFull(s));
+        android.widget.Button more2 = this.small("\u22ee", "sc-section-menu:" + s.id);
+        more2.setOnClickListener(v -> this.sectionMenu(v, s, null));
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32));
+        up.gravity = android.view.Gravity.END;
+        one.addView(more2, up);
+        one.addView(label, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         row.addView(one);
       }
     }
     return row;
-  }
-
-  /** A section's ☰: touched, it is dragged (onto a group). */
-  TextView handle(final PromptVault.SogniSection s) {
-    TextView h = new TextView(this.activity);
-    h.setTag("sc-drag:" + s.id);
-    h.setText("☰");
-    h.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20);
-    h.setPadding(dp(6), dp(4), dp(8), dp(4));
-    h.setContentDescription(SectionCollection.DROP_TIP);
-    h.setOnTouchListener((v, e) -> {
-      if (e.getAction() != android.view.MotionEvent.ACTION_DOWN) return false;
-      android.content.ClipData data = android.content.ClipData.newPlainText("section", SectionCollection.dragText(s));
-      v.startDragAndDrop(data, new View.DragShadowBuilder(v), null, 0);
-      return true;
-    });
-    return h;
   }
 
   View sectionBox(final PromptVault.SogniSection s) {
@@ -292,13 +512,16 @@ final class SectionCollectionScreen {
     LinearLayout head = new LinearLayout(this.activity);
     head.setOrientation(LinearLayout.HORIZONTAL);
     head.setGravity(android.view.Gravity.CENTER_VERTICAL);
-    head.addView(this.handle(s));
     TextView name = new TextView(this.activity);
     name.setTag("sc-head:" + s.id);
     name.setText(SectionCollection.heading(s));
     name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
     head.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
     final EditText text = new EditText(this.activity);
+    // ⋮: the section's menu (as a long press on its text).
+    android.widget.Button more = this.small("\u22ee", "sc-section-menu:" + s.id);
+    more.setOnClickListener(v -> this.sectionMenu(v, s, text));
+    head.addView(more);
     text.setTag("sc-text:" + s.id);
     text.setText(s.text == null ? "" : s.text.trim());
     text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
@@ -334,91 +557,198 @@ final class SectionCollectionScreen {
     this.dropOn(group, SectionCollection.dragText(s));
   }
 
+  /** A small button (⋮) for a row's menu. */
+  android.widget.Button small(String text, String tag) {
+    android.widget.Button b = new android.widget.Button(this.activity, null, android.R.attr.buttonStyleSmall);
+    b.setText(text);
+    b.setTag(tag);
+    b.setAllCaps(false);
+    b.setMinWidth(0);
+    b.setMinimumWidth(0);
+    b.setPadding(dp(8), 0, dp(8), 0);
+    return b;
+  }
+
+  /** A section shown fully (its name, description, when it was saved, its entries). */
+  void showFull(PromptVault.SogniSection s) {
+    TextView t = new TextView(this.activity);
+    t.setTag("sc-full-text");
+    t.setText(SogniSections.full(s));
+    t.setTextIsSelectable(true);
+    t.setPadding(dp(20), dp(8), dp(20), 0);
+    ScrollView sv = new ScrollView(this.activity);
+    sv.addView(t);
+    lastFull = new AlertDialog.Builder(this.activity).setTitle(SogniSections.label(s)).setView(sv).setPositiveButton(SectionCollection.CLOSE, null).show();
+  }
+
+  /** A list of items as a menu, each with what it does. */
+  AlertDialog menu(String title, final List<String> items, final List<Runnable> does) {
+    lastMenu = new AlertDialog.Builder(this.activity).setTitle(title).setItems(items.toArray(new String[0]), (d, w) -> does.get(w).run())
+        .setNegativeButton("Cancel", null).show();
+    return lastMenu;
+  }
+
   void sectionMenu(View at, final PromptVault.SogniSection s, final EditText text) {
-    android.widget.PopupMenu m = new android.widget.PopupMenu(this.activity, at);
-    if (text != null) m.getMenu().add(SectionCollection.SAVE).setOnMenuItemClickListener(i -> {
-      try {
-        String bad = SectionCollection.save(this.vault(), s, text.getText().toString());
-        if (bad != null) this.say(bad);
-      } catch (Exception ex) {
-        this.say("Could not save the section: " + ex.getMessage());
-      }
-      this.refresh();
-      return true;
-    });
-    m.getMenu().add(SectionCollection.DELETE).setOnMenuItemClickListener(i -> {
-      this.confirm(SectionCollection.deleteAsk(s), () -> {
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    if (text != null) {
+      items.add(SectionCollection.SAVE);
+      does.add(() -> {
         try {
-          this.vault().deleteSogniSection(s.id);
+          String bad = SectionCollection.save(this.vault(), s, text.getText().toString());
+          if (bad != null) this.say(bad);
         } catch (Exception ex) {
-          this.say("Could not delete the section: " + ex.getMessage());
+          this.say("Could not save the section: " + ex.getMessage());
         }
         this.refresh();
       });
-      return true;
+    }
+    items.add(SectionCollection.CUT);
+    does.add(() -> this.hold(s, true));
+    items.add(SectionCollection.COPY);
+    does.add(() -> this.hold(s, false));
+    if (SectionCollection.clip != null) {
+      items.add(SectionCollection.PASTE);
+      does.add(() -> this.pasteInto(s.group));
+    }
+    items.add(SectionCollection.SEND);
+    does.add(() -> this.sendMenu(s, false));
+    items.add(SectionCollection.SEND_GROUP);
+    does.add(() -> this.sendMenu(s, true));
+    items.add(SectionCollection.DELETE);
+    does.add(() -> this.confirm(SectionCollection.deleteAsk(s), () -> {
+      try {
+        this.vault().deleteSogniSection(s.id);
+      } catch (Exception ex) {
+        this.say("Could not delete the section: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    items.add(SectionCollection.MOVE + "\u2026");
+    does.add(() -> this.moveMenu(s));
+    items.add(SectionCollection.EDIT_NAME);
+    does.add(() -> this.editData(s));
+    this.menu(SogniSections.label(s), items, does);
+  }
+
+  /** Cut or Copy: the section held for Paste, its text on the clipboard too. */
+  void hold(PromptVault.SogniSection s, boolean cut) {
+    String said = SectionCollection.hold(s, cut);
+    try {
+      android.content.ClipboardManager cm = (android.content.ClipboardManager) this.activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+      if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("section", s.text == null ? "" : s.text.trim()));
+    } catch (Exception ignored) {
+      // held for Paste all the same
+    }
+    this.say(said);
+  }
+
+  /** Paste: the section cut or copied into this program's group ("" none). */
+  void pasteInto(String group) {
+    try {
+      this.say(SectionCollection.paste(this.vault(), this.app, group));
+    } catch (Exception ex) {
+      this.say("Could not paste: " + ex.getMessage());
+    }
+    this.refresh();
+  }
+
+  /** Send to other program (`toGroup`: then one of its groups): the program picked, then its group. */
+  void sendMenu(final PromptVault.SogniSection s, final boolean toGroup) {
+    final List<String> programs;
+    try {
+      programs = SectionCollection.programs(this.vault(), this.app);
+    } catch (Exception ex) {
+      this.say("Could not read the programs: " + ex.getMessage());
+      return;
+    }
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    for (final String p : programs) does.add(() -> {
+      if (!toGroup) {
+        this.sendTo(s, p, "");
+        return;
+      }
+      List<String> groups = new java.util.ArrayList<String>();
+      List<Runnable> into = new java.util.ArrayList<Runnable>();
+      try {
+        for (final PromptVault.SectionGroup g : this.vault().sectionGroups(p)) {
+          groups.add(g.name);
+          into.add(() -> this.sendTo(s, p, g.name));
+        }
+      } catch (Exception ignored) {
+        // none listed
+      }
+      if (groups.isEmpty()) {
+        this.say(p + " has no groups yet (its Section Collection's Add new group makes one)");
+        return;
+      }
+      this.menu(SectionCollection.PICK_GROUP + " (" + p + ")", groups, into);
     });
-    android.view.SubMenu move = m.getMenu().addSubMenu(SectionCollection.MOVE);
+    this.menu(SectionCollection.PICK_PROGRAM, programs, does);
+  }
+
+  void sendTo(PromptVault.SogniSection s, String program, String group) {
+    try {
+      this.say(SectionCollection.send(this.vault(), s, program, group));
+    } catch (Exception ex) {
+      this.say("Could not send it: " + ex.getMessage());
+    }
+  }
+
+  /** Move into group: the groups (not its own), and Take out of the group when it is in one. */
+  void moveMenu(final PromptVault.SogniSection s) {
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
     try {
       for (final PromptVault.SectionGroup g : this.vault().sectionGroups(this.app)) {
         if (SectionCollection.same(g.name, s.group)) continue;
-        move.add(g.name).setOnMenuItemClickListener(i -> {
-          this.moveTo(s, g.name);
-          return true;
-        });
+        items.add(g.name);
+        does.add(() -> this.moveTo(s, g.name));
       }
     } catch (Exception ignored) {
       // no groups listed
     }
-    if (s.group != null && !s.group.trim().isEmpty()) move.add(SectionCollection.OUT_OF_GROUP).setOnMenuItemClickListener(i -> {
-      this.moveTo(s, "");
-      return true;
-    });
-    m.getMenu().add(SectionCollection.EDIT_NAME).setOnMenuItemClickListener(i -> {
-      this.ask(SectionCollection.EDIT_NAME, SectionCollection.NAME, s.name == null ? "" : s.name, SectionCollection.DESCRIPTION, s.note == null ? "" : s.note,
-          false, SectionCollection.SAVE, SectionCollection.EXIT, (name, note) -> {
-            try {
-              this.vault().nameSogniSection(s.id, name, note);
-            } catch (Exception ex) {
-              this.say("Could not save the name: " + ex.getMessage());
-            }
-            this.refresh();
-          });
-      return true;
-    });
-    lastMenu = m;
-    m.show();
+    if (s.group != null && !s.group.trim().isEmpty()) {
+      items.add(SectionCollection.OUT_OF_GROUP);
+      does.add(() -> this.moveTo(s, ""));
+    }
+    if (items.isEmpty()) {
+      this.say(SectionCollection.NO_GROUPS);
+      return;
+    }
+    this.menu(SectionCollection.MOVE, items, does);
   }
 
   void groupMenu(View at, final SectionCollection.Group g) {
-    android.widget.PopupMenu m = new android.widget.PopupMenu(this.activity, at);
-    m.getMenu().add(SectionCollection.DELETE).setOnMenuItemClickListener(i -> {
-      this.confirm(SectionCollection.deleteGroupAsk(g), () -> {
-        try {
-          this.vault().deleteSectionGroup(this.app, g.name);
-        } catch (Exception ex) {
-          this.say("Could not delete the group: " + ex.getMessage());
+    List<String> items = new java.util.ArrayList<String>();
+    List<Runnable> does = new java.util.ArrayList<Runnable>();
+    items.add(SectionCollection.DELETE);
+    does.add(() -> this.confirm(SectionCollection.deleteGroupAsk(g), () -> {
+      try {
+        this.vault().deleteSectionGroup(this.app, g.name);
+      } catch (Exception ex) {
+        this.say("Could not delete the group: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    if (SectionCollection.clip != null) {
+      items.add(SectionCollection.PASTE);
+      does.add(() -> this.pasteInto(g.name));
+    }
+    items.add(SectionCollection.RENAME);
+    does.add(() -> this.ask(SectionCollection.RENAME, SectionCollection.GROUP_NAME, g.name, SectionCollection.DESCRIPTION, g.note, false, "OK", "Cancel", (name, note) -> {
+      if (name.trim().isEmpty()) return;
+      try {
+        if (!name.trim().equalsIgnoreCase(g.name)) {
+          if (this.open.remove(g.name.toLowerCase(java.util.Locale.ROOT))) this.open.add(name.trim().toLowerCase(java.util.Locale.ROOT));
+          this.vault().renameSectionGroup(this.app, g.name, name);
         }
-        this.refresh();
-      });
-      return true;
-    });
-    m.getMenu().add(SectionCollection.RENAME).setOnMenuItemClickListener(i -> {
-      this.ask(SectionCollection.RENAME, SectionCollection.GROUP_NAME, g.name, SectionCollection.DESCRIPTION, g.note, false, "OK", "Cancel", (name, note) -> {
-        if (name.trim().isEmpty()) return;
-        try {
-          if (!name.trim().equalsIgnoreCase(g.name)) {
-            if (this.open.remove(g.name.toLowerCase(java.util.Locale.ROOT))) this.open.add(name.trim().toLowerCase(java.util.Locale.ROOT));
-            this.vault().renameSectionGroup(this.app, g.name, name);
-          }
-          this.vault().addSectionGroup(this.app, name, note);
-        } catch (Exception ex) {
-          this.say("Could not rename the group: " + ex.getMessage());
-        }
-        this.refresh();
-      });
-      return true;
-    });
-    lastMenu = m;
-    m.show();
+        this.vault().addSectionGroup(this.app, name, note);
+      } catch (Exception ex) {
+        this.say("Could not rename the group: " + ex.getMessage());
+      }
+      this.refresh();
+    }));
+    this.menu(g.name, items, does);
   }
 }

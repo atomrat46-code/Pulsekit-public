@@ -447,6 +447,16 @@ final class MediaBrowser {
         });
     }
 
+    /** Upscale video: SogniVideoUpscale on PyJav with the video (copied into PyJav's input folder) as its input; its Params open. */
+    void upscaleVideo(final MediaDir.Entry e, final android.app.Dialog player) {
+        final Runnable back = this.returner();
+        final MainActivity host = this.app;
+        this.chosen(e, (name, file) -> {
+            if (player != null && player.isShowing()) player.dismiss();
+            VideoUp.start(host, file, "Return to Media browser", back);
+        });
+    }
+
     /** ImageUpscaler on PyJav with `in` (a frame C captured) as its input; Return opens this browser again here. */
     void upscaleFile(File in, android.app.Dialog player) {
         final Uri tree = this.tree;
@@ -2788,6 +2798,8 @@ final class MediaBrowser {
                 toFileSet(host, file, name);
             } else if (MediaDir.TO_WAV.equals(item)) {
                 AudioOffer.convert(host, file);
+            } else if (MediaDir.UPSCALE_VIDEO.equals(item)) {
+                VideoUp.start(host, file, "Return to Media browser", () -> reopen(host, tree, base, root, at));
             } else {
                 host.openKitView("py");
                 host.programMenus.selectProgram("Java", MediaDir.TO_MIDI.equals(item) ? "DrumMidi_CRT.jar" : "Midi2Wav.java");
@@ -4329,6 +4341,15 @@ final class MediaBrowser {
             shownRow = new TextView[] {stopBtn, playBtn, pauseBtn, p.capture, p.ref};
         } else if (this.frameRow != null) {
             p.capture.setContentDescription("This frame into the row");
+        }
+        // U: the video upscaled on Sogni (SogniVideoUpscale, its Params open); Return opens this browser again.
+        if (this.frameRow == null && AppSettings.showSogni() && !AppSettings.musicOnly()) {
+            TextView up = this.app.pill("U", false, v -> this.upscaleVideo(e, p.dialog));
+            up.setTag("media-video-upscale");
+            up.setContentDescription("Upscale this video (Sogni)");
+            TextView[] more = java.util.Arrays.copyOf(shownRow, shownRow.length + 1);
+            more[shownRow.length] = up;
+            shownRow = more;
         }
         for (TextView t : shownRow) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);

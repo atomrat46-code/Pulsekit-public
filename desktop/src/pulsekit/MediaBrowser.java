@@ -1772,6 +1772,18 @@ final class MediaBrowser {
      * in PyJav with the file as their input, Params open, and Return comes back to this folder.
      */
     void kindItem(MediaDir.Entry entry, final File f, String item) {
+        if (MediaDir.UPSCALE_VIDEO.equals(item)) {
+            // SogniVideoUpscale on PyJav with this video as its input; its Params open; Return: this folder again.
+            final File root = this.shownRoot;
+            final File dir = this.shown;
+            if (this.last != null) this.last.dispose();
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", "SogniVideoUpscale.java");
+            app.pyJav.setInputFile(f);
+            app.pyJav.setReturn(() -> this.reopen(root, dir));
+            SwingUtilities.invokeLater(() -> app.pyJav.openParams());
+            return;
+        }
         if (MediaDir.MIDI_EDIT.equals(item)) {
             byte[] bytes;
             try {

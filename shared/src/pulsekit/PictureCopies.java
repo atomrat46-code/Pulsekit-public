@@ -39,14 +39,30 @@ public final class PictureCopies {
    * are added to `made` (for deleting after the run). argv itself when there is nothing to copy.
    */
   public static List<String> withCopies(List<String> argv, List<File> made) {
+    return withCopies(argv, made, null);
+  }
+
+  /** As above; `notes` gets why a big JPEG got no smaller copy (for the run's log). */
+  public static List<String> withCopies(List<String> argv, List<File> made, List<String> notes) {
+    if (argv == null || !(argv.contains("--file") || argv.contains("--dir_file"))) return argv;
     Shrinker s = shrinker;
-    if (s == null || argv == null || !argv.contains("--file")) return argv;
+    if (s == null) {
+      // Not set yet (the app sets it at start): the platform's own one, by name.
+      try {
+        s = (Shrinker) Class.forName("pulsekit.PictureShrink").getDeclaredConstructor().newInstance();
+        shrinker = s;
+      } catch (Throwable ex) {
+        if (notes != null) notes.add("Note: no smaller copy of the pictures for the chat model (no picture shrinker: " + ex + ")");
+        return argv;
+      }
+    }
     List<String> out = new ArrayList<String>();
     File dir = null;
     for (int i = 0; i < argv.size(); i++) {
       String a = argv.get(i);
       out.add(a);
-      if (!"--file".equals(a) || i + 1 >= argv.size()) continue;
+      // (--dir_file: a file of --input_dir's folder, ChatFolder.)
+      if (!("--file".equals(a) || "--dir_file".equals(a)) || i + 1 >= argv.size()) continue;
       String path = argv.get(++i);
       out.add(path);
       if (i + 1 < argv.size() && "--seen_copy".equals(argv.get(i + 1))) continue;
@@ -58,11 +74,25 @@ public final class PictureCopies {
         if (px == null || Math.max(px[0], px[1]) <= SIDE) continue;
         byte[] small = s.smaller(data, SIDE, exifOrientation(data));
         int[] got = small == null ? null : jpegSize(small);
-        if (got == null || Math.max(got[0], got[1]) > SIDE) continue;
+        if (got == null || Math.max(got[0], got[1]) > SIDE) {
+          if (notes != null) notes.add("Note: no smaller copy of " + f.getName() + " (" + px[0] + "x" + px[1] + "): "
+              + (small == null ? "the picture could not be read" : got == null ? "the copy is not a JPEG" : "the copy is " + got[0] + "x" + got[1]));
+          continue;
+        }
         if (dir == null) {
-          dir = File.createTempFile("pulsekit-seen-", "");
-          dir.delete();
-          if (!dir.mkdirs()) return argv;
+          // Beside the picture (its folder is there for sure); the system's temp folder only when that is not
+          // writable: on the phone it can name a folder that is gone ("No such file or directory").
+          File parent = f.getAbsoluteFile().getParentFile();
+          dir = parent != null && parent.canWrite() ? new File(parent, "pulsekit-seen-" + System.nanoTime()) : null;
+          if (dir == null || !dir.mkdirs()) {
+            // mkdirs, not createTempFile: it makes the temp folder again when it is gone.
+            dir = new File(System.getProperty("java.io.tmpdir", "."), "pulsekit-seen-" + System.nanoTime());
+            dir.mkdirs();
+          }
+          if (!dir.isDirectory() && !dir.mkdirs()) {
+            if (notes != null) notes.add("Note: no smaller copy of " + f.getName() + ": could not make a folder for it (" + dir + ")");
+            return argv;
+          }
           made.add(dir);
         }
         File copy = new File(dir, f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-" + SIDE + ".jpg");
@@ -75,8 +105,9 @@ public final class PictureCopies {
         made.add(0, copy);
         out.add("--seen_copy");
         out.add(copy.getAbsolutePath());
-      } catch (Throwable ignored) {
-        // No copy: SogniChat says what it can do with the picture.
+      } catch (Throwable ex) {
+        // No copy: SogniChat says what it can do with the picture (and the log why there is none).
+        if (notes != null) notes.add("Note: no smaller copy of " + new File(path.trim()).getName() + ": " + ex);
       }
     }
     return out;

@@ -942,6 +942,12 @@ public class MainActivity extends UiKit {
             if (n2 == -1 && intent != null && intent.getData() != null) SaveText.write(this, intent.getData());
             return;
         }
+        if (n == SectionCollectionScreen.IMPORT_DIR) {
+            super.onActivityResult(n, n2, intent);
+            if (n2 == -1 && intent != null && intent.getData() != null) SectionCollectionScreen.importPicked(this, intent.getData());
+            else SectionCollectionScreen.importing = null;
+            return;
+        }
         if (n == CollectionsScreen.RELOCATE) {
             super.onActivityResult(n, n2, intent);
             if (n2 == -1 && intent != null && intent.getData() != null) CollectionsScreen.relocatePicked(this, intent.getData());

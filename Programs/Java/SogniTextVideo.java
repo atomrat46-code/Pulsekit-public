@@ -76,7 +76,7 @@ public final class SogniTextVideo {
     resultFile = null;
     said = new StringBuilder();
     try {
-      return steps(typed);
+      return twice(typed);
     } finally {
       finishPrompt();
     }
@@ -114,6 +114,49 @@ public final class SogniTextVideo {
   }
 
   /** The run itself. */
+  /**
+   * --aspect2: the video made again with the second aspect ratio (its own size; skipped when it is the same
+   * as --aspect). The worse of the two runs' results.
+   */
+  static int twice(String[] typed) throws Exception {
+    List<String> first = new ArrayList<String>();
+    String second = null, firstAspect = null;
+    for (int i = 0; i < typed.length; i++) {
+      if (typed[i].equals("--aspect2") && i + 1 < typed.length) second = typed[++i].trim();
+      else {
+        if (typed[i].equals("--aspect") && i + 1 < typed.length) firstAspect = typed[i + 1].trim();
+        first.add(typed[i]);
+      }
+    }
+    int code = steps(first.toArray(new String[0]));
+    if (second == null || second.isEmpty() || second.equals(firstAspect == null ? "" : firstAspect) || code != 0) return code;
+    // The second video: --aspect2 as its aspect ratio, its size from it (the first run's width and height not used).
+    List<String> again = new ArrayList<String>();
+    boolean named = false;
+    for (int i = 0; i < first.size(); i++) {
+      String a = first.get(i);
+      if ((a.equals("--aspect") || a.equals("--width") || a.equals("--height")) && i + 1 < first.size()) {
+        i++;
+        continue;
+      }
+      // Its own name: the output name with the aspect after it (unless %ar already tells them apart).
+      if (!a.startsWith("--") && !named && (i == 0 || !first.get(i - 1).startsWith("--") || isSwitchOnly(first.get(i - 1)))) {
+        named = true;
+        if (!a.contains("%ar")) a = a.replaceAll("(\\.[A-Za-z0-9]{1,5})?$", "-" + second.replace(':', 'x') + "$1");
+      }
+      again.add(a);
+    }
+    again.add("--aspect");
+    again.add(second);
+    say("Aspect ratio 2: the video again in " + second);
+    return steps(again.toArray(new String[0]));
+  }
+
+  /** A switch that takes no value (the word after it is the output name, not its value). */
+  static boolean isSwitchOnly(String a) {
+    return a.equals("--confirm_cost") || a.equals("--saveprompt") || a.equals("--unlimited") || a.equals("--delete_from_sogni") || a.equals("-h") || a.equals("--help");
+  }
+
   static int steps(String[] typed) throws Exception {
     say(VERSION);
     String[] args = tidy(typed);
@@ -148,6 +191,9 @@ public final class SogniTextVideo {
       else if (a.equals("--exact_prompt")) exact = true;
       else if (a.equals("--saveprompt")) savePrompt = true;
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
+      // Pulsekit's Input folder rows: its runs (one a file) do not have them; a run on its own leaves them out.
+      else if ((a.equals("--input_dir") || a.equals("--max_files") || a.equals("--section") || a.equals("--input_as")) && i + 1 < args.length) i++;
+      else if (a.equals("--skip_done") || a.equals("--subfolders")) continue;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--variations") && i + 1 < args.length) {
@@ -160,7 +206,7 @@ public final class SogniTextVideo {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
+      } else if (!a.startsWith("--") && out == null) out = a;
       else {
         say("Unknown argument: " + a);
         usage();
@@ -188,6 +234,10 @@ public final class SogniTextVideo {
       say("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
       return 2;
     }
+    // %ar and %r in the output name: the aspect ratio (16x9) and the resolution (1080p).
+    SogniApi.sizeCodes(aspect, 0, 0);
+    System.setProperty("pulsekit.res", resolution == 1440 ? "2K" : resolution + "p");
+    if (out != null) out = SogniApi.fillName(out, inWork("x").getParentFile());
     // The LoRAs, in order: the default set, or --loras (none for no LoRAs).
     List<String> loras = new ArrayList<String>();
     List<Double> strengths = new ArrayList<Double>();
@@ -310,8 +360,8 @@ public final class SogniTextVideo {
   }
 
   static void usage() {
-    say("Usage: java SogniTextVideo [output.mp4] [--prompt text] [--duration seconds] [--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] "
-        + "[--no_audio] [--exact_prompt] [--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni]");
+    say("Usage: java SogniTextVideo [output.mp4] [--prompt text] [--duration seconds] [--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--aspect2 16:9|9:16|1:1] "
+        + "[--no_audio] [--exact_prompt] [--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--section name]");
   }
 
   /** 768 (also empty), 720, 1080 or 1440 ("1080p", "2K" read the same way); -1 for anything else. */
@@ -1084,7 +1134,7 @@ public final class SogniTextVideo {
      * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
      * tools on its side and the run goes on when the connection drops, so a long job (a video) does
      * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
-     * Pictures in `turns` are uploaded URLs (a run takes no data: URIs); `media` are the uploads
+     * Pictures in `turns` are inline data: URIs; `media` are the uploads
      * (uploadMedia), named as media references and as the run's starting media.
      */
     public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {
@@ -1159,9 +1209,26 @@ public final class SogniTextVideo {
       return m;
     }
 
-    /** Sends a chat request (chatInput) and returns Sogni's reply as it came. */
+    /**
+     * Sends a chat request (chatInput) and returns Sogni's reply as it came. A 502, 503 or 504 (Sogni's
+     * gateway got no answer from the model in time, or it is busy) is asked again twice, after 15 s and 30 s.
+     */
     public Object chat(String inputJson) throws IOException {
-      return this.request("POST", "/v1/chat/completions", inputJson);
+      for (int attempt = 0; ; attempt++) {
+        try {
+          return this.request("POST", "/v1/chat/completions", inputJson);
+        } catch (ApiException ex) {
+          if (attempt >= 2 || (ex.status != 502 && ex.status != 503 && ex.status != 504)) throw ex;
+          int wait = 15 * (attempt + 1);
+          System.out.println("Sogni answered " + ex.status + (ex.status == 504 ? " (gateway timeout: the model did not answer in time)" : " (busy)") + "; asking again in " + wait + " s");
+          try {
+            Thread.sleep(wait * 1000L);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw ex;
+          }
+        }
+      }
     }
 
     /** The reply's text (choices[0].message.content, also inside "data"), without a <think> part; null if none. */
@@ -2409,6 +2476,30 @@ public final class SogniTextVideo {
       }
     }
     /**
+     * An aspect ratio's size when no width and height are given: its short side 1080 pixels, the long one from
+     * the ratio (at most 2560), both multiples of 8 (16:9 is 1920x1080, 4:7 1080x1888). Null for no ratio.
+     */
+    public static int[] sizeFor(String aspect) {
+      if (aspect == null || !aspect.trim().matches("\\d{1,2}:\\d{1,2}")) return null;
+      String[] p = aspect.trim().split(":");
+      double a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+      if (a <= 0 || b <= 0) return null;
+      double w = a >= b ? 1080 * a / b : 1080, h = a >= b ? 1080 : 1080 * b / a;
+      double over = Math.max(w, h) / 2560.0;
+      if (over > 1) {
+        w /= over;
+        h /= over;
+      }
+      return new int[] {(int) Math.max(256, Math.round(w / 8.0) * 8), (int) Math.max(256, Math.round(h / 8.0) * 8)};
+    }
+
+    /** The %ar and %r codes of an output name for this run: the aspect ratio ("16x9") and the size ("1920x1080"). */
+    public static void sizeCodes(String aspect, int width, int height) {
+      System.setProperty("pulsekit.ar", aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "");
+      System.setProperty("pulsekit.res", width > 0 && height > 0 ? width + "x" + height : "");
+    }
+
+    /**
      * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
      * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
      * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
@@ -2422,9 +2513,26 @@ public final class SogniTextVideo {
       if (one.equals(fillCodes(name, now, 2))) return one;
       for (int n = 1; n < 100000; n++) {
         String made = fillCodes(name, now, n);
-        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+        if (!nameTaken(dir, made) && !takenInOutDirs(made) && !givenBefore(made)) {
+          given(made);
+          return made;
+        }
       }
       return one;
+    }
+
+    /**
+     * The names %n has given in this process (a batch's runs: their files may go to a folder %n cannot
+     * see, or be moved away): kept in a system property, as each program has its own copy of this class.
+     */
+    static synchronized boolean givenBefore(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      return ("\n" + all + "\n").contains("\n" + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "\n");
+    }
+
+    static synchronized void given(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      System.setProperty("pulsekit.given", (all.isEmpty() ? "" : all + "\n") + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", ""));
     }
 
     /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
@@ -2469,7 +2577,13 @@ public final class SogniTextVideo {
         int j = i + 1;
         while (j < pattern.length()) {
           String rest = pattern.substring(j);
-          if (rest.startsWith("yyyy")) {
+          if (rest.startsWith("ar")) {
+            out.append(System.getProperty("pulsekit.ar", ""));
+            j += 2;
+          } else if (rest.startsWith("r")) {
+            out.append(System.getProperty("pulsekit.res", ""));
+            j += 1;
+          } else if (rest.startsWith("yyyy")) {
             out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
             j += 4;
           } else if (rest.startsWith("yy")) {
@@ -2495,6 +2609,8 @@ public final class SogniTextVideo {
           }
         }
         if (j == i + 1) out.append('%');
+        // %n% (as %g% is written): the % closing the codes is not part of the name.
+        else if (j < pattern.length() && pattern.charAt(j) == '%' && !(j + 1 < pattern.length() && pattern.charAt(j + 1) == '%')) j++;
         i = j - 1;
       }
       return out.toString();

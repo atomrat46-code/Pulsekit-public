@@ -713,6 +713,43 @@ final class PyJav {
         final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
         final String savedNow = this.loadParams(app.pyName);
         final String extra = ProgramParams.merge(runParams, field, savedNow);
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns);
+        // its Input group: each section of the group; both set: asked which.
+        final java.util.List<String> given = JavaRun.split(extra);
+        final String inGroup = !batchStep && FolderRuns.wanted(name) ? InputGroup.of(given) : null;
+        final boolean inFolder = !batchStep && FolderRuns.folderRun(name, given);
+        if (inGroup != null || inFolder) {
+            String choice = null;
+            if (inGroup != null && inFolder) {
+                Object[] picks = {InputGroup.BOTH, InputGroup.FOLDER, InputGroup.GROUP};
+                int ans = inputChoice != null ? inputChoice.intValue() : JOptionPane.showOptionDialog(app, InputGroup.ASK, "Input", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, picks, picks[0]);
+                if (ans < 0) return;
+                choice = String.valueOf(picks[ans]);
+            }
+            boolean doGroup = inGroup != null && !InputGroup.FOLDER.equals(choice);
+            boolean doFolder = inFolder && !InputGroup.GROUP.equals(choice);
+            if (doGroup) {
+                java.util.List<PromptVault.SogniSection> secs;
+                try {
+                    secs = InputGroup.sections(PromptDb.vault(), name, inGroup);
+                } catch (Exception ex) {
+                    secs = new java.util.ArrayList<PromptVault.SogniSection>();
+                }
+                if (secs.isEmpty()) {
+                    this.testNote(SogniSections.app(name) + ": no sections in group " + inGroup);
+                    if (!doFolder) return;
+                } else {
+                    final java.util.List<ProgramParams.Param> rp = runParams;
+                    final String folderProgram = name;
+                    if (doFolder) this.afterBatch = () -> this.startFolderRun(folderProgram, rp, given);
+                    this.testNote("Group " + inGroup + ": " + secs.size() + " section" + (secs.size() == 1 ? "" : "s") + " of " + SogniSections.app(name));
+                    this.runSections(name, runParams, secs);
+                    return;
+                }
+            }
+            this.startFolderRun(name, runParams, given);
+            return;
+        }
         if ("vst_render.py".equals(name)) {
             VstLists.rememberKits(extra);
             VstLists.rememberPlugins(extra);
@@ -786,7 +823,67 @@ final class PyJav {
         this.saveRun = saving;
         // Params' Destination subfolder: taken off too, kept with the run's download (Move puts its files there).
         final String subPattern = DownloadMove.takeSub(runArgs);
+        // Params' Batch folder: taken off; a batch's run (Run sections, an input folder, Auto render) keeps its files
+        // there instead of Download (the folder's % codes filled in once, at the batch's first run).
+        final String batchPattern = DownloadMove.takeBatch(runArgs);
+        // SogniChat with Output name: its raw chat not written (the processed copy is saved under that name).
+        final boolean rawKept = ChatFolder.rawKept(name, "SogniChat.java".equals(name) ? this.programText() : null, runArgs);
+        this.chatRawKept = rawKept;
+        final BatchQueue inBatchQ = BatchQueue.runOf(name);
+        // A run of another program, not a batch's: its ready screens have no Back.
+        if (inBatchQ == null && !name.equals(readyBackFor)) readyBack = null;
+        // Params' Batch group: taken off; a batch's run gets %g in its output name filled in with it (its files go in it after).
+        String groupPattern = DownloadMove.takeValue(runArgs, DownloadMove.BATCH_GROUP);
+        // Params' Usage warning: read before a batch (batchNext), not the program's.
+        DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
+        // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
+        Chain.forChat(name, runArgs);
+        Chain.strip(runArgs);
+        InputGroup.strip(runArgs);
+        // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
+        TextReady.takeAutoExclude(PromptDb.dir(), name, runArgs);
+        if (inBatchQ != null && groupPattern.length() > 0) {
+            if (inBatchQ.group == null) inBatchQ.group = BatchGroup.resolve(PromptDb.dir(), groupPattern);
+            java.util.List<String> groupFilled = BatchGroup.withGroup(ProgramParams.parse(this.programText()), runArgs, inBatchQ.group);
+            if (groupFilled != runArgs) {
+                runArgs.clear();
+                runArgs.addAll(groupFilled);
+            }
+        }
+        if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
+            inBatchQ.outFolder = ProgramFolder.outdir(DownloadMove.sizeCodes(batchPattern, runArgs), this.programFolder()).getAbsolutePath();
         final boolean savingRun = saving;
+        // SogniChat: Auto render with no Send to program: run without it, or choose the program (kept in the Params).
+        if (ChatFolder.autoWithoutProgram(name, runArgs)) {
+            Object[] options = {ChatFolder.RUN_WITHOUT_AUTO, ChatFolder.CHOOSE_PROGRAM, "Cancel"};
+            int ans = this.chatAnswer != null ? this.chatAnswer[0] : JOptionPane.showOptionDialog(app, ChatFolder.AUTO_NO_PROGRAM, "Auto render", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (ans == 0) ChatFolder.withoutAuto(runArgs);
+            else if (ans == 1) {
+                Object chosen = this.chatAnswer != null ? ChatFolder.RENDER_PROGRAMS[this.chatAnswer[1]]
+                    : JOptionPane.showInputDialog(app, "Render the answer with", "Auto render", JOptionPane.QUESTION_MESSAGE, null, ChatFolder.RENDER_PROGRAMS, ChatFolder.RENDER_PROGRAMS[0]);
+                if (chosen == null) {
+                    app.setNow("Not run");
+                    return;
+                }
+                java.util.List<ProgramParams.Param> cps = ProgramParams.parse(this.programText());
+                this.saveParams(name, ProgramParams.withValue(cps, this.loadParams(name), "--send_program", chosen.toString()));
+                runArgs.add("--send_program");
+                runArgs.add(chosen.toString());
+            } else {
+                app.setNow("Not run");
+                return;
+            }
+        }
+        // Silent auto mode with Output name, Output folder or Send to group empty: asked first.
+        java.util.List<String> chatEmpty = ChatFolder.silentEmpty(name, "SogniChat.java".equals(name) ? ProgramParams.parse(this.programText()) : new java.util.ArrayList<ProgramParams.Param>(), runArgs);
+        if (!chatEmpty.isEmpty()) {
+            Object[] options = {ChatFolder.RUN_ANYWAY, "Cancel"};
+            int ans = this.chatAnswer != null ? this.chatAnswer[2] : JOptionPane.showOptionDialog(app, ChatFolder.silentEmptyAsk(chatEmpty), "Silent auto mode", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[1]);
+            if (ans != 0) {
+                app.setNow("Not run");
+                return;
+            }
+        }
         // PlayList --nogui without a list writes the Default playlist: its file given.
         final java.util.List<String> argv = Playlist.withDefault(name, runArgs, PromptDb.dir());
         // SogniMusic's test without drums asked for: said first (DrumMidi would find nothing to check).
@@ -820,6 +917,8 @@ final class PyJav {
         final JavaRun.Live live = new JavaRun.Live();
         // Stop's run (JavaRun.live() is the program thread's own).
         this.runLive = live;
+        this.liveArgv = argv;
+        this.liveName = name;
         // Its workflow id and exact arguments kept with its download: Resume download if the app is closed.
         if (download != 0) {
             SogniDownloads.argv(download, argv);
@@ -888,6 +987,7 @@ final class PyJav {
             // SogniMusic --outdir: the run's tracks, WAVs and zip kept in that folder (% codes filled in, made when missing).
             String outdirArg = ProgramFolder.outdirArg(name, argv);
             this.runOutDir = outdirArg == null ? null : ProgramFolder.outdir(outdirArg, this.programFolder());
+            if (this.runOutDir == null && inBatchQ != null && inBatchQ.outFolder != null && batchPattern.length() > 0) this.runOutDir = new File(inBatchQ.outFolder);
             if (this.runOutDir != null && !this.runOutDir.isDirectory()) this.runOutDir.mkdirs();
             // Where the run's files are kept: an output name's %n counts the files there too.
             System.setProperty("pulsekit.outdir", (this.runOutDir != null ? this.runOutDir : this.programFolder()).getAbsolutePath());
@@ -954,6 +1054,7 @@ final class PyJav {
                 java.util.List<File> savedVideos = new java.util.ArrayList<File>();
                 StringBuilder status = new StringBuilder();
                 PythonRun.FileOut madeMidi = null;
+                PythonRun.FileOut madeText = null;
                 for (PythonRun.FileOut f : result.files) {
                     String lower = f.name.toLowerCase();
                     boolean midi = f.bytes != null && f.bytes.length >= 4
@@ -994,7 +1095,10 @@ final class PyJav {
                             if (lower.matches(".*\\.(mp4|m4v|webm|mov)$")) savedVideos.add(saved);
                         }
                     } else if (lower.endsWith(".txt")) {
-                        // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android.
+                        // A text file a program wrote (SogniChat's reply): kept in Downloads, as on Android; not SogniChat's
+                        // raw answer when its processed copy is saved (an Output folder given): only read for it.
+                        madeText = f;
+                        if (!rawKept) continue;
                         File saved = this.saveProgramFile(f.name, f.bytes);
                         status.append(saved == null ? "Could not save " + f.name : "Saved " + saved.getPath()).append('\n');
                         if (saved != null) texts++;
@@ -1145,6 +1249,19 @@ final class PyJav {
                     for (File v : savedVideos) if (v.getName().toLowerCase().matches(".+-merged(\\(\\d+\\))?\\.mp4")) watch = v;
                     this.offerVideo(watch, savedVideos.size());
                 }
+                // SogniChat --input_dir / --output_dir: each answer cut at Document ready's delimiter (the one used last)
+                // and saved, into the output folder when one is given (ChatFolder); a folder's run shows no Document ready.
+                // (Silent auto mode too: no Document ready, the answer saved, sent and rendered by itself.)
+                boolean chatFolder = ChatFolder.autoSaved(name, argv);
+                // The folder's files answered kept (Skip already processed leaves them out next time), also after a run some failed in.
+                if (ChatFolder.folderRun(name, argv)) ChatFolder.markDone(ChatFolder.key(argv), ChatFolder.answered(result.log));
+                // (One answer with Document ready: saved when it closes, as shown there, %g the group Send to group used.)
+                boolean readyShown = !inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name);
+                if (result.code == 0 && !readyShown && (chatFolder || PictureCopies.wants(name) && ChatFolder.arg(argv, "--output_dir") != null)) this.saveAnswers(name, argv, result.files);
+                // SogniChat's reply (the text it wrote) in Document ready, cut at its delimiter, with Copy and Send as prompt.
+                if (!inBatch && !chatFolder && madeText != null && result.code == 0 && TextReady.wanted(name)) this.offerText(name, madeText.name, TextReady.text(madeText.bytes), ChatFolder.answerDir(argv, rawKept), TextReady.preset(argv), AutoRender.target(argv));
+                // Auto render, an input folder: each answer rendered by the Send to program (no Document ready).
+                if (!inBatch && chatFolder && result.code == 0 && AutoRender.target(argv) != null) this.autoRender(AutoRender.target(argv), name, result.files);
                 // The ready dialogs closed (the group, category and tags picked): the files named with their codes
                 // renamed, and the move held for them made.
                 if (download != 0 && moveAfterReady[0]) this.afterReady(download);
@@ -1186,10 +1303,23 @@ final class PyJav {
                     java.util.List<String> paths = new java.util.ArrayList<String>();
                     for (File f : savedVideos) paths.add(f.getAbsolutePath());
                     for (File f : savedPictures) paths.add(f.getAbsolutePath());
+                    // Its Batch group: the run's files put in it.
+                    if (result.code == 0 && !batch.joining && batch.group != null && batch.group.length() > 0) {
+                        java.util.List<Object[]> fs = new java.util.ArrayList<Object[]>();
+                        for (File f : savedVideos) fs.add(new Object[] {f.getName(), Long.valueOf(f.length())});
+                        for (File f : savedPictures) fs.add(new Object[] {f.getName(), Long.valueOf(f.length())});
+                        int put = BatchGroup.add(PromptDb.dir(), batch.group, fs);
+                        if (put > 0 && app.pyLog != null) app.pyLog.append("\n" + BatchGroup.said(batch.group, put));
+                    }
+                    // Chain (SogniPadd): what the run made kept for the chain, which starts when the batch is over.
+                    if (result.code == 0 && !batch.joining && !batch.chained && Chain.target(name, this.loadParams(name)) != null) batch.chainItems.addAll(chainItems(savedPictures, argv));
                     batch.done(verdict, paths);
                     this.batchNext(batch);
                 } else if (BatchQueue.start(name, argv, verdict, result.log) != null) {
                     this.batchNext(BatchQueue.current());
+                } else if (result.code == 0 && batch == null && Chain.target(name, this.loadParams(name)) != null) {
+                    // Chain after a single run: its pictures (or prompt) go on.
+                    this.startChain(name, chainItems(savedPictures, argv));
                 }
             });
         }, "pulsekit-pyjav").start();
@@ -1199,6 +1329,12 @@ final class PyJav {
      * After a run that made pictures: each is shown under its name, scaled to fit, with Open (the
      * system viewer, for the first) and Close. A picture Java cannot read (WebP) is named only.
      */
+    /** Picture ready's and Video ready's Back. */
+    static final String READY_BACK = "Back";
+    /** The tests: Picture ready's answer (else asked) and its buttons last. */
+    static Integer pictureAnswer;
+    static java.util.List<Object> lastPictureOptions;
+
     void offerPictures(java.util.List<File> pictures) {
         JPanel col = new JPanel();
         col.setLayout(new javax.swing.BoxLayout(col, javax.swing.BoxLayout.Y_AXIS));
@@ -1256,9 +1392,27 @@ final class PyJav {
         javax.swing.JScrollPane scroll = new javax.swing.JScrollPane(col);
         scroll.setPreferredSize(new java.awt.Dimension(520, Math.min(560, col.getPreferredSize().height + 8)));
         // Process as a reference: the picture (the first, or the one picked) into another program as its Reference file 1 or 2.
-        Object[] options = new Object[] {"Process as a reference", "Open", "Close"};
-        int ans = JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
-            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[2]);
+        // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+        final boolean multi = this.multiRunning();
+        // Made by a chain (Document ready's Send or Auto render, SogniPadd's Chain): Back to the screen that chained it.
+        final Runnable back = readyBack;
+        java.util.List<Object> opts = new java.util.ArrayList<Object>(java.util.Arrays.asList("Process as a reference", "Open"));
+        if (multi) opts.add(BatchQueue.STOP_RUN);
+        if (back != null) opts.add(READY_BACK);
+        opts.add("Close");
+        Object[] options = opts.toArray();
+        int ans = pictureAnswer != null ? pictureAnswer.intValue() : JOptionPane.showOptionDialog(app, scroll, pictures.size() == 1 ? "Picture ready" : pictures.size() + " pictures ready",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[options.length - 1]);
+        lastPictureOptions = opts;
+        Object picked = ans >= 0 && ans < options.length ? options[ans] : "Close";
+        if (BatchQueue.STOP_RUN.equals(picked)) {
+            this.stopMulti();
+            return;
+        }
+        if (READY_BACK.equals(picked)) {
+            back.run();
+            return;
+        }
         if (ans == 0) {
             File pick = pictures.get(0);
             if (pictures.size() > 1) {
@@ -1554,11 +1708,27 @@ final class PyJav {
             String text = SogniSections.text(now);
             PromptVault.SogniSection same = PromptDb.vault().findSogniSection(program, text);
             if (same != null) {
+                SogniSections.current(program, same);
                 this.sectionSay("This section is saved already: " + SogniSections.label(same));
                 if (pickSection == null) JOptionPane.showMessageDialog(at, sectionSaid, SogniSections.SAVE, JOptionPane.PLAIN_MESSAGE);
                 return true;
             }
+            // Entries that differ from the section loaded (or saved last): saved over it, or a new one through the section form.
+            PromptVault.SogniSection cur = SogniSections.current(PromptDb.vault(), program);
+            if (cur != null) {
+                Object[] options = {SogniSections.OVERWRITE, SogniSections.SAVE_NEW, "Cancel"};
+                int ans = overwriteAnswer != null ? overwriteAnswer : JOptionPane.showOptionDialog(at, SogniSections.overwriteAsk(cur), SogniSections.SAVE,
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                if (ans == 0) {
+                    PromptDb.vault().updateSogniSection(cur.id, text);
+                    this.sectionSay("Saved over: " + SogniSections.label(cur));
+                    return true;
+                }
+                if (ans != 1) return false;
+                return this.saveAs(at, program, ps, now);
+            }
             PromptVault.SogniSection sec = PromptDb.vault().addSogniSection(program, text);
+            SogniSections.current(program, sec);
             this.sectionSay("Saved a " + program + " section: " + SogniSections.label(sec));
             return true;
         } catch (Exception ex) {
@@ -1566,6 +1736,40 @@ final class PyJav {
             return false;
         }
     }
+
+    /** Save held (or right-clicked): Save as, the section form with the entries now (a new section, whatever was loaded). */
+    boolean saveAs(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, JTextField[] fields, javax.swing.JTextArea[] areas) {
+        java.util.Map<String, String> now = sectionFields(ps, fields, areas);
+        if (now.isEmpty()) {
+            this.sectionSay("Nothing to save: the prompt and the other rows are empty");
+            return false;
+        }
+        return this.saveAs(at, program, ps, now);
+    }
+
+    /** The section form with `now` filled in; OK adds it as a new section (the current one after). */
+    boolean saveAs(java.awt.Component at, String program, java.util.List<ProgramParams.Param> ps, java.util.Map<String, String> now) {
+        try {
+            SectionCollection.Form init = SectionCollection.formOf(now);
+            SectionCollection.Form f = SectionCollectionWindow.form(at, SectionCollection.ADD_SECTION, init,
+                SectionCollection.lorasFor(PromptDb.vault(), program, "", init), SectionCollection.groupPicks(PromptDb.vault(), program), ps);
+            if (f == null) return false;
+            String bad = SectionCollection.add(PromptDb.vault(), program, f);
+            if (bad != null) {
+                this.sectionSay(bad);
+                return false;
+            }
+            SogniSections.current(program, SectionCollection.lastAdded);
+            this.sectionSay("Saved a " + program + " section: " + SogniSections.label(SectionCollection.lastAdded));
+            return true;
+        } catch (Exception ex) {
+            this.sectionSay("Could not save the section: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /** The tests' answer to Save's overwrite question (0 Overwrite, 1 Save as new, 2 Cancel; null: asked). */
+    static Integer overwriteAnswer;
 
     /** Browse sections' list shown last, and the full view's answer for the tests (0 Load, 1 Edit, 2 Remove, -1 Close; null: asked). */
     javax.swing.JList<String> lastSectionsList;
@@ -2003,7 +2207,7 @@ final class PyJav {
             sc.setName("sections-collection");
             sc.setToolTipText(SectionCollection.BUTTON_TIP);
             sc.addActionListener(e -> {
-                SectionCollectionWindow.show(sc, program);
+                SectionCollectionWindow.show(sc, program, SectionCollection.lorasIn(this.loadParams(program + ".java")), ps);
                 try {
                     all.clear();
                     all.addAll(PromptDb.vault().sogniSections(program));
@@ -2105,6 +2309,7 @@ final class PyJav {
             if (areas[i] != null) areas[i].setText(v == null ? "" : v);
             else if (fields[i] != null) fields[i].setText(v == null ? "" : v);
         }
+        SogniSections.current(program, sec);
         this.sectionSay("Loaded: " + SogniSections.label(sec));
     }
 
@@ -2655,8 +2860,51 @@ final class PyJav {
      * The batch's next step: its next run, else JoinVideo on its clips (--join), else the summary.
      * Each run is the program's own, with the arguments BatchRun planned.
      */
-    void batchNext(BatchQueue q) {
+    void batchNext(final BatchQueue q) {
         if (q == null) return;
+        // Params' Usage warning: Sogni's fair-use usage read before the first run (off the window's thread); at it or over, asked.
+        if (!q.usageChecked && q.next == 0) {
+            q.usageChecked = true;
+            final int warnAt = SogniUsage.threshold(this.loadParams(q.program));
+            if (warnAt > 0) {
+                this.testNote("Reading Sogni usage…");
+                new Thread(() -> {
+                    Object got;
+                    try {
+                        got = SogniUsage.fetch();
+                    } catch (Throwable ex) {
+                        got = ex;
+                    }
+                    final Object reply = got;
+                    SwingUtilities.invokeLater(() -> {
+                        if (reply instanceof Throwable) {
+                            q.usage = "Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + ")";
+                            q.usageShort = "Sogni usage: not read";
+                            this.testNote("Sogni usage: could not read it (" + ((Throwable) reply).getMessage() + "); the batch goes on");
+                            this.batchNext(q);
+                            return;
+                        }
+                        q.usage = SogniUsage.line(reply);
+                        q.usageShort = SogniUsage.brief(reply);
+                        this.testNote(q.usage);
+                        String ask = SogniUsage.ask(reply, warnAt);
+                        if (ask == null) {
+                            this.batchNext(q);
+                            return;
+                        }
+                        Object[] options = {"Run anyway", "Stop batch"};
+                        int ans = JOptionPane.showOptionDialog(app, ask, "Sogni usage", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+                        if (ans == 0) this.batchNext(q);
+                        else {
+                            q.stopping = true;
+                            this.testNote("Batch: not run (Sogni usage at or over the warning)");
+                            this.batchOver(q);
+                        }
+                    });
+                }, "pulsekit-usage").start();
+                return;
+            }
+        }
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(true);
         final String program;
         java.util.List<String> args;
@@ -2688,7 +2936,7 @@ final class PyJav {
                 // The argument line's own switches (the prompt the Params wrote there) would win over the section's: left out for the run.
                 if (runSectionsBefore != null) runSectionsBefore.run();
                 String line = this.pyExtra != null ? this.pyExtra.getText() : null;
-                if (line != null) this.pyExtra.setText(ProgramParams.strip(q.ps, line));
+                if (line != null) this.pyExtra.setText(q.withFile(ProgramParams.strip(q.ps, line)));
                 this.saveParams(program, sectionParams);
                 this.batchStep = true;
                 try {
@@ -2744,6 +2992,8 @@ final class PyJav {
             String g = sec.group == null || sec.group.trim().isEmpty() ? "" : "  [" + sec.group.trim() + "]";
             ticks[i] = new javax.swing.JCheckBox(SogniSections.marks(sec) + SogniSections.label(sec) + g);
             ticks[i].setName("run-section:" + i);
+            // Pointed at: the section whole.
+            ticks[i].setToolTipText("<html>" + SogniSections.full(sec).replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br>") + "</html>");
             list.add(ticks[i]);
         }
         javax.swing.JComboBox<String> picks = new javax.swing.JComboBox<String>(SogniSections.runPicks(all).toArray(new String[0]));
@@ -2777,10 +3027,48 @@ final class PyJav {
         this.batchNext(q);
     }
 
+    /** Input folder (SogniPedit, SogniPadd): the folder's files, one run each, as a batch (Stop batch ends it). */
+    void startFolderRun(String program, java.util.List<ProgramParams.Param> ps, java.util.List<String> argv) {
+        if (BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
+        }
+        String folder = ChatFolder.arg(argv, "--input_dir");
+        File dir = new File(folder);
+        if (app.pyLog != null) app.pyLog.setText("");
+        if (!dir.isDirectory()) {
+            this.testNote(SogniSections.app(program) + ": the input folder is not there: " + folder);
+            return;
+        }
+        java.util.List<String> notes = new java.util.ArrayList<String>();
+        try {
+            BatchQueue q = FolderRuns.start(program, ps, this.loadParams(program), argv, FolderRuns.files(program, dir, argv.contains("--subfolders")), folder, PromptDb.vault(), notes, dir);
+            for (String n : notes) this.testNote(SogniSections.app(program) + ": " + n);
+            if (q == null) return;
+            this.testNote("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(program) + " on " + dir.getName() + ", one after another");
+            this.batchNext(q);
+        } catch (Exception ex) {
+            this.testNote("Could not start the folder's runs: " + ex.getMessage());
+        }
+    }
+
     void batchOver(BatchQueue q) {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+        // Input folder and group both: the folder's runs after the group's (not after Stop batch).
+        Runnable after = this.afterBatch;
+        this.afterBatch = null;
+        if (after != null && !q.stopping) {
+            SwingUtilities.invokeLater(after);
+            return;
+        }
+        // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
+        if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
+            final java.util.List<Chain.Item> items = new java.util.ArrayList<Chain.Item>(q.chainItems);
+            final String from = q.program;
+            SwingUtilities.invokeLater(() -> this.startChain(from, items));
+        }
         // Run sections: what each section's run made, in a window too.
         if (q.bySections()) {
             runSectionsSaid = q.summary();
@@ -2816,6 +3104,31 @@ final class PyJav {
             this.testNote("The script was ended.");
             if (this.pyScriptStop != null) this.pyScriptStop.setVisible(false);
         }
+    }
+
+    /** The tests: SogniChat's questions answered ({Auto render's choice, the program picked, Silent auto mode's}); null: asked. */
+    static int[] chatAnswer;
+
+    /** The last SogniChat run's raw chat was written (no Output name). */
+    volatile boolean chatRawKept = true;
+
+    /** The running program's arguments and name (Picture ready's Stop run: a folder run). */
+    java.util.List<String> liveArgv;
+    String liveName;
+
+    /** Files made one after another: a batch going, or a folder run (SogniChat's input folder) in progress. */
+    boolean multiRunning() {
+        if (BatchQueue.going()) return true;
+        JavaRun.Live live = this.runLive;
+        return live != null && !live.done && !live.aborted() && this.liveArgv != null
+            && (ChatFolder.folderRun(this.liveName, this.liveArgv) || FolderRuns.folderRun(this.liveName, this.liveArgv));
+    }
+
+    /** Picture ready's and Video ready's Stop run: the batch stopped and the run in progress too. */
+    void stopMulti() {
+        this.stopBatch();
+        JavaRun.Live live = this.runLive;
+        if (live != null && !live.done && !live.aborted()) this.stopScript();
     }
 
     /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
@@ -2955,6 +3268,807 @@ final class PyJav {
      * through the active drum set), as a file set plays its source MIDI. Play / Stop and Close; the
      * MIDI is already imported as a file set. Nothing is shown when it has no drums for the kit.
      */
+    /** What saveAnswers said last (the tests). */
+    static volatile String answersSaid = "";
+
+    /**
+     * SogniChat --input_dir / --output_dir: each answer it wrote cut at the delimiter Document ready used
+     * last for it, saved into --output_dir (% codes filled in, made when missing) with the chat's name, else
+     * beside the chats as <name>-trimmed.txt; the run's log says where.
+     */
+    void saveAnswers(String program, java.util.List<String> argv, java.util.List<PythonRun.FileOut> files) {
+        java.util.List<JavaRun.FileOut> all = new java.util.ArrayList<JavaRun.FileOut>();
+        for (PythonRun.FileOut f : files) all.add(new JavaRun.FileOut(f.name, f.bytes));
+        java.util.List<JavaRun.FileOut> answers = ChatFolder.answers(all);
+        if (answers.isEmpty()) return;
+        String[] set = TextReady.setting(PromptDb.dir(), program);
+        String given = ChatFolder.arg(argv, "--output_dir");
+        // Send to program and group: each answer also a section there; the group is %g.
+        String[] preset = TextReady.preset(argv);
+        try {
+            preset = TextReady.resolved(PromptDb.vault(), preset);
+        } catch (Exception ignored) {
+            // as given
+        }
+        String group = preset == null ? null : preset[1];
+        File dir = given != null ? ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder()) : this.runOutDir != null ? this.runOutDir : this.programFolder();
+        dir.mkdirs();
+        int n = 0, sent = 0, empty = 0;
+        // The sections sent kept with one encrypted save at the end, not one for each.
+        PromptVault held = null;
+        try {
+            held = preset == null ? null : PromptDb.vault();
+        } catch (Exception ignored) {
+            // not sent: the answers are saved all the same
+        }
+        if (held != null) held.holdSaves();
+        try {
+        for (JavaRun.FileOut f : answers) {
+            // Nothing left once processed (the cuts took it all): this file is passed by, the next one goes on.
+            if (TextReady.result(TextReady.text(f.bytes), set).trim().isEmpty()) {
+                empty++;
+                continue;
+            }
+            if (preset != null) {
+                try {
+                    if (TextReady.sendToGroup(PromptDb.vault(), preset[0], f.name, TextReady.result(TextReady.text(f.bytes), set), preset[1]).startsWith("Sent")) sent++;
+                } catch (Exception ignored) {
+                    // not sent; the answer is saved all the same
+                }
+            }
+            // With Output name the raw chat was not written: the answers keep their names (not <name>-trimmed).
+            String name = ChatFolder.cutName(f.name, given != null || !this.chatRawKept, group);
+            File to = new File(dir, name);
+            String stem = name.replaceAll("\\.txt$", "");
+            for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
+            try {
+                Files.write(to.toPath(), TextReady.result(TextReady.text(f.bytes), set).getBytes(StandardCharsets.UTF_8));
+                n++;
+            } catch (Exception ex) {
+                if (app.pyLog != null) app.pyLog.append("\nCould not save " + name + ": " + ex.getMessage());
+            }
+        }
+        } finally {
+            if (held != null) {
+                try {
+                    held.releaseSaves();
+                } catch (Exception ex) {
+                    if (app.pyLog != null) app.pyLog.append("\nCould not save the sections sent: " + ex.getMessage());
+                }
+            }
+        }
+        answersSaid = ChatFolder.saved(n, dir.getPath(), set) + ChatFolder.sentNote(sent, preset) + ChatFolder.emptyNote(empty);
+        if (app.pyLog != null) app.pyLog.append("\n" + answersSaid);
+        app.setNow(answersSaid);
+    }
+
+    /** The tests: Document ready's buttons pressed in turn (0 Copy, 1 Save, 2 Send as prompt, 3 Close), the panel shown last,
+     *  Save's file (else one picked) and the program whose Params Send as prompt opened. */
+    static java.util.Deque<Integer> textReadyAnswers;
+    static JPanel lastTextReady;
+    static File textSaveTo;
+    static volatile String openedAfterSend;
+
+    /** Save: the text as shown (trimmed) into a file picked, its name suggested (answer-trimmed.txt). */
+    void saveText(String name, String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to save");
+            return;
+        }
+        File to = textSaveTo;
+        if (to == null) {
+            javax.swing.JFileChooser ch = new javax.swing.JFileChooser();
+            ch.setSelectedFile(new File(System.getProperty("user.home", "."), name));
+            if (ch.showSaveDialog(app) != javax.swing.JFileChooser.APPROVE_OPTION) return;
+            to = ch.getSelectedFile();
+        }
+        try {
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            this.clipSay("Saved the text into " + to.getName());
+        } catch (Exception ex) {
+            this.clipSay("Could not save the text: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * Document ready (TextReady): the text a run wrote, cut at a delimiter (Cut after, Cut before or No
+     * cut; remembered for the program), with Copy, Send as prompt (into a Sogni program's Params) and Close.
+     */
+    void offerText(String program, String fileName, String whole) {
+        this.offerText(program, fileName, whole, null);
+    }
+
+    /** The tests: Send to group's program and group (else asked); the group it used last (%g); what the output folder save said. */
+    static String groupProgram, groupName;
+    static volatile String sentGroup, answerSaid = "";
+
+    /** As above; `outputDir` (--output_dir): the answer as shown saved there when Document ready closes (%g: the group sent to). */
+    void offerText(String program, String fileName, String whole, String outputDir) {
+        this.offerText(program, fileName, whole, outputDir, null);
+    }
+
+    /** As above; `preset` (Send to program and group): a button sends the text there with one click. */
+    void offerText(String program, String fileName, String whole, String outputDir, String[] preset) {
+        this.offerText(program, fileName, whole, outputDir, preset, null);
+    }
+
+    /** As above; `autoTarget` (Auto render): the text as shown rendered by that program once Document ready closes. */
+    void offerText(String program, String fileName, String whole, String outputDir, String[] given, String autoTarget) {
+        // The preset group's % codes filled in once (Uudet%n: the next number not used yet).
+        String[] preset = given;
+        try {
+            preset = TextReady.resolved(PromptDb.vault(), given);
+        } catch (Exception ignored) {
+            // as given
+        }
+        final String[] group = {null};
+        try {
+            this.offerTextLoop(program, fileName, whole, group, preset);
+        } finally {
+            if (outputDir != null) {
+                answerSaid = this.saveInto(outputDir, fileName, lastTextReadyText, group[0]);
+                if (app.pyLog != null) app.pyLog.append("\n" + answerSaid);
+                app.setNow(answerSaid);
+            }
+            if (autoTarget != null) {
+                java.util.List<String[]> one = new java.util.ArrayList<String[]>();
+                one.add(new String[] {fileName, lastTextReadyText});
+                this.startAutoRender(autoTarget, one);
+                // Its pictures' Back: this Document ready again.
+                this.readyBackToText(autoTarget, program, fileName, whole, given, lastTextReadyText);
+            }
+        }
+    }
+
+    /** Auto render of an input folder's answers: each cut as Document ready would (its delimiter and text after). */
+    void autoRender(String target, String chat, java.util.List<PythonRun.FileOut> files) {
+        String[] set = TextReady.setting(PromptDb.dir(), chat);
+        java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+        for (PythonRun.FileOut f : files) {
+            if (!f.name.toLowerCase().endsWith(".txt")) continue;
+            String r = TextReady.result(TextReady.text(f.bytes), set);
+            // (Empty once processed: not rendered.)
+            if (!r.trim().isEmpty()) answers.add(new String[] {f.name, r});
+        }
+        this.startAutoRender(target, answers);
+    }
+
+    /** What Auto render did last (the tests). */
+    static volatile String autoRenderSaid = "";
+
+    /** Input folder and group both: the tests' answer (else asked); what runs after the group's batch. */
+    static Integer inputChoice;
+    Runnable afterBatch;
+
+    /** What Chain did last (the tests). */
+    static volatile String chainSaid = "";
+
+    /** A run's saved pictures for a chain, with the run's prompt; a run without one, its prompt alone. */
+    static java.util.List<Chain.Item> chainItems(java.util.List<File> pictures, java.util.List<String> argv) {
+        java.util.List<Chain.Item> out = new java.util.ArrayList<Chain.Item>();
+        String prompt = Chain.promptOf(argv);
+        for (File f : pictures) if (f.isFile()) out.add(new Chain.Item(f.getName(), prompt, f.getAbsolutePath()));
+        if (out.isEmpty() && prompt.length() > 0) out.add(new Chain.Item("prompt", prompt, null));
+        return out;
+    }
+
+    /** Chain: `from`'s pictures (or prompts) run by the program its Params chain to, one run each as a batch. */
+    void startChain(String from, java.util.List<Chain.Item> items) {
+        String fromSaved = this.loadParams(from);
+        String target = Chain.target(from, fromSaved);
+        if (target == null || items.isEmpty()) return;
+        if (BatchQueue.current() != null) {
+            chainSaid = "A batch is running: Chain left out";
+            this.testNote(chainSaid);
+            return;
+        }
+        String text = programTextOf(target);
+        if (text == null) {
+            chainSaid = "Chain: " + target + " not found";
+            this.testNote(chainSaid);
+            return;
+        }
+        BatchQueue q = Chain.start(from, target, ProgramParams.parse(text), this.loadParams(target), items, Chain.batchPrompt(fromSaved));
+        if (q == null) {
+            chainSaid = "Chain: nothing for " + SogniSections.app(target) + " (no " + (Chain.takesPicture(target) ? "pictures" : "prompt") + ")";
+            this.testNote(chainSaid);
+            return;
+        }
+        chainSaid = "Chain: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
+        this.testNote(chainSaid);
+        // Their Back: the program that chained them.
+        this.readyBackToProgram(target, from);
+        this.batchNext(q);
+    }
+
+    /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
+    void startAutoRender(String target, java.util.List<String[]> answers) {
+        if (BatchQueue.current() != null) {
+            autoRenderSaid = "A batch is running: Auto render left out";
+            this.testNote(autoRenderSaid);
+            return;
+        }
+        String text = programTextOf(target);
+        if (text == null) {
+            autoRenderSaid = "Auto render: " + target + " not found";
+            this.testNote(autoRenderSaid);
+            return;
+        }
+        BatchQueue q = AutoRender.start(target, ProgramParams.parse(text), this.loadParams(target), answers);
+        if (q == null) return;
+        // Its pictures' Back: SogniChat's page (Document ready, when it chained them, sets itself after this).
+        this.readyBackToProgram(target, "SogniChat.java");
+        autoRenderSaid = "Auto render: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(target);
+        this.testNote(autoRenderSaid);
+        this.batchNext(q);
+    }
+
+    /** The text Document ready showed last (as edited), for the output folder's save. */
+    static volatile String lastTextReadyText = "";
+
+    /** The answer saved into the output folder (its codes filled in, %g the group sent to) under its chat's name (a number after it when taken). */
+    String saveInto(String given, String fileName, String text, String group) {
+        File dir = ProgramFolder.outdir(TextReady.outDir(given, group), this.programFolder());
+        dir.mkdirs();
+        String name = ChatFolder.cutName(fileName, true, group);
+        File to = new File(dir, name);
+        String stem = name.replaceAll("\\.txt$", "");
+        for (int k = 2; to.exists(); k++) to = new File(dir, stem + "-" + k + ".txt");
+        try {
+            Files.write(to.toPath(), text.getBytes(StandardCharsets.UTF_8));
+            return "Answer saved: " + to.getPath();
+        } catch (Exception ex) {
+            return "Could not save the answer into " + dir + ": " + ex.getMessage();
+        }
+    }
+
+    /** Send to group: a Sogni program, then one of its groups; the text added there as a section. The group, or null. */
+    String sendToGroup(String fileName, String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to send");
+            return null;
+        }
+        java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String p : TextReady.targets(PyJav::programTextOf)) apps.add(SogniSections.app(p));
+        if (apps.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return null;
+        }
+        try {
+            String a = groupProgram;
+            if (a == null) {
+                Object got = JOptionPane.showInputDialog(app, TextReady.SEND_GROUP_PROGRAM, TextReady.SEND_GROUP, JOptionPane.QUESTION_MESSAGE, null, apps.toArray(), apps.get(0));
+                if (got == null) return null;
+                a = String.valueOf(got);
+            }
+            String g = groupName;
+            if (g == null) {
+                java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), a);
+                Object got = JOptionPane.showInputDialog(app, a + ": " + SectionCollection.GROUP, TextReady.SEND_GROUP, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                if (got == null) return null;
+                g = String.valueOf(got);
+            }
+            String r = TextReady.sendToGroup(PromptDb.vault(), a, fileName, text, g);
+            this.clipSay(r);
+            if (!r.startsWith("Sent")) return null;
+            sentGroup = g;
+            return g;
+        } catch (Exception ex) {
+            this.clipSay("Could not send the text: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    /** Document ready's text: the cursor to its start (MIN_VALUE), its end (MAX_VALUE), or a page up (-1) or down (1), the box scrolled with it. */
+    static void textPage(javax.swing.JTextArea body, int how) {
+        body.requestFocusInWindow();
+        int len = body.getDocument().getLength();
+        if (how == Integer.MIN_VALUE || how == Integer.MAX_VALUE) {
+            body.setCaretPosition(how == Integer.MIN_VALUE ? 0 : len);
+            return;
+        }
+        java.awt.Rectangle vis = body.getVisibleRect();
+        int y = Math.max(0, Math.min(body.getHeight() - vis.height, vis.y + how * vis.height));
+        body.scrollRectToVisible(new java.awt.Rectangle(0, y, 1, vis.height));
+        int at = body.viewToModel(new java.awt.Point(0, y + 1));
+        if (at >= 0) body.setCaretPosition(Math.min(len, at));
+        body.scrollRectToVisible(new java.awt.Rectangle(0, y, 1, vis.height));
+    }
+
+    /** Picture ready's and Video ready's Back: to the screen that chained the run (null: none), and the program it is for. */
+    static volatile Runnable readyBack;
+    static volatile String readyBackFor, readyBackTo;
+
+    void readyBackSet(String forProgram, String to, Runnable r) {
+        readyBackFor = forProgram;
+        readyBackTo = to;
+        readyBack = r;
+    }
+
+    /** Back to a program's page. */
+    void readyBackToProgram(String forProgram, final String program) {
+        this.readyBackSet(forProgram, SogniSections.app(program), () -> {
+            app.showView("py");
+            app.programMenus.selectListedProgram("Java", program);
+        });
+    }
+
+    /** Back to Document ready, its text as it was (not saved or rendered again on closing). */
+    void readyBackToText(String forProgram, final String program, final String fileName, final String whole, final String[] preset, final String shown) {
+        this.readyBackSet(forProgram, TextReady.TITLE, () -> {
+            textReadyAgain = shown;
+            this.offerText(program, fileName, whole, null, preset, null);
+        });
+    }
+
+    /** Document ready opened again by Back: its text as it was then. */
+    static volatile String textReadyAgain;
+
+    /** The tests: the Select list and Custom text's menu of the Document ready shown last; the section name (else asked). */
+    static javax.swing.JPopupMenu lastPickMenu, lastCustomMenu;
+    static String customSectionName;
+
+    /** Custom text's Add into program's group: a Sogni program, one of its groups, then the section's name (its first words suggested). */
+    String customToGroup(String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to add");
+            return null;
+        }
+        java.util.List<String> apps = new java.util.ArrayList<String>();
+        for (String p : TextReady.targets(PyJav::programTextOf)) apps.add(SogniSections.app(p));
+        if (apps.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return null;
+        }
+        try {
+            String a = groupProgram;
+            if (a == null) {
+                Object got = JOptionPane.showInputDialog(app, TextReady.SEND_GROUP_PROGRAM, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, apps.toArray(), apps.get(0));
+                if (got == null) return null;
+                a = String.valueOf(got);
+            }
+            String g = groupName;
+            if (g == null) {
+                java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), a);
+                Object got = JOptionPane.showInputDialog(app, a + ": " + SectionCollection.GROUP, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                if (got == null) return null;
+                g = String.valueOf(got);
+            }
+            String name = customSectionName;
+            if (name == null) {
+                Object got = JOptionPane.showInputDialog(app, a + ": " + TextReady.SECTION_NAME, TextReady.CUSTOM_GROUP, JOptionPane.QUESTION_MESSAGE, null, null, TextReady.customName(text));
+                if (got == null) return null;
+                name = String.valueOf(got);
+            }
+            String r = TextReady.toGroup(PromptDb.vault(), a, name, text, g);
+            this.clipSay(r);
+            return r;
+        } catch (Exception ex) {
+            this.clipSay("Could not add the text: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    void offerTextLoop(String program, String fileName, String whole, String[] group, String[] preset) {
+        File dir = PromptDb.dir();
+        String[] set = TextReady.setting(dir, program);
+        JPanel panel = new JPanel(new java.awt.BorderLayout(0, 6));
+        JPanel top = new JPanel(new java.awt.BorderLayout(6, 4));
+        top.add(new JLabel(fileName), java.awt.BorderLayout.NORTH);
+        final javax.swing.JComboBox<String> mode = new javax.swing.JComboBox<String>(TextReady.MODES);
+        mode.setName("text-ready:mode");
+        mode.setSelectedItem(set[0]);
+        final javax.swing.JTextField delim = new javax.swing.JTextField(set[1], 18);
+        delim.setName("text-ready:delimiter");
+        delim.setToolTipText(TextReady.HINT);
+        top.add(mode, java.awt.BorderLayout.WEST);
+        top.add(delim, java.awt.BorderLayout.CENTER);
+        // Remove note sections: "*Note: ... *" taken out of the text (remembered).
+        final javax.swing.JCheckBox notes = new javax.swing.JCheckBox(TextReady.REMOVE_NOTES, TextReady.ON.equals(set[5]));
+        notes.setName("text-ready:remove-notes");
+        final javax.swing.JCheckBox sogni = new javax.swing.JCheckBox(TextReady.SOGNI_CUT, TextReady.ON.equals(set[6]));
+        sogni.setName("text-ready:sogni-cut");
+        JPanel checks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        checks.add(notes);
+        checks.add(sogni);
+        // Remove section: from B to the next E, each such section taken out (remembered, B and E too).
+        final javax.swing.JCheckBox section = new javax.swing.JCheckBox(TextReady.REMOVE_SECTION, TextReady.ON.equals(set[TextReady.F_SECTION]));
+        section.setName("text-ready:remove-section");
+        final javax.swing.JTextField secB = new javax.swing.JTextField(set[TextReady.F_B], 10), secE = new javax.swing.JTextField(set[TextReady.F_E], 10);
+        secB.setName("text-ready:section-b");
+        secE.setName("text-ready:section-e");
+        checks.add(section);
+        checks.add(new JLabel(TextReady.SECTION_B));
+        checks.add(secB);
+        checks.add(new JLabel(TextReady.SECTION_E));
+        checks.add(secE);
+        // Skip sentences with: each sentence holding one of these (";" between them) left out (remembered).
+        final javax.swing.JTextField skip = new javax.swing.JTextField(set.length > TextReady.F_SKIP ? set[TextReady.F_SKIP] : "", 16);
+        skip.setName("text-ready:skip");
+        skip.setToolTipText(TextReady.SKIP_HINT);
+        checks.add(new JLabel(TextReady.SKIP_LABEL));
+        checks.add(skip);
+        top.add(checks, java.awt.BorderLayout.EAST);
+        final JLabel note = new JLabel();
+        note.setName("text-ready:note");
+        top.add(note, java.awt.BorderLayout.SOUTH);
+        panel.add(top, java.awt.BorderLayout.NORTH);
+        final javax.swing.JTextArea body = new javax.swing.JTextArea(14, 52);
+        body.setName("text-ready:text");
+        body.setLineWrap(true);
+        body.setWrapStyleWord(true);
+        // Editable: the text as it will be copied, saved or sent (a new cut, delimiter or text after makes it again).
+        body.setEditable(true);
+        TextMenu.attach(body);
+        // Above the text: to its start, a page up, a page down, to its end (a page: what the box shows at once).
+        JPanel textHolder = new JPanel(new java.awt.BorderLayout(0, 2));
+        JPanel navRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0));
+        String[][] navs = {{"text-ready:start", "\u21e4", "To the start"}, {"text-ready:page-up", "\u25b2", "A page up"}, {"text-ready:page-down", "\u25bc", "A page down"}, {"text-ready:end", "\u21e5", "To the end"}};
+        for (int k = 0; k < navs.length; k++) {
+            JButton nb = new JButton(navs[k][1]);
+            nb.setName(navs[k][0]);
+            nb.setToolTipText(navs[k][2]);
+            nb.setMargin(new java.awt.Insets(1, 8, 1, 8));
+            final int how = k == 0 ? Integer.MIN_VALUE : k == 1 ? -1 : k == 2 ? 1 : Integer.MAX_VALUE;
+            nb.addActionListener(e -> textPage(body, how));
+            navRow.add(nb);
+        }
+        textHolder.add(navRow, java.awt.BorderLayout.NORTH);
+        textHolder.add(new javax.swing.JScrollPane(body), java.awt.BorderLayout.CENTER);
+        panel.add(textHolder, java.awt.BorderLayout.CENTER);
+        // Select file and Browse sections: their text goes after the answer (remembered: next time too); Clear takes it away.
+        JPanel bottom = new JPanel(new java.awt.BorderLayout(6, 4));
+        JPanel arow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        arow.add(new JLabel(TextReady.AFTER + ":"));
+        // Add: checked, the text after is added to the answer; unchecked, it is kept aside (remembered).
+        final javax.swing.JCheckBox addAfter = new javax.swing.JCheckBox(TextReady.ADD_AFTER, !TextReady.OFF.equals(set[4]));
+        addAfter.setName("text-ready:add-after");
+        addAfter.setToolTipText("Checked: the text after is added");
+        // -/+: the two text fields hidden or shown again (remembered; hidden, still added when ticked).
+        final boolean[] fieldsShown = {set.length <= TextReady.F_SHOWN || !TextReady.OFF.equals(set[TextReady.F_SHOWN])};
+        final JButton fold = new JButton(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+        fold.setName("text-ready:fields");
+        fold.setToolTipText("Show or hide the text fields");
+        fold.setMargin(new java.awt.Insets(1, 8, 1, 8));
+        arow.add(fold, 0);
+        // Select: a list of Select file, Browse sections and Custom text (the first two's buttons kept, hidden, as its doers).
+        final JButton pick = new JButton(TextReady.SELECT_MENU);
+        pick.setName("text-ready:select-menu");
+        arow.add(pick);
+        JButton selectFile = new JButton(TextReady.SELECT_FILE);
+        selectFile.setName("text-ready:select-file");
+        selectFile.setVisible(false);
+        arow.add(selectFile);
+        JButton browse = new JButton(TextReady.BROWSE_SECTIONS);
+        browse.setName("text-ready:browse-sections");
+        browse.setVisible(false);
+        arow.add(browse);
+        JButton clear = new JButton(TextReady.CLEAR_TEXT);
+        clear.setName("text-ready:clear");
+        arow.add(clear);
+        bottom.add(arow, java.awt.BorderLayout.NORTH);
+        final javax.swing.JTextArea after = new javax.swing.JTextArea(set[2], 3, 52);
+        after.setName("text-ready:after");
+        after.setLineWrap(true);
+        after.setWrapStyleWord(true);
+        // Each text with its checkbox before it: checked, that text is added.
+        final JPanel afterRow = new JPanel(new java.awt.BorderLayout(4, 0));
+        afterRow.add(addAfter, java.awt.BorderLayout.WEST);
+        afterRow.add(new javax.swing.JScrollPane(after), java.awt.BorderLayout.CENTER);
+        bottom.add(afterRow, java.awt.BorderLayout.CENTER);
+        // Custom text: the user's own, added after the answer (remembered); its right-click menu: Save, Add into program's group, Clear.
+        final javax.swing.JTextArea custom = new javax.swing.JTextArea(set.length > TextReady.F_CUSTOM ? set[TextReady.F_CUSTOM] : "", 3, 52);
+        custom.setName("text-ready:custom");
+        custom.setLineWrap(true);
+        custom.setWrapStyleWord(true);
+        custom.setToolTipText(TextReady.CUSTOM_HINT);
+        final javax.swing.JCheckBox customAdd = new javax.swing.JCheckBox("", set.length <= TextReady.F_CUSTOM_ADD || !TextReady.OFF.equals(set[TextReady.F_CUSTOM_ADD]));
+        customAdd.setName("text-ready:custom-add");
+        customAdd.setToolTipText("Checked: the custom text is added");
+        final JPanel customScroll = new JPanel(new java.awt.BorderLayout(4, 0));
+        customScroll.add(customAdd, java.awt.BorderLayout.WEST);
+        javax.swing.JScrollPane customPane = new javax.swing.JScrollPane(custom);
+        customPane.setBorder(javax.swing.BorderFactory.createTitledBorder(TextReady.CUSTOM_TEXT));
+        customScroll.add(customPane, java.awt.BorderLayout.CENTER);
+        final boolean[] customWanted = {custom.getText().length() > 0};
+        final Runnable showFields = () -> {
+            afterRow.setVisible(fieldsShown[0]);
+            customScroll.setVisible(fieldsShown[0] && customWanted[0]);
+            fold.setText(fieldsShown[0] ? TextReady.FIELDS_HIDE : TextReady.FIELDS_SHOW);
+            panel.revalidate();
+            java.awt.Window w = SwingUtilities.getWindowAncestor(panel);
+            if (w != null) w.pack();
+        };
+        showFields.run();
+        bottom.add(customScroll, java.awt.BorderLayout.SOUTH);
+        final javax.swing.JPopupMenu customMenu = new javax.swing.JPopupMenu();
+        customMenu.setName("text-ready:custom-menu");
+        javax.swing.JMenuItem cSave = new javax.swing.JMenuItem(TextReady.CUSTOM_SAVE);
+        cSave.addActionListener(e -> this.saveText(TextReady.CUSTOM_FILE, custom.getText().trim()));
+        javax.swing.JMenuItem cGroup = new javax.swing.JMenuItem(TextReady.CUSTOM_GROUP);
+        cGroup.addActionListener(e -> this.customToGroup(custom.getText().trim()));
+        javax.swing.JMenuItem cClear = new javax.swing.JMenuItem(TextReady.CUSTOM_CLEAR);
+        cClear.addActionListener(e -> custom.setText(""));
+        customMenu.add(cSave);
+        customMenu.add(cGroup);
+        customMenu.add(cClear);
+        // Cut, Copy, Paste: the selection (Cut and Copy: the whole text when nothing is selected).
+        javax.swing.JMenuItem cCut = new javax.swing.JMenuItem(TextReady.CUT);
+        cCut.addActionListener(e -> {
+            if (custom.getSelectionStart() == custom.getSelectionEnd()) custom.selectAll();
+            custom.cut();
+        });
+        javax.swing.JMenuItem cCopy = new javax.swing.JMenuItem(TextReady.COPY_TEXT);
+        cCopy.addActionListener(e -> {
+            if (custom.getSelectionStart() == custom.getSelectionEnd()) custom.selectAll();
+            custom.copy();
+        });
+        javax.swing.JMenuItem cPaste = new javax.swing.JMenuItem(TextReady.PASTE);
+        cPaste.addActionListener(e -> custom.paste());
+        customMenu.addSeparator();
+        customMenu.add(cCut);
+        customMenu.add(cCopy);
+        customMenu.add(cPaste);
+        custom.setComponentPopupMenu(customMenu);
+        lastCustomMenu = customMenu;
+        final javax.swing.JPopupMenu pickMenu = new javax.swing.JPopupMenu();
+        javax.swing.JMenuItem pFile = new javax.swing.JMenuItem(TextReady.SELECT_FILE);
+        pFile.addActionListener(e -> {
+            fieldsShown[0] = true;
+            showFields.run();
+            selectFile.doClick();
+        });
+        javax.swing.JMenuItem pSec = new javax.swing.JMenuItem(TextReady.BROWSE_SECTIONS);
+        pSec.addActionListener(e -> {
+            fieldsShown[0] = true;
+            showFields.run();
+            browse.doClick();
+        });
+        javax.swing.JMenuItem pCustom = new javax.swing.JMenuItem(TextReady.CUSTOM_TEXT);
+        pCustom.addActionListener(e -> {
+            customWanted[0] = true;
+            fieldsShown[0] = true;
+            showFields.run();
+            custom.requestFocusInWindow();
+        });
+        pickMenu.add(pFile);
+        pickMenu.add(pSec);
+        pickMenu.add(pCustom);
+        lastPickMenu = pickMenu;
+        pick.addActionListener(e -> pickMenu.show(pick, 0, pick.getHeight()));
+        panel.add(bottom, java.awt.BorderLayout.SOUTH);
+        final Runnable cut = () -> {
+            String m = String.valueOf(mode.getSelectedItem());
+            String d = delim.getText();
+            String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
+                section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText(),
+                customAdd.isSelected() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF, skip.getText(),
+                set.length > TextReady.F_AUTO ? set[TextReady.F_AUTO] : TextReady.OFF};
+            body.setText(TextReady.result(whole, now));
+            body.setCaretPosition(0);
+            note.setText(TextReady.note(whole, d, m));
+            note.setVisible(TextReady.noteShown(whole, d, m));
+            TextReady.rememberAll(dir, program, now);
+        };
+        mode.addActionListener(e -> cut.run());
+        addAfter.addActionListener(e -> cut.run());
+        customAdd.addActionListener(e -> cut.run());
+        fold.addActionListener(e -> {
+            fieldsShown[0] = !fieldsShown[0];
+            showFields.run();
+            cut.run();
+        });
+        notes.addActionListener(e -> cut.run());
+        sogni.addActionListener(e -> cut.run());
+        section.addActionListener(e -> cut.run());
+        for (javax.swing.JTextField f : new javax.swing.JTextField[] {secB, secE, skip}) f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
+        clear.addActionListener(e -> after.setText(""));
+        selectFile.addActionListener(e -> {
+            String t = this.pickFileText(selectFile);
+            if (t != null) after.setText(t);
+        });
+        browse.addActionListener(e -> {
+            String t = this.pickSectionText(browse);
+            if (t != null) after.setText(t);
+        });
+        custom.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
+        after.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
+        delim.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                cut.run();
+            }
+        });
+        cut.run();
+        // Opened again by Picture ready's Back: the text as it was shown then.
+        if (textReadyAgain != null) {
+            body.setText(textReadyAgain);
+            body.setCaretPosition(0);
+            textReadyAgain = null;
+        }
+        lastTextReady = panel;
+        // Send to program and group set in Params: a button for it (5), before Close.
+        Object[] options = preset == null ? new Object[] {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE}
+            : new Object[] {TextReady.COPY, TextReady.SAVE, TextReady.SEND, TextReady.SEND_GROUP, TextReady.CLOSE, TextReady.presetLabel(preset)};
+        try {
+            while (true) {
+                int ans = textReadyAnswers != null ? (textReadyAnswers.isEmpty() ? 4 : textReadyAnswers.poll().intValue())
+                    : JOptionPane.showOptionDialog(app, panel, TextReady.TITLE, JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[4]);
+                if (ans == 5 && preset != null) {
+                    lastTextReadyText = body.getText();
+                    try {
+                        String r = TextReady.sendToGroup(PromptDb.vault(), preset[0], fileName, body.getText(), preset[1]);
+                        if (r.startsWith("Sent")) {
+                            group[0] = preset[1];
+                            sentGroup = preset[1];
+                        }
+                        this.clipSay(r);
+                    } catch (Exception ex) {
+                        this.clipSay("Could not send the text: " + ex.getMessage());
+                    }
+                    continue;
+                }
+                lastTextReadyText = body.getText();
+                if (ans == 0) {
+                    String t = body.getText();
+                    if (t.trim().length() > 0) {
+                        try {
+                            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new java.awt.datatransfer.StringSelection(t), null);
+                        } catch (Exception ignored) {
+                            // no clipboard (headless)
+                        }
+                    }
+                    this.clipSay(TextReady.copied(t));
+                } else if (ans == 1) {
+                    this.saveText(TextReady.savedName(fileName), body.getText());
+                } else if (ans == 2) {
+                    String target = this.sendText(body.getText());
+                    if (target != null) {
+                        // What that program makes: Back to this Document ready.
+                        this.readyBackToText(target, program, fileName, whole, preset, body.getText());
+                        // The program sent to opens, with its Params.
+                        app.showView("py");
+                        app.programMenus.selectListedProgram("Java", target);
+                        if (target.equals(app.pyName)) {
+                            if (textReadyAnswers != null) openedAfterSend = target;
+                            else SwingUtilities.invokeLater(this::openParams);
+                        }
+                        return;
+                    }
+                } else if (ans == 3) {
+                    String g = this.sendToGroup(fileName, body.getText());
+                    if (g != null) group[0] = g;
+                } else {
+                    return;
+                }
+            }
+        } finally {
+            lastTextReadyText = body.getText();
+        }
+    }
+
+    /** The tests: Select text's file (From file; else one picked) and section (From sections: its index; else a list). */
+    static File textAfterFile;
+    static Integer textAfterSection;
+
+    /** From file: a text file's text (as Params' Select file reads a prompt file), or null. */
+    String pickFileText(java.awt.Component at) {
+        File f = textAfterFile;
+        if (f == null) {
+            JFileChooser ch = selectChooser();
+            if (ch.showOpenDialog(at) != JFileChooser.APPROVE_OPTION) return null;
+            f = ch.getSelectedFile();
+            selected(f);
+        }
+        try {
+            String t = ProgramParams.promptText(Files.readAllBytes(f.toPath()));
+            if (t.isEmpty()) this.clipSay(f.getName() + " has no text");
+            return t.isEmpty() ? null : t;
+        } catch (Exception ex) {
+            this.clipSay("Could not read " + f.getName());
+            return null;
+        }
+    }
+
+    /** From sections: the Sogni programs' saved sections listed; the prompt of the one picked, or null. */
+    String pickSectionText(java.awt.Component at) {
+        java.util.List<String> texts = new java.util.ArrayList<String>();
+        java.util.List<String> labels;
+        try {
+            labels = TextReady.sectionChoices(PromptDb.vault(), texts);
+        } catch (Exception ex) {
+            this.clipSay("Could not read the sections: " + ex.getMessage());
+            return null;
+        }
+        if (labels.isEmpty()) {
+            this.clipSay("No sections saved yet (Sogni Params' Save)");
+            return null;
+        }
+        int k;
+        if (textAfterSection != null) k = textAfterSection.intValue();
+        else {
+            Object got = JOptionPane.showInputDialog(at, "Text after the answer: a saved section's prompt", TextReady.FROM_SECTIONS,
+                JOptionPane.PLAIN_MESSAGE, null, labels.toArray(), labels.get(0));
+            k = got == null ? -1 : labels.indexOf(got);
+        }
+        return k >= 0 && k < texts.size() ? texts.get(k) : null;
+    }
+
+    /** Send as prompt: the text into a Sogni program's Params as its prompt (picked, then asked); the program when sent. */
+    String sendText(String text) {
+        if (text.trim().isEmpty()) {
+            this.clipSay("No text to send");
+            return null;
+        }
+        java.util.List<String> targets = TextReady.targets(PyJav::programTextOf);
+        if (targets.isEmpty()) {
+            this.clipSay("No Sogni program takes a prompt");
+            return null;
+        }
+        String target = sendTo;
+        if (target == null) {
+            Object[] rows = new Object[targets.size()];
+            for (int i = 0; i < rows.length; i++) rows[i] = SogniSections.app(targets.get(i));
+            Object got = JOptionPane.showInputDialog(app, "Put the text into which program's Params, as its prompt?", TextReady.SEND_TITLE,
+                JOptionPane.QUESTION_MESSAGE, null, rows, rows[0]);
+            if (got == null) return null;
+            target = targets.get(java.util.Arrays.asList(rows).indexOf(got));
+        } else if (!targets.contains(target)) {
+            this.clipSay(target + " takes no prompt");
+            return null;
+        }
+        boolean yes = sendYes != null ? sendYes.booleanValue()
+            : JOptionPane.showConfirmDialog(app, ParamsClip.sendAsk("--prompt", target, text), TextReady.SEND_TITLE + " " + SogniSections.app(target), JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+        if (!yes) return null;
+        java.util.List<ProgramParams.Param> theirs = ProgramParams.parse(programTextOf(target));
+        this.saveParams(target, ParamsClip.put(theirs, this.loadParams(target), "--prompt", text));
+        this.clipSay(ParamsClip.sent("--prompt", target));
+        return target;
+    }
+
     void offerMidi(String midiName, byte[] midi) {
         short[] pcm;
         try {
@@ -3090,6 +4204,9 @@ final class PyJav {
      * decoder) with the same controls as on the phone: Play/Pause, Stop, Mute and a volume slider.
      * Open uses the system player; Close leaves it saved.
      */
+    /** Video ready's Upscale: SogniVideoUpscale with the clip as its input. */
+    static final String VIDEO_UPSCALE = "Upscale";
+
     void offerVideo(File video, int count) {
         String more = count > 1 ? "\n" + (count - 1) + " more " + (count == 2 ? "video is" : "videos are") + " saved beside it." : "";
         // With VLC the video plays here (right click: Extract frame); without it, in the browser.
@@ -3100,12 +4217,33 @@ final class PyJav {
             FileFavourites.load(PromptDb.dir());
             java.util.List<String> videoItems = TagDialogs.withUseLast(java.util.Arrays.asList("Play", "Open", MarkFile.isFavourite(video.getName(), video.length()) ? FileFavourites.REMOVE_SHORT : FileFavourites.ADD_SHORT, FileGroups.ADD,
                 MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
+            // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
+            if (this.multiRunning()) videoItems.add(videoItems.size() - 1, BatchQueue.STOP_RUN);
+            // Upscale: SogniVideoUpscale with the clip (its Params ask the size).
+            if (AppSettings.showSogni() && !AppSettings.musicOnly()) videoItems.add(videoItems.size() - 1, VIDEO_UPSCALE);
+            // Made by a chain: Back to the screen that chained it.
+            final Runnable vback = readyBack;
+            if (vback != null) videoItems.add(videoItems.size() - 1, READY_BACK);
             Object[] options = videoItems.toArray();
             ans = JOptionPane.showOptionDialog(app, video.getName() + " (" + (video.length() / 1024) + " KB) is saved in " + video.getParent() + "." + more
                 + (vlc ? "\n\nPlay plays it here; a right click on the picture pauses it and has Extract frame."
                     : "\n\nPlay opens it in the browser with Play/Pause, Stop, Mute and volume."), "Video ready",
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             String it = ans < 0 ? "Close" : videoItems.get(ans);
+            if (it.equals(BatchQueue.STOP_RUN)) {
+                this.stopMulti();
+                break;
+            }
+            if (it.equals(READY_BACK) && vback != null) {
+                vback.run();
+                return;
+            }
+            if (it.equals(VIDEO_UPSCALE)) {
+                app.programMenus.selectListedProgram("Java", "SogniVideoUpscale.java");
+                this.setInputFile(video);
+                SwingUtilities.invokeLater(this::openParams);
+                return;
+            }
             if (ans == 2) GroupMenus.toggleFavourite(app, video);
             else if (it.equals(FileGroups.ADD)) GroupMenus.ask(app, GroupMenus.keys(video), video.getName(), ReadyRecent.VIDEO);
             else if (it.equals(MediaTags.ADD_TAG)) TagDialogs.tags(app, app, video.getName(), video.length(), null, ReadyRecent.VIDEO);
@@ -3508,6 +4646,9 @@ final class PyJav {
         String saved = this.recentAsRun ? null : this.loadParams(item.name);
         this.recentAsRun = false;
         if (saved != null) args = ProgramParams.withSaved(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, saved);
+        // The Output name as its Params have it now (the last run's line may have had none, or another).
+        String keptOut = saved == null ? null : this.loadParams(item.name + ProgramParams.OUTPUT_KEY);
+        if (keptOut != null) args = ProgramParams.withOutput(ProgramParams.parse(PyJavHints.programText(item.name, source, binary ? data : null)), args, keptOut, true);
         if (this.pyExtra != null) this.pyExtra.setText(args);
         // Its run still going (another program looked at meanwhile): shown again.
         this.showRunning(item.name);
@@ -3534,6 +4675,15 @@ final class PyJav {
         String out = PyJavHints.outputFile(app.pyInputPath, this.pyHintPlain, outDir.getAbsolutePath());
         // A new program starts from its own usage, not the last program's args (DrumMidi's output.mid).
         String filled = PyJavHints.fillArgs("", this.pyHintPlain, this.pyInputToken, app.pyInputPath, outDir.getAbsolutePath());
+        // The Output name given in its Params last, back in (the usage alone had lost it).
+        String keptOut = this.loadParams(app.pyName + ProgramParams.OUTPUT_KEY);
+        if (keptOut != null && !keptOut.isEmpty()) {
+            try {
+                filled = ProgramParams.withOutput(ProgramParams.parse(this.programText()), filled, keptOut);
+            } catch (Exception ignored) {
+                // the usage's line as it is
+            }
+        }
         if (this.pyExtra != null) this.pyExtra.setText(filled);
         if (out.length() > 0) {
             this.pyOutputPath = out;
@@ -3839,11 +4989,29 @@ final class PyJav {
             JLabel rowLabel = new JLabel(p.flag ? p.label + "  " + p.token : p.label + (p.optional ? "  (optional)" : ""));
             if (ParamsClip.has(program, p)) {
                 // The prompt's and the LoRAs' Copy, Paste and Send to another Sogni program, after the label.
-                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                JPanel withClip = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 2, 0));
                 withClip.add(rowLabel);
                 for (JButton b : this.clipButtons(program, p.token, () -> areas[index] != null ? areas[index] : fields[index])) withClip.add(b);
                 // The prompt's ★ (a favourite section) and G (a section in a group): the entries as they are now.
                 if (p.token.equals("--prompt")) for (JButton b : this.markButtons(SogniSections.app(program), ps, fields, areas)) withClip.add(b);
+                // SC: Section Collection (the program's sections in groups).
+                if (p.token.equals("--prompt") && SogniSections.shown(program)) {
+                    final JButton sc = new JButton(SectionCollection.BUTTON);
+                    sc.setName("params-collection");
+                    sc.setToolTipText(SectionCollection.BUTTON_TIP);
+                    sc.setMargin(new java.awt.Insets(1, 4, 1, 4));
+                    // (The LoRAs row as it is now: Add new section lists it first.)
+                    sc.addActionListener(e -> {
+                        String loras = "";
+                        for (int k = 0; k < ps.size(); k++) {
+                            if (!ps.get(k).token.equals("--loras")) continue;
+                            if (areas[k] != null) loras = ProgramParams.oneLine(areas[k].getText());
+                            else if (fields[k] != null) loras = fields[k].getText();
+                        }
+                        SectionCollectionWindow.show(sc, SogniSections.app(program), loras, ps);
+                    });
+                    withClip.add(sc);
+                }
                 form.add(withClip);
             } else {
                 form.add(rowLabel);
@@ -4299,6 +5467,29 @@ final class PyJav {
                     form.add(holder);
                     continue;
                 }
+                if (Chain.batchTextRow(p)) {
+                    // Batch prompt's text: typed, or from a text file (Select file) or a saved section (Browse sections).
+                    JPanel holder = new JPanel(new BorderLayout(0, 4));
+                    holder.add(new javax.swing.JScrollPane(area), BorderLayout.CENTER);
+                    JPanel picks = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+                    JButton select = new JButton("Select file");
+                    select.setName("params-batch-file:" + p.token);
+                    select.addActionListener(e -> {
+                        String t = this.pickFileText(select);
+                        if (t != null) area.setText(t);
+                    });
+                    JButton secs = new JButton(Chain.BROWSE_SECTIONS);
+                    secs.setName("params-batch-sections:" + p.token);
+                    secs.addActionListener(e -> {
+                        String t = this.pickSectionText(secs);
+                        if (t != null) area.setText(t);
+                    });
+                    picks.add(select);
+                    picks.add(secs);
+                    holder.add(picks, BorderLayout.SOUTH);
+                    form.add(holder);
+                    continue;
+                }
                 form.add(new javax.swing.JScrollPane(area));
                 continue;
             }
@@ -4307,6 +5498,25 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (InputGroup.TOKEN.equals(p.token)) {
+                // Input group: typed, or picked from the program's groups (Browse groups).
+                JButton groups = new JButton(InputGroup.BROWSE);
+                groups.setName("params-input-group:" + p.token);
+                groups.addActionListener(e -> {
+                    try {
+                        java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), SogniSections.app(program));
+                        Object got = JOptionPane.showInputDialog(groups, SogniSections.app(program) + ": " + SectionCollection.GROUP, InputGroup.BROWSE, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                        if (got != null) field.setText(String.valueOf(got));
+                    } catch (Exception ex) {
+                        app.setNow("Could not read the groups: " + ex.getMessage());
+                    }
+                });
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                row.add(field, BorderLayout.CENTER);
+                row.add(groups, BorderLayout.EAST);
+                form.add(this.withUse(p, i, row, field, uses, off));
+                continue;
+            }
             if (p.token.equals("--parts")) {
                 // Parts: Use, what the split is, and Configure… (each plugin chosen and the drums it plays).
                 final javax.swing.JLabel shown = new javax.swing.JLabel(PartsDialog.summary(values[i], this.pluginRows(ps, values, uses)));
@@ -4526,7 +5736,36 @@ final class PyJav {
             // Save (bottom left): the text rows kept as one of the program's sections; the Params stay open.
             JButton saveSection = new JButton(SogniSections.SAVE);
             saveSection.setName("params-save-section");
-            saveSection.addActionListener(e -> this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas));
+            // Held (0.6 s) or right-clicked: Save as (the section form), whatever section was loaded.
+            final boolean[] held = {false};
+            final javax.swing.Timer hold = new javax.swing.Timer(600, e -> {
+                held[0] = true;
+                this.saveAs(saveSection, SogniSections.app(program), ps, fields, areas);
+            });
+            hold.setRepeats(false);
+            saveSection.setToolTipText("Hold or right-click: Save as (a new section, with its name and group)");
+            saveSection.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent e) {
+                    held[0] = false;
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        held[0] = true;
+                        saveAs(saveSection, SogniSections.app(program), ps, fields, areas);
+                    } else hold.restart();
+                }
+
+                @Override
+                public void mouseReleased(java.awt.event.MouseEvent e) {
+                    hold.stop();
+                }
+            });
+            saveSection.addActionListener(e -> {
+                if (held[0]) {
+                    held[0] = false;
+                    return;
+                }
+                this.saveSection(saveSection, SogniSections.app(program), ps, fields, areas);
+            });
             // Export: the same rows written into a file picked, not the prompt library.
             JButton exportSection = new JButton(ParamsClip.EXPORT);
             exportSection.setName("params-export-section");
@@ -4603,6 +5842,8 @@ final class PyJav {
         this.saveParams(program + ProgramParams.OFF_KEY, ProgramParams.build(ps, ProgramParams.onlyOff(ps, values, off)));
         System.arraycopy(ProgramParams.withoutOff(ps, values, off), 0, values, 0, values.length);
         this.saveParams(program, ProgramParams.build(ps, values));
+        // The Output name kept too: Select program starts the argument line from the usage (it was lost there).
+        this.saveParams(program + ProgramParams.OUTPUT_KEY, ProgramParams.outputValue(ps, values));
         // Run sections…: the runs start once the Params are saved (each the Params with a section's entries).
         if (runSecs != null) SwingUtilities.invokeLater(() -> this.runSections(program, ps, runSecs));
         // The prompt kept among the program's six last (Recent prompts).

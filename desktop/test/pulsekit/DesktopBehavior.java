@@ -1764,6 +1764,15 @@ public final class DesktopBehavior {
       Files.write(sideways.toPath(), photo);
       File old = new File(home, "old reply.txt");
       Files.write(old.toPath(), "Play the hats softer.\n".getBytes(StandardCharsets.UTF_8));
+      // A folder asked about file by file (--input_dir): at most --max_files by name, a file it cannot read left out.
+      File chatDir = new File(home, "chat folder");
+      chatDir.mkdirs();
+      Files.write(new File(chatDir, "1-notes.txt").toPath(), "Kick on 1 and 3.\n".getBytes(StandardCharsets.UTF_8));
+      Files.copy(wide.toPath(), new File(chatDir, "2-wide.jpg").toPath());
+      Files.write(new File(chatDir, "3-more.txt").toPath(), "Snare on 2 and 4.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(chatDir, "4-left-out.txt").toPath(), "Not asked.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(chatDir, "skip.bin").toPath(), new byte[] {1, 2, 3});
+      File answersDir = new File(home, "answers");
       String[] runs = {
         "--prompt \"Suggest one fill\" --system \"Answer briefly.\" --file \"" + notes.getAbsolutePath() + "\"",
         // The saved conversation goes on: its system text and earlier turns are sent again.
@@ -1787,11 +1796,20 @@ public final class DesktopBehavior {
         "--prompt \"Describe it\" --file \"" + wide.getAbsolutePath() + "\"",
         "--prompt \"Animate it\" --file \"" + wide.getAbsolutePath() + "\" --unlimited",
         "--prompt \"Describe it\" --file \"" + sideways.getAbsolutePath() + "\"",
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --output_dir \"" + answersDir.getAbsolutePath() + "\" --send_program SogniPadd --send_group Imports",
+        // Skip already processed: only the file Max files left out last time; then nothing new.
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
+        "chat-%f --prompt \"Describe it\" --input_dir \"" + chatDir.getAbsolutePath() + "\" --max_files 3 --skip_done",
+        // An input folder's rows on a one-file run (Skip already processed ticked, Max files): left out, the run goes on.
+        "--prompt \"Skip alone\" --skip_done --max_files 5",
         "--prompt \"Filter on\" --filter_on",
         // A chat run started earlier (one that timed out here) is followed again by its id.
         "--run run2",
         "--models",
         "--max_tokens lots",
+        // Silent auto mode (Output name, Output folder and group given): no Document ready; the answer saved,
+        // kept as a section and rendered by itself.
+        "quiet-answer --prompt \"Describe it\" --file \"" + tall.getAbsolutePath() + "\" --output_dir \"" + new File(home, "quiet").getAbsolutePath() + "\" --send_program SogniPadd --send_group Quiet --auto_render --silent_auto",
       };
       for (String extra : runs) {
         edt(() -> log.setText(""));
@@ -1799,6 +1817,9 @@ public final class DesktopBehavior {
         // A run that makes a picture shows it; Close the dialog.
         if (extra.contains("--run") || extra.contains("--unlimited")) answers.add("Close");
         edt(() -> call("runPython"));
+        if (extra.contains("--input_dir")) {
+          for (int i = 0; i < 600 && !String.valueOf(log.getText()).contains("Answers saved") && !String.valueOf(log.getText()).contains("Nothing new"); i++) Thread.sleep(50);
+        }
         for (int i = 0; i < 600 && !(String.valueOf(log.getText()).contains("Succeeded") || String.valueOf(log.getText()).contains("Failed")); i++) Thread.sleep(50);
         Thread.sleep(300);
         out.append("== ").append(extra.replace(home.getAbsolutePath(), "~")).append('\n');
@@ -1807,6 +1828,12 @@ public final class DesktopBehavior {
           out.append("  ").append(line.replace(home.getAbsolutePath(), "~")).append('\n');
         }
       }
+      // The silent run's auto render (a SogniPadd batch) stopped here: only its start is looked at.
+      edt(() -> call("stopBatch"));
+      String quiet = String.valueOf(out).contains("== quiet-answer") ? String.valueOf(out).substring(String.valueOf(out).indexOf("== quiet-answer")) : "";
+      out.append("silent: document ready shown ").append(quiet.contains("dialog \"Document ready\""))
+          .append(", saved ").append(new File(home, "quiet/quiet-answer.txt").isFile())
+          .append(", raw in Download ").append(new File(home, ".pulsekit/quiet-answer.txt").isFile()).append('\n');
       synchronized (seen) {
         for (String r : seen) out.append("request: ").append(r.replace(String.valueOf(port), "PORT").replace(home.getAbsolutePath(), "~")).append('\n');
         // The filter is off for every chat request and run but the --filter_on one.
@@ -1818,6 +1845,31 @@ public final class DesktopBehavior {
         }
         out.append("chat requests with the filter off: ").append(off).append(", on: ").append(on).append('\n');
       }
+      String[] answered = answersDir.list();
+      java.util.Arrays.sort(answered == null ? new String[0] : answered);
+      for (String a : answered == null ? new String[0] : answered) {
+        out.append("answer saved ").append(a).append(": ").append(new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8)).append('\n');
+      }
+      if (answered == null || answered.length != 3 || !answered[0].equals("chat-1-notes.txt") || !answered[1].equals("chat-2-wide.txt") || !answered[2].equals("chat-3-more.txt"))
+        throw new AssertionError("folder answers: " + java.util.Arrays.toString(answered) + "\n" + out);
+      for (String a : answered) if (new String(Files.readAllBytes(new File(answersDir, a).toPath()), StandardCharsets.UTF_8).contains("===")) throw new AssertionError("not cut: " + a);
+      if (!String.valueOf(out).contains("silent: document ready shown false, saved true, raw in Download false")) throw new AssertionError("silent auto mode:\n" + out);
+      // Skip already processed: the second folder run asked about the one file left out, the third about none.
+      String all = out.toString();
+      int alone = all.indexOf("== --prompt \"Skip alone\"");
+      String aloneRun = alone < 0 ? "" : all.substring(alone, all.indexOf("\n== ", alone + 3) < 0 ? all.length() : all.indexOf("\n== ", alone + 3));
+      if (aloneRun.contains("Unknown argument") || !aloneRun.contains("Succeeded")) throw new AssertionError("one-file run with --skip_done:\n" + aloneRun);
+      int second = all.indexOf("--skip_done");
+      if (second < 0 || !all.substring(second).contains("=== File 1 of 1: 4-left-out.txt ===")
+          || !all.substring(second).contains("Note: 3 files in chat folder answered before, left out (Skip already processed)")
+          || !all.substring(all.indexOf("--skip_done", second + 1)).contains("Nothing left to process in chat folder: every file there was processed before (Skip already processed is on"))
+        throw new AssertionError("skip done:\n" + all.substring(Math.max(0, second)));
+      // Send to program and group: each answer also a section in SogniPadd's group Imports.
+      int imported = 0;
+      for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) if ("Imports".equals(x.group)) imported++;
+      out.append("sent to Imports: ").append(imported).append(" | ").append(PyJav.answersSaid.replace(home.getAbsolutePath(), "~")).append('\n');
+      // (The stand-in server's reply is the same for each file: one section, kept once.)
+      if (imported != 1 || !out.toString().contains("; 1 sent to SogniPadd's group Imports as sections")) throw new AssertionError("preset: " + imported + " " + PyJav.answersSaid);
       try (java.util.stream.Stream<java.nio.file.Path> files = Files.walk(home.toPath())) {
         for (java.nio.file.Path f : (Iterable<java.nio.file.Path>) files.filter(x -> x.getFileName().toString().startsWith("sogni-chat")).sorted()::iterator) {
           String shown = f.toString().endsWith(".txt") ? new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim() : Files.size(f) + " bytes";
@@ -8420,7 +8472,8 @@ public final class DesktopBehavior {
       this.out.append("run ").append(r).append(": ").append(said[r]).append('\n');
     }
     boolean ok = this.out.toString().contains("Params switch: No cymbal model: cymbals as found") && this.out.toString().contains("on/off true")
-        && said[0].equals("Cymbals by their sound in the song (the cymbal model): / ") && said[1].startsWith("settings say --no-cymbal-model") && !said[1].contains("cymbal model)");
+        && said[0].startsWith("Cymbals by their sound in the song (the ") && said[0].contains("cymbal model") && said[1].startsWith("settings say --no-cymbal-model")
+        && !said[1].contains("Cymbals by their sound");
     if (!ok) throw new AssertionError(this.out.toString());
   }
 
@@ -9995,6 +10048,7 @@ public final class DesktopBehavior {
     SectionCollectionWindow.last = null;
     SectionCollectionWindow.answers = new java.util.ArrayDeque<String[]>();
     SectionCollectionWindow.sure = Boolean.TRUE;
+    SectionCollection.clip = null;
     final java.util.function.Function<java.awt.Container, String> texts = new java.util.function.Function<java.awt.Container, String>() {
       @Override
       public String apply(java.awt.Container c) {
@@ -10013,6 +10067,8 @@ public final class DesktopBehavior {
     };
     try {
       final PyJav py = (PyJav) get("pyJav");
+      // The Params' LoRAs now: Add new section lists them first.
+      py.saveParams("SogniPadd.java", "--loras \"kite 0.4\"");
       // Browse sections has SC; it opens Section Collection.
       final javax.swing.JButton[] sc = new javax.swing.JButton[1];
       PyJav.pickSection = null;
@@ -10034,8 +10090,9 @@ public final class DesktopBehavior {
         // Add new: a group with a description; Add new section: a name and plain text.
         SectionCollectionWindow.answers.add(new String[] {"Animals", "Four legs"});
         w.addGroup();
-        SectionCollectionWindow.answers.add(new String[] {"Blue one", "A blue kite over the sea"});
+        SectionCollectionWindow.answers.add(new String[] {"Blue one", "Over the sea", "A blue kite over the sea", SectionCollection.NO_LORAS, SectionCollection.NO_GROUP_PICK});
         w.addSection();
+        seen.append("new section lists: ").append(w.lastLoras).append(" | ").append(w.lastGroups).append('\n');
         seen.append("added left: ").append(texts.apply(w.left)).append('\n');
         seen.append("added right: ").append(texts.apply(w.right)).append('\n');
       });
@@ -10055,6 +10112,11 @@ public final class DesktopBehavior {
         seen.append("dragged right: ").append(texts.apply(w.right)).append('\n');
         ((javax.swing.JButton) component(w.dialog, "sc-open:Animals")).doClick();
         seen.append("opened Animals: ").append(texts.apply(w.left)).append('\n');
+        // The zebra under Animals clicked: shown fully.
+        java.awt.Component in = component(w.dialog, "sc-in:" + zebra.id);
+        for (java.awt.event.MouseListener l : in.getMouseListeners()) l.mouseClicked(new java.awt.event.MouseEvent(in, java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 3, 3, 1, false, java.awt.event.MouseEvent.BUTTON1));
+        seen.append("full: ").append(String.valueOf(w.lastFull).replaceAll("Saved [0-9.: ]+", "Saved <when>").replace("\n", " / ")).append('\n');
+        seen.append("add group button: ").append(((javax.swing.JButton) component(w.dialog, "sc-add-group")).getText()).append('\n');
         // The kite's text edited and its menu's Save; its menu has the four items.
         javax.swing.JTextArea area = (javax.swing.JTextArea) component(w.dialog, "sc-text:" + kite.id);
         area.setText("Prompt: A red kite at dusk.");
@@ -10104,6 +10166,33 @@ public final class DesktopBehavior {
         }
         ((javax.swing.JMenuItem) component(w.sectionMenu(blue, null), "sc-delete")).doClick();
         seen.append("deleted right: ").append(texts.apply(w.right)).append('\n');
+        // Copy the kite (no group), Paste on Animals: moved there. Send it to SogniVideo › Night.
+        try {
+          PromptDb.vault().addSectionGroup("SogniVideo", "Night", "");
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        ((javax.swing.JMenuItem) component(w.sectionMenu(kite, null), "sc-copy")).doClick();
+        SectionCollection.Group animals = null;
+        try {
+          for (SectionCollection.Group g : SectionCollection.groups(PromptDb.vault(), "SogniPadd")) if (g.name.equals("Animals")) animals = g;
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+        ((javax.swing.JMenuItem) component(w.groupMenu(animals), "sc-group-paste")).doClick();
+        seen.append("pasted: ").append(w.said.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+        javax.swing.JMenu sendGroup = (javax.swing.JMenu) component(w.sectionMenu(kite, null), "sc-send-group");
+        for (java.awt.Component c : sendGroup.getMenuComponents()) {
+          if (!(c instanceof javax.swing.JMenu) || !"sc-send-group-to:SogniVideo".equals(c.getName())) continue;
+          for (java.awt.Component k : ((javax.swing.JMenu) c).getMenuComponents()) if ("sc-send-into:SogniVideo:Night".equals(k.getName())) ((javax.swing.JMenuItem) k).doClick();
+        }
+        seen.append("sent: ").append(w.said.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+        try {
+          for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniVideo")) PromptDb.vault().deleteSogniSection(x.id);
+          PromptDb.vault().deleteSectionGroup("SogniVideo", "Night");
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
         ((javax.swing.JButton) component(w.dialog, "sc-close")).doClick();
       });
       for (int i = 0; i < 50 && w.dialog.isShowing(); i++) Thread.sleep(100);
@@ -10122,6 +10211,37 @@ public final class DesktopBehavior {
       for (PromptVault.SectionGroup g : back.sectionGroups("SogniPadd")) kept.append(g.name).append(" (").append(g.note).append(") ");
       for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) kept.append("| ").append(x.name).append("/").append(x.note).append("/").append(x.group).append("/").append(x.text.trim()).append(' ');
       seen.append("kept: ").append(kept.toString().trim()).append('\n');
+      // The Params' Save after a section was loaded and its prompt changed: Overwrite, then Save as new (the form, its rows filled).
+      java.util.List<ProgramParams.Param> ps = ProgramParams.parse(PyJavHints.programText("SogniPadd.java", ProgramFiles.bundledSource("SogniPadd.java"), null));
+      final JTextField[] fields = new JTextField[ps.size()];
+      final javax.swing.JTextArea[] areas = new javax.swing.JTextArea[ps.size()];
+      for (int k = 0; k < ps.size(); k++) {
+        if (ps.get(k).token.equals("--prompt")) areas[k] = new javax.swing.JTextArea("Zebra at dusk.");
+        else if (ps.get(k).token.equals("--aspect")) fields[k] = new JTextField("4:7");
+      }
+      PromptVault.SogniSection z = null;
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.text.contains("Zebra")) z = x;
+      SogniSections.current("SogniPadd", z);
+      final PromptVault.SogniSection zz = z;
+      PyJav.overwriteAnswer = 0;
+      final PyJav pj2 = (PyJav) get("pyJav");
+      edt(() -> pj2.saveSection(frame, "SogniPadd", ps, fields, areas));
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.id == zz.id) seen.append("overwritten: ").append(x.text.trim().replace("\n", " / ")).append(" | ").append(x.name).append('\n');
+      areas[0 < ps.size() ? indexOf(ps, "--prompt") : 0].setText("Zebra at night.");
+      PyJav.overwriteAnswer = 1;
+      final StringBuilder formSeen = new StringBuilder();
+      SectionCollectionWindow.formAnswer = f0 -> {
+        formSeen.append(f0.prompt).append(", aspect ").append(f0.extra.get("--aspect"));
+        f0.name = "Night zebra";
+        return f0;
+      };
+      edt(() -> pj2.saveSection(frame, "SogniPadd", ps, fields, areas));
+      SectionCollectionWindow.formAnswer = null;
+      PyJav.overwriteAnswer = null;
+      seen.append("as new: form ").append(formSeen).append(" | said ").append(PyJav.sectionSaid.replaceAll("\\d+\\.\\d+\\. \\d+:\\d+", "<when>")).append('\n');
+      // Add new section with LoRAs and a group picked: in that group, its LoRAs line written.
+      String bad = SectionCollection.addSection(back, "SogniPadd", "", "", "Owl at night", "kite 0.4", "Animals");
+      for (PromptVault.SogniSection x : back.sogniSections("SogniPadd")) if (x.text.contains("Owl")) seen.append("picked: ").append(bad).append(" | ").append(x.group).append(" | ").append(x.text.trim().replace("\n", " / ")).append('\n');
     } finally {
       if (seen.indexOf("kept: ") < 0) out.append(seen);
       SectionCollectionWindow.answers = null;
@@ -10138,10 +10258,12 @@ public final class DesktopBehavior {
         "right: \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
         "added left: Animals Four legs Weather (1) [+]",
         "added right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.} \u2630 {Prompt: Zebra at noon.}",
+        "new section lists: [(no LoRAs), kite 0.4] | [(no group), Animals, Weather]",
         "dragged left: Animals (1) [+] Four legs Weather (1) [+]",
         "dragged right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: A red kite.}",
         "opened Animals: Animals (1) [-] Four legs Zebra at noon. \u00b7 <when> Weather (1) [+]",
-        "section menu: Save, Delete, Move into group, Edit name, Cancel | move to: Animals, Weather",
+        "full: Saved <when> /  / Prompt: Zebra at noon.", "add group button: Add new group",
+        "section menu: Save, Cut, Copy, Send to other program\u2026, Send to other program's group\u2026, Delete, Move into group, Edit data, Cancel | move to: Animals, Weather",
         "named: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Weather (1) [+]",
         "group menu: Delete, Rename, Cancel",
         "renamed: Animals (1) [-] Four legs Zebra: Zebra at noon. \u00b7 <when> Sky (1) [+] Up there",
@@ -10150,11 +10272,20 @@ public final class DesktopBehavior {
         "group deleted right: \u2630 Blue one {Prompt: A blue kite over the sea} \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
         "deleted right: \u2630 {Prompt: Stormy sky.} \u2630 {Prompt: A red kite at dusk.}",
         "closed: true",
-        "browse: \u25be Animals (1) | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (2) | Stormy sky. \u00b7 <when> | A red kite at dusk. \u00b7 <when>",
-        "kept: Animals (Four legs) | ///Prompt: Stormy sky. | ///Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
+        "pasted: In Animals: A red kite at dusk. \u00b7 <when>", "sent: Added to SogniVideo \u203a Night: A red kite at dusk. \u00b7 <when>",
+        "browse: \u25be Animals (2) | A red kite at dusk. \u00b7 <when> | Zebra: Zebra at noon. \u00b7 <when> | \u25be No group (1) | Stormy sky. \u00b7 <when>",
+        "picked: null | Animals | Prompt: Owl at night / Loras: kite 0.4",
+        "overwritten: Prompt: Zebra at dusk. / aspect: 4:7 | Zebra",
+        "as new: form Zebra at night., aspect 4:7 | said Saved a SogniPadd section: Night zebra: Zebra at night. \u00b7 aspect \u00b7 <when>",
+        "kept: Animals (Four legs) | ///Prompt: Stormy sky. | //Animals/Prompt: A red kite at dusk. | Zebra/Striped/Animals/Prompt: Zebra at noon."};
     boolean ok = true;
     for (String w : want) ok &= ("\n" + t).contains("\n" + w + "\n");
     if (!ok) throw new AssertionError(out.toString());
+  }
+
+  private static int indexOf(java.util.List<ProgramParams.Param> ps, String token) {
+    for (int k = 0; k < ps.size(); k++) if (ps.get(k).token.equals(token)) return k;
+    return -1;
   }
 
   private static String rowsOf(javax.swing.JList<?> l) {
@@ -10170,6 +10301,296 @@ public final class DesktopBehavior {
       if (k instanceof java.awt.Container) out.addAll(all((java.awt.Container) k));
     }
     return out;
+  }
+
+  /** The component named `name` in `c`'s tree, or null. */
+  private static java.awt.Component byName(java.awt.Component c, String name) {
+    if (name.equals(c.getName())) return c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      java.awt.Component got = byName(k, name);
+      if (got != null) return got;
+    }
+    return null;
+  }
+
+  /**
+   * Document ready after a SogniChat run: the text cut after "=== Sogni ===", Copy, Save (the text as
+   * shown) and Send as prompt into SogniPadd's Params, which then opens with its Params.
+   */
+  void s273_document_ready() throws Exception {
+    final StringBuilder got = new StringBuilder();
+    File saved = new File(System.getProperty("user.home"), "saved-text.txt");
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>(java.util.Arrays.asList(0, 1, 2));
+    PyJav.textSaveTo = saved;
+    PyJav.sendTo = "SogniPadd.java";
+    PyJav.sendYes = Boolean.TRUE;
+    PyJav.openedAfterSend = null;
+    final PyJav pj = (PyJav) get("pyJav");
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer.txt",
+          "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n"));
+      javax.swing.JTextArea body = (javax.swing.JTextArea) byName(PyJav.lastTextReady, "text-ready:text");
+      got.append("text: ").append(body.getText()).append('\n');
+      got.append("copy/save/send said: ").append(PyJav.clipSaid).append('\n');
+      got.append("saved: ").append(new String(java.nio.file.Files.readAllBytes(saved.toPath()), java.nio.charset.StandardCharsets.UTF_8)).append('\n');
+      String padd = pj.loadParams("SogniPadd.java");
+      got.append("in SogniPadd: ").append(padd != null && padd.contains("A red kite over a grey sea.")).append('\n');
+      got.append("opened: ").append((String) get("pyName")).append(" params ").append(PyJav.openedAfterSend).append('\n');
+    } finally {
+      PyJav.textReadyAnswers = null;
+      PyJav.textSaveTo = null;
+      PyJav.sendTo = null;
+      PyJav.sendYes = null;
+    }
+    // Send as prompt: SogniPadd's ready screens get Back to this Document ready; the text's four buttons above it.
+    got.append("send back: ").append(PyJav.readyBackFor).append(" -> ").append(PyJav.readyBackTo).append(" | buttons ")
+        .append(byName(PyJav.lastTextReady, "text-ready:start") != null && byName(PyJav.lastTextReady, "text-ready:page-up") != null && byName(PyJav.lastTextReady, "text-ready:page-down") != null && byName(PyJav.lastTextReady, "text-ready:end") != null).append('\n');
+    PyJav.readyBack = null;
+    // Send to group (SogniPadd's group Moods), then Close: the answer saved into the output folder, %g the group.
+    SectionCollection.addGroup(PromptDb.vault(), "SogniPadd", "Moods", "");
+    File answers = new File(System.getProperty("user.home"), "answers-%g");
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>(java.util.Arrays.asList(3));
+    PyJav.groupProgram = "SogniPadd";
+    PyJav.groupName = "Moods";
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer-%g.txt",
+          "SogniChat conversation\nModel: m\n\n=== You ===\nDescribe the image.\n\n=== Sogni ===\nA red kite over a grey sea.\n", answers.getAbsolutePath()));
+    } finally {
+      PyJav.textReadyAnswers = null;
+      PyJav.groupProgram = null;
+      PyJav.groupName = null;
+    }
+    File savedTo = new File(new File(System.getProperty("user.home"), "answers-Moods"), "answer-Moods.txt");
+    boolean inGroup = false;
+    for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) inGroup |= "Moods".equals(x.group) && x.text.contains("A red kite over a grey sea.");
+    got.append("send to group: ").append(PyJav.sentGroup).append(", in group ").append(inGroup).append(", saved ")
+        .append(savedTo.isFile() ? new String(Files.readAllBytes(savedTo.toPath()), StandardCharsets.UTF_8) : "none: " + PyJav.answerSaid).append('\n');
+    // Custom text (remembered): added after the answer; its menu's Add into program's group puts it in a group, named as given.
+    String[] cs = TextReady.setting(PromptDb.dir(), "SogniChat.java").clone();
+    cs[TextReady.F_CUSTOM] = "Shot on film.";
+    TextReady.rememberAll(PromptDb.dir(), "SogniChat.java", cs);
+    PyJav.textReadyAnswers = new java.util.ArrayDeque<Integer>();
+    try {
+      edt(() -> pj.offerText("SogniChat.java", "answer.txt", "SogniChat conversation\n\n=== Sogni ===\nA red kite.\n", null));
+    } finally {
+      PyJav.textReadyAnswers = null;
+    }
+    StringBuilder pickItems = new StringBuilder(), customItems = new StringBuilder();
+    for (java.awt.Component c : PyJav.lastPickMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) pickItems.append(pickItems.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+    for (java.awt.Component c : PyJav.lastCustomMenu.getComponents()) if (c instanceof javax.swing.JMenuItem) customItems.append(customItems.length() == 0 ? "" : ", ").append(((javax.swing.JMenuItem) c).getText());
+    PyJav.groupProgram = "SogniPadd";
+    PyJav.groupName = "Moods";
+    PyJav.customSectionName = "Film look";
+    final String[] said = new String[1];
+    try {
+      edt(() -> said[0] = pj.customToGroup("Shot on film."));
+    } finally {
+      PyJav.groupProgram = null;
+      PyJav.groupName = null;
+      PyJav.customSectionName = null;
+    }
+    boolean customIn = false;
+    for (PromptVault.SogniSection x : PromptDb.vault().sogniSections("SogniPadd")) customIn |= "Film look".equals(x.name) && "Moods".equals(x.group) && x.text.contains("Shot on film.");
+    got.append("custom: ").append(PyJav.lastTextReadyText.replace('\n', '|')).append(" | list ").append(pickItems).append(" | menu ").append(customItems).append(" | ").append(said[0]).append(" | in group ").append(customIn).append('\n');
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("send back: SogniPadd.java -> Document ready | buttons true\n") && g.contains("custom: A red kite.|Shot on film. | list Select file, Browse sections, Custom text | menu Save, Add into program's group, Clear, Cut, Copy, Paste | Sent to SogniPadd's group Moods as a section | in group true\n")
+        && g.contains("send to group: Moods, in group true, saved A red kite over a grey sea.\n") && g.contains("text: A red kite over a grey sea.\n") && g.contains("saved: A red kite over a grey sea.\n")
+        && g.contains("said: Sent the prompt into SogniPadd's Params") && g.contains("in SogniPadd: true") && g.contains("opened: SogniPadd.java params SogniPadd.java");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /**
+   * Section Collection's Import sections from folder: a click on a group's name selects it; the folder's .txt
+   * and .prompt files become sections in it (a definitions file one a definition), asked first; with no
+   * group selected the group asked for.
+   */
+  void s275_import_sections() throws Exception {
+    PromptVault vault = PromptDb.vault();
+    SectionCollection.addGroup(vault, "SogniPadd", "Imports", "");
+    File dir = new File(System.getProperty("user.home"), "import me");
+    dir.mkdirs();
+    Files.write(new File(dir, "Misty forest.txt").toPath(), "A misty forest at dawn.\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "neon.prompt").toPath(), "Neon city at night, rain.\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "two.txt").toPath(), "Prompt: Red kite\nLoras: kite 0.4\n----\nPrompt: Blue kite\n".getBytes(StandardCharsets.UTF_8));
+    Files.write(new File(dir, "empty.txt").toPath(), new byte[0]);
+    Files.write(new File(dir, "picture.png").toPath(), new byte[] {1, 2});
+    File dir2 = new File(System.getProperty("user.home"), "import loose");
+    dir2.mkdirs();
+    Files.write(new File(dir2, "loose.txt").toPath(), "A lone tree.\n".getBytes(StandardCharsets.UTF_8));
+    StringBuilder got = new StringBuilder();
+    SectionCollectionWindow.last = null;
+    SectionCollectionWindow.answers = new java.util.ArrayDeque<String[]>();
+    SectionCollectionWindow.sure = Boolean.TRUE;
+    SectionCollectionWindow.importDir = dir;
+    SectionCollectionWindow.importGroup = null;
+    try {
+      SwingUtilities.invokeLater(() -> SectionCollectionWindow.show(frame, "SogniPadd"));
+      for (int i = 0; i < 200 && (SectionCollectionWindow.last == null || !SectionCollectionWindow.last.dialog.isShowing()); i++) Thread.sleep(50);
+      final SectionCollectionWindow w = SectionCollectionWindow.last;
+      final JLabel[] name = new JLabel[1];
+      edt(() -> name[0] = (JLabel) this.byName(w.dialog.getContentPane(), "sc-group:Imports", JLabel.class));
+      edt(() -> name[0].dispatchEvent(new java.awt.event.MouseEvent(name[0], java.awt.event.MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 2, 2, 1, false, java.awt.event.MouseEvent.BUTTON1)));
+      edt(() -> name[0] = (JLabel) this.byName(w.dialog.getContentPane(), "sc-group:Imports", JLabel.class));
+      got.append("selected: ").append(w.selected).append(" | ").append(name[0].getText()).append('\n');
+      edt(() -> w.importFolder());
+      got.append("import: ").append(SectionCollectionWindow.importSaid).append('\n');
+      // None selected: the group asked for (the tests: no group).
+      edt(() -> {
+        w.selected = null;
+        w.refresh();
+      });
+      SectionCollectionWindow.importDir = dir2;
+      SectionCollectionWindow.importGroup = SectionCollection.NO_GROUP_PICK;
+      edt(() -> w.importFolder());
+      got.append("import loose: ").append(SectionCollectionWindow.importSaid).append('\n');
+      // Again: the same sections are not added twice.
+      SectionCollectionWindow.importDir = dir;
+      SectionCollectionWindow.importGroup = "Imports";
+      edt(() -> w.importFolder());
+      got.append("again: ").append(SectionCollectionWindow.importSaid).append('\n');
+      edt(() -> w.dialog.dispose());
+    } finally {
+      SectionCollectionWindow.answers = null;
+      SectionCollectionWindow.sure = null;
+      SectionCollectionWindow.importDir = null;
+      SectionCollectionWindow.importGroup = null;
+    }
+    java.util.List<String> rows = new java.util.ArrayList<String>();
+    for (PromptVault.SogniSection x : vault.sogniSections("SogniPadd")) rows.add(x.name + "/" + x.group + "/" + x.text.trim().replace('\n', ' '));
+    java.util.Collections.sort(rows);
+    for (String r : rows) got.append("section ").append(r).append('\n');
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("selected: Imports | \u25b8 Imports") && g.contains("import: Imported 4 sections into Imports; 1 without a prompt\n")
+        && g.contains("import loose: Imported 1 section into no group\n") && g.contains("again: Imported 0 sections into Imports; 4 saved already; 1 without a prompt\n")
+        && g.contains("section Misty forest/Imports/Prompt: A misty forest at dawn.") && g.contains("section neon/Imports/Prompt: Neon city at night, rain.")
+        && g.contains("section two 1/Imports/Prompt: Red kite Loras: kite 0.4") && g.contains("section two 2/Imports/Prompt: Blue kite")
+        && g.contains("section loose//Prompt: A lone tree.");
+    if (!ok) throw new AssertionError(g);
+  }
+
+  /** The first component named `name` of type `type` in `c`'s tree, or null. */
+  private java.awt.Component byName(java.awt.Component c, String name, Class<?> type) {
+    if (name.equals(c.getName()) && type.isInstance(c)) return c;
+    if (c instanceof java.awt.Container) for (java.awt.Component k : ((java.awt.Container) c).getComponents()) {
+      java.awt.Component f = byName(k, name, type);
+      if (f != null) return f;
+    }
+    return null;
+  }
+
+  /**
+   * SogniPadd's Input folder: Run makes a batch, the program run once for each .txt or .prompt file (by name,
+   * at most Max files), its prompt from the file (a definitions file's LoRAs too), the output name with the
+   * file's name; Skip already processed then runs only the file left out.
+   */
+  void s276_folder_runs() throws Exception {
+    File home = new File(System.getProperty("user.home"));
+    final java.io.ByteArrayOutputStream made = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(32, 24, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", made);
+    final List<String> starts = Collections.synchronizedList(new ArrayList<String>());
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    final int port = server.getAddress().getPort();
+    server.createContext("/", ex -> {
+      String path = ex.getRequestURI().toString();
+      String body = new String(readAll(ex.getRequestBody()), StandardCharsets.UTF_8);
+      byte[] bytes;
+      String type = "application/json";
+      if (path.equals("/v1/creative-agent/workflows")) {
+        starts.add(body);
+        bytes = "{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"queued\"}}}".getBytes(StandardCharsets.UTF_8);
+      } else if (path.endsWith("/events/stream")) {
+        type = "text/event-stream";
+        bytes = "data: {\"status\":\"completed\"}\n\n".getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/v1/creative-agent/workflows/wf_a1")) {
+        bytes = ("{\"data\":{\"workflow\":{\"workflowId\":\"wf_a1\",\"status\":\"completed\",\"artifacts\":[{\"url\":\"http://127.0.0.1:" + port
+            + "/files/out.png\",\"mediaType\":\"image\"}]}}}").getBytes(StandardCharsets.UTF_8);
+      } else if (path.equals("/files/out.png")) {
+        type = "image/png";
+        bytes = made.toByteArray();
+      } else {
+        bytes = "{}".getBytes(StandardCharsets.UTF_8);
+      }
+      ex.getResponseHeaders().set("Content-Type", type);
+      ex.sendResponseHeaders(200, bytes.length);
+      ex.getResponseBody().write(bytes);
+      ex.close();
+    });
+    server.start();
+    StringBuilder got = new StringBuilder();
+    try {
+      File key = new File(home, "key.txt");
+      Files.write(key.toPath(), "SOGNI_API_KEY=test-key\n".getBytes(StandardCharsets.UTF_8));
+      File dir = new File(home, "prompts in");
+      dir.mkdirs();
+      Files.write(new File(dir, "a-hills.txt").toPath(), "A red kite over hills.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "b-owl.txt").toPath(), "Prompt: An owl at dusk\nLoras: kite 0.4\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "c-sea.prompt").toPath(), "A grey sea.\n".getBytes(StandardCharsets.UTF_8));
+      Files.write(new File(dir, "skip.png").toPath(), made.toByteArray());
+      final PyJav pj = (PyJav) get("pyJav");
+      call("showView", "py");
+      call("selectListedProgram", "Java", "SogniPadd.java");
+      javax.swing.JTextArea log = (javax.swing.JTextArea) get("pyLog");
+      final String extra = "img-%f --api_base http://127.0.0.1:" + port;
+      final javax.swing.text.JTextComponent extraField = (javax.swing.text.JTextComponent) get("pyExtra");
+      PyJav.runSectionsBefore = () -> extraField.setText(extra);
+      for (int round = 0; round < 2; round++) {
+        starts.clear();
+        PyJav.runSectionsSaid = null;
+        pj.saveParams("SogniPadd.java", "--prompt \"Not this\" --seed 42 --key_file \"" + key.getAbsolutePath() + "\" --input_dir \"" + dir.getAbsolutePath()
+            + "\" --max_files 2" + (round == 1 ? " --skip_done" : ""));
+        edt(() -> extraField.setText(extra));
+        edt(() -> call("runPython"));
+        for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+        Thread.sleep(500);
+        idle();
+        got.append("round ").append(round + 1).append(": ").append(String.valueOf(PyJav.runSectionsSaid).replace("\n", " / ")).append('\n');
+        for (String line : String.valueOf(log.getText()).split("\n")) if (line.startsWith("SogniPadd: ") || line.startsWith("Files: ")) got.append("  ").append(line).append('\n');
+        synchronized (starts) {
+          for (String b : starts) {
+            Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+            Map<?, ?> step = (Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0);
+            Map<?, ?> a = (Map<?, ?>) step.get("arguments");
+            got.append("  run: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append(" | loras ").append(SogniApi.toJson(a.get("loras"))).append('\n');
+          }
+        }
+      }
+      got.append("params after: ").append(pj.loadParams("SogniPadd.java").contains("--input_dir")).append('\n');
+      // Auto render (SogniChat): two answers as SogniPadd's prompt, with its Params (its seed); its prompt put back after.
+      starts.clear();
+      PyJav.runSectionsSaid = null;
+      pj.saveParams("SogniPadd.java", "--prompt \"Original prompt\" --seed 7 --key_file \"" + key.getAbsolutePath() + "\"");
+      got.append("target: ").append(AutoRender.target(java.util.Arrays.asList("--auto_render", "--send_program", "SogniPadd"))).append(", none without ")
+          .append(AutoRender.target(java.util.Arrays.asList("--auto_render"))).append('\n');
+      final java.util.List<String[]> answers = new java.util.ArrayList<String[]>();
+      answers.add(new String[] {"answer-1.txt", "A lighthouse in fog."});
+      answers.add(new String[] {"answer-2.txt", "Cherry trees at dawn."});
+      edt(() -> pj.startAutoRender("SogniPadd.java", answers));
+      for (int i = 0; i < 1200 && PyJav.runSectionsSaid == null; i++) Thread.sleep(50);
+      Thread.sleep(500);
+      idle();
+      got.append("auto render: ").append(PyJav.autoRenderSaid).append(" | ").append(String.valueOf(PyJav.runSectionsSaid).replace("\n", " / ")).append('\n');
+      synchronized (starts) {
+        for (String b : starts) {
+          Map<?, ?> m = (Map<?, ?>) SogniApi.parseJson(b);
+          Map<?, ?> a = (Map<?, ?>) ((Map<?, ?>) ((List<?>) ((Map<?, ?>) m.get("input")).get("steps")).get(0)).get("arguments");
+          got.append("  auto: ").append(a.get("prompt")).append(" | seed ").append(a.get("seed")).append('\n');
+        }
+      }
+      got.append("prompt after: ").append(pj.loadParams("SogniPadd.java")).append('\n');
+    } finally {
+      PyJav.runSectionsBefore = null;
+      server.stop(0);
+    }
+    this.out.append(got);
+    String g = got.toString();
+    boolean ok = g.contains("round 1: Files done: 2 of 2 runs succeeded") && g.contains("run: A red kite over hills. | seed 42") && g.contains("run: An owl at dusk | seed 42.0 | loras [\"kite\"]")
+        && g.contains("3 files to run; the first 2 by name are run (Max files)") && !g.contains("run: Not this")
+        && g.contains("round 2: Files done: 1 of 1 runs succeeded") && g.contains("2 files done before, left out (Skip already processed)")
+        && g.contains("run: A grey sea. | seed 42") && g.contains("target: SogniPadd.java, none without null") && g.contains("auto render: Auto render: 2 runs of SogniPadd | Files done: 2 of 2 runs succeeded")
+        && g.contains("auto: A lighthouse in fog. | seed 7.0") && g.contains("auto: Cherry trees at dawn. | seed 7.0") && g.contains("prompt after: --prompt \"Original prompt\" --seed 7") && g.contains("a-hills.txt: Succeeded \u2192 img-a-hills.png") && g.contains("c-sea.prompt: Succeeded \u2192 img-c-sea.png") && g.contains("params after: true");
+    if (!ok) throw new AssertionError(g);
   }
 
   /**
@@ -11556,8 +11977,9 @@ public final class DesktopBehavior {
     String said = PythonRun.runFor(cmd, 280, null).trim();
     this.out.append(said).append('\n');
     String all = this.out.toString();
-    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_model_file= --hit_dir= --hit_unzip= --hit_zip_outdir= |")
-        && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
+    boolean ok = all.contains("model tab: --bench_dir= --bench_unzip= --bench_skip= --model_compare --model_a= --model_a_kits= --model_b= --model_b_kits= --leave_one_out --loo_kits= --loo_names= --new_kits= --new_runs= --new_names= --bench_work= | hit tab: --hit_loo --hit_band --hit_model_file= --hit_dir= --hit_unzip= --hit_zip_outdir= |")
+        && all.contains("hit zip: hit-bench ['details.txt', 'hit-model-even-java.txt', 'hit-model-even.txt', 'hit-model-java.txt', 'hit-model.txt', 'summary.txt']") && all.contains("hit model file: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
+            && all.contains("hit model file, kits even: 1 # DrumMidi's hit model learned from 2 kits: Fake Drums (Bright), Fake Drums (Dark)")
         && all.contains("Hit model bench: DrumMidi with its rules alone and with the hit model file hit-model-") && all.contains("Leave one out: each kit scored with a model learned from the other kits (one plugin's kits only) (2 kits)")
         && all.contains("Cymbal model, Hit model]")
         && all.contains("settings: --cymbal_bench on Settings; --cymbal_bench_when on Settings (list: Run separately (no plugin played) / Run last, after the run's renders and tests); ")
@@ -11575,8 +11997,8 @@ public final class DesktopBehavior {
         && all.contains("--model_compare") && all.contains("--model_a kits") && all.contains("--model_a_kits 30") && all.contains("--loo_names Bucket")
         && all.contains("jar given: true")
         && all.contains("zip: cymbal-compare-builtin-vs-2-kits ['details.txt', 'kits.txt', 'model-2-kits-java.txt', 'model-2-kits.txt', 'summary.txt']")
-        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'gate-2-kits.txt', 'kits.txt', 'model-2-kits-even-java.txt', 'model-2-kits-even.txt', 'model-2-kits-song-aware-java.txt', 'model-2-kits-song-aware.txt', 'summary.txt']")
-        && all.contains("Mean change per kit") && all.contains("song-aware           gated") && all.contains("Gated: the model on 8 of 8 songs.")
+        && all.contains("zip: cymbal-leave-one-out ['details.txt', 'gate-2-kits-song-aware.txt', 'gate-2-kits.txt', 'kits.txt', 'model-2-kits-even-java.txt', 'model-2-kits-even.txt', 'model-2-kits-song-aware-java.txt', 'model-2-kits-song-aware.txt', 'summary.txt']")
+        && all.contains("Mean change per kit") && all.contains("song-aware           gated") && all.contains("Gated: the even model on 8 of 8 songs; gated aware: the song-aware model on 8.") && all.contains("gated aware")
         && all.contains("Fake Drums (Dark)") && all.contains("(new)") && all.contains("New kits (Fake Drums (Dark)):")
         && all.contains("Kit 1 of 2: Fake Drums (Bright) (20261111-120000): 4 songs") && all.contains("DrumMidi ran on each")
         && all.contains("both: unpacked 2 times, shared said true, hit bench's own unzip folder false, renders left [], cymbal kits 2".replace("true", "True").replace("false", "False"))

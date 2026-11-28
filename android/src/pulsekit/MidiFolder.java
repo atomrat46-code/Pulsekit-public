@@ -79,6 +79,134 @@ final class MidiFolder {
         return n;
     }
 
+    /**
+     * SogniChat --input_dir with a picked folder: its files SogniChat reads (ChatFolder.KINDS; not its
+     * subfolders'), the first --max_files by name, copied into the work folder (SogniChat cannot read the
+     * picker's folder). --output_dir stays as it is: the app saves the answers there after the run.
+     */
+    static List<String> forSogniChat(Context ctx, List<String> argv, File work, StringBuilder note) {
+        if (argv == null) return null;
+        int at = argv.indexOf("--input_dir");
+        if (at < 0 || at + 1 >= argv.size() || !argv.get(at + 1).startsWith("content://")) return argv;
+        List<String> out = new ArrayList<String>(argv);
+        String v = out.get(at + 1);
+        Uri tree = Uri.parse(v);
+        File dest = new File(work, "chat-folder");
+        deleteAll(dest);
+        List<String[]> kids = new ArrayList<String[]>();
+        // Include subfolders: their files too, copied side by side as "sub - name" (SogniChat reads one folder).
+        boolean deepChat = argv.contains("--subfolders");
+        List<String[]> found = new ArrayList<String[]>();
+        if (!listKids(ctx, ChatFolder::kind, tree, DocumentsContract.getTreeDocumentId(tree), "", deepChat, found, 0)) note.append("Could not read ").append(MediaDir.label(v));
+        for (String[] k : found) kids.add(new String[] {k[0], k[1].replace("/", " - ")});
+        java.util.Collections.sort(kids, (a, b) -> {
+            int d = a[1].compareToIgnoreCase(b[1]);
+            return d != 0 ? d : a[1].compareTo(b[1]);
+        });
+        // Skip already processed: the files answered in earlier runs on this folder not copied (before Max files).
+        int skipped = 0;
+        if (argv.contains("--skip_done")) {
+            java.util.Set<String> done = ChatFolder.done(v);
+            List<String[]> fresh = new ArrayList<String[]>();
+            for (String[] k : kids) if (!done.contains(k[1])) fresh.add(k);
+            skipped = kids.size() - fresh.size();
+            kids = fresh;
+        }
+        int max = ChatFolder.max(argv), n = 0;
+        dest.mkdirs();
+        for (int i = 0; i < kids.size() && i < max; i++) {
+            try {
+                InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, kids.get(i)[0]));
+                if (in == null) continue;
+                FileOutputStream o = new FileOutputStream(new File(dest, safe(kids.get(i)[1])));
+                try {
+                    byte[] b = new byte[8192];
+                    for (int r; (r = in.read(b)) > 0; ) o.write(b, 0, r);
+                } finally {
+                    o.close();
+                    in.close();
+                }
+                n++;
+            } catch (Exception ignored) {
+                // left out; the others are asked about
+            }
+        }
+        if (note.length() > 0) note.append("; ");
+        note.append(n).append(n == 1 ? " file" : " files").append(" from ").append(MediaDir.label(v))
+            .append(kids.size() > max ? " (the first " + max + " of " + kids.size() + " by name: Max files)" : "")
+            .append(skipped > 0 ? "; " + skipped + " answered before left out (Skip already processed)" : "");
+        out.set(at + 1, dest.getAbsolutePath());
+        // The list of answered files is kept by the picked folder's address, not its copy's path.
+        out.add("--done_key");
+        out.add(v);
+        // (Copied as Skip already processed leaves them: not filtered again.)
+        out.remove("--skip_done");
+        return out;
+    }
+
+    /**
+     * An input folder picked with the system's picker (FolderRuns: SogniPedit's pictures, SogniPadd's text
+     * files): its files the program takes (not its subfolders') copied into `dest` (emptied first). How many.
+     */
+    static int copyFor(Context ctx, String program, Uri tree, File dest) {
+        return copyFor(ctx, program, tree, dest, false);
+    }
+
+    /** As above; `deep` (Include subfolders): its subfolders' files too, into folders of the same names. */
+    static int copyFor(Context ctx, String program, Uri tree, File dest, boolean deep) {
+        deleteAll(dest);
+        dest.mkdirs();
+        int n = 0;
+        List<String[]> kids = new ArrayList<String[]>();
+        if (!listKids(ctx, program, tree, DocumentsContract.getTreeDocumentId(tree), "", deep, kids, 0)) return 0;
+        for (String[] k : kids) {
+            try {
+                InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, k[0]));
+                if (in == null) continue;
+                File to = new File(dest, k[1]);
+                if (to.getParentFile() != null) to.getParentFile().mkdirs();
+                FileOutputStream o = new FileOutputStream(to);
+                try {
+                    byte[] b = new byte[8192];
+                    for (int r; (r = in.read(b)) > 0; ) o.write(b, 0, r);
+                } finally {
+                    o.close();
+                    in.close();
+                }
+                n++;
+            } catch (Exception ignored) {
+                // left out
+            }
+        }
+        return n;
+    }
+
+    /** The picked folder's files the program takes ({document id, path under the folder}), its subfolders' too when `deep`. */
+    static boolean listKids(Context ctx, String program, Uri tree, String docId, String under, boolean deep, List<String[]> kids, int depth) {
+        return listKids(ctx, n -> FolderRuns.kind(program, n), tree, docId, under, deep, kids, depth);
+    }
+
+    static boolean listKids(Context ctx, java.util.function.Predicate<String> takes, Uri tree, String docId, String under, boolean deep, List<String[]> kids, int depth) {
+        Cursor c = null;
+        List<String[]> dirs = new ArrayList<String[]>();
+        try {
+            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId),
+                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String name = c.getString(1) == null ? "" : c.getString(1);
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) {
+                    if (deep && depth < 8 && !name.startsWith(".")) dirs.add(new String[] {c.getString(0), name});
+                } else if (takes.test(name)) kids.add(new String[] {c.getString(0), under + safe(name)});
+            }
+        } catch (Exception ex) {
+            return depth > 0;
+        } finally {
+            if (c != null) c.close();
+        }
+        for (String[] d : dirs) listKids(ctx, takes, tree, d[0], under + safe(d[1]) + "/", true, kids, depth + 1);
+        return true;
+    }
+
     private static String safe(String name) {
         String s = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
         return s.length() == 0 ? "_" : s;
@@ -94,6 +222,7 @@ final class MidiFolder {
     static List<String> forProgram(Context ctx, String program, List<String> argv, File work, StringBuilder note) {
         argv = withPls(ctx, program, argv, work, note);
         if (ProgramFolder.isDrumMidi(program)) return forDrumMidi(ctx, argv, work, note);
+        if (PictureCopies.wants(program)) return forSogniChat(ctx, argv, work, note);
         boolean wav = "SplitWav.java".equals(program) || "CutWav.java".equals(program) || "Wav2Mp3.java".equals(program);
         if (!"Midi2HydroPattern.java".equals(program) && !wav || argv == null) return argv;
         List<String> out = new ArrayList<String>(argv);

@@ -41,6 +41,18 @@ import java.util.Map;
  * first (kit-ideas) names everything a run saves: kit-ideas.txt, and any tool results
  * kit-ideas-1.png, kit-ideas-2.mp3...; the extensions come from what Sogni sends.
  *
+ * --input_dir asks the same question about each file in a folder, one after another (by name; at
+ * most --max_files, 20 when not given, in case the folder is a big one): each is its own chat, saved
+ * as <output name>-<file>.txt, or with %f in the output name the file's name there (notes-%f), else
+ * <file>.txt. --skip_done (Pulsekit's): the folder's files answered in earlier runs are left out, only
+ * the new ones asked about. --output_dir is Pulsekit's: it cuts each answer at Document ready's delimiter (the one
+ * used last) and saves it there; Params' Select file then puts one into a prompt. --send_program and
+ * --send_group are Pulsekit's too: an input folder's answers also go into that program's group as
+ * sections (%g in the output name and folder is that group); Document ready has a button for it.
+ * --auto_render (Pulsekit's): the answer becomes the Send to program's prompt and is rendered with its
+ * Params (each answer of an input folder), its prompt put back after. --silent_auto (Pulsekit's, with
+ * --auto_render): no Document ready; the answer saved, sent to the group and rendered by itself.
+ *
  * --saveprompt also writes the question as a Pulsekit prompt sheet named as the saved chat
  * (kit-ideas.prompt: category Writing, type AI, the --file names as its reference files, the system
  * text under the question), with the saved chat as its result file: Pulsekit keeps it in the prompt
@@ -110,9 +122,13 @@ public final class SogniChat {
   /** The program; returns its exit code (0 ok, 1 failed, 2 bad arguments). */
   static int run(String[] typed) throws Exception {
     work = System.getProperty("pulsekit.work");
+    String[] given = tidy(typed);
+    for (String a : given) if (a.equals("--input_dir") || a.equals("--dir_file") || a.equals("--listed")) return runFolder(given);
     System.out.println(VERSION);
-    String[] args = tidy(typed);
+    String[] args = given;
+    lastMade = new ArrayList<String>();
     String out = null;
+    String nameFor = null;
     String prompt = null;
     String system = null;
     List<String> files = new ArrayList<String>();
@@ -135,6 +151,9 @@ public final class SogniChat {
     SogniApi.noFilter = true;
     // --variations: one result unless asked (a run in the app keeps the last run's count otherwise).
     SogniApi.variations = 1;
+    // Pulsekit runs programs in its own process: the last run's batch prompt and answer tool are not kept.
+    batchPrompt = null;
+    answerTool = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -151,6 +170,18 @@ public final class SogniChat {
         if (!copies.isEmpty() && c.length() > 0) copies.set(copies.size() - 1, c);
       }
       else if (a.equals("--continue") && i + 1 < args.length) earlier = args[++i];
+      // A folder run's file (runFolder): the output name's %f, or after it.
+      else if (a.equals("--name_for") && i + 1 < args.length) nameFor = args[++i];
+      else if (a.equals("--output_dir") && i + 1 < args.length) i++;
+      // Pulsekit's: where its answers are sent as sections (an input folder's by themselves).
+      else if ((a.equals("--send_program") || a.equals("--send_group")) && i + 1 < args.length) i++;
+      // Pulsekit's too: the answer rendered by the Send to program.
+      else if (a.equals("--auto_render") || a.equals("--silent_auto")) continue;
+      // An input folder's rows given with no input folder (a one-file run): left out.
+      else if (a.equals("--skip_done") || a.equals("--subfolders") || a.equals("--listed")) continue;
+      else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
+      else if (a.equals("--batch_prompt") && i + 1 < args.length) batchPrompt = args[++i].trim();
+      else if (a.equals("--answer_tool") && i + 1 < args.length) answerTool = args[++i].trim().toLowerCase();
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -176,13 +207,17 @@ public final class SogniChat {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
+      } else if (!a.startsWith("--") && out == null) out = a;
       else {
         System.out.println("Unknown argument: " + a);
         usage();
         return 2;
       }
     }
+    // %f: the folder run's file (its name without the extension); without %f the name goes after the output name.
+    if (nameFor != null) out = out == null || out.trim().isEmpty() ? nameFor : out.contains("%f") ? out.replace("%f", nameFor) : out.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-" + nameFor;
+    else if (out != null) out = out.replace("%f", "");
+    if (out != null) out = SogniApi.fillName(out, inWork("x").getParentFile());
     if (Double.isNaN(maxTokens) || Double.isNaN(maxCost)) return 2;
     if (maxTokens < 0 || maxTokens > 32000) {
       System.out.println("Failed: --max_tokens is 1 to 32000 (leave it out for Sogni's default)");
@@ -202,6 +237,8 @@ public final class SogniChat {
     // no Sogni tools are offered with it (it does not call them), so --tools, --run_tools and
     // --unlimited are left out. Any other model is tools mode.
     boolean analyze = rejoin == null && model != null && model.toLowerCase().contains("deepseek");
+    // --answer_tool runs as a workflow of its own: the Unlimited Plan pays for it even in image analyze mode.
+    boolean answerPlan = unlimited;
     if (analyze) {
       System.out.println("Image analyze mode (" + model + "): it reads the pictures sent with --file; no other Sogni tools are available with this model");
       if (tools || runTools || unlimited) System.out.println("Note: " + (unlimited ? "--unlimited" : runTools ? "--run_tools" : "--tools") + " is not used in image analyze mode");
@@ -215,7 +252,8 @@ public final class SogniChat {
     boolean toolsOn = tools || runTools || unlimited;
     List<Attachment> attached = new ArrayList<Attachment>();
     for (int k = 0; k < files.size(); k++) {
-      Attachment a = attachment(new File(files.get(k)), toolsOn, copies.get(k));
+      // (Uploaded for the tools, and for --answer_tool edit / animate, which work on the picture.)
+      Attachment a = attachment(new File(files.get(k)), toolsOn || needsPicture(answerTool), copies.get(k));
       if (a == null) return 2;
       attached.add(a);
     }
@@ -266,25 +304,8 @@ public final class SogniChat {
         System.out.println("Uploaded " + a.name + " (" + size(a.data.length) + ") as " + a.ref);
         a.data = null;
       }
-      // The model sees pictures as uploaded URLs, as Sogni's own apps send them (a data: URI in the
-      // request was not always shown to a vision model): the smaller copy of a big one. A chat run
-      // (Unlimited Plan) takes only URLs; otherwise a picture that cannot be uploaded goes inline.
-      int views = 0;
-      for (Attachment a : attached) {
-        if (a.seen == null) continue;
-        if (!a.shrunk && a.url != null) {
-          a.seenUrl = a.url;
-          continue;
-        }
-        String copy = a.name.replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "-seen" + ("image/png".equals(a.seenMime) ? ".png" : ".jpg");
-        try {
-          a.seenUrl = SogniApi.str(api.uploadMedia("image", a.seenMime, a.seen, 90 + (++views), copy).get("url"));
-        } catch (IOException ex) {
-          if (unlimited) throw ex;
-          System.out.println("Note: could not upload " + a.name + " for the model to see (" + ex.getMessage() + "); it is sent inside the request");
-        }
-        if (a.seenUrl != null && a.seenUrl.length() == 0) a.seenUrl = null;
-      }
+      // The model sees pictures inline, as data: URIs (the smaller copy of a big one): Sogni takes no
+      // picture URLs for it any more ("Only inline base64-encoded data URIs are supported for image inputs").
       String question = question(prompt, attached);
       List<String[]> turns = new ArrayList<String[]>();
       if (before != null) {
@@ -295,14 +316,9 @@ public final class SogniChat {
       List<String> sent = new ArrayList<String>();
       sent.add("user");
       sent.add(question);
-      for (Attachment a : attached) if (a.image != null) sent.add(a.seenUrl != null ? a.seenUrl : a.image);
+      for (Attachment a : attached) if (a.image != null) sent.add(a.image);
       turns.add(sent.toArray(new String[0]));
       List<String[]> runTurns = new ArrayList<String[]>(turns);
-      if (unlimited) {
-        List<String> linked = new ArrayList<String>(sent.subList(0, 2));
-        for (Attachment a : attached) if (a.seenUrl != null) linked.add(a.seenUrl);
-        runTurns.set(runTurns.size() - 1, linked.toArray(new String[0]));
-      }
       String chosen = model == null || model.length() == 0 ? SogniApi.CHAT_MODEL : model;
       if (rejoin == null) {
         System.out.println("Model " + chosen + (thinking ? ", thinking" : ""));
@@ -451,12 +467,30 @@ public final class SogniChat {
       } else if (offered) {
         System.out.println("No tool calls: the model answered in text");
       }
+      // --answer_tool: the answer itself the prompt of one Sogni tool (a picture, an edit or animation of the picture given, a video, music).
+      if (answerTool != null && !answerTool.isEmpty() && calls.isEmpty() && started.isEmpty() && runMedia.isEmpty()) {
+        String[] call = answerCall(answerTool, reply, attached);
+        if (call == null) {
+          System.out.println("Note: --answer_tool " + answerTool + " not run: " + answerProblem(answerTool, reply, attached));
+        } else {
+          System.out.println("Answer to " + call[0] + " (--answer_tool " + answerTool + ")");
+          List<String[]> one = withBatchPrompt(java.util.Collections.singletonList(call));
+          String id = api.start(SogniApi.toolsInput("Pulsekit chat answer", one), confirm || answerPlan, answerPlan ? 0 : maxCost, needsPicture(answerTool) ? media : null,
+              answerPlan ? "subscription" : null);
+          List<String> ids = new ArrayList<String>();
+          ids.add(id);
+          List<String> results = follow(api, ids, name.replaceAll("\\.[^.]*$", ""));
+          if (results == null) return 1;
+          made.addAll(results);
+        }
+      }
+      lastMade = made;
       System.out.println(made.isEmpty() ? "Succeeded" : "Succeeded: " + join(made));
     } catch (SogniApi.ApiException ex) {
       boolean picture = false;
       for (Attachment a : attached) if (a.image != null) picture = true;
       String said = String.valueOf(ex.getMessage()).toLowerCase();
-      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400 && !said.contains("dimension") && !said.contains("exceeds")
+      System.out.println("Failed: " + ex.getMessage() + (picture && ex.status == 400 && !said.contains("dimension") && !said.contains("exceeds") && !said.contains("base64") && !said.contains("url")
           ? " (a picture needs a model that sees pictures: try --model deepseek-v4-flash-vision-exp-dspark-1m)" : ""));
       if (unlimited && fairUse(ex)) {
         System.out.println("Sogni's fair use limit is reached, so it does not run the task now. Try again when the daily limit renews"
@@ -470,9 +504,118 @@ public final class SogniChat {
     return 0;
   }
 
+  /** The files the last run() saved (its "Succeeded:" line), for a folder run's summary. */
+  static List<String> lastMade = new ArrayList<String>();
+
+  /** The files SogniChat reads in a folder (--input_dir): as Pulsekit's ChatFolder.KINDS. */
+  static final List<String> FOLDER_KINDS = java.util.Arrays.asList("txt", "md", "csv", "json", "log", "prompt", "mid", "midi", "png", "jpg", "jpeg", "webp",
+      "gif", "mp3", "wav", "flac", "m4a", "mp4", "mov", "webm");
+
+  /**
+   * --input_dir: the same question about each of the folder's files (by name, at most --max_files,
+   * 20 when not given), one after another, each its own chat saved as <output name>-<file>.txt (%f in
+   * the output name: the file's name there), else <file>.txt. Pulsekit lists the folder before the run
+   * and gives each file as --dir_file (with --seen_copy for a big JPEG); on its own SogniChat lists it.
+   */
+  static int runFolder(String[] args) throws Exception {
+    System.out.println(VERSION);
+    String dir = null;
+    int max = 20;
+    List<String[]> items = new ArrayList<String[]>();
+    List<String> rest = new ArrayList<String>();
+    boolean listed = false;
+    for (int i = 0; i < args.length; i++) {
+      String a = args[i];
+      if (a.equals("--input_dir") && i + 1 < args.length) dir = args[++i].trim();
+      else if (a.equals("--max_files") && i + 1 < args.length) {
+        double n = number(a, args[++i]);
+        if (Double.isNaN(n) || n < 1) {
+          System.out.println("Failed: --max_files is 1 or more");
+          return 2;
+        }
+        max = (int) n;
+      } else if (a.equals("--dir_file") && i + 1 < args.length) {
+        String f = args[++i];
+        String copy = null;
+        if (i + 2 < args.length && args[i + 1].equals("--seen_copy")) {
+          copy = args[i + 2];
+          i += 2;
+        }
+        items.add(new String[] {f, copy});
+      } else if (a.equals("--listed") || a.equals("--skip_done") || a.equals("--subfolders")) {
+        // Pulsekit listed the folder (--dir_file), with Skip already processed leaving out the files answered before.
+        if (a.equals("--listed")) listed = true;
+      } else if (a.equals("--done_key") && i + 1 < args.length) {
+        i++;
+      } else rest.add(a);
+    }
+    String where = dir == null || dir.isEmpty() ? "the files given" : new File(dir).getName();
+    if (items.isEmpty() && listed) {
+      System.out.println("Nothing new in " + where + ": every file in it was answered before (Skip already processed)");
+      System.out.println("Succeeded");
+      return 0;
+    }
+    if (items.isEmpty()) {
+      File d = dir == null || dir.isEmpty() ? null : new File(dir);
+      if (d == null || !d.isDirectory()) {
+        System.out.println("Failed: --input_dir needs a folder" + (d == null ? "" : " (" + dir + " is not one)"));
+        return 2;
+      }
+      List<File> all = new ArrayList<File>();
+      File[] got = d.listFiles();
+      if (got != null) for (File f : got) {
+        String n = f.getName();
+        int dot = n.lastIndexOf('.');
+        if (f.isFile() && dot > 0 && !n.startsWith(".") && FOLDER_KINDS.contains(n.substring(dot + 1).toLowerCase(java.util.Locale.ROOT))) all.add(f);
+      }
+      java.util.Collections.sort(all, new java.util.Comparator<File>() {
+        public int compare(File x, File y) {
+          int c = x.getName().compareToIgnoreCase(y.getName());
+          return c != 0 ? c : x.getName().compareTo(y.getName());
+        }
+      });
+      if (all.size() > max) System.out.println("Note: " + all.size() + " files in " + where + "; the first " + max + " by name are asked about (--max_files)");
+      for (int i = 0; i < all.size() && i < max; i++) items.add(new String[] {all.get(i).getPath(), null});
+    }
+    if (items.isEmpty()) {
+      System.out.println("Failed: no file SogniChat reads in " + where + " (text, MIDI, pictures, audio, video)");
+      return 1;
+    }
+    System.out.println("Folder " + where + ": " + items.size() + " file" + (items.size() == 1 ? "" : "s") + ", the same question about each, one after another");
+    List<String> made = new ArrayList<String>();
+    List<String> failed = new ArrayList<String>();
+    for (int k = 0; k < items.size(); k++) {
+      File f = new File(items.get(k)[0].trim());
+      String stem = f.getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "").replaceAll("[\\\\/:*?\"<>|]", "_");
+      List<String> one = new ArrayList<String>(rest);
+      one.add("--file");
+      one.add(f.getPath());
+      if (items.get(k)[1] != null) {
+        one.add("--seen_copy");
+        one.add(items.get(k)[1]);
+      }
+      one.add("--name_for");
+      one.add(stem);
+      System.out.println();
+      System.out.println("=== File " + (k + 1) + " of " + items.size() + ": " + f.getName() + " ===");
+      lastMade = new ArrayList<String>();
+      int code = run(one.toArray(new String[0]));
+      if (code == 0 && !lastMade.isEmpty()) made.addAll(lastMade);
+      else failed.add(f.getName());
+    }
+    System.out.println();
+    System.out.println("Folder done: " + made.size() + " of " + items.size() + " answered" + (failed.isEmpty() ? "" : "; not answered: " + join(failed)));
+    if (made.isEmpty()) {
+      System.out.println("Failed: none of the " + items.size() + " files was answered");
+      return 1;
+    }
+    System.out.println("Succeeded: " + join(made));
+    return 0;
+  }
+
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto] [--batch_prompt text] [--answer_tool image|edit|animate|video|music]");
   }
 
   /**
@@ -480,7 +623,82 @@ public final class SogniChat {
    * made as <stem>-1.png, <stem>-2.mp3...: the file names, or null after saying why it failed.
    * Steps run side by side; a call that needs another's result is not linked to it.
    */
+  /** --answer_tool: image, edit, animate, video or music (null: none). */
+  static String answerTool;
+
+  static final List<String> ANSWER_TOOLS = java.util.Arrays.asList("image", "edit", "animate", "video", "music");
+
+  /** Edit and animate work on the picture given with --file (the first one). */
+  static boolean needsPicture(String tool) {
+    return "edit".equals(tool) || "animate".equals(tool);
+  }
+
+  /** Why --answer_tool cannot run with this answer and these files. */
+  static String answerProblem(String tool, String reply, List<Attachment> attached) {
+    if (!ANSWER_TOOLS.contains(tool)) return "it is image, edit, animate, video or music";
+    if (reply == null || reply.trim().isEmpty()) return "the answer is empty";
+    return "edit and animate need a picture given with --file";
+  }
+
+  /** The tool call ({name, arguments JSON}) that makes `tool`'s result from the answer, or null when it cannot. */
+  static String[] answerCall(String tool, String answer, List<Attachment> attached) {
+    if (!ANSWER_TOOLS.contains(tool) || answer == null || answer.trim().isEmpty()) return null;
+    boolean picture = false;
+    for (Attachment a : attached) if ("image".equals(a.kind) && a.ref != null) picture = true;
+    if (needsPicture(tool) && !picture) return null;
+    Map<String, Object> args = new LinkedHashMap<String, Object>();
+    args.put("prompt", answer.trim());
+    String name;
+    if (tool.equals("image")) {
+      name = "generate_image";
+    } else if (tool.equals("edit")) {
+      name = "edit_image";
+      args.put("model", "krea-identity-edit");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+    } else if (tool.equals("animate")) {
+      name = "animate_photo";
+      args.put("videoModel", "minimax-h3-fasth3-i2v-turbo");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      args.put("frameRole", "start");
+    } else if (tool.equals("video")) {
+      name = "generate_video";
+      args.put("videoModel", "minimax-h3-fasth3-t2v-turbo");
+    } else {
+      name = "generate_music";
+    }
+    if (SogniApi.variations > 1) args.put("numberOfVariations", Integer.valueOf(SogniApi.variations));
+    return new String[] {name, SogniApi.toJson(args)};
+  }
+
+  /** --batch_prompt (Pulsekit's Batch prompt): added after the prompt of each Sogni tool call the model makes (its pictures, videos, music). */
+  static String batchPrompt;
+
+  /** The tool calls with the batch prompt after each one's prompt (as they are without one). */
+  @SuppressWarnings("unchecked")
+  static List<String[]> withBatchPrompt(List<String[]> calls) {
+    if (batchPrompt == null || batchPrompt.isEmpty()) return calls;
+    List<String[]> out = new ArrayList<String[]>();
+    for (String[] c : calls) {
+      try {
+        Object args = SogniApi.parseJson(c[1]);
+        if (args instanceof Map && ((Map<String, Object>) args).get("prompt") instanceof String) {
+          Map<String, Object> m = (Map<String, Object>) args;
+          String p = ((String) m.get("prompt")).trim();
+          if (!p.toLowerCase().endsWith(batchPrompt.toLowerCase())) m.put("prompt", p.isEmpty() ? batchPrompt : p + (p.matches(".*[.,;:!?]$") ? " " : ", ") + batchPrompt);
+          out.add(new String[] {c[0], SogniApi.toJson(m)});
+          continue;
+        }
+      } catch (Exception ignored) {
+        // as it is
+      }
+      out.add(c);
+    }
+    System.out.println("Batch prompt added to the tools' prompts: " + batchPrompt);
+    return out;
+  }
+
   static List<String> runCalls(SogniApi api, List<String[]> calls, String stem, boolean confirm, double maxCost) throws IOException {
+    calls = withBatchPrompt(calls);
     String id = api.start(SogniApi.toolsInput("Pulsekit chat", calls), confirm, maxCost);
     List<String> ids = new ArrayList<String>();
     ids.add(id);
@@ -572,14 +790,10 @@ public final class SogniChat {
     /** Its media reference once uploaded (media_ref_1...), and the uploaded file's URL; null when not uploaded. */
     String ref;
     String url;
-    /**
-     * The picture the model sees (the file, or a smaller copy: shrunk), for a chat run, which takes
-     * pictures as uploaded URLs; seenUrl once uploaded.
-     */
+    /** The picture the model sees (the file, or a smaller copy: shrunk), sent inline. */
     byte[] seen;
     String seenMime;
     boolean shrunk;
-    String seenUrl;
     /** For the log: "notes.txt, 34 characters". */
     String what;
   }
@@ -664,8 +878,9 @@ public final class SogniChat {
               + " so only the tools get it (uploaded at full size)");
         } else {
           System.out.println("Failed: " + big + "; Sogni shows the chat model pictures of up to " + INLINE_SIDE + " px on the longest side."
-              + " Save it smaller or as a PNG (SogniChat sends a smaller copy of a PNG), or tick Offer Sogni tools, Run proposed tool calls"
-              + " or Unlimited Plan, and the file is uploaded for the tools at full size.");
+              + ("image/jpeg".equals(a.mime) ? " Pulsekit makes a smaller copy of a big JPEG before the run, but none was given (a Note above says why, when Pulsekit tried)."
+                  + " Save it smaller or as a PNG (SogniChat sends a smaller copy of a PNG)" : " Save it smaller")
+              + ", or, with a model that takes Sogni's tools, tick Offer Sogni tools, Run proposed tool calls or Unlimited Plan, and the file is uploaded for the tools at full size.");
           return null;
         }
       }
@@ -2002,7 +2217,7 @@ public final class SogniChat {
      * A durable chat run (POST /v1/chat/runs), for an Unlimited Plan: Sogni runs the model and its
      * tools on its side and the run goes on when the connection drops, so a long job (a video) does
      * not time out one long request (Cloudflare ends a request after about 100 s: error 524).
-     * Pictures in `turns` are uploaded URLs (a run takes no data: URIs); `media` are the uploads
+     * Pictures in `turns` are inline data: URIs; `media` are the uploads
      * (uploadMedia), named as media references and as the run's starting media.
      */
     public static String chatRunInput(String model, String system, List<String[]> turns, int maxTokens, boolean thinking, List<Map<String, Object>> media) {
@@ -2077,9 +2292,26 @@ public final class SogniChat {
       return m;
     }
 
-    /** Sends a chat request (chatInput) and returns Sogni's reply as it came. */
+    /**
+     * Sends a chat request (chatInput) and returns Sogni's reply as it came. A 502, 503 or 504 (Sogni's
+     * gateway got no answer from the model in time, or it is busy) is asked again twice, after 15 s and 30 s.
+     */
     public Object chat(String inputJson) throws IOException {
-      return this.request("POST", "/v1/chat/completions", inputJson);
+      for (int attempt = 0; ; attempt++) {
+        try {
+          return this.request("POST", "/v1/chat/completions", inputJson);
+        } catch (ApiException ex) {
+          if (attempt >= 2 || (ex.status != 502 && ex.status != 503 && ex.status != 504)) throw ex;
+          int wait = 15 * (attempt + 1);
+          System.out.println("Sogni answered " + ex.status + (ex.status == 504 ? " (gateway timeout: the model did not answer in time)" : " (busy)") + "; asking again in " + wait + " s");
+          try {
+            Thread.sleep(wait * 1000L);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw ex;
+          }
+        }
+      }
     }
 
     /** The reply's text (choices[0].message.content, also inside "data"), without a <think> part; null if none. */
@@ -3327,6 +3559,30 @@ public final class SogniChat {
       }
     }
     /**
+     * An aspect ratio's size when no width and height are given: its short side 1080 pixels, the long one from
+     * the ratio (at most 2560), both multiples of 8 (16:9 is 1920x1080, 4:7 1080x1888). Null for no ratio.
+     */
+    public static int[] sizeFor(String aspect) {
+      if (aspect == null || !aspect.trim().matches("\\d{1,2}:\\d{1,2}")) return null;
+      String[] p = aspect.trim().split(":");
+      double a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+      if (a <= 0 || b <= 0) return null;
+      double w = a >= b ? 1080 * a / b : 1080, h = a >= b ? 1080 : 1080 * b / a;
+      double over = Math.max(w, h) / 2560.0;
+      if (over > 1) {
+        w /= over;
+        h /= over;
+      }
+      return new int[] {(int) Math.max(256, Math.round(w / 8.0) * 8), (int) Math.max(256, Math.round(h / 8.0) * 8)};
+    }
+
+    /** The %ar and %r codes of an output name for this run: the aspect ratio ("16x9") and the size ("1920x1080"). */
+    public static void sizeCodes(String aspect, int width, int height) {
+      System.setProperty("pulsekit.ar", aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "");
+      System.setProperty("pulsekit.res", width > 0 && height > 0 ? width + "x" + height : "");
+    }
+
+    /**
      * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
      * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
      * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
@@ -3340,9 +3596,26 @@ public final class SogniChat {
       if (one.equals(fillCodes(name, now, 2))) return one;
       for (int n = 1; n < 100000; n++) {
         String made = fillCodes(name, now, n);
-        if (!nameTaken(dir, made) && !takenInOutDirs(made)) return made;
+        if (!nameTaken(dir, made) && !takenInOutDirs(made) && !givenBefore(made)) {
+          given(made);
+          return made;
+        }
       }
       return one;
+    }
+
+    /**
+     * The names %n has given in this process (a batch's runs: their files may go to a folder %n cannot
+     * see, or be moved away): kept in a system property, as each program has its own copy of this class.
+     */
+    static synchronized boolean givenBefore(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      return ("\n" + all + "\n").contains("\n" + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", "") + "\n");
+    }
+
+    static synchronized void given(String name) {
+      String all = System.getProperty("pulsekit.given", "");
+      System.setProperty("pulsekit.given", (all.isEmpty() ? "" : all + "\n") + new File(name).getName().replaceAll("\\.[A-Za-z0-9]{1,5}$", ""));
     }
 
     /** A file in `dir` (or the name's own folder) named `name`, any extension (or one of its variations). */
@@ -3387,7 +3660,13 @@ public final class SogniChat {
         int j = i + 1;
         while (j < pattern.length()) {
           String rest = pattern.substring(j);
-          if (rest.startsWith("yyyy")) {
+          if (rest.startsWith("ar")) {
+            out.append(System.getProperty("pulsekit.ar", ""));
+            j += 2;
+          } else if (rest.startsWith("r")) {
+            out.append(System.getProperty("pulsekit.res", ""));
+            j += 1;
+          } else if (rest.startsWith("yyyy")) {
             out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
             j += 4;
           } else if (rest.startsWith("yy")) {
@@ -3413,6 +3692,8 @@ public final class SogniChat {
           }
         }
         if (j == i + 1) out.append('%');
+        // %n% (as %g% is written): the % closing the codes is not part of the name.
+        else if (j < pattern.length() && pattern.charAt(j) == '%' && !(j + 1 < pattern.length() && pattern.charAt(j + 1) == '%')) j++;
         i = j - 1;
       }
       return out.toString();

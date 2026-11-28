@@ -105,6 +105,32 @@ public final class ProgramParams {
     }
   }
 
+  /** The input rows moved together, in their order, after the first picture row (--image), else the prompt. */
+  static void moveInputRows(List<Param> out) {
+    String[] order = {"--input_dir", InputGroup.TOKEN, "--subfolders", "--max_files", "--skip_done", "--input_as", "--section"};
+    List<Param> moved = new ArrayList<Param>();
+    for (String t : order) {
+      for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) {
+        Param p = it.next();
+        if (p.flag && p.token.equals(t)) {
+          moved.add(p);
+          it.remove();
+          break;
+        }
+      }
+    }
+    int at = -1;
+    for (int i = 0; i < out.size(); i++) if (out.get(i).flag && out.get(i).token.equals("--image")) {
+      at = i;
+      break;
+    }
+    if (at < 0) for (int i = 0; i < out.size(); i++) if (out.get(i).flag && out.get(i).token.equals("--prompt")) {
+      at = i;
+      break;
+    }
+    out.addAll(at < 0 ? out.size() : at + 1, moved);
+  }
+
   /** vst_render's --plugin2 to --plugin4 (and their --map, --kit_name): "Second", "Third", "Fourth". */
   static String ordinal(String token) {
     char n = token.charAt(token.length() - 1);
@@ -134,12 +160,16 @@ public final class ProgramParams {
     boolean compareHits = has(out, "input.wav") && has(out, "drums.mid") && has(out, "song.mid");
     // SogniVideo: pictures to animate, and MiniMax H3's sizes.
     boolean video = has(out, "--image") && has(out, "--end_image");
+    // Sogni_RTV: MiniMax H3 reference-to-video, from up to 12 reference files (pictures, videos, sounds).
+    boolean rtv = has(out, "--ref1") && has(out, "--ref12");
+    // SogniVideoUpscale: a video made larger on Sogni (RelayVSR or FlashVSR).
+    boolean videoUp = has(out, "--upscaler") && has(out, "--detail");
     // SogniPedit: Krea 2 Identity Edit of a picture, with Skin Detail and other Krea 2 LoRAs.
     boolean pic = has(out, "--image2") && has(out, "--skin_detail");
     // SogniPadd: a picture from a prompt alone, with Krea 2 LoRAs.
     boolean padd = has(out, "--loras") && has(out, "--seed") && !has(out, "--image2");
     // SogniTextVideo: a clip from a prompt alone, with H3 LoRAs.
-    boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image");
+    boolean textVideo = has(out, "--loras") && has(out, "--duration") && !has(out, "--image") && !has(out, "--ref1");
     // ImageUpscaler: a picture made larger (bicubic, or Real-ESRGAN on the desktop), in a size and shape.
     boolean upscaler = has(out, "--aspect") && has(out, "--fit");
     // JoinVideo: two MP4s as one.
@@ -166,8 +196,40 @@ public final class ProgramParams {
       Param p = it.next();
       if (p.flag && p.token.equals("--scan")) it.remove();
     }
+    // SogniChat's --batch_prompt: Pulsekit's Batch prompt row (and its text) gives it, so it has no row of its own.
+    if (chat) for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) {
+      Param p = it.next();
+      if (p.flag && p.token.equals("--batch_prompt")) it.remove();
+    }
     for (Param p : out) {
       known(p, drumMidi, chat);
+      // SogniPedit's and SogniPadd's Input folder (FolderRuns): the program run once for each file.
+      // (SogniVideo's folder: pictures too; SogniTextVideo's: text files, as SogniPadd's.)
+      boolean pics = pic || video, texts = padd || textVideo;
+      if (p.flag && p.takesValue && p.token.equals("--input_dir") && !chat && (pics || texts)) {
+        p.dir = true;
+        p.label = pics ? "Input folder: each picture (PNG, JPEG, WebP) " + (video ? "made a video" : "edited") + " in turn, one run a picture"
+            : "Input folder: each .txt or .prompt file's prompt rendered in turn, one run a file";
+        p.hint = "the Params are each run's; %f in the output name: the file's name";
+      }
+      if (p.flag && p.takesValue && p.token.equals("--max_files") && !chat && (pics || texts)) {
+        p.label = "Max files (the first by name; in case of a big folder)";
+        p.hint = "20";
+      }
+      if (p.flag && !p.takesValue && p.token.equals("--skip_done") && !chat && (pics || texts)) p.label = "Skip already processed: the input folder's files done in earlier runs left out";
+      if (p.flag && !p.takesValue && p.token.equals("--subfolders") && (pics || texts || chat))
+        p.label = "Include subfolders: the input folder's subfolders' files too (Skip already processed remembers them by their path)";
+      // Input as: the folder's pictures as reference image 1 or 2 (SogniVideo: its start or end picture).
+      if (p.flag && p.takesValue && p.token.equals("--input_as") && pics) {
+        p.label = "Input folder's pictures as";
+        p.dropdown = true;
+        p.choices = video ? new String[] {"Start picture (--image)", "End picture (--end_image)"} : new String[] {"Reference image 1 (--image)", "Reference image 2 (--image2)"};
+        p.choiceValues = new String[] {"", "2"};
+      }
+      if (p.flag && p.takesValue && p.token.equals("--section") && (pics || texts)) {
+        p.label = "Section: a saved section's entries (prompt, LoRAs...) with each file (by its name)";
+        p.hint = "e.g. Soft light; empty: the Params as they are";
+      }
       // DrumMidi's, CompareHits', SplitWav's, CutWav's and Wav2Mp3's audio input can also come from the prompt library (Browse DB, sound files only).
       if ((drumMidi || compareHits || splitWav || cutWav || wav2mp3) && !p.flag && p.isFile() && isAudio(p)) p.refs = true;
       // DrumMidi's and CompareHits' audio input can be a MIDI from the library too, played with the kit to a WAV.
@@ -175,6 +237,11 @@ public final class ProgramParams {
       // CompareHits' drums and song MIDI too (MIDI files only), beside From file set.
       if (compareHits && !p.flag && p.isFile() && "mid".equals(p.ext)) p.refs = true;
       if (video) knownVideo(p);
+      if (videoUp) knownVideoUp(p);
+      if (rtv) {
+        knownVideo(p);
+        knownRtv(p);
+      }
       if (joinVideo) knownJoinVideo(p);
       if (upscaler) knownUpscaler(p);
       if (midi2wav) knownMidi2Wav(p);
@@ -185,6 +252,11 @@ public final class ProgramParams {
       }
       if (splitWav || cutWav || wav2mp3) knownWavFolder(p);
       if (wav2mp3) knownWav2Mp3(p);
+      // Aspect ratio 2 (SogniPadd, SogniTextVideo): each picture or video made again in that shape.
+      if (p.flag && p.token.equals("--aspect2") && (padd || textVideo)) {
+        p.label = "Aspect ratio 2: each " + (textVideo ? "video" : "picture") + " made again in this shape (the same as the first: not made)";
+        p.hint = "e.g. 16:9; empty: one " + (textVideo ? "video" : "picture");
+      }
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -234,7 +306,7 @@ public final class ProgramParams {
     }
     // The Sogni programs that download pictures, videos and music: Destination subfolder (PyJav takes it off
     // and keeps it with the run; Downloads' Move puts the run's files there).
-    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.SUB_PARAM)) {
+    if ((video || pic || padd || textVideo || sogniMusic || rtv) && !has(out, DownloadMove.SUB_PARAM)) {
       Param sub = new Param();
       sub.token = DownloadMove.SUB_PARAM;
       sub.flag = true;
@@ -244,6 +316,59 @@ public final class ProgramParams {
       sub.hint = DownloadMove.SUB_PARAM_HINT;
       out.add(sub);
     }
+    // Their Batch group: a batch's files put in that group by themselves (%g in the output name is it).
+    if ((video || pic || padd || textVideo) && !has(out, DownloadMove.BATCH_GROUP)) {
+      Param g = new Param();
+      g.token = DownloadMove.BATCH_GROUP;
+      g.flag = true;
+      g.takesValue = true;
+      g.optional = true;
+      g.label = DownloadMove.BATCH_GROUP_LABEL;
+      g.hint = DownloadMove.BATCH_GROUP_HINT;
+      out.add(g);
+    }
+    // Their Usage warning: Sogni's fair-use usage read before a batch; at it or over, the batch asks first.
+    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, SogniUsage.WARN_PARAM)) {
+      Param w = new Param();
+      w.token = SogniUsage.WARN_PARAM;
+      w.flag = true;
+      w.takesValue = true;
+      w.optional = true;
+      w.label = SogniUsage.WARN_LABEL;
+      w.hint = SogniUsage.WARN_HINT;
+      out.add(w);
+    }
+    // Their Batch folder: a batch's files there instead of Download (PyJav takes it off; a folder to type or browse).
+    if ((video || pic || padd || textVideo || sogniMusic) && !has(out, DownloadMove.BATCH_PARAM)) {
+      Param b = new Param();
+      b.token = DownloadMove.BATCH_PARAM;
+      b.flag = true;
+      b.takesValue = true;
+      b.optional = true;
+      b.dir = true;
+      b.typed = true;
+      b.label = DownloadMove.BATCH_PARAM_LABEL;
+      b.hint = DownloadMove.BATCH_PARAM_HINT;
+      out.add(b);
+    }
+    // SogniChat's Auto-exclude words: its answers without the sentences that spoil a render (Pulsekit's, taken off the run).
+    if (chat && !has(out, TextReady.AUTO_EXCLUDE)) {
+      Param ax = new Param();
+      ax.token = TextReady.AUTO_EXCLUDE;
+      ax.flag = true;
+      ax.takesValue = false;
+      ax.optional = true;
+      ax.label = TextReady.AUTO_LABEL;
+      out.add(ax);
+    }
+    // Input group (the programs with an Input folder): a group's sections run in turn.
+    if ((pic || video || padd || textVideo) && has(out, "--input_dir") && !has(out, InputGroup.TOKEN)) out.add(InputGroup.row());
+    // The input rows (Input folder, Input group, Include subfolders, Max files, Skip already processed, Input as,
+    // Section) right under the input file (SogniPedit's and SogniVideo's picture), else under the prompt.
+    if ((pic || video || padd || textVideo || chat) && has(out, "--input_dir")) moveInputRows(out);
+    // SogniPadd's Chain (and Chain to); the Sogni prompt programs' Batch prompt (and its text).
+    String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : chat ? "SogniChat.java" : null;
+    if (chainName != null) for (Param r : Chain.rows(chainName)) if (!has(out, r.token)) out.add(r);
     // Any program without a --saveprompt of its own: Save this run into DB (PyJav takes the switch off and stores the run).
     if (!out.isEmpty() && !has(out, "--saveprompt") && !has(out, PromptKeep.SAVE_RUN)) {
       Param save = new Param();
@@ -256,6 +381,9 @@ public final class ProgramParams {
     }
     // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
     if ((drumMidi || drumGen || sogniMusic || drumAlong) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
+    // Tabs: the Sogni programs' Input, Output, Batch and Settings; DrumMidi's Input, Output and Settings.
+    if (pic || video || padd || textVideo || sogniMusic || chat || rtv || videoUp) for (Param p : out) p.tab = sogniTab(p);
+    else if (drumMidi) for (Param p : out) p.tab = drumMidiTab(p);
     return out;
   }
 
@@ -491,6 +619,12 @@ public final class ProgramParams {
     if (p.flag && p.token.equals("--truth")) p.label = "The first MIDI is the drums played (DrumMidi's MIDI checked against it)";
     if (p.flag && chat && p.token.equals("--tools")) p.label = "Offer Sogni tools (show proposed calls)";
     if (p.flag && chat && p.token.equals("--run_tools")) p.label = "Run proposed tool calls (paid)";
+    if (p.flag && chat && p.token.equals("--answer_tool")) {
+      p.label = "Pass the answer to a Sogni tool (paid): it is the prompt of a picture, video or music; Edit and Animate work on the picture given";
+      p.dropdown = true;
+      p.choices = new String[] {"(none)", "Picture (generate_image)", "Edit the picture (edit_image)", "Animate the picture (animate_photo)", "Video (generate_video)", "Music (generate_music)"};
+      p.choiceValues = new String[] {"", "image", "edit", "animate", "video", "music"};
+    }
     if (p.flag && chat && p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
     if (p.flag && chat && p.token.equals("--unlimited")) p.label = "Unlimited Plan (Sogni runs tools in the chat; fair use limits apply)";
     // SogniChat runs with the filter off; this switch turns it on.
@@ -502,7 +636,38 @@ public final class ProgramParams {
     if (!p.flag && p.output && chat) {
       // SogniChat's output is a base name for everything it saves, not one file.
       p.label = "Output name";
-      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog; also %c, %t1)";
+      p.hint = "e.g. kit-ideas: kit-ideas.txt, results kit-ideas-1.png...; % codes: Image%n, Image%ddmmyy, Image-%g (its group, picked in its ready dialog, or Document ready's Send to group; also %c, %t1)";
+    }
+    // SogniChat --input_dir: the same question about each file of a folder (ChatFolder).
+    if (p.flag && p.takesValue && chat && p.token.equals("--input_dir")) {
+      p.dir = true;
+      p.label = "Input folder: the same question about each of its files, one after another";
+      p.hint = "each its own chat: <output name>-<file>.txt (%f: the file's name), else <file>.txt";
+    }
+    if (p.flag && !p.takesValue && chat && p.token.equals("--skip_done")) p.label = "Skip already processed: the input folder's files answered in earlier runs left out (only the new ones asked about)";
+    if (p.flag && p.takesValue && chat && p.token.equals("--max_files")) {
+      p.label = "Max files (the first by name; in case of a big folder)";
+      p.hint = "20";
+    }
+    if (p.flag && p.takesValue && chat && p.token.equals("--output_dir")) {
+      p.dir = true;
+      p.typed = true;
+      p.label = "Output folder: each answer cut at Document ready's delimiter (the one used last) and saved there";
+      p.hint = "the answer saved when Document ready closes (as shown there); empty: an input folder's answers beside the chats as <name>-trimmed.txt; % codes: answers%ddmmyy, %g the group Send to group used";
+    }
+    if (p.flag && p.takesValue && chat && p.token.equals("--send_program")) {
+      p.label = "Send to program: answers go into its group as sections (an input folder's by themselves; Document ready: a button)";
+      p.dropdown = true;
+      p.choices = new String[] {"(none)", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
+      p.choiceValues = new String[] {"", "SogniPadd", "SogniPedit", "SogniVideo", "SogniTextVideo", "SogniMusic", "SogniChat"};
+    }
+    if (p.flag && !p.takesValue && chat && p.token.equals(ChatFolder.SILENT))
+      p.label = "Silent auto mode: no Document ready; the answer saved (Output name, Output folder), sent to the group and rendered by itself (only with Auto render)";
+    if (p.flag && !p.takesValue && chat && p.token.equals("--auto_render"))
+      p.label = "Auto render: the answer as the Send to program's prompt, rendered with its Params (aspect, width, height...); its prompt put back after (no Send to program: not used)";
+    if (p.flag && p.takesValue && chat && p.token.equals("--send_group")) {
+      p.label = "Send to group (made when missing; %g in the output name and folder)";
+      p.hint = "e.g. Moods";
     }
     if (p.flag && p.takesValue && p.token.equals("--run") && chat) {
       p.label = "Follow chat run (id)";
@@ -851,7 +1016,31 @@ public final class ProgramParams {
   public static final String MODEL = "Cymbal model";
   /** vst_render's hit model bench (--hit_bench: DrumMidi's kicks, snares and toms on the kits' tests). */
   public static final String HITS = "Hit model";
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL, HITS};
+  /** The Sogni programs' Batch tab (Batch folder, group, usage warning, Chain, Batch prompt, Auto render). */
+  public static final String BATCH = "Batch";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, BATCH, SETTINGS, FILES, MODEL, HITS};
+
+  /** A Sogni program's row's tab: Input (what it starts from), Output (where its files go), Batch, else Settings. */
+  static String sogniTab(Param p) {
+    String t = p.token;
+    if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (java.util.Arrays.asList("--prompt", "--image", "--image2", "--end_image", "--file", "--system", "--input_dir", InputGroup.TOKEN, "--subfolders", "--max_files",
+        "--skip_done", "--input_as", "--section", "--workflow", "--chat", "--run", "--continue").contains(t) || t.matches("--ref\\d+")) return INPUT;
+    if (java.util.Arrays.asList("--output_dir", DownloadMove.SUB_PARAM, "--saveprompt", PromptKeep.SAVE_RUN, "--delete_from_sogni", MixerOut.FLAG, "--outdir", "--zip",
+        "--zip_outdir", "--zip_delete").contains(t)) return OUTPUT;
+    if (java.util.Arrays.asList(DownloadMove.BATCH_PARAM, DownloadMove.BATCH_GROUP, SogniUsage.WARN_PARAM, Chain.CHAIN, Chain.CHAIN_TO, Chain.BATCH_PROMPT, Chain.BATCH_TEXT,
+        "--send_program", "--send_group", "--auto_render", "--silent_auto", "--answer_tool", TextReady.AUTO_EXCLUDE).contains(t)) return BATCH;
+    return SETTINGS;
+  }
+
+  /** DrumMidi's row's tab: Input (the song, a folder, the kit), Output (the MIDI and where it goes), else Settings. */
+  static String drumMidiTab(Param p) {
+    String t = p.token;
+    if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (java.util.Arrays.asList("--dir", "--kit", "--map").contains(t)) return INPUT;
+    if (java.util.Arrays.asList("--zip", "--zip_outdir", "--zip_delete", "--outdir", MixerOut.FLAG, PromptKeep.SAVE_RUN).contains(t)) return OUTPUT;
+    return SETTINGS;
+  }
   /** The Cymbal model and Hit model tabs' button: the benches' unzipped files deleted (asked first). */
   public static final String DELETE_EXTRACTED = "Delete extracted files";
   public static final String DELETE_EXTRACTED_OFF = "On with Settings' Don't delete the benches' unzipped files (else each bench deletes them itself)";
@@ -1150,6 +1339,8 @@ public final class ProgramParams {
       p.choiceValues = new String[] {"", "last"};
     } else if (p.token.equals("--bench_keep")) {
       p.label = "Don't delete the benches' unzipped files automatically (a bench run again does not unpack the kits' zips again; the Cymbal model and Hit model tabs' Delete extracted files deletes them)";
+    } else if (p.token.equals("--hit_band")) {
+      p.label = "Band mixes too: each kit's songs also with a band over them (bass and guitar, piano, synth or clean guitar, as loud as the drums), learned from too, so the hit model learns drums under other instruments (DrumMidi runs twice as long)";
     } else if (p.token.equals("--hit_loo")) {
       p.label = "Leave one out: each kit told by a model learned from the other plugins' kits, and a model learned from all of them (hit-model-<date>.txt in the output folder; Settings: Hit model bench on)";
     } else if (p.token.equals("--hit_model_file")) {
@@ -1436,8 +1627,12 @@ public final class ProgramParams {
       p.label = "Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X 1, Realism Engine 0.8, Chest Size 0.5, Weight -1, Filter Bypass 2vector 1; none for no LoRAs";
     }
-    if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5; empty for 1024 square";
-    if (p.token.equals("--width") || p.token.equals("--height")) p.hint = "256 to 2560; give both, or use the shape";
+    if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5 (its size: 1080 on the short side, e.g. 1080x1920); empty for 1024 square";
+    if (p.token.equals("--aspect2")) {
+      p.label = "Aspect ratio 2: each picture made again in this shape (its own size; the same as the first: not made)";
+      p.hint = "e.g. 16:9; empty: one picture";
+    }
+    if (p.token.equals("--width") || p.token.equals("--height")) p.hint = "256 to 2560; empty: from the aspect ratio; width and height win over it";
     if (p.token.equals("--seed")) p.hint = "empty for a new picture each run";
     if (p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";
@@ -1549,6 +1744,75 @@ public final class ProgramParams {
     }
   }
 
+  /** SogniVideoUpscale's labels: the video, the size, the upscaler and FlashVSR's own settings. */
+  private static void knownVideoUp(Param p) {
+    if (!p.flag && !p.output) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Video to upscale";
+      p.hint = "an MP4, MOV or WebM of up to 100 MB";
+    } else if (!p.flag) {
+      p.label = "Output name";
+      p.hint = "optional; <video>-upscaled-1440p.mp4";
+    } else if (p.token.equals("--resolution")) {
+      p.label = "Size (the short edge)";
+      p.dropdown = true;
+      p.choices = new String[] {"1440p, 2K (default)", "1080p, Full HD", "2160p, 4K (RelayVSR)"};
+      p.choiceValues = new String[] {"1440", "1080", "2160"};
+    } else if (p.token.equals("--upscaler")) {
+      p.label = "Upscaler";
+      p.dropdown = true;
+      p.choices = new String[] {"RelayVSR (recommended; up to 4K)", "FlashVSR (up to 1440p; its own detail, speed and seed)"};
+      p.choiceValues = new String[] {"relayvsr", "flashvsr"};
+    } else if (p.token.equals("--detail")) {
+      p.label = "FlashVSR detail";
+      p.dropdown = true;
+      p.choices = new String[] {"(default: stable)", "stable", "sharper"};
+      p.choiceValues = new String[] {"", "stable", "sharper"};
+      p.showWhen = "--upscaler=flashvsr";
+    } else if (p.token.equals("--speed")) {
+      p.label = "FlashVSR speed";
+      p.dropdown = true;
+      p.choices = new String[] {"(default: stable)", "stable", "faster"};
+      p.choiceValues = new String[] {"", "stable", "faster"};
+      p.showWhen = "--upscaler=flashvsr";
+    } else if (p.token.equals("--seed")) {
+      p.label = "FlashVSR seed";
+      p.hint = "empty: 0 (repeatable); -1 random";
+      p.showWhen = "--upscaler=flashvsr";
+    } else if (p.token.equals("--unlimited")) p.label = "Unlimited Plan (the subscription pays; fair use limits apply)";
+    else if (p.token.equals("--confirm_cost")) p.label = "Confirm the charge";
+    else if (p.token.equals("--max_cost")) {
+      p.label = "Max cost (capacity units)";
+      p.hint = "e.g. 100; empty for no limit";
+    }
+  }
+
+  /** Sogni_RTV's labels: its 12 reference slots, the tier, and the prompt naming them. */
+  private static void knownRtv(Param p) {
+    if (!p.flag && p.output) p.hint = "optional; sogni-rtv-<first words>.mp4; % codes: Clip%n, Clip%ddmmyy";
+    if (!p.flag) return;
+    if (p.token.matches("--ref([1-9]|1[0-2])")) {
+      p.ext = "any";
+      p.refs = true;
+      p.label = "Reference " + p.token.substring(5) + ": a picture, video or sound";
+      p.hint = p.token.equals("--ref1") ? "PNG/JPEG/WebP, MP4/MOV/WebM, MP3/WAV/M4A; named by kind in the prompt: <Picture 1>, <Video 1>, <Audio 1>..." : "optional";
+    }
+    if (p.token.equals("--prompt")) p.hint = "name the references: the woman in <Picture 1> walks as the camera moves in <Video 1>, to the tune of <Audio 1>";
+    if (p.token.equals("--model")) {
+      p.label = "Model (H3 reference-to-video tier)";
+      p.dropdown = true;
+      p.choices = new String[] {"Balanced (8 steps)", "Standard (20 steps, slower)", "Turbo (4 steps, 960x544, no two-stage)", "FastH3 Reference (fastest)"};
+      p.choiceValues = new String[] {"balanced", "standard", "turbo", "fasth3"};
+    }
+    if (p.token.equals("--resolution")) {
+      p.choices = new String[] {"768 (one stage)", "720 two-stage", "1080 two-stage", "1440 two-stage, 2K"};
+      p.choiceValues = new String[] {"768", "720", "1080", "1440"};
+    }
+    if (p.token.equals("--aspect")) p.hint = "e.g. 16:9 or 9:16; empty: Sogni's choice";
+    if (p.token.equals("--loras")) p.hint = "empty or none: no LoRAs; e.g. h3-better-motion:0.6";
+  }
+
   static String ext(String name) {
     if (name == null) return null;
     Matcher m = FILE_EXT.matcher(name);
@@ -1575,7 +1839,7 @@ public final class ProgramParams {
     if (p == null || !p.flag || !p.takesValue || p.choices != null) return false;
     String t = p.token;
     // A LoRA list (SogniVideo, SogniPedit, SogniPadd) too: wrapped so the whole list shows.
-    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras");
+    return t.equals("--prompt") || t.equals("--system") || t.equals("--lyrics") || t.equals("--instruments") || t.equals("--loras") || t.equals(Chain.BATCH_TEXT);
   }
 
   /** Whether the field is a program's prompt (--prompt): Params offers Select file and Browse DB for a text file to fill it. */
@@ -1796,6 +2060,59 @@ public final class ProgramParams {
    * have them not, so a run leaves them out; Params shows them again in their rows, unticked.
    */
   public static final String OFF_KEY = "#off";
+
+  /** The saved Params with one switch's value set (the rest as they are). */
+  public static String withValue(List<Param> ps, String saved, String token, String value) {
+    String[] values = values(ps, saved, "");
+    for (int i = 0; i < ps.size(); i++) if (ps.get(i).flag && ps.get(i).token.equals(token)) values[i] = value == null ? "" : value;
+    return build(ps, values);
+  }
+
+  /** The Output name given in Params (a program's optional output: Sogni's [output.png]), kept beside its Params. */
+  public static final String OUTPUT_KEY = "#output";
+
+  /** The Params' Output name (the program's optional output row), "" when none. */
+  public static String outputValue(List<Param> ps, String[] values) {
+    for (int i = 0; i < ps.size() && i < values.length; i++) {
+      Param p = ps.get(i);
+      if (!p.flag && p.output && p.optional) return values[i] == null ? "" : values[i].trim();
+    }
+    return "";
+  }
+
+  /**
+   * A program selected again: its argument line from its usage (`filled`), with the Output name it was given
+   * in Params last (Select program started it from the usage alone: the name was lost). `filled` as it is
+   * when none was kept, or the program has no such row.
+   */
+  public static String withOutput(List<Param> ps, String filled, String kept) {
+    return withOutput(ps, filled, kept, false);
+  }
+
+  /**
+   * As above; `replace`: the kept name in place of the one the line has (a program picked from Select program's
+   * list: its last run's line, but the Output name as its Params have it now; kept "" there clears it).
+   */
+  public static String withOutput(List<Param> ps, String filled, String kept, boolean replace) {
+    if (replace && kept != null) {
+      int at = -1;
+      for (int i = 0; i < ps.size(); i++) if (!ps.get(i).flag && ps.get(i).output && ps.get(i).optional) at = at < 0 ? i : at;
+      if (at < 0) return filled;
+      String line = filled == null ? "" : filled;
+      String[] values = values(ps, "", line);
+      if ((values[at] == null ? "" : values[at].trim()).equals(kept.trim())) return filled;
+      values[at] = kept.trim();
+      return line(ps, values, line);
+    }
+    if (kept == null || kept.trim().isEmpty()) return filled;
+    int at = -1;
+    for (int i = 0; i < ps.size(); i++) if (!ps.get(i).flag && ps.get(i).output && ps.get(i).optional) at = at < 0 ? i : at;
+    if (at < 0) return filled;
+    String[] values = values(ps, "", filled == null ? "" : filled);
+    if (values[at] != null && !values[at].trim().isEmpty()) return filled;
+    values[at] = kept.trim();
+    return line(ps, values, filled == null ? "" : filled);
+  }
 
   /** The rows left out, switch → its file or folder, from what was kept beside the Params. */
   public static Map<String, String> offValues(List<Param> ps, String kept) {
