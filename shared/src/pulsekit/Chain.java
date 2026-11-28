@@ -59,7 +59,7 @@ public final class Chain {
     if (batchPrompted(program)) {
       out.add(flag(BATCH_PROMPT, BATCH_PROMPT_LABEL));
       ProgramParams.Param t = value(BATCH_TEXT, BATCH_TEXT_LABEL, BATCH_TEXT_HINT);
-      t.showWhen = BATCH_PROMPT;
+      // (Shown always: its Select file and Browse sections are there to fill it before it is ticked.)
       out.add(t);
     }
     return out;
@@ -131,6 +131,8 @@ public final class Chain {
     String extra = targetBatch != null ? targetBatch : sourceBatch;
     String p = prompt == null ? "" : prompt.trim();
     if (extra == null || extra.isEmpty()) return p;
+    // Already there (the run's prompt had its own batch prompt added): not added twice.
+    if (p.toLowerCase(java.util.Locale.ROOT).endsWith(extra.toLowerCase(java.util.Locale.ROOT))) return p;
     return p.isEmpty() ? extra : p + (p.matches(".*[.,;:!?]$") ? " " : ", ") + extra;
   }
 
@@ -185,6 +187,24 @@ public final class Chain {
     q.notes.add("Chain: " + SogniSections.app(source) + "'s " + (takesPicture(target) ? "pictures" : "prompts") + " to " + SogniSections.app(target)
         + (takesPicture(target) ? " (each picture its input)" : " (each run's prompt)") + "; " + batch + "; its Params put back after each run");
     return q;
+  }
+
+  /**
+   * A batch run's Params with the program's Batch prompt (ticked, text given) added after its prompt (the
+   * program's own batches: an input folder, Run sections, Auto render from SogniChat). As they are without one.
+   */
+  public static String addBatch(List<ProgramParams.Param> ps, String line) {
+    String extra = batchPrompt(line);
+    if (extra == null || ps == null) return line;
+    String[] values = ProgramParams.values(ps, line, "");
+    for (int i = 0; i < ps.size() && i < values.length; i++) {
+      ProgramParams.Param p = ps.get(i);
+      if (p.flag && p.token.equals("--prompt")) {
+        values[i] = ProgramParams.oneLine(withBatch(values[i], extra, null));
+        return ProgramParams.build(ps, values);
+      }
+    }
+    return line;
   }
 
   /** The prompt a run had (its --prompt), or "". */

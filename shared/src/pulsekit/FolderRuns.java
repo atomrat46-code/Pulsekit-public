@@ -108,7 +108,8 @@ public final class FolderRuns {
       else if (defs != null && p.flag && defs.containsKey(p.token)) values[i] = defs.get(p.token);
       else if (text != null && p.token.equals("--prompt")) values[i] = text;
     }
-    return ProgramParams.build(ps, values);
+    // The program's Batch prompt after the file's prompt.
+    return Chain.addBatch(ps, ProgramParams.build(ps, values));
   }
 
   /**

@@ -188,7 +188,8 @@ public final class BatchQueue {
       String v = f.get(ps.get(i).token);
       values[i] = v == null ? "" : v;
     }
-    return ProgramParams.build(ps, values);
+    // The program's Batch prompt after the section's prompt.
+    return Chain.addBatch(ps, ProgramParams.build(ps, values));
   }
 
   /** Whether the runs are sections' (Params) rather than BatchRun's arguments. */

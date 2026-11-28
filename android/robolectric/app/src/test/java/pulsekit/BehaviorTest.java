@@ -16690,6 +16690,18 @@ public class BehaviorTest {
     PyJavParams.store(app, "SogniPadd.java", "");
     PyJavParams.store(app, "SogniTextVideo.java", "");
     BatchQueue.stop();
+    // The program's own batches add its Batch prompt too: Auto render (SogniChat's answer), an input folder's file.
+    String withBatch = "--prompt \"old\" " + Chain.BATCH_PROMPT + " " + Chain.BATCH_TEXT + " \"slow pan\"";
+    java.util.List<String[]> one = new java.util.ArrayList<String[]>();
+    one.add(new String[] {"a.txt", "A red kite"});
+    BatchQueue aq = AutoRender.start("SogniPadd.java", padd, withBatch, one);
+    String autoP = aq.params.get(0);
+    BatchQueue.stop();
+    java.io.File pf = new java.io.File(app.getCacheDir(), "p1.txt");
+    java.nio.file.Files.write(pf.toPath(), "A blue boat".getBytes("UTF-8"));
+    String folderP = FolderRuns.paramsFor("SogniPadd.java", padd, withBatch, pf, java.nio.file.Files.readAllBytes(pf.toPath()));
+    out.append("own batches: ").append(autoP.contains("--prompt \"A red kite, slow pan\"")).append(' ').append(folderP.contains("--prompt \"A blue boat, slow pan\"")).append(" | twice no ")
+        .append(Chain.withBatch("A red kite, slow pan", "slow pan", null)).append('\n');
     // Picture ready made by a chain: Back to the program that chained it; a run of its own: no Back.
     android.graphics.Bitmap pbmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
     java.io.ByteArrayOutputStream ppng = new java.io.ByteArrayOutputStream();
@@ -16742,6 +16754,7 @@ public class BehaviorTest {
         "text video: --prompt \"A red kite, slow pan\" / --prompt \"A blue boat. slow pan\" | own batch: --prompt \"A red kite, zoom in\" --pk-batch-prompt --pk-batch-prompt-text \"zoom in\" | chained true",
         "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
         "params: chain to hidden true, shown true | batch text true, buttons true true",
+        "own batches: true true | twice no A red kite, slow pan",
         "ready back: Back | to SogniPadd.java | own run: no Back",
         "kept: SogniPadd: 2 of 3 runs left (from b.txt) | resumed runs 2, first true, folder Batches/run1 | offline true false",
         "resume ask: SogniPadd: 2 of 3 runs left (from b.txt)|Kept D. Go on with it now?", "discarded: true",

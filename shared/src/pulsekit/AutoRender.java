@@ -27,7 +27,8 @@ public final class AutoRender {
       if (java.util.Arrays.asList(FolderRuns.OWN).contains(p.token)) values[i] = "";
       else if (p.flag && p.token.equals("--prompt")) values[i] = ProgramParams.oneLine(text);
     }
-    return ProgramParams.build(ps, values);
+    // The program's Batch prompt after the answer (SogniChat's) it was given.
+    return Chain.addBatch(ps, ProgramParams.build(ps, values));
   }
 
   /** The batch: each answer ({its file's name, its text}) rendered by `program`; null when there is none. */
