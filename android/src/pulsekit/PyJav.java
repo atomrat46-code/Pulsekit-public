@@ -544,7 +544,7 @@ final class PyJav {
         this.pkStopBtn.setTag("pyjav-stop");
         this.pkStopBtn.setVisibility(this.pkLive != null && !this.pkLive.done && !this.pkLive.aborted() ? 0 : 8);
         // Stop batch beside it (BatchRun's runs end after the one in progress); either alone takes the row.
-        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkStopBatch());
+        this.pkBatchStopBtn = app.action("Stop batch", ELEV, FG, v -> this.pkAskStopBatch());
         this.pkBatchStopBtn.setTag("pyjav-batch-stop");
         this.pkBatchStopBtn.setVisibility(pulsekit.BatchQueue.current() == null ? 8 : 0);
         android.widget.LinearLayout stopRow = new android.widget.LinearLayout(app);
@@ -1326,6 +1326,11 @@ final class PyJav {
     static pulsekit.JavaRun.Result lastPlsRun;
 
     public void pkRunPyJav() {
+        // A run started here (not by a batch) while a batch has no run going: that batch was left behind
+        // (its run never came back: Android stopped Pulsekit, or the run did not start); it is ended.
+        boolean byBatch = this.pkFromBatch;
+        this.pkFromBatch = false;
+        if (!byBatch) this.pkEndStaleBatch(null);
         if (this.pkMustWait(app.pyName, true)) return;
         // A playlist: PlayList.java plays it.
         if (app.pyName != null && app.pyName.toLowerCase().endsWith(".pls")) {
@@ -1561,6 +1566,8 @@ final class PyJav {
         if (downloadRun != null) {
             pulsekit.SogniDownloads.argv(downloadRun.longValue(), argv);
             if (subPattern.length() > 0) pulsekit.SogniDownloads.subfolder(downloadRun.longValue(), subPattern);
+            // Its files in the Batch folder: Move (automatically) leaves them there.
+            if (ArtJava.batchSub != null) pulsekit.DownloadMove.keep(downloadRun.longValue());
             live.download(downloadRun.longValue());
         }
         if (note != null) live.add(note + "\n");
@@ -2497,6 +2504,7 @@ final class PyJav {
                 if (line != null) this.pkPyArgs.setText(q.withFile(pulsekit.ProgramParams.strip(q.ps, line)));
                 pulsekit.PyJavParams.store(app, program, sectionParams);
                 this.pkRunConfirmed = true;
+                this.pkFromBatch = true;
                 try {
                     this.pkRunPyJav();
                 } finally {
@@ -2510,6 +2518,7 @@ final class PyJav {
             this.pkForcedArgs = run;
             // A batch's next run goes on without asking (the run before may still be storing).
             this.pkRunConfirmed = true;
+            this.pkFromBatch = true;
             this.pkRunPyJav();
         });
     }
@@ -2585,6 +2594,7 @@ final class PyJav {
         String fromSaved = PyJavParams.load(app, from);
         String target = pulsekit.Chain.target(from, fromSaved);
         if (target == null || items.isEmpty()) return;
+        this.pkEndStaleBatch(from);
         if (pulsekit.BatchQueue.current() != null) {
             chainSaid = "A batch is running: Chain left out";
             this.pkAddLogLine(chainSaid);
@@ -2611,6 +2621,7 @@ final class PyJav {
 
     /** Auto render: the answers rendered by `target` with its Params (the answer its prompt), one run each as a batch. */
     void pkStartAutoRender(String target, java.util.List<String[]> answers) {
+        this.pkEndStaleBatch("SogniChat.java");
         if (pulsekit.BatchQueue.current() != null) {
             autoRenderSaid = "A batch is running: Auto render left out";
             this.pkAddLogLine(autoRenderSaid);
@@ -2638,16 +2649,30 @@ final class PyJav {
             app.setNow("A batch is running: the folder's runs wait until it is over");
             return;
         }
-        String folder = pulsekit.ChatFolder.arg(argv, "--input_dir");
-        String app0 = pulsekit.SogniSections.app(program);
-        java.io.File dir;
+        final String folder = pulsekit.ChatFolder.arg(argv, "--input_dir");
+        final String app0 = pulsekit.SogniSections.app(program);
         if (folder.startsWith("content://")) {
-            // A folder picked with the system's picker: its files copied in first (the program reads files).
-            dir = new java.io.File(new java.io.File(app.getCacheDir(), "folder-run"), app0);
-            int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), dir);
-            this.pkAddLogLine(app0 + ": " + n + " file" + (n == 1 ? "" : "s") + " from " + pulsekit.MediaDir.label(folder));
-        } else {
-            dir = new java.io.File(folder);
+            // A folder picked with the system's picker: its files copied in first (the program reads files),
+            // off the screen's thread (a big folder took longer than Android waits: not responding).
+            final java.io.File into = new java.io.File(new java.io.File(app.getCacheDir(), "folder-run"), app0);
+            this.pkAddLogLine(app0 + ": reading the folder " + pulsekit.MediaDir.label(folder) + "\u2026");
+            new Thread(() -> {
+                int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), into);
+                app.runOnUiThread(() -> {
+                    this.pkAddLogLine(app0 + ": " + n + " file" + (n == 1 ? "" : "s") + " from " + pulsekit.MediaDir.label(folder));
+                    this.pkFolderRunFrom(program, ps, argv, folder, app0, into);
+                });
+            }, "pulsekit-folder-copy").start();
+            return;
+        }
+        this.pkFolderRunFrom(program, ps, argv, folder, app0, new java.io.File(folder));
+    }
+
+    /** The folder run once its files are where the program reads them. */
+    void pkFolderRunFrom(String program, java.util.List<pulsekit.ProgramParams.Param> ps, java.util.List<String> argv, String folder, String app0, java.io.File dir) {
+        if (pulsekit.BatchQueue.current() != null) {
+            app.setNow("A batch is running: the folder's runs wait until it is over");
+            return;
         }
         if (!dir.isDirectory()) {
             this.pkAddLogLine(app0 + ": the input folder is not there: " + folder);
@@ -2682,13 +2707,55 @@ final class PyJav {
         this.pkStopRun();
     }
 
-    /** Stop batch: no run after the one in progress (JoinVideo is left out too). */
+    /** Stop batch: no run after the one in progress (JoinVideo is left out too); with no run going, the batch ends now. */
     void pkStopBatch() {
         pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
         if (this.pkBatchStopBtn != null && q == null) this.pkBatchStopBtn.setVisibility(8);
         if (q == null) return;
         q.stopping = true;
+        if (!this.pkRunGoing()) {
+            this.pkAddLogLine("Batch: stopped (no run of it was going)");
+            this.pkBatchOver(q);
+            return;
+        }
         this.pkAddLogLine("Batch: stopping after the run in progress");
+    }
+
+    /** The tests: Stop batch's question shown last. */
+    static android.app.AlertDialog pkStopAsk;
+
+    /** The Stop batch button: asked first (a long batch is not stopped by a slip of the finger). */
+    void pkAskStopBatch() {
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
+        if (q == null) {
+            this.pkStopBatch();
+            return;
+        }
+        String what = q.runs.size() > 0 ? " (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " runs started)" : "";
+        pkStopAsk = new android.app.AlertDialog.Builder(app).setTitle("Stop batch?").setMessage("Stop the batch of " + pulsekit.SogniSections.app(q.program) + what + " after the run in progress?")
+            .setPositiveButton("Stop batch", (d, w) -> this.pkStopBatch()).setNegativeButton("Go on", null).show();
+    }
+
+    /** A run started by a batch (pkBatchNext): not a run of its own, so the batch is not taken as left behind. */
+    boolean pkFromBatch;
+
+    /** A program run going on now. */
+    boolean pkRunGoing() {
+        pulsekit.JavaRun.Live live = this.pkLive;
+        return live != null && !live.done && !live.aborted();
+    }
+
+    /**
+     * A batch with no run going (and not the batch `finished` belongs to, whose run just ended): left
+     * behind when its run never came back. Ended, said in the log; true when one was.
+     */
+    boolean pkEndStaleBatch(String finished) {
+        pulsekit.BatchQueue q = pulsekit.BatchQueue.current();
+        if (q == null || this.pkRunGoing() || (finished != null && q.takes(finished))) return false;
+        this.pkAddLogLine("Batch of " + pulsekit.SogniSections.app(q.program) + " ended: it had no run going (" + Math.min(q.next, q.runs.size()) + " of " + q.runs.size() + " started)");
+        q.stopping = true;
+        this.pkBatchOver(q);
+        return true;
     }
 
     void pkRunTestCompare(java.util.List<String> args) {

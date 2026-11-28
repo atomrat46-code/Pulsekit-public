@@ -488,11 +488,20 @@ public final class DownloadMove {
    * The finished downloads to move now: of a ticked kind with a folder, still in Download. {run, item}
    * pairs, the oldest run first (the folder gets them in the order they were made).
    */
+  /** Runs whose files went into a Batch folder: Move (now, automatically) leaves them where they are. */
+  private static final java.util.Set<Long> KEPT = new java.util.HashSet<Long>();
+
+  /** A batch run that saved into its Batch folder: its files are not moved. */
+  public static synchronized void keep(long runId) {
+    KEPT.add(Long.valueOf(runId));
+  }
+
   public static synchronized List<Object[]> due() {
     List<Object[]> out = new ArrayList<Object[]>();
     List<SogniDownloads.Run> runs = new ArrayList<SogniDownloads.Run>(SogniDownloads.tab(SogniDownloads.FINISHED));
     java.util.Collections.sort(runs, (a, b) -> Long.compare(a.started, b.started));
     for (SogniDownloads.Run r : runs) {
+      if (KEPT.contains(Long.valueOf(r.id))) continue;
       for (SogniDownloads.Item item : r.items) {
         String k = item.kind();
         if (item.away || !isTicked(k) || folderOf(k).length() == 0 || item.where == null || item.where.length() == 0) continue;
