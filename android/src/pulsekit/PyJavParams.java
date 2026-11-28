@@ -478,6 +478,29 @@ public final class PyJavParams {
         box.addView(spaced(activity, row));
         continue;
       }
+      if (InputGroup.TOKEN.equals(p.token)) {
+        // Input group: typed, or picked from the program's groups (Browse groups).
+        box.addView(field);
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText target = field;
+        android.widget.Button groups = new android.widget.Button(activity);
+        groups.setText(InputGroup.BROWSE);
+        groups.setTag("params-input-group:" + p.token);
+        final String forApp = SogniSections.app(name);
+        groups.setOnClickListener(v -> {
+          try {
+            final java.util.List<String> picks = SectionCollection.groupPicks(PromptVault.open(activity.getFilesDir()), forApp);
+            lastGroups = new AlertDialog.Builder(activity).setTitle(forApp + ": " + SectionCollection.GROUP).setItems(picks.toArray(new String[0]), (d, w) -> target.setText(picks.get(w)))
+                .setNegativeButton("Cancel", null).show();
+          } catch (Exception ex) {
+            android.widget.Toast.makeText(activity, "Could not read the groups: " + ex.getMessage(), 1).show();
+          }
+        });
+        row.addView(groups);
+        box.addView(spaced(activity, row));
+        continue;
+      }
       if (Chain.batchTextRow(p)) {
         // Batch prompt's text: typed, or from a text file (Select file) or a saved section (Browse sections).
         box.addView(field);
@@ -786,6 +809,8 @@ public final class PyJavParams {
   static Boolean sendYes;
   static volatile String clipSaid = "";
   static AlertDialog lastClip;
+  /** The tests: Input group's list of groups shown last. */
+  static AlertDialog lastGroups;
 
   static void clipSay(Activity activity, String text) {
     clipSaid = text;

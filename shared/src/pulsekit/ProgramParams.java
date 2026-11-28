@@ -105,6 +105,32 @@ public final class ProgramParams {
     }
   }
 
+  /** The input rows moved together, in their order, after the first picture row (--image), else the prompt. */
+  static void moveInputRows(List<Param> out) {
+    String[] order = {"--input_dir", InputGroup.TOKEN, "--subfolders", "--max_files", "--skip_done", "--input_as", "--section"};
+    List<Param> moved = new ArrayList<Param>();
+    for (String t : order) {
+      for (java.util.Iterator<Param> it = out.iterator(); it.hasNext();) {
+        Param p = it.next();
+        if (p.flag && p.token.equals(t)) {
+          moved.add(p);
+          it.remove();
+          break;
+        }
+      }
+    }
+    int at = -1;
+    for (int i = 0; i < out.size(); i++) if (out.get(i).flag && out.get(i).token.equals("--image")) {
+      at = i;
+      break;
+    }
+    if (at < 0) for (int i = 0; i < out.size(); i++) if (out.get(i).flag && out.get(i).token.equals("--prompt")) {
+      at = i;
+      break;
+    }
+    out.addAll(at < 0 ? out.size() : at + 1, moved);
+  }
+
   /** vst_render's --plugin2 to --plugin4 (and their --map, --kit_name): "Second", "Third", "Fourth". */
   static String ordinal(String token) {
     char n = token.charAt(token.length() - 1);
@@ -212,6 +238,11 @@ public final class ProgramParams {
       }
       if (splitWav || cutWav || wav2mp3) knownWavFolder(p);
       if (wav2mp3) knownWav2Mp3(p);
+      // Aspect ratio 2 (SogniPadd, SogniTextVideo): each picture or video made again in that shape.
+      if (p.flag && p.token.equals("--aspect2") && (padd || textVideo)) {
+        p.label = "Aspect ratio 2: each " + (textVideo ? "video" : "picture") + " made again in this shape (the same as the first: not made)";
+        p.hint = "e.g. 16:9; empty: one " + (textVideo ? "video" : "picture");
+      }
       // MidiDrumGen's --towav and --test hand its MIDI on to Midi2Wav.
       if (drumGen && p.token.equals("--towav")) p.label = "Make a WAV of it (Midi2Wav, Pulsekit's kit)";
       if (drumGen && p.token.equals("--test")) p.label = "Test it: the WAV, DrumMidi on it, CompareHits report";
@@ -316,6 +347,11 @@ public final class ProgramParams {
       ax.label = TextReady.AUTO_LABEL;
       out.add(ax);
     }
+    // Input group (the programs with an Input folder): a group's sections run in turn.
+    if ((pic || video || padd || textVideo) && has(out, "--input_dir") && !has(out, InputGroup.TOKEN)) out.add(InputGroup.row());
+    // The input rows (Input folder, Input group, Include subfolders, Max files, Skip already processed, Input as,
+    // Section) right under the input file (SogniPedit's and SogniVideo's picture), else under the prompt.
+    if ((pic || video || padd || textVideo || chat) && has(out, "--input_dir")) moveInputRows(out);
     // SogniPadd's Chain (and Chain to); the Sogni prompt programs' Batch prompt (and its text).
     String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : null;
     if (chainName != null) for (Param r : Chain.rows(chainName)) if (!has(out, r.token)) out.add(r);
@@ -331,6 +367,9 @@ public final class ProgramParams {
     }
     // SogniMusic, MidiDrumGen and DrumMidi_CRT: their result into the AudioMixer (Pulsekit adds it).
     if ((drumMidi || drumGen || sogniMusic || drumAlong) && !has(out, MixerOut.FLAG)) out.add(MixerOut.param());
+    // Tabs: the Sogni programs' Input, Output, Batch and Settings; DrumMidi's Input, Output and Settings.
+    if (pic || video || padd || textVideo || sogniMusic || chat) for (Param p : out) p.tab = sogniTab(p);
+    else if (drumMidi) for (Param p : out) p.tab = drumMidiTab(p);
     return out;
   }
 
@@ -957,7 +996,31 @@ public final class ProgramParams {
   public static final String MODEL = "Cymbal model";
   /** vst_render's hit model bench (--hit_bench: DrumMidi's kicks, snares and toms on the kits' tests). */
   public static final String HITS = "Hit model";
-  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, SETTINGS, FILES, MODEL, HITS};
+  /** The Sogni programs' Batch tab (Batch folder, group, usage warning, Chain, Batch prompt, Auto render). */
+  public static final String BATCH = "Batch";
+  public static final String[] VST_TABS = {INPUT, OUTPUT, PLUGINS, BATCH, SETTINGS, FILES, MODEL, HITS};
+
+  /** A Sogni program's row's tab: Input (what it starts from), Output (where its files go), Batch, else Settings. */
+  static String sogniTab(Param p) {
+    String t = p.token;
+    if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (java.util.Arrays.asList("--prompt", "--image", "--image2", "--end_image", "--file", "--system", "--input_dir", InputGroup.TOKEN, "--subfolders", "--max_files",
+        "--skip_done", "--input_as", "--section", "--workflow", "--chat", "--run", "--continue").contains(t)) return INPUT;
+    if (java.util.Arrays.asList("--output_dir", DownloadMove.SUB_PARAM, "--saveprompt", PromptKeep.SAVE_RUN, "--delete_from_sogni", MixerOut.FLAG, "--outdir", "--zip",
+        "--zip_outdir", "--zip_delete").contains(t)) return OUTPUT;
+    if (java.util.Arrays.asList(DownloadMove.BATCH_PARAM, DownloadMove.BATCH_GROUP, SogniUsage.WARN_PARAM, Chain.CHAIN, Chain.CHAIN_TO, Chain.BATCH_PROMPT, Chain.BATCH_TEXT,
+        "--send_program", "--send_group", "--auto_render", "--silent_auto", TextReady.AUTO_EXCLUDE).contains(t)) return BATCH;
+    return SETTINGS;
+  }
+
+  /** DrumMidi's row's tab: Input (the song, a folder, the kit), Output (the MIDI and where it goes), else Settings. */
+  static String drumMidiTab(Param p) {
+    String t = p.token;
+    if (!p.flag) return p.output ? OUTPUT : INPUT;
+    if (java.util.Arrays.asList("--dir", "--kit", "--map").contains(t)) return INPUT;
+    if (java.util.Arrays.asList("--zip", "--zip_outdir", "--zip_delete", "--outdir", MixerOut.FLAG, PromptKeep.SAVE_RUN).contains(t)) return OUTPUT;
+    return SETTINGS;
+  }
   /** The Cymbal model and Hit model tabs' button: the benches' unzipped files deleted (asked first). */
   public static final String DELETE_EXTRACTED = "Delete extracted files";
   public static final String DELETE_EXTRACTED_OFF = "On with Settings' Don't delete the benches' unzipped files (else each bench deletes them itself)";

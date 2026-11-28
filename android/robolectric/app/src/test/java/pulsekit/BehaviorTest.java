@@ -16713,6 +16713,37 @@ public class BehaviorTest {
     out.append("subfolders: ").append(dq == null ? "none" : dq.labels).append(" | top only ").append(FolderRuns.files("SogniPadd.java", deepDir, false).size())
         .append(" | chat ").append(ChatFolder.files(deepDir, true).size()).append(' ').append(ChatFolder.files(deepDir, false).size()).append('\n');
     BatchQueue.stop();
+    // Input group: the input rows under the input file (SogniPedit) or the prompt (SogniPadd); a group's sections run in turn;
+    // with an Input folder too, asked which.
+    java.util.List<ProgramParams.Param> peditPs = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniPedit.java"));
+    StringBuilder order = new StringBuilder();
+    for (int i = 0; i < peditPs.size() && order.length() < 200; i++) if (peditPs.get(i).flag) order.append(peditPs.get(i).token).append(' ');
+    StringBuilder paddOrder = new StringBuilder();
+    for (ProgramParams.Param x : padd) if (x.flag) paddOrder.append(x.token).append(' ');
+    PromptVault gv = PromptVault.open(app.getFilesDir());
+    SectionCollection.addGroup(gv, "SogniPadd", "Kites", "");
+    TextReady.toGroup(gv, "SogniPadd", "Red", "A red kite", "Kites");
+    TextReady.toGroup(gv, "SogniPadd", "Blue", "A blue kite", "Kites");
+    TextReady.toGroup(gv, "SogniPadd", "Loose", "A loose kite", SectionCollection.NO_GROUP_PICK);
+    java.util.List<PromptVault.SogniSection> kites = InputGroup.sections(PromptVault.open(app.getFilesDir()), "SogniPadd.java", "Kites");
+    out.append("input rows: pedit ").append(order.toString().trim().startsWith("--prompt --image --input_dir " + InputGroup.TOKEN + " --subfolders --max_files --skip_done --input_as --section"))
+        .append(", padd ").append(paddOrder.toString().contains("--prompt --input_dir " + InputGroup.TOKEN + " --subfolders --max_files --skip_done --section"))
+        .append(" | group sections ").append(kites.size()).append(", none ").append(InputGroup.sections(PromptVault.open(app.getFilesDir()), "SogniPadd.java", SectionCollection.NO_GROUP_PICK).size()).append('\n');
+    PyJavParams.store(app, "SogniPadd.java", "--prompt \"x\" --input_dir \"" + deepDir.getAbsolutePath() + "\" " + InputGroup.TOKEN + " Kites");
+    app.programMenus.selectProgram("Java", "SogniPadd.java");
+    idle();
+    PyJav.pkInputAsk = null;
+    app.pyJav.pkRunPyJav();
+    idle();
+    boolean asked = PyJav.pkInputAsk != null && PyJav.pkInputAsk.isShowing();
+    StringBuilder askItems = new StringBuilder();
+    if (asked) for (int i = 0; i < PyJav.pkInputAsk.getListView().getAdapter().getCount(); i++) askItems.append(i == 0 ? "" : ", ").append(PyJav.pkInputAsk.getListView().getAdapter().getItem(i));
+    if (asked) PyJav.pkInputAsk.getListView().performItemClick(null, 2, 2);
+    BatchQueue gq = BatchQueue.current();
+    out.append("input ask: ").append(asked).append(" | ").append(askItems).append(" | group only: ").append(gq == null ? "none" : gq.program + " " + gq.runs.size() + " " + gq.labels).append('\n');
+    BatchQueue.stop();
+    PyJavParams.store(app, "SogniPadd.java", "");
+    idle();
     // Picture ready made by a chain: Back to the program that chained it; a run of its own: no Back.
     android.graphics.Bitmap pbmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
     java.io.ByteArrayOutputStream ppng = new java.io.ByteArrayOutputStream();
@@ -16767,11 +16798,13 @@ public class BehaviorTest {
         "params: chain to hidden true, shown true | batch text true, buttons true true",
         "own batches: true true | twice no A red kite, slow pan",
         "subfolders: [a.txt, sub/b.txt] | top only 1 | chat 2 1",
+        "input rows: pedit true, padd true | group sections 2, none 1",
         "ready back: Back | to SogniPadd.java | own run: no Back",
         "kept: SogniPadd: 2 of 3 runs left (from b.txt) | resumed runs 2, first true, folder Batches/run1 | offline true false",
         "resume ask: SogniPadd: 2 of 3 runs left (from b.txt)|Kept D. Go on with it now?", "discarded: true",
         "chained: Chain: 2 runs of SogniTextVideo | SogniTextVideo.java true --prompt \"A red kite, slow pan\" --pk-usage-warn 80"};
     boolean ok = true;
+    ok &= t.contains("input ask: true | Both (group first), Folder only, Group only | group only: SogniPadd.java 2 [");
     for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
     if (!ok) throw new AssertionError(t);
   }

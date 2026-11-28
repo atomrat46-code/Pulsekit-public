@@ -713,9 +713,41 @@ final class PyJav {
         final String field = this.pyExtra != null ? this.pyExtra.getText() : "";
         final String savedNow = this.loadParams(app.pyName);
         final String extra = ProgramParams.merge(runParams, field, savedNow);
-        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns).
-        if (!batchStep && FolderRuns.folderRun(name, JavaRun.split(extra))) {
-            this.startFolderRun(name, runParams, JavaRun.split(extra));
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns);
+        // its Input group: each section of the group; both set: asked which.
+        final java.util.List<String> given = JavaRun.split(extra);
+        final String inGroup = !batchStep && FolderRuns.wanted(name) ? InputGroup.of(given) : null;
+        final boolean inFolder = !batchStep && FolderRuns.folderRun(name, given);
+        if (inGroup != null || inFolder) {
+            String choice = null;
+            if (inGroup != null && inFolder) {
+                Object[] picks = {InputGroup.BOTH, InputGroup.FOLDER, InputGroup.GROUP};
+                int ans = inputChoice != null ? inputChoice.intValue() : JOptionPane.showOptionDialog(app, InputGroup.ASK, "Input", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, picks, picks[0]);
+                if (ans < 0) return;
+                choice = String.valueOf(picks[ans]);
+            }
+            boolean doGroup = inGroup != null && !InputGroup.FOLDER.equals(choice);
+            boolean doFolder = inFolder && !InputGroup.GROUP.equals(choice);
+            if (doGroup) {
+                java.util.List<PromptVault.SogniSection> secs;
+                try {
+                    secs = InputGroup.sections(PromptDb.vault(), name, inGroup);
+                } catch (Exception ex) {
+                    secs = new java.util.ArrayList<PromptVault.SogniSection>();
+                }
+                if (secs.isEmpty()) {
+                    this.testNote(SogniSections.app(name) + ": no sections in group " + inGroup);
+                    if (!doFolder) return;
+                } else {
+                    final java.util.List<ProgramParams.Param> rp = runParams;
+                    final String folderProgram = name;
+                    if (doFolder) this.afterBatch = () -> this.startFolderRun(folderProgram, rp, given);
+                    this.testNote("Group " + inGroup + ": " + secs.size() + " section" + (secs.size() == 1 ? "" : "s") + " of " + SogniSections.app(name));
+                    this.runSections(name, runParams, secs);
+                    return;
+                }
+            }
+            this.startFolderRun(name, runParams, given);
             return;
         }
         if ("vst_render.py".equals(name)) {
@@ -806,6 +838,7 @@ final class PyJav {
         DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
         // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
         Chain.strip(runArgs);
+        InputGroup.strip(runArgs);
         // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
         TextReady.takeAutoExclude(PromptDb.dir(), name, runArgs);
         if (inBatchQ != null && groupPattern.length() > 0) {
@@ -3022,6 +3055,13 @@ final class PyJav {
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());
+        // Input folder and group both: the folder's runs after the group's (not after Stop batch).
+        Runnable after = this.afterBatch;
+        this.afterBatch = null;
+        if (after != null && !q.stopping) {
+            SwingUtilities.invokeLater(after);
+            return;
+        }
         // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
         if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
             final java.util.List<Chain.Item> items = new java.util.ArrayList<Chain.Item>(q.chainItems);
@@ -3394,6 +3434,10 @@ final class PyJav {
 
     /** What Auto render did last (the tests). */
     static volatile String autoRenderSaid = "";
+
+    /** Input folder and group both: the tests' answer (else asked); what runs after the group's batch. */
+    static Integer inputChoice;
+    Runnable afterBatch;
 
     /** What Chain did last (the tests). */
     static volatile String chainSaid = "";
@@ -5442,6 +5486,25 @@ final class PyJav {
             if (p.hint.length() > 0) field.setToolTipText("Default: " + p.hint);
             TextMenu.attach(field);
             fields[i] = field;
+            if (InputGroup.TOKEN.equals(p.token)) {
+                // Input group: typed, or picked from the program's groups (Browse groups).
+                JButton groups = new JButton(InputGroup.BROWSE);
+                groups.setName("params-input-group:" + p.token);
+                groups.addActionListener(e -> {
+                    try {
+                        java.util.List<String> picks = SectionCollection.groupPicks(PromptDb.vault(), SogniSections.app(program));
+                        Object got = JOptionPane.showInputDialog(groups, SogniSections.app(program) + ": " + SectionCollection.GROUP, InputGroup.BROWSE, JOptionPane.QUESTION_MESSAGE, null, picks.toArray(), picks.get(0));
+                        if (got != null) field.setText(String.valueOf(got));
+                    } catch (Exception ex) {
+                        app.setNow("Could not read the groups: " + ex.getMessage());
+                    }
+                });
+                JPanel row = new JPanel(new BorderLayout(6, 0));
+                row.add(field, BorderLayout.CENTER);
+                row.add(groups, BorderLayout.EAST);
+                form.add(this.withUse(p, i, row, field, uses, off));
+                continue;
+            }
             if (p.token.equals("--parts")) {
                 // Parts: Use, what the split is, and Configure… (each plugin chosen and the drums it plays).
                 final javax.swing.JLabel shown = new javax.swing.JLabel(PartsDialog.summary(values[i], this.pluginRows(ps, values, uses)));

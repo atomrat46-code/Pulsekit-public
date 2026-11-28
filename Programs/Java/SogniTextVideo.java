@@ -76,7 +76,7 @@ public final class SogniTextVideo {
     resultFile = null;
     said = new StringBuilder();
     try {
-      return steps(typed);
+      return twice(typed);
     } finally {
       finishPrompt();
     }
@@ -114,6 +114,49 @@ public final class SogniTextVideo {
   }
 
   /** The run itself. */
+  /**
+   * --aspect2: the video made again with the second aspect ratio (its own size; skipped when it is the same
+   * as --aspect). The worse of the two runs' results.
+   */
+  static int twice(String[] typed) throws Exception {
+    List<String> first = new ArrayList<String>();
+    String second = null, firstAspect = null;
+    for (int i = 0; i < typed.length; i++) {
+      if (typed[i].equals("--aspect2") && i + 1 < typed.length) second = typed[++i].trim();
+      else {
+        if (typed[i].equals("--aspect") && i + 1 < typed.length) firstAspect = typed[i + 1].trim();
+        first.add(typed[i]);
+      }
+    }
+    int code = steps(first.toArray(new String[0]));
+    if (second == null || second.isEmpty() || second.equals(firstAspect == null ? "" : firstAspect) || code != 0) return code;
+    // The second video: --aspect2 as its aspect ratio, its size from it (the first run's width and height not used).
+    List<String> again = new ArrayList<String>();
+    boolean named = false;
+    for (int i = 0; i < first.size(); i++) {
+      String a = first.get(i);
+      if ((a.equals("--aspect") || a.equals("--width") || a.equals("--height")) && i + 1 < first.size()) {
+        i++;
+        continue;
+      }
+      // Its own name: the output name with the aspect after it (unless %ar already tells them apart).
+      if (!a.startsWith("--") && !named && (i == 0 || !first.get(i - 1).startsWith("--") || isSwitchOnly(first.get(i - 1)))) {
+        named = true;
+        if (!a.contains("%ar")) a = a.replaceAll("(\\.[A-Za-z0-9]{1,5})?$", "-" + second.replace(':', 'x') + "$1");
+      }
+      again.add(a);
+    }
+    again.add("--aspect");
+    again.add(second);
+    say("Aspect ratio 2: the video again in " + second);
+    return steps(again.toArray(new String[0]));
+  }
+
+  /** A switch that takes no value (the word after it is the output name, not its value). */
+  static boolean isSwitchOnly(String a) {
+    return a.equals("--confirm_cost") || a.equals("--saveprompt") || a.equals("--unlimited") || a.equals("--delete_from_sogni") || a.equals("-h") || a.equals("--help");
+  }
+
   static int steps(String[] typed) throws Exception {
     say(VERSION);
     String[] args = tidy(typed);
@@ -163,7 +206,7 @@ public final class SogniTextVideo {
       else if (a.equals("-h") || a.equals("--help")) {
         usage();
         return 0;
-      } else if (!a.startsWith("--") && out == null) out = SogniApi.fillName(a, inWork("x").getParentFile());
+      } else if (!a.startsWith("--") && out == null) out = a;
       else {
         say("Unknown argument: " + a);
         usage();
@@ -191,6 +234,10 @@ public final class SogniTextVideo {
       say("Failed: --aspect is a shape such as 16:9, 9:16, 1:1 or 4:5 (or pixels, such as 1280x720)");
       return 2;
     }
+    // %ar and %r in the output name: the aspect ratio (16x9) and the resolution (1080p).
+    SogniApi.sizeCodes(aspect, 0, 0);
+    System.setProperty("pulsekit.res", resolution == 1440 ? "2K" : resolution + "p");
+    if (out != null) out = SogniApi.fillName(out, inWork("x").getParentFile());
     // The LoRAs, in order: the default set, or --loras (none for no LoRAs).
     List<String> loras = new ArrayList<String>();
     List<Double> strengths = new ArrayList<Double>();
@@ -313,7 +360,7 @@ public final class SogniTextVideo {
   }
 
   static void usage() {
-    say("Usage: java SogniTextVideo [output.mp4] [--prompt text] [--duration seconds] [--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] "
+    say("Usage: java SogniTextVideo [output.mp4] [--prompt text] [--duration seconds] [--resolution 768|720|1080|1440] [--aspect 16:9|9:16|1:1] [--aspect2 16:9|9:16|1:1] "
         + "[--no_audio] [--exact_prompt] [--loras id:strength,...] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--section name]");
   }
 

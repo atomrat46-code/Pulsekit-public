@@ -1401,9 +1401,46 @@ final class PyJav {
         String savedNow = pulsekit.PyJavParams.load(app, name);
         String field = extra;
         extra = pulsekit.PyJavParams.merge(pulsekit.PyJavHints.programText(name, src, app.pkPyBytes), extra, savedNow);
-        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns).
-        if (pulsekit.FolderRuns.folderRun(name, pulsekit.JavaRun.split(extra))) {
-            this.pkStartFolderRun(name, runParams, pulsekit.JavaRun.split(extra));
+        // SogniPedit's and SogniPadd's Input folder: a batch, the program run once for each file (FolderRuns);
+        // its Input group: each section of the group (Run sections); both set: asked which (not within a batch's run).
+        final java.util.List<String> given = pulsekit.JavaRun.split(extra);
+        boolean ownRun = pulsekit.BatchQueue.runOf(name) == null;
+        final String inGroup = ownRun && pulsekit.FolderRuns.wanted(name) ? pulsekit.InputGroup.of(given) : null;
+        final boolean inFolder = ownRun && pulsekit.FolderRuns.folderRun(name, given);
+        if (inGroup != null || inFolder) {
+            String choice = this.pkInputChoice;
+            this.pkInputChoice = null;
+            if (inGroup != null && inFolder && choice == null) {
+                final String[] picks = {pulsekit.InputGroup.BOTH, pulsekit.InputGroup.FOLDER, pulsekit.InputGroup.GROUP};
+                pkInputAsk = new android.app.AlertDialog.Builder(app).setTitle(pulsekit.InputGroup.ASK).setItems(picks, (d, w) -> {
+                    this.pkInputChoice = picks[w];
+                    this.pkRunPyJav();
+                }).setNegativeButton("Cancel", (d, w) -> app.setNow("Not run")).show();
+                return;
+            }
+            boolean doGroup = inGroup != null && !pulsekit.InputGroup.FOLDER.equals(choice);
+            boolean doFolder = inFolder && !pulsekit.InputGroup.GROUP.equals(choice);
+            if (doGroup) {
+                java.util.List<pulsekit.PromptVault.SogniSection> secs;
+                try {
+                    secs = pulsekit.InputGroup.sections(pulsekit.PromptVault.open(app.getFilesDir()), name, inGroup);
+                } catch (Exception ex) {
+                    secs = new java.util.ArrayList<pulsekit.PromptVault.SogniSection>();
+                }
+                if (secs.isEmpty()) {
+                    this.pkAddLogLine(pulsekit.SogniSections.app(name) + ": no sections in group " + inGroup);
+                    if (!doFolder) return;
+                } else {
+                    final java.util.List<pulsekit.ProgramParams.Param> rp = runParams;
+                    final String folderProgram = name;
+                    // Both: the folder's runs after the group's (when it was not stopped).
+                    if (doFolder) this.pkAfterBatch = () -> this.pkStartFolderRun(folderProgram, rp, given);
+                    this.pkAddLogLine("Group " + inGroup + ": " + secs.size() + " section" + (secs.size() == 1 ? "" : "s") + " of " + pulsekit.SogniSections.app(name));
+                    this.pkRunSections(name, runParams, secs);
+                    return;
+                }
+            }
+            this.pkStartFolderRun(name, runParams, given);
             return;
         }
         // Switches typed in the field (a --plugin by hand) go into the Params too: they stay for the next run.
@@ -1480,6 +1517,7 @@ final class PyJav {
         pulsekit.DownloadMove.takeValue(argv, pulsekit.SogniUsage.WARN_PARAM);
         // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
         pulsekit.Chain.strip(argv);
+        pulsekit.InputGroup.strip(argv);
         // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
         pulsekit.TextReady.takeAutoExclude(app.getFilesDir(), name, argv);
         if (inBatchQ != null && groupPattern.length() > 0) {
@@ -2585,6 +2623,13 @@ final class PyJav {
         if (!q.kept) pulsekit.BatchSave.clear(app.getFilesDir());
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);
         this.pkAddLogLine(q.summary());
+        // Input folder and group both: the folder's runs after the group's (not after Stop batch).
+        Runnable after = this.pkAfterBatch;
+        this.pkAfterBatch = null;
+        if (after != null && !q.stopping) {
+            app.handler.post(after);
+            return;
+        }
         // Chain: the batch's pictures (or prompts) go on to the program picked (not after Stop batch).
         if (!q.chained && !q.stopping && !q.chainItems.isEmpty()) {
             final java.util.List<pulsekit.Chain.Item> items = new java.util.ArrayList<pulsekit.Chain.Item>(q.chainItems);
@@ -2826,6 +2871,11 @@ final class PyJav {
         pkStopAsk = new android.app.AlertDialog.Builder(app).setTitle("Stop batch?").setMessage("Stop the batch of " + pulsekit.SogniSections.app(q.program) + what + " after the run in progress?")
             .setPositiveButton("Stop batch", (d, w) -> this.pkStopBatch()).setNegativeButton("Go on", null).show();
     }
+
+    /** Input folder and group both set: the choice made (Both, Folder only, Group only), the question, and what runs after the group's batch. */
+    String pkInputChoice;
+    static android.app.AlertDialog pkInputAsk;
+    Runnable pkAfterBatch;
 
     /** A run started by a batch (pkBatchNext): not a run of its own, so the batch is not taken as left behind. */
     boolean pkFromBatch;
