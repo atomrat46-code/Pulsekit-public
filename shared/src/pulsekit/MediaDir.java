@@ -740,6 +740,8 @@ public final class MediaDir {
   public static final String PLAY_SF = "Play with default SoundFont";
   /** A MIDI's: its patterns and fills (a file set made of it) onto the Composer's stack. */
   public static final String TO_COMPOSER = "Add to composer stack";
+  /** A video's: SogniVideoUpscale with it as its input (RelayVSR or FlashVSR on Sogni), its Params open. */
+  public static final String UPSCALE_VIDEO = "Upscale video (Sogni)";
   /** A MIDI's: kept as the source MIDI of a file set picked from the list (From file set finds it there). */
   public static final String TO_FILE_SET = "Add into file set";
   /** A WAV or MP3's item: DrumMidi_CRT on it, its drum hits as a MIDI. */
@@ -752,12 +754,14 @@ public final class MediaDir {
     if (isMidi(name)) return plugins ? new String[] {MIDI_EDIT, RENDER_SF2, RENDER_PLUGIN, PLAY_SF, TO_COMPOSER, TO_FILE_SET} : new String[] {MIDI_EDIT, RENDER_SF2, PLAY_SF, TO_COMPOSER, TO_FILE_SET};
     if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".mp3")) return new String[] {TO_MIDI, TO_WAV};
     if (name != null && kind(name) == SOUND) return new String[] {TO_MIDI};
+    // A video: upscaled on Sogni (SogniVideoUpscale, its Params open), when the Sogni programs are shown.
+    if (name != null && kind(name) == VIDEO && AppSettings.showSogni() && !AppSettings.musicOnly()) return new String[] {UPSCALE_VIDEO};
     return new String[0];
   }
 
   /** True for the items kindItems gives. */
   public static boolean isKindItem(String item) {
-    return MIDI_EDIT.equals(item) || RENDER_SF2.equals(item) || RENDER_PLUGIN.equals(item) || PLAY_SF.equals(item) || TO_MIDI.equals(item) || TO_COMPOSER.equals(item) || TO_FILE_SET.equals(item) || TO_WAV.equals(item);
+    return UPSCALE_VIDEO.equals(item) || MIDI_EDIT.equals(item) || RENDER_SF2.equals(item) || RENDER_PLUGIN.equals(item) || PLAY_SF.equals(item) || TO_MIDI.equals(item) || TO_COMPOSER.equals(item) || TO_FILE_SET.equals(item) || TO_WAV.equals(item);
   }
 
   /** As menu(listed, kind, files), with `name`'s own items (kindItems) before Tags…. */

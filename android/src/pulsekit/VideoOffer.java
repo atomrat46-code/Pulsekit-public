@@ -349,7 +349,7 @@ final class VideoOffer {
     }
 
     /** Shows the run's first video; false when it made none. */
-    static boolean offer(final MainActivity app, JavaRun.Result result) {
+    static boolean offer(final MainActivity app, final JavaRun.Result result) {
         if (result == null || result.files == null) return false;
         List<JavaRun.FileOut> videos = new ArrayList<JavaRun.FileOut>();
         for (JavaRun.FileOut f : result.files) if (isVideo(f.name) && f.bytes != null && f.bytes.length > 0) videos.add(f);
@@ -432,7 +432,15 @@ final class VideoOffer {
         stop.setTag("video-offer:stop");
         p.mute = app.pill(p.muted ? "Unmute" : "Mute", p.muted, v -> p.toggleMute(app));
         p.mute.setTag("video-offer:mute");
-        for (TextView b : new TextView[] {p.play, stop, p.mute}) {
+        // Upscale: SogniVideoUpscale with the clip (its Params ask the size); Return opens this Video ready again.
+        final JavaRun.FileOut upClip = clip;
+        TextView upscale = app.pill(VideoUp.BUTTON, false, v -> {
+            if (last != null && last.dialog != null && last.dialog.isShowing()) last.dialog.dismiss();
+            VideoUp.start(app, upClip.name, upClip.bytes, "Return to Video ready", () -> offer(app, result));
+        });
+        upscale.setTag("video-offer:upscale");
+        TextView[] row = AppSettings.showSogni() ? new TextView[] {p.play, stop, p.mute, upscale} : new TextView[] {p.play, stop, p.mute};
+        for (TextView b : row) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMargins(app.dp(3), 0, app.dp(3), 0);
             buttons.addView(b, lp);

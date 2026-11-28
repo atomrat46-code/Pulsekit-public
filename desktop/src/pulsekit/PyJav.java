@@ -4204,6 +4204,9 @@ final class PyJav {
      * decoder) with the same controls as on the phone: Play/Pause, Stop, Mute and a volume slider.
      * Open uses the system player; Close leaves it saved.
      */
+    /** Video ready's Upscale: SogniVideoUpscale with the clip as its input. */
+    static final String VIDEO_UPSCALE = "Upscale";
+
     void offerVideo(File video, int count) {
         String more = count > 1 ? "\n" + (count - 1) + " more " + (count == 2 ? "video is" : "videos are") + " saved beside it." : "";
         // With VLC the video plays here (right click: Extract frame); without it, in the browser.
@@ -4216,6 +4219,8 @@ final class PyJav {
                 MediaTags.ADD_TAG, MediaTags.ADD_CATEGORY, Playlist.ADD, MediaDir.SAVE_REF, MediaDir.SAVE_RESULT, MediaDir.SAVE_DISK, "Close"), ReadyRecent.VIDEO);
             // Files made one after another (a batch, SogniChat's folder with Auto render): Stop run ends them.
             if (this.multiRunning()) videoItems.add(videoItems.size() - 1, BatchQueue.STOP_RUN);
+            // Upscale: SogniVideoUpscale with the clip (its Params ask the size).
+            if (AppSettings.showSogni() && !AppSettings.musicOnly()) videoItems.add(videoItems.size() - 1, VIDEO_UPSCALE);
             // Made by a chain: Back to the screen that chained it.
             final Runnable vback = readyBack;
             if (vback != null) videoItems.add(videoItems.size() - 1, READY_BACK);
@@ -4231,6 +4236,12 @@ final class PyJav {
             }
             if (it.equals(READY_BACK) && vback != null) {
                 vback.run();
+                return;
+            }
+            if (it.equals(VIDEO_UPSCALE)) {
+                app.programMenus.selectListedProgram("Java", "SogniVideoUpscale.java");
+                this.setInputFile(video);
+                SwingUtilities.invokeLater(this::openParams);
                 return;
             }
             if (ans == 2) GroupMenus.toggleFavourite(app, video);

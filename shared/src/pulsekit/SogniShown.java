@@ -87,6 +87,7 @@ public final class SogniShown {
     if (!n.startsWith("sogni")) return "";
     if (n.startsWith("sogni-video-")) return "SogniVideo";
     if (n.startsWith("sogni-textvideo-")) return "SogniTextVideo";
+    if (n.startsWith("sogni-rtv-")) return "Sogni_RTV";
     if (n.startsWith("sogni-pedit-")) return "SogniPedit";
     if (n.startsWith("sogni-padd-")) return "SogniPadd";
     if (n.startsWith("sogni-chat")) return "SogniChat";

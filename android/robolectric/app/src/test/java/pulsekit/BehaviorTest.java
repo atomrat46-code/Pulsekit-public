@@ -16812,6 +16812,66 @@ public class BehaviorTest {
     if (!ok) throw new AssertionError(t);
   }
 
+  /** Sogni_RTV's Params (12 reference slots, the tier) and SogniVideoUpscale's; Video ready's Upscale and the Media browser's Upscale video. */
+  @Test
+  public void s279_rtv_video_upscale() throws Exception {
+    StringBuilder out = new StringBuilder();
+    java.util.List<ProgramParams.Param> rtv = ProgramParams.parse(PyJavParams.programTextOf(app, "Sogni_RTV.java"));
+    int refs = 0;
+    String ref1 = "", model = "", tabs = "";
+    for (ProgramParams.Param p : rtv) {
+      if (p.flag && p.token.matches("--ref\\d+") && p.isFile()) refs++;
+      if (p.token.equals("--ref1")) {
+        ref1 = p.label;
+        tabs += p.tab + " ";
+      }
+      if (p.token.equals("--model")) {
+        model = p.dropdown + " " + String.join(",", p.choiceValues);
+        tabs += p.tab;
+      }
+    }
+    out.append("rtv: ").append(refs).append(" slots | ").append(ref1).append(" | model ").append(model).append(" | tabs ").append(tabs).append('\n');
+    java.util.List<ProgramParams.Param> up = ProgramParams.parse(PyJavParams.programTextOf(app, "SogniVideoUpscale.java"));
+    String upRows = "";
+    for (ProgramParams.Param p : up) {
+      if (!p.flag && !p.output) upRows += "input " + p.label + " " + p.isFile() + "; ";
+      if (p.token.equals("--upscaler")) upRows += "upscaler " + String.join(",", p.choiceValues) + "; ";
+      if (p.token.equals("--detail")) upRows += "detail when " + p.showWhen;
+    }
+    out.append("upscale: ").append(upRows).append('\n');
+    out.append("video items: ").append(java.util.Arrays.asList(MediaDir.kindItems("clip.mp4", false))).append('\n');
+    // Video ready: Upscale opens SogniVideoUpscale with the clip, Return back to Video ready.
+    java.util.List<JavaRun.FileOut> clips = new java.util.ArrayList<JavaRun.FileOut>();
+    clips.add(new JavaRun.FileOut("walk.mp4", new byte[] {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}));
+    VideoOffer.offer(app, new JavaRun.Result("Wrote walk.mp4", clips, 0));
+    idle();
+    AlertDialog ready = (AlertDialog) ShadowDialog.getLatestDialog();
+    View upBtn = ready.getWindow().getDecorView().findViewWithTag("video-offer:upscale");
+    out.append("upscale button: ").append(upBtn != null).append('\n');
+    if (upBtn != null) upBtn.performClick();
+    idle();
+    for (AlertDialog d : new AlertDialog[] {PyJavParams.shown}) if (d != null && d.isShowing()) d.dismiss();
+    idle();
+    TextView args = (TextView) get("pkPyArgs");
+    out.append("program: ").append(app.pyName).append(" | input ").append(args.getText().toString().contains("walk.mp4")).append(" | ready closed ").append(!ready.isShowing())
+        .append(" | ").append(((TextView) get("pkReturnBtn")).getText()).append('\n');
+    app.pyJav.pkDoReturn();
+    idle();
+    View again = ShadowDialog.getLatestDialog() == null ? null : ShadowDialog.getLatestDialog().getWindow().getDecorView().findViewWithTag("video-offer:upscale");
+    out.append("returned: ").append(again != null && ShadowDialog.getLatestDialog().isShowing()).append('\n');
+    if (ShadowDialog.getLatestDialog() != null) ShadowDialog.getLatestDialog().dismiss();
+    idle();
+    String t = out.toString();
+    write("s279_rtv_video_upscale", t);
+    String[] want = {"rtv: 12 slots | Reference 1: a picture, video or sound | model true balanced,standard,turbo,fasth3 | tabs Input Settings",
+        "upscale: input Video to upscale true; upscaler relayvsr,flashvsr; detail when --upscaler=flashvsr",
+        "video items: [" + MediaDir.UPSCALE_VIDEO + "]", "upscale button: true",
+        "program: SogniVideoUpscale.java | input true | ready closed true | Return to Video ready", "returned: true"};
+    boolean ok = true;
+    for (String x : want) ok &= ("\n" + t).contains("\n" + x + "\n");
+    if (!ok) throw new AssertionError(t);
+  }
+
   @Test
   public void s277_stop_run_batch_folder() throws Exception {
     StringBuilder out = new StringBuilder();

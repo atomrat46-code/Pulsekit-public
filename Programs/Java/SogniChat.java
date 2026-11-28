@@ -151,6 +151,9 @@ public final class SogniChat {
     SogniApi.noFilter = true;
     // --variations: one result unless asked (a run in the app keeps the last run's count otherwise).
     SogniApi.variations = 1;
+    // Pulsekit runs programs in its own process: the last run's batch prompt and answer tool are not kept.
+    batchPrompt = null;
+    answerTool = null;
     for (int i = 0; i < args.length; i++) {
       String a = args[i];
       if (a.equals("--prompt") && i + 1 < args.length) prompt = args[++i];
@@ -178,6 +181,7 @@ public final class SogniChat {
       else if (a.equals("--skip_done") || a.equals("--subfolders") || a.equals("--listed")) continue;
       else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
       else if (a.equals("--batch_prompt") && i + 1 < args.length) batchPrompt = args[++i].trim();
+      else if (a.equals("--answer_tool") && i + 1 < args.length) answerTool = args[++i].trim().toLowerCase();
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
       else if (a.equals("--key_file") && i + 1 < args.length) keyFile = args[++i];
@@ -233,6 +237,8 @@ public final class SogniChat {
     // no Sogni tools are offered with it (it does not call them), so --tools, --run_tools and
     // --unlimited are left out. Any other model is tools mode.
     boolean analyze = rejoin == null && model != null && model.toLowerCase().contains("deepseek");
+    // --answer_tool runs as a workflow of its own: the Unlimited Plan pays for it even in image analyze mode.
+    boolean answerPlan = unlimited;
     if (analyze) {
       System.out.println("Image analyze mode (" + model + "): it reads the pictures sent with --file; no other Sogni tools are available with this model");
       if (tools || runTools || unlimited) System.out.println("Note: " + (unlimited ? "--unlimited" : runTools ? "--run_tools" : "--tools") + " is not used in image analyze mode");
@@ -246,7 +252,8 @@ public final class SogniChat {
     boolean toolsOn = tools || runTools || unlimited;
     List<Attachment> attached = new ArrayList<Attachment>();
     for (int k = 0; k < files.size(); k++) {
-      Attachment a = attachment(new File(files.get(k)), toolsOn, copies.get(k));
+      // (Uploaded for the tools, and for --answer_tool edit / animate, which work on the picture.)
+      Attachment a = attachment(new File(files.get(k)), toolsOn || needsPicture(answerTool), copies.get(k));
       if (a == null) return 2;
       attached.add(a);
     }
@@ -460,6 +467,23 @@ public final class SogniChat {
       } else if (offered) {
         System.out.println("No tool calls: the model answered in text");
       }
+      // --answer_tool: the answer itself the prompt of one Sogni tool (a picture, an edit or animation of the picture given, a video, music).
+      if (answerTool != null && !answerTool.isEmpty() && calls.isEmpty() && started.isEmpty() && runMedia.isEmpty()) {
+        String[] call = answerCall(answerTool, reply, attached);
+        if (call == null) {
+          System.out.println("Note: --answer_tool " + answerTool + " not run: " + answerProblem(answerTool, reply, attached));
+        } else {
+          System.out.println("Answer to " + call[0] + " (--answer_tool " + answerTool + ")");
+          List<String[]> one = withBatchPrompt(java.util.Collections.singletonList(call));
+          String id = api.start(SogniApi.toolsInput("Pulsekit chat answer", one), confirm || answerPlan, answerPlan ? 0 : maxCost, needsPicture(answerTool) ? media : null,
+              answerPlan ? "subscription" : null);
+          List<String> ids = new ArrayList<String>();
+          ids.add(id);
+          List<String> results = follow(api, ids, name.replaceAll("\\.[^.]*$", ""));
+          if (results == null) return 1;
+          made.addAll(results);
+        }
+      }
       lastMade = made;
       System.out.println(made.isEmpty() ? "Succeeded" : "Succeeded: " + join(made));
     } catch (SogniApi.ApiException ex) {
@@ -521,8 +545,6 @@ public final class SogniChat {
       } else if (a.equals("--listed") || a.equals("--skip_done") || a.equals("--subfolders")) {
         // Pulsekit listed the folder (--dir_file), with Skip already processed leaving out the files answered before.
         if (a.equals("--listed")) listed = true;
-      } else if (a.equals("--batch_prompt") && i + 1 < args.length) {
-        i++;
       } else if (a.equals("--done_key") && i + 1 < args.length) {
         i++;
       } else rest.add(a);
@@ -593,7 +615,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto] [--batch_prompt text]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto] [--batch_prompt text] [--answer_tool image|edit|animate|video|music]");
   }
 
   /**
@@ -601,6 +623,53 @@ public final class SogniChat {
    * made as <stem>-1.png, <stem>-2.mp3...: the file names, or null after saying why it failed.
    * Steps run side by side; a call that needs another's result is not linked to it.
    */
+  /** --answer_tool: image, edit, animate, video or music (null: none). */
+  static String answerTool;
+
+  static final List<String> ANSWER_TOOLS = java.util.Arrays.asList("image", "edit", "animate", "video", "music");
+
+  /** Edit and animate work on the picture given with --file (the first one). */
+  static boolean needsPicture(String tool) {
+    return "edit".equals(tool) || "animate".equals(tool);
+  }
+
+  /** Why --answer_tool cannot run with this answer and these files. */
+  static String answerProblem(String tool, String reply, List<Attachment> attached) {
+    if (!ANSWER_TOOLS.contains(tool)) return "it is image, edit, animate, video or music";
+    if (reply == null || reply.trim().isEmpty()) return "the answer is empty";
+    return "edit and animate need a picture given with --file";
+  }
+
+  /** The tool call ({name, arguments JSON}) that makes `tool`'s result from the answer, or null when it cannot. */
+  static String[] answerCall(String tool, String answer, List<Attachment> attached) {
+    if (!ANSWER_TOOLS.contains(tool) || answer == null || answer.trim().isEmpty()) return null;
+    boolean picture = false;
+    for (Attachment a : attached) if ("image".equals(a.kind) && a.ref != null) picture = true;
+    if (needsPicture(tool) && !picture) return null;
+    Map<String, Object> args = new LinkedHashMap<String, Object>();
+    args.put("prompt", answer.trim());
+    String name;
+    if (tool.equals("image")) {
+      name = "generate_image";
+    } else if (tool.equals("edit")) {
+      name = "edit_image";
+      args.put("model", "krea-identity-edit");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+    } else if (tool.equals("animate")) {
+      name = "animate_photo";
+      args.put("videoModel", "minimax-h3-fasth3-i2v-turbo");
+      args.put("sourceImageIndex", Integer.valueOf(-1));
+      args.put("frameRole", "start");
+    } else if (tool.equals("video")) {
+      name = "generate_video";
+      args.put("videoModel", "minimax-h3-fasth3-t2v-turbo");
+    } else {
+      name = "generate_music";
+    }
+    if (SogniApi.variations > 1) args.put("numberOfVariations", Integer.valueOf(SogniApi.variations));
+    return new String[] {name, SogniApi.toJson(args)};
+  }
+
   /** --batch_prompt (Pulsekit's Batch prompt): added after the prompt of each Sogni tool call the model makes (its pictures, videos, music). */
   static String batchPrompt;
 

@@ -19,7 +19,7 @@ public final class ParamsClip {
   public static final String EXPORT = "Export";
   public static final String SEND_TITLE = "Send to another Sogni program";
   /** The Sogni programs, in the Java menu's order. */
-  public static final String[] SOGNI = {"SogniChat.java", "SogniMusic.java", "SogniPadd.java", "SogniPedit.java", "SogniTextVideo.java", "SogniVideo.java"};
+  public static final String[] SOGNI = {"SogniChat.java", "SogniMusic.java", "SogniPadd.java", "SogniPedit.java", "SogniTextVideo.java", "SogniVideo.java", "Sogni_RTV.java"};
 
   /** Whether a row has the buttons: a Sogni program's prompt or LoRAs. */
   public static boolean has(String program, ProgramParams.Param p) {
