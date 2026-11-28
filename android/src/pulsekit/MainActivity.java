@@ -316,6 +316,12 @@ public class MainActivity extends UiKit {
         SoundOut.init(this);
         if (!logStarted) SoundOut.openDrumMidi(this);
         if (!logStarted) {
+            // Batches left running by the process before (Android closed Pulsekit): said to be interrupted.
+            try {
+                BatchLog.interrupted();
+            } catch (Throwable ignored) {
+                // left as they are
+            }
             logStarted = true;
             Logs.started("Pulsekit " + appVersion() + " (Android " + Build.VERSION.RELEASE + ", API " + Build.VERSION.SDK_INT + ", "
                 + Build.MANUFACTURER + " " + Build.MODEL + ")");

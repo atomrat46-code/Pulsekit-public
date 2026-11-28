@@ -71,7 +71,9 @@ public final class RunKeeper extends Service {
   static boolean busy() {
     try {
       MusicCompare.Chain c = MusicCompare.chain();
-      return c != null || MusicCompare.heldImport || BatchQueue.current() != null;
+      // (SogniChat's answers still being saved and sent as sections, before Auto render: kept too.)
+      Thread answers = PyJav.pkAnswersThread;
+      return c != null || MusicCompare.heldImport || BatchQueue.current() != null || answers != null && answers.isAlive();
     } catch (Throwable ex) {
       return false;
     }

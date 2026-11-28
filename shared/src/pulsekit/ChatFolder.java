@@ -201,12 +201,14 @@ public final class ChatFolder {
   }
 
   /** The files a folder run answered (its log's "=== File k of n: name ===" blocks with a "Succeeded:" line). */
+  static final java.util.regex.Pattern FILE_HEAD = java.util.regex.Pattern.compile("^=== File \\d+ of \\d+: (.+) ===$");
+
   public static List<String> answered(String log) {
     List<String> out = new ArrayList<String>();
     String cur = null;
     boolean ok = false;
     for (String line : (log == null ? "" : log).split("\n")) {
-      java.util.regex.Matcher m = java.util.regex.Pattern.compile("^=== File \\d+ of \\d+: (.+) ===$").matcher(line.trim());
+      java.util.regex.Matcher m = FILE_HEAD.matcher(line.trim());
       if (m.matches() || line.trim().startsWith("Folder done:")) {
         if (cur != null && ok) out.add(cur);
         cur = m.matches() ? m.group(1) : null;
@@ -217,6 +219,74 @@ public final class ChatFolder {
     }
     if (cur != null && ok) out.add(cur);
     return out;
+  }
+
+  /** The file a folder run's log is on now (its last "=== File k of n: name ===" line), or null. */
+  public static String answering(String log) {
+    String cur = null;
+    for (String line : (log == null ? "" : log).split("\n")) {
+      java.util.regex.Matcher m = FILE_HEAD.matcher(line.trim());
+      if (m.matches()) cur = m.group(1);
+    }
+    return cur;
+  }
+
+  // ------------------------------------------------------------ A folder run's batch log, as it goes
+
+  /** The folder run going on: its batch log entry, the folder's key (Skip already processed) and its log's length seen. */
+  static volatile BatchLog.Entry runLog;
+  static volatile String runKey;
+  static int runSeen = -1;
+
+  /** A folder run begins (its files, as --dir_file gives them): its entry in File > Logs' Batches. */
+  public static void runBegins(List<String> argv, List<String> expanded) {
+    runLog = null;
+    runSeen = -1;
+    if (expanded == null || !expanded.contains("--dir_file")) return;
+    List<String> names = new ArrayList<String>();
+    for (int i = 0; i + 1 < expanded.size(); i++) if ("--dir_file".equals(expanded.get(i))) names.add(new File(expanded.get(i + 1)).getName());
+    List<String> about = new ArrayList<String>();
+    about.add("Program: SogniChat.java (each file asked about in turn)");
+    String dir = arg(argv, "--input_dir");
+    about.add("Input folder: " + (key(argv) != null ? MediaDir.label(key(argv)) : dir));
+    if (argv.contains("--skip_done")) about.add("Skip already processed: on (each file answered is kept as it is answered)");
+    runKey = key(argv);
+    runLog = BatchLog.begin("SogniChat: input folder " + (dir == null ? "" : new File(dir).getName()) + " (" + names.size() + " files)", names, about);
+  }
+
+  /** The run's log so far (each second while it runs): the files answered marked done (and kept for Skip already processed at once), the one asked about running. */
+  public static void runProgress(String log) {
+    BatchLog.Entry e = runLog;
+    if (e == null || log == null || log.length() == runSeen) return;
+    runSeen = log.length();
+    List<String> done = answered(log);
+    for (String n : done) {
+      int i = e.indexOf(n);
+      if (i >= 0 && !BatchLog.DONE.equals(e.states.get(i))) e.run(i, BatchLog.DONE, null);
+    }
+    String now = answering(log);
+    int i = now == null ? -1 : e.indexOf(now);
+    if (i >= 0 && BatchLog.WAITING.equals(e.states.get(i))) e.run(i, BatchLog.RUNNING, null);
+    // Kept as they come: a run Android closes goes on from here with Skip already processed.
+    if (runKey != null) markDone(runKey, done);
+  }
+
+  /** The run is over: its files left marked failed (asked, no answer) or not run, and the state. */
+  public static void runEnds(String log, int code) {
+    BatchLog.Entry e = runLog;
+    if (e == null) return;
+    runProgress(log);
+    runSeen = -1;
+    int done = 0;
+    synchronized (e) {
+      for (int i = 0; i < e.states.size(); i++) {
+        String st = e.states.get(i);
+        if (BatchLog.DONE.equals(st)) done++;
+        else if (BatchLog.RUNNING.equals(st)) e.run(i, BatchLog.FAILED, "no answer");
+      }
+    }
+    e.state("finished: " + done + " of " + e.labels.size() + " answered" + (code == 0 ? "" : " (the run ended with code " + code + ")"), true);
+    runLog = null;
   }
 
   /** The files answered added to the folder's list (kept also when Skip already processed is off). */

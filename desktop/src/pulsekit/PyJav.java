@@ -3053,6 +3053,8 @@ final class PyJav {
     }
 
     void batchOver(BatchQueue q) {
+        // Its batch log: finished or stopped.
+        q.ended(q.stopping ? "stopped (Stop batch)" : "finished: " + q.ok + " of " + q.runs.size() + " succeeded" + (q.failed > 0 ? ", " + q.failed + " failed" : ""));
         BatchQueue.stop();
         if (this.pyBatchStop != null) this.pyBatchStop.setVisible(false);
         this.testNote(q.summary());

@@ -206,9 +206,24 @@ public final class BatchQueue {
     return !this.stopping && this.next < this.runs.size();
   }
 
-  /** The next run's arguments. */
+  /** Its entry in File > Logs' Batches (begun with its first run). */
+  public BatchLog.Entry log;
+
+  /** The next run's arguments (the run marked running in the batch log). */
   public List<String> nextArgs() {
-    return new ArrayList<String>(this.runs.get(this.next++));
+    List<String> out = new ArrayList<String>(this.runs.get(this.next++));
+    try {
+      if (this.log == null) this.log = BatchLog.begin(this);
+      this.log.run(this.next - 1, BatchLog.RUNNING, null);
+    } catch (Throwable ignored) {
+      // no log
+    }
+    return out;
+  }
+
+  /** The batch is over (done, stopped, paused): its state in the batch log. */
+  public void ended(String state) {
+    if (this.log != null) this.log.state(state, true);
   }
 
   /** An input folder's batch: the folder's name (said with each run), else null. */
@@ -235,6 +250,12 @@ public final class BatchQueue {
       }
     } else this.failed++;
     if (files != null) this.made.addAll(files);
+    if (this.log != null && this.next >= 1) {
+      boolean good = status != null && status.startsWith("Succeeded");
+      StringBuilder names = new StringBuilder();
+      if (files != null) for (int i = 0; i < files.size(); i++) names.append(i == 0 ? "" : ", ").append(new File(files.get(i)).getName());
+      this.log.run(this.next - 1, good ? BatchLog.DONE : BatchLog.FAILED, good ? names.toString() : status == null ? "no verdict" : status);
+    }
     if (this.bySections() && this.said.size() < this.next) {
       StringBuilder sb = new StringBuilder(this.labels.get(this.next - 1)).append(": ");
       String v = status == null || status.isEmpty() ? "no verdict" : status.startsWith("Succeeded") && files != null && !files.isEmpty() ? "Succeeded" : status;

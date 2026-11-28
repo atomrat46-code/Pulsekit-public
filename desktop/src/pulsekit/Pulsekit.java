@@ -229,6 +229,12 @@ public final class Pulsekit extends UiKit {
         // File > Logs: errors nothing caught, and this start (when Logging on is ticked).
         Logs.catchErrors();
         Logs.started("Pulsekit " + Looks.version() + " (desktop)");
+        // Batches left running by a Pulsekit that closed: said to be interrupted.
+        try {
+            BatchLog.interrupted();
+        } catch (Throwable ignored) {
+            // left as they are
+        }
         // General settings > Storage: temporary files older than the days set deleted.
         StorageScreen.startup(this);
         // The drum sets made on the Pads tab (Original first).

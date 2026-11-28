@@ -183,6 +183,11 @@ public final class CrashLog {
         String hang = lastHang(ctx.getFilesDir());
         if (hang != null) text += "\n\n" + hang;
       }
+      // Too much CPU: the busy spell the CPU watch saw before (its threads and where they were).
+      if (r == android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE) {
+        String spell = lastBusy(ctx.getFilesDir());
+        if (spell != null) text += "\n\n" + spell;
+      }
       return text;
     } catch (Throwable ex) {
       return null;
@@ -234,10 +239,13 @@ public final class CrashLog {
     beat = android.os.SystemClock.uptimeMillis();
     watchdog = new Thread(() -> {
       int said = 0;
+      int ticks = 0;
       while (true) {
         try {
           main.post(alive);
           Thread.sleep(500);
+          // Every 10 s: the CPU the process used (a busy loop in the background: Android closes the app for it).
+          if (++ticks % 20 == 0) cpuCheck(dir);
           long late = android.os.SystemClock.uptimeMillis() - beat;
           if (late < HUNG_MS) {
             said = 0;
@@ -256,6 +264,120 @@ public final class CrashLog {
     }, "pulsekit-watchdog");
     watchdog.setDaemon(true);
     watchdog.start();
+  }
+
+  // ------------------------------------------------------------ The CPU watch
+
+  /** Busy spells: the threads using the CPU most and their stacks, the newest first. */
+  static final String CPU = "cpu-log.txt";
+  /** A spell: this share of one core (0.7) for this many 10 s checks in a row (30 s). */
+  static final double BUSY_SHARE = 0.7;
+  static final int BUSY_CHECKS = 3;
+  private static long lastCpu = -1, lastWall;
+  private static int busyChecks;
+  private static java.util.Map<String, Long> lastThreads = new java.util.HashMap<String, Long>();
+
+  /** The process's CPU since the last check; after a busy spell, its busiest threads written to cpu-log.txt (once a spell, then each minute). */
+  static void cpuCheck(File dir) {
+    long cpu = android.os.Process.getElapsedCpuTime();
+    long wall = android.os.SystemClock.uptimeMillis();
+    java.util.Map<String, Long> threads = threadTicks();
+    if (lastCpu >= 0 && wall > lastWall) {
+      double share = (cpu - lastCpu) / (double) (wall - lastWall);
+      busyChecks = share >= BUSY_SHARE ? busyChecks + 1 : 0;
+      if (busyChecks == BUSY_CHECKS || busyChecks > BUSY_CHECKS && busyChecks % 6 == 0) busy(dir, share, wall - lastWall, threads, lastThreads);
+    }
+    lastCpu = cpu;
+    lastWall = wall;
+    lastThreads = threads;
+  }
+
+  /** Each thread's CPU ticks (user + system), by "tid name" from /proc/self/task. */
+  static java.util.Map<String, Long> threadTicks() {
+    java.util.Map<String, Long> out = new java.util.HashMap<String, Long>();
+    File[] tasks = new File("/proc/self/task").listFiles();
+    if (tasks == null) return out;
+    for (File t : tasks) {
+      try {
+        String stat = new String(java.nio.file.Files.readAllBytes(new File(t, "stat").toPath()), StandardCharsets.UTF_8);
+        int open = stat.indexOf('('), close = stat.lastIndexOf(')');
+        if (open < 0 || close < open) continue;
+        String[] f = stat.substring(close + 2).trim().split(" ");
+        // After the name: state is field 3; utime and stime are fields 14 and 15 (11 and 12 here).
+        out.put(t.getName() + " " + stat.substring(open + 1, close), Long.valueOf(Long.parseLong(f[11]) + Long.parseLong(f[12])));
+      } catch (Exception ignored) {
+        // gone meanwhile
+      }
+    }
+    return out;
+  }
+
+  /** A busy spell written: the share, what ran, the three busiest threads with their stacks (Java threads by name). */
+  static void busy(File dir, double share, long ms, java.util.Map<String, Long> now, java.util.Map<String, Long> before) {
+    String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date());
+    String run = "";
+    try {
+      File running = new File(dir, RunKeeper.MARK);
+      if (running.isFile()) run = new String(java.nio.file.Files.readAllBytes(running.toPath()), StandardCharsets.UTF_8).split("\n")[0];
+    } catch (Exception ignored) {
+      // none
+    }
+    java.util.List<Object[]> used = new java.util.ArrayList<Object[]>();
+    for (java.util.Map.Entry<String, Long> e : now.entrySet()) {
+      Long b = before.get(e.getKey());
+      long d = e.getValue().longValue() - (b == null ? 0 : b.longValue());
+      if (d > 0) used.add(new Object[] {e.getKey(), Long.valueOf(d)});
+    }
+    java.util.Collections.sort(used, (x, y) -> Long.compare((Long) y[1], (Long) x[1]));
+    StringBuilder sb = new StringBuilder("Busy: " + Math.round(share * 100) + "% of a core for " + (busyChecks * 10) + " s (" + when + (run.isEmpty() ? ", no run going" : ", while " + run + " ran")
+        + ", " + (PyJav.RUNS.get() > 0 ? "a run going" : "no run going") + "). The busiest threads:\n");
+    java.util.Map<Thread, StackTraceElement[]> stacks = Thread.getAllStackTraces();
+    for (int i = 0; i < used.size() && i < 3; i++) {
+      String key = (String) used.get(i)[0];
+      String name = key.substring(key.indexOf(' ') + 1);
+      // Ticks are hundredths of a second.
+      sb.append("  ").append(name).append(": ").append(Math.round((Long) used.get(i)[1] * 1000.0 / Math.max(1, ms))).append("% of the last ").append(ms / 1000).append(" s\n");
+      for (java.util.Map.Entry<Thread, StackTraceElement[]> t : stacks.entrySet()) {
+        String tn = t.getKey().getName();
+        // Linux keeps 15 characters of a thread's name; the main thread is the app's own name there.
+        boolean same = tn.length() > 15 ? tn.startsWith(name) : tn.equals(name) || "main".equals(tn) && key.startsWith(android.os.Process.myPid() + " ");
+        if (!same) continue;
+        int n = 0;
+        for (StackTraceElement el : t.getValue()) {
+          sb.append("      at ").append(el).append('\n');
+          if (++n >= 25) break;
+        }
+        break;
+      }
+    }
+    String entry = sb.toString();
+    try {
+      File f = new File(dir, CPU);
+      String old = f.isFile() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : "";
+      String all = entry + "\n" + old;
+      java.nio.file.Files.write(f.toPath(), (all.length() > KEEP ? all.substring(0, KEEP) : all).getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ignored) {
+      // Logs only
+    }
+    try {
+      Logs.write(Logs.ERRORS, "Pulsekit used the CPU for long", entry);
+    } catch (Throwable ignored) {
+      // none
+    }
+  }
+
+  /** The newest busy spell written, or null. */
+  static String lastBusy(File dir) {
+    try {
+      File f = new File(dir, CPU);
+      if (!f.isFile()) return null;
+      String all = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+      int end = all.indexOf("\n\n");
+      String top = (end > 0 ? all.substring(0, end) : all).trim();
+      return top.isEmpty() ? null : top;
+    } catch (Exception ex) {
+      return null;
+    }
   }
 
   /** A hang: when, how long so far, what ran, and the main thread's stack. */

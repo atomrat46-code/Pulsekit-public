@@ -1242,6 +1242,8 @@ final class PyJav {
                     return;
                 }
                 if (pkStopBtn != null && pkStopBtn.getVisibility() != 0) pkStopBtn.setVisibility(0);
+                // SogniChat on a folder: its batch log kept up, each file answered kept for Skip already processed as it comes.
+                pulsekit.ChatFolder.runProgress(live.text());
                 // Its workflow id, once printed: Copy workflow id.
                 String wf = pulsekit.SogniDownloads.workflowIn(live.text());
                 if (wf != null && !wf.equals(pkWorkflowId)) pkShowWorkflow(wf);
@@ -2131,18 +2133,19 @@ final class PyJav {
         final String autoTarget = chatFolder && !inBatch ? pulsekit.AutoRender.target(argv) : null;
         if (saveHere) {
             final java.util.List<String[]> rendered = new java.util.ArrayList<String[]>();
-            if (autoTarget != null) {
-                String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
-                for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
-                    String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
-                    // (Empty once processed: not rendered.)
-                    if (!r.trim().isEmpty()) rendered.add(new String[] {f.name, r});
-                }
-            }
             app.setNow("Saving the answers\u2026");
             // Said in the log too: the run is over but the answers are still being saved (and sent) before Auto render.
-            this.pkAddLogLine("Saving the answers" + (autoTarget != null ? " (into the database and folders); Auto render of " + rendered.size() + " starts after" : "") + "\u2026");
+            this.pkAddLogLine("Saving the answers" + (autoTarget != null ? " (into the database and folders); Auto render starts after" : "") + "\u2026");
             Thread saving = new Thread(() -> {
+                // The answers Auto render renders, processed here (not on the screen's thread: a big folder's took seconds).
+                if (autoTarget != null) {
+                    String[] set = pulsekit.TextReady.setting(app.getFilesDir(), program);
+                    for (pulsekit.JavaRun.FileOut f : pulsekit.ChatFolder.answers(made == null ? null : made.files)) {
+                        String r = pulsekit.TextReady.result(pulsekit.TextReady.text(f.bytes), set);
+                        // (Empty once processed: not rendered.)
+                        if (!r.trim().isEmpty()) rendered.add(new String[] {f.name, r});
+                    }
+                }
                 try {
                     TextOffer.saveAnswers(app, program, argv, made, line -> app.runOnUiThread(() -> this.pkAddLogLine(line)));
                 } catch (Throwable ex) {
@@ -2150,7 +2153,7 @@ final class PyJav {
                 }
                 // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
                 if (autoTarget != null) app.runOnUiThread(() -> {
-                    this.pkAddLogLine("Answers saved: Auto render goes on");
+                    this.pkAddLogLine("Answers saved: Auto render of " + rendered.size() + " goes on");
                     this.pkStartAutoRender(autoTarget, rendered);
                 });
             }, "pulsekit-answers");
@@ -2205,6 +2208,7 @@ final class PyJav {
                 pulsekit.BatchSave.save(app.getFilesDir(), batch, Math.max(0, batch.next - 1));
                 batch.kept = true;
                 batch.stopping = true;
+                batch.ended("paused: no connection to Sogni (kept: Pulsekit offers to go on when it starts next)");
                 this.pkAddLogLine("Batch paused: no connection to Sogni. Kept: " + (batch.runs.size() - Math.max(0, batch.next - 1)) + " runs left; Pulsekit offers to go on when it starts next (or Run again now)");
                 this.pkBatchOver(batch);
                 return;
@@ -2620,6 +2624,8 @@ final class PyJav {
 
     void pkBatchOver(pulsekit.BatchQueue q) {
         pulsekit.BatchQueue.stop();
+        // Its batch log: finished or stopped (paused said so already).
+        if (!q.kept) q.ended(q.stopping ? "stopped (Stop batch)" : "finished: " + q.ok + " of " + q.runs.size() + " succeeded" + (q.failed > 0 ? ", " + q.failed + " failed" : ""));
         // Over (done or stopped): nothing to go on with, unless it was kept (paused, left behind).
         if (!q.kept) pulsekit.BatchSave.clear(app.getFilesDir());
         if (this.pkBatchStopBtn != null) this.pkBatchStopBtn.setVisibility(8);

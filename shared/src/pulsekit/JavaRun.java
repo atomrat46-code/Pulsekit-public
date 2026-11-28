@@ -659,8 +659,18 @@ public final class JavaRun {
           List<String> expanded = ChatFolder.expand(argv, notes);
           // Nothing left in the folder (all processed before, or no files it takes): said, not run (no "Failed").
           String nothing = ChatFolder.nothingLeft(argv, expanded);
-          if (nothing != null) return new Result(nothing, Collections.<FileOut>emptyList(), 0);
-          Result r = runJava(n, source, bytes, PictureCopies.withCopies(expanded, made, notes));
+          // (Its verdict line too, so the run is not taken for one that failed: "no MIDI file was written".)
+          if (nothing != null) return new Result(nothing + "\nSucceeded: nothing left to process", Collections.<FileOut>emptyList(), 0);
+          // A folder's files: an entry in File > Logs' Batches, kept up as they are answered.
+          ChatFolder.runBegins(argv, expanded);
+          Result r;
+          try {
+            r = runJava(n, source, bytes, PictureCopies.withCopies(expanded, made, notes));
+          } catch (RuntimeException ex) {
+            ChatFolder.runEnds(null, 1);
+            throw ex;
+          }
+          ChatFolder.runEnds(r == null ? null : r.log, r == null ? 1 : r.code);
           // Why a big JPEG got no smaller copy, first in the log.
           if (notes.isEmpty() || r == null) return r;
           StringBuilder sb = new StringBuilder();
