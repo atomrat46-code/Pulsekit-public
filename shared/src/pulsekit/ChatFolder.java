@@ -146,6 +146,21 @@ public final class ChatFolder {
     return out;
   }
 
+  /**
+   * An input folder run with no file left to give (all processed before with Skip already processed, or none
+   * the program takes): what to say instead of running; null when there are files.
+   */
+  public static String nothingLeft(List<String> argv, List<String> expanded) {
+    String dir = arg(argv, "--input_dir");
+    if (dir == null || expanded == null || argv.contains("--dir_file") || expanded.contains("--dir_file")) return null;
+    File d = new File(dir);
+    if (!d.isDirectory()) return null;
+    String name = MediaDir.label(key(argv) == null ? dir : key(argv));
+    boolean skip = argv.contains("--skip_done");
+    return "Nothing left to process in " + name + (skip ? ": every file there was processed before (Skip already processed is on: untick it to go over them again)"
+        : ": it has no files SogniChat takes (pictures, text, PDF...)");
+  }
+
   /** Where the list of answered files is kept (the app's own folder, set at start). */
   public static volatile File doneDir;
   static final String DONE_FILE = "chat-folder-done.txt";

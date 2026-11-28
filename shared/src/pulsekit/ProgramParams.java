@@ -1542,8 +1542,12 @@ public final class ProgramParams {
       p.label = "Krea 2 LoRAs (id:strength or name strength, comma separated)";
       p.hint = "empty: Mystic X 1, Realism Engine 0.8, Chest Size 0.5, Weight -1, Filter Bypass 2vector 1; none for no LoRAs";
     }
-    if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5; empty for 1024 square";
-    if (p.token.equals("--width") || p.token.equals("--height")) p.hint = "256 to 2560; give both, or use the shape";
+    if (p.token.equals("--aspect")) p.hint = "e.g. 9:16 or 4:5 (its size: 1080 on the short side, e.g. 1080x1920); empty for 1024 square";
+    if (p.token.equals("--aspect2")) {
+      p.label = "Aspect ratio 2: each picture made again in this shape (its own size; the same as the first: not made)";
+      p.hint = "e.g. 16:9; empty: one picture";
+    }
+    if (p.token.equals("--width") || p.token.equals("--height")) p.hint = "256 to 2560; empty: from the aspect ratio; width and height win over it";
     if (p.token.equals("--seed")) p.hint = "empty for a new picture each run";
     if (p.token.equals("--max_cost")) {
       p.label = "Max cost (capacity units)";

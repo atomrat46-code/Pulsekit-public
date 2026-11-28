@@ -596,6 +596,30 @@ final class PyJav {
         app.pyPane.addView(this.pkPyLog, slot);
     }
 
+    /**
+     * Back on a program while a run or batch goes: the code window gives up the cursor (it is not needed
+     * meanwhile) and the page shows the run's buttons, status and the output from its start.
+     */
+    void pkScrollToRun() {
+        if (!this.pkRunGoing() && pulsekit.BatchQueue.current() == null) return;
+        if (app.pyEditor != null && app.pyEditor.hasFocus()) app.pyEditor.clearFocus();
+        final android.view.View anchor = this.pkPyHint != null ? this.pkPyHint : this.pkPyLog;
+        if (anchor == null) return;
+        anchor.post(() -> {
+            android.view.ViewParent up = anchor.getParent();
+            android.view.View child = anchor;
+            int y = anchor.getTop();
+            while (up != null && !(up instanceof android.widget.ScrollView)) {
+                if (up instanceof android.view.View) {
+                    child = (android.view.View) up;
+                    y += child.getTop();
+                }
+                up = up.getParent();
+            }
+            if (up instanceof android.widget.ScrollView) ((android.widget.ScrollView) up).scrollTo(0, Math.max(0, y - app.dp(8)));
+        });
+    }
+
     /** The Output menu shown last (for the tests). */
     static android.app.AlertDialog lastOutputMenu;
 
@@ -1468,7 +1492,7 @@ final class PyJav {
         }
         ArtJava.batchSub = null;
         if (inBatchQ != null && batchPattern.length() > 0) {
-            if (inBatchQ.outFolder == null) inBatchQ.outFolder = ArtJava.subOf(batchPattern);
+            if (inBatchQ.outFolder == null) inBatchQ.outFolder = ArtJava.subOf(pulsekit.DownloadMove.sizeCodes(batchPattern, argv));
             ArtJava.batchSub = inBatchQ.outFolder;
         }
         // A prompt sheet's run: its mode, reference files and output name (as on the desktop, only for a
@@ -2077,6 +2101,8 @@ final class PyJav {
                 }
             }
             app.setNow("Saving the answers\u2026");
+            // Said in the log too: the run is over but the answers are still being saved (and sent) before Auto render.
+            this.pkAddLogLine("Saving the answers" + (autoTarget != null ? " (into the database and folders); Auto render of " + rendered.size() + " starts after" : "") + "\u2026");
             Thread saving = new Thread(() -> {
                 try {
                     TextOffer.saveAnswers(app, program, argv, made, line -> app.runOnUiThread(() -> this.pkAddLogLine(line)));
@@ -2084,7 +2110,10 @@ final class PyJav {
                     app.runOnUiThread(() -> this.pkAddLogLine("Could not save the answers: " + ex.getMessage()));
                 }
                 // Auto render, an input folder (or Silent auto mode): each answer rendered by the Send to program (no Document ready).
-                if (autoTarget != null) app.runOnUiThread(() -> this.pkStartAutoRender(autoTarget, rendered));
+                if (autoTarget != null) app.runOnUiThread(() -> {
+                    this.pkAddLogLine("Answers saved: Auto render goes on");
+                    this.pkStartAutoRender(autoTarget, rendered);
+                });
             }, "pulsekit-answers");
             saving.start();
             pkAnswersThread = saving;

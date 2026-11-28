@@ -2429,6 +2429,30 @@ public final class SogniTextVideo {
       }
     }
     /**
+     * An aspect ratio's size when no width and height are given: its short side 1080 pixels, the long one from
+     * the ratio (at most 2560), both multiples of 8 (16:9 is 1920x1080, 4:7 1080x1888). Null for no ratio.
+     */
+    public static int[] sizeFor(String aspect) {
+      if (aspect == null || !aspect.trim().matches("\\d{1,2}:\\d{1,2}")) return null;
+      String[] p = aspect.trim().split(":");
+      double a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+      if (a <= 0 || b <= 0) return null;
+      double w = a >= b ? 1080 * a / b : 1080, h = a >= b ? 1080 : 1080 * b / a;
+      double over = Math.max(w, h) / 2560.0;
+      if (over > 1) {
+        w /= over;
+        h /= over;
+      }
+      return new int[] {(int) Math.max(256, Math.round(w / 8.0) * 8), (int) Math.max(256, Math.round(h / 8.0) * 8)};
+    }
+
+    /** The %ar and %r codes of an output name for this run: the aspect ratio ("16x9") and the size ("1920x1080"). */
+    public static void sizeCodes(String aspect, int width, int height) {
+      System.setProperty("pulsekit.ar", aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "");
+      System.setProperty("pulsekit.res", width > 0 && height > 0 ? width + "x" + height : "");
+    }
+
+    /**
      * An output name's % codes filled in (as Downloads' subfolders): after a %, dd (day, 04), d (4), mm
      * (month, 11), m, yyyy (2026), yy (26) and n follow each other until another character; %% is a %.
      * %n is the first number from 1 no file in `dir`, or in the folders Pulsekit saves results in
@@ -2506,7 +2530,13 @@ public final class SogniTextVideo {
         int j = i + 1;
         while (j < pattern.length()) {
           String rest = pattern.substring(j);
-          if (rest.startsWith("yyyy")) {
+          if (rest.startsWith("ar")) {
+            out.append(System.getProperty("pulsekit.ar", ""));
+            j += 2;
+          } else if (rest.startsWith("r")) {
+            out.append(System.getProperty("pulsekit.res", ""));
+            j += 1;
+          } else if (rest.startsWith("yyyy")) {
             out.append(String.format(java.util.Locale.ROOT, "%04d", now.get(java.util.Calendar.YEAR)));
             j += 4;
           } else if (rest.startsWith("yy")) {

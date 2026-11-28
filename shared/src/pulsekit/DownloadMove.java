@@ -488,6 +488,29 @@ public final class DownloadMove {
    * The finished downloads to move now: of a ticked kind with a folder, still in Download. {run, item}
    * pairs, the oldest run first (the folder gets them in the order they were made).
    */
+  /** A folder pattern's %ar and %r (%ar%, %r%): the run's aspect ratio ("16x9") and size ("1920x1080"), from --aspect, --width, --height. */
+  public static String sizeCodes(String pattern, List<String> argv) {
+    if (pattern == null || pattern.indexOf('%') < 0 || argv == null) return pattern;
+    String aspect = ChatFolder.arg(argv, "--aspect"), w = ChatFolder.arg(argv, "--width"), h = ChatFolder.arg(argv, "--height");
+    int width = 0, height = 0;
+    try {
+      if (w != null && h != null) {
+        width = (int) Double.parseDouble(w.trim());
+        height = (int) Double.parseDouble(h.trim());
+      }
+    } catch (NumberFormatException ignored) {
+      width = height = 0;
+    }
+    if (width <= 0 && aspect != null && SogniApi.sizeFor(aspect) != null) {
+      int[] wh = SogniApi.sizeFor(aspect);
+      width = wh[0];
+      height = wh[1];
+    }
+    String ar = aspect != null && aspect.trim().length() > 0 ? aspect.trim().replace(':', 'x') : width > 0 ? width + "x" + height : "";
+    String res = width > 0 ? width + "x" + height : "";
+    return pattern.replace("%ar%", ar).replace("%ar", ar).replace("%r%", res).replaceAll("%r(?![a-z])", java.util.regex.Matcher.quoteReplacement(res));
+  }
+
   /** Runs whose files went into a Batch folder: Move (now, automatically) leaves them where they are. */
   private static final java.util.Set<Long> KEPT = new java.util.HashSet<Long>();
 

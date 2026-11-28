@@ -210,9 +210,12 @@ public final class BatchQueue {
     return new ArrayList<String>(this.runs.get(this.next++));
   }
 
+  /** An input folder's batch: the folder's name (said with each run), else null. */
+  public String folder;
+
   /** "Batch: run 2 of 5 (SogniVideo)" for the log and the status line. */
   public String progress() {
-    if (this.byFiles()) return "Files: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
+    if (this.byFiles()) return "Files: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + (this.folder != null ? ", folder " + this.folder : "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
     if (this.bySections()) return "Sections: run " + this.next + " of " + this.runs.size() + " (" + this.program.replaceAll("\\.(java|py|jar)$", "") + ") \u00b7 " + this.labels.get(Math.max(0, this.next - 1));
     return "Batch: run " + this.next + " of " + this.runs.size() + " (" + this.program.replace(".java", "") + ")";
   }

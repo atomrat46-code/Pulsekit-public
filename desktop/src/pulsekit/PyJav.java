@@ -817,7 +817,7 @@ final class PyJav {
             }
         }
         if (inBatchQ != null && batchPattern.length() > 0 && inBatchQ.outFolder == null)
-            inBatchQ.outFolder = ProgramFolder.outdir(batchPattern, this.programFolder()).getAbsolutePath();
+            inBatchQ.outFolder = ProgramFolder.outdir(DownloadMove.sizeCodes(batchPattern, runArgs), this.programFolder()).getAbsolutePath();
         final boolean savingRun = saving;
         // SogniChat: Auto render with no Send to program: run without it, or choose the program (kept in the Params).
         if (ChatFolder.autoWithoutProgram(name, runArgs)) {

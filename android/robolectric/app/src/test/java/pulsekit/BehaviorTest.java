@@ -16592,7 +16592,7 @@ public class BehaviorTest {
     write("s276_folder_runs", t);
     boolean ok = t.contains("row --input_dir: Input folder: each picture (PNG, JPEG, WebP) edited in turn, one run a picture (folder)")
         && t.contains("row --section: Section: a saved section's entries") && t.contains("labels: [a.png, b.jpg]")
-        && t.contains("3 files; the first 2 by name are run (Max files)") && t.contains("Section Soft light")
+        && t.contains("3 files to run; the first 2 by name are run (Max files)") && t.contains("Section Soft light")
         && t.contains("params: --prompt \"Soft window light\"") && t.contains("--image ~/a.png") && t.contains("--loras \"glow 0.5\"")
         && !t.contains("--input_dir \"~") && !t.contains("--section \"soft")
         && t.contains("auto render: [--prompt \"A lighthouse in fog. Soft light.\" --seed 7] | SogniPadd.java");
@@ -16903,6 +16903,12 @@ public class BehaviorTest {
     // (A name %n gave stays taken: a batch's runs whose files go elsewhere get Testi_2, Testi_3...)
     out.append("names: ").append(SogniApi.fillName("Testi_%n%", nd)).append(", ").append(SogniApi.fillName("Testi_%n", nd)).append(", ")
         .append(SogniApi.fillName("100%% sure_%n%.png", nd)).append('\n');
+    // Sizes: an aspect ratio alone gives its size (short side 1080); %ar and %r in a name and a folder.
+    int[] s47 = SogniApi.sizeFor("4:7"), s169 = SogniApi.sizeFor("16:9");
+    SogniApi.sizeCodes("4:7", s47[0], s47[1]);
+    System.clearProperty("pulsekit.given");
+    out.append("sizes: ").append(s47[0]).append('x').append(s47[1]).append(' ').append(s169[0]).append('x').append(s169[1]).append(" | name ").append(SogniApi.fillName("Testi_%ar%_%r%", nd))
+        .append(" | folder ").append(DownloadMove.sizeCodes("Batch/%ar/%r%", java.util.Arrays.asList("--aspect", "16:9"))).append('\n');
     // Batch mode: an answer empty once processed is passed by (not saved, sent or rendered).
     TextReady.remember(app.getFilesDir(), "SogniChat.java", TextReady.CUT_AFTER, TextReady.SOGNI_REPLY, "", TextReady.FROM_FILE, TextReady.OFF);
     java.util.List<JavaRun.FileOut> twoAnswers = new java.util.ArrayList<JavaRun.FileOut>();
@@ -16983,7 +16989,7 @@ public class BehaviorTest {
         && t.contains("notes removed: A misty harbour at dawn.||Soft light. | kept: true | remembered on")
         && t.contains("sogni cut: === You ===|Describe it||A lighthouse in fog.|Soft light. | off: true")
         && t.contains("sections: Keep  and  end [[open | empty E: a [[b]] c")
-        && t.contains("names: Testi_2, Testi_3, 100% sure_1.png")
+        && t.contains("names: Testi_2, Testi_3, 100% sure_1.png") && t.contains("sizes: 1080x1888 1920x1080 | name Testi_4x7_1080x1888 | folder Batch/16x9/1920x1080")
         && t.contains("empty skipped: saved 1 | ; 1 empty after processing, left out (not saved, sent or rendered)")
         && t.contains("video folder: ") && t.contains("--end_image ~/a.png") && t.contains("| pedit: ") && t.contains("--image2 ~/a.png") && t.contains("text video: --prompt \"A lighthouse at night.\"")
         && t.contains("| as: [Start picture (--image), End picture (--end_image)] | rows true")

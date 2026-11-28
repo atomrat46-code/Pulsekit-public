@@ -190,6 +190,8 @@ final class ProgramMenus {
             app.setNow("Run · " + name);
             // Its run still going (another program looked at meanwhile): shown again.
             app.pyJav.pkShowRunning(name);
+            // A run or batch going: the page from its buttons and status down, the output from its start (not the code window).
+            app.pyJav.pkScrollToRun();
         } catch (Exception e) {
             app.setNow("Could not open " + name);
         }

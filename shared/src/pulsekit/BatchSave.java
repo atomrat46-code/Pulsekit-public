@@ -37,6 +37,7 @@ public final class BatchSave {
     line(sb, "doneKey", q.doneKey);
     line(sb, "outFolder", q.outFolder);
     line(sb, "group", q.group);
+    line(sb, "folder", q.folder);
     line(sb, "total", String.valueOf(q.runs.size()));
     line(sb, "from", String.valueOf(from));
     line(sb, "saved", String.valueOf(System.currentTimeMillis()));
@@ -82,7 +83,7 @@ public final class BatchSave {
     public int total, from;
     public long saved;
     public boolean join, chained;
-    public String doneKey, outFolder, group;
+    public String doneKey, outFolder, group, folder;
     public final List<List<String>> runs = new ArrayList<List<String>>();
     public final List<String> params = new ArrayList<String>(), labels = new ArrayList<String>(), files = new ArrayList<String>(), notes = new ArrayList<String>();
 
@@ -112,6 +113,7 @@ public final class BatchSave {
         else if (key.equals("doneKey")) k.doneKey = v.isEmpty() ? null : v;
         else if (key.equals("outFolder")) k.outFolder = v.isEmpty() ? null : v;
         else if (key.equals("group")) k.group = v.isEmpty() ? null : v;
+        else if (key.equals("folder")) k.folder = v.isEmpty() ? null : v;
         else if (key.equals("total")) k.total = Integer.parseInt(v.trim());
         else if (key.equals("from")) k.from = Integer.parseInt(v.trim());
         else if (key.equals("saved")) k.saved = Long.parseLong(v.trim());
@@ -140,6 +142,7 @@ public final class BatchSave {
     q.chained = k.chained;
     q.outFolder = k.outFolder;
     q.group = k.group;
+    q.folder = k.folder;
     q.notes.addAll(k.notes);
     q.notes.add("Gone on with a kept batch: " + k.left() + " of " + k.total + " runs");
     return q;

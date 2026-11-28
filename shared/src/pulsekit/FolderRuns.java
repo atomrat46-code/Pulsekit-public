@@ -129,10 +129,6 @@ public final class FolderRuns {
       todo = fresh;
     }
     int max = ChatFolder.max(argv);
-    if (todo.size() > max) {
-      notes.add(todo.size() + " files; the first " + max + " by name are run (Max files)");
-      todo = new ArrayList<File>(todo.subList(0, max));
-    }
     if (todo.isEmpty()) {
       notes.add(files.isEmpty() ? "No " + (pictures(program) ? "pictures (PNG, JPEG, WebP)" : ".txt or .prompt files") + " in the folder"
           : "Nothing new: every file in the folder was done before (Skip already processed)");
@@ -149,14 +145,33 @@ public final class FolderRuns {
       }
     }
     List<String> params = new ArrayList<String>(), labels = new ArrayList<String>(), names = new ArrayList<String>();
+    // Max files counts only the files that make a run: a text file with no prompt in it is passed over, not counted.
+    int empty = 0, more = 0;
     for (File f : todo) {
       byte[] bytes = pictures(program) ? null : java.nio.file.Files.readAllBytes(f.toPath());
+      if (bytes != null && ProgramParams.promptText(bytes).trim().isEmpty()) {
+        empty++;
+        continue;
+      }
+      if (params.size() >= max) {
+        more++;
+        continue;
+      }
       params.add(paramsFor(program, ps, base, f, bytes));
       labels.add(f.getName());
       names.add(f.getName());
     }
+    if (empty > 0) notes.add(empty + " file" + (empty == 1 ? "" : "s") + " with no prompt in it, passed over (not counted in Max files)");
+    if (more > 0) notes.add((params.size() + more) + " files to run; the first " + max + " by name are run (Max files)");
+    if (params.isEmpty()) {
+      notes.add("No file with a prompt in it left to run");
+      return null;
+    }
     BatchQueue q = BatchQueue.files(program, ps, params, labels, names, key);
-    if (q != null) q.notes.addAll(notes);
+    if (q != null) {
+      q.notes.addAll(notes);
+      q.folder = MediaDir.label(folder);
+    }
     return q;
   }
 }
