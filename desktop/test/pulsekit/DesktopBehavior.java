@@ -1862,7 +1862,7 @@ public final class DesktopBehavior {
       int second = all.indexOf("--skip_done");
       if (second < 0 || !all.substring(second).contains("=== File 1 of 1: 4-left-out.txt ===")
           || !all.substring(second).contains("Note: 3 files in chat folder answered before, left out (Skip already processed)")
-          || !all.substring(all.indexOf("--skip_done", second + 1)).contains("Nothing new in chat folder: every file in it was answered before (Skip already processed)"))
+          || !all.substring(all.indexOf("--skip_done", second + 1)).contains("Nothing left to process in chat folder: every file there was processed before (Skip already processed is on"))
         throw new AssertionError("skip done:\n" + all.substring(Math.max(0, second)));
       // Send to program and group: each answer also a section in SogniPadd's group Imports.
       int imported = 0;
@@ -10586,7 +10586,7 @@ public final class DesktopBehavior {
     this.out.append(got);
     String g = got.toString();
     boolean ok = g.contains("round 1: Files done: 2 of 2 runs succeeded") && g.contains("run: A red kite over hills. | seed 42") && g.contains("run: An owl at dusk | seed 42.0 | loras [\"kite\"]")
-        && g.contains("3 files; the first 2 by name are run (Max files)") && !g.contains("run: Not this")
+        && g.contains("3 files to run; the first 2 by name are run (Max files)") && !g.contains("run: Not this")
         && g.contains("round 2: Files done: 1 of 1 runs succeeded") && g.contains("2 files done before, left out (Skip already processed)")
         && g.contains("run: A grey sea. | seed 42") && g.contains("target: SogniPadd.java, none without null") && g.contains("auto render: Auto render: 2 runs of SogniPadd | Files done: 2 of 2 runs succeeded")
         && g.contains("auto: A lighthouse in fog. | seed 7.0") && g.contains("auto: Cherry trees at dawn. | seed 7.0") && g.contains("prompt after: --prompt \"Original prompt\" --seed 7") && g.contains("a-hills.txt: Succeeded \u2192 img-a-hills.png") && g.contains("c-sea.prompt: Succeeded \u2192 img-c-sea.png") && g.contains("params after: true");

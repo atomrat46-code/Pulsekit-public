@@ -40,6 +40,8 @@ public final class SogniDownloads {
 
   /** One run. */
   public static final class Run {
+    /** Its line as last sealed (and the text sealed): a write seals only the runs that changed (each seal is a keystore call). */
+    String sealedText, sealedLine;
     public long id;
     public String program = "";
     public long started;
@@ -94,7 +96,12 @@ public final class SogniDownloads {
         if (!line.startsWith("run=")) continue;
         Run r;
         try {
-          r = decode(Sealed.openText(line.substring(4).trim()));
+          String text = Sealed.openText(line.substring(4).trim());
+          r = decode(text);
+          if (r != null) {
+            r.sealedText = text;
+            r.sealedLine = line.substring(4).trim();
+          }
         } catch (Exception ex) {
           continue;
         }
@@ -595,7 +602,13 @@ public final class SogniDownloads {
     StringBuilder sb = new StringBuilder();
     for (Run r : RUNS) {
       try {
-        sb.append("run=").append(Sealed.sealText(encode(r))).append('\n');
+        String text = encode(r);
+        // Unchanged since it was last sealed: its sealed line as it was (sealing them all made each write take seconds).
+        if (r.sealedLine == null || !text.equals(r.sealedText)) {
+          r.sealedLine = Sealed.sealText(text);
+          r.sealedText = text;
+        }
+        sb.append("run=").append(r.sealedLine).append('\n');
       } catch (Exception ex) {
         // without the library's key the list is kept for this session only
       }
