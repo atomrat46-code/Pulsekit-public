@@ -94,20 +94,11 @@ final class MidiFolder {
         File dest = new File(work, "chat-folder");
         deleteAll(dest);
         List<String[]> kids = new ArrayList<String[]>();
-        Cursor c = null;
-        try {
-            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
-                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
-            while (c != null && c.moveToNext()) {
-                String name = c.getString(1) == null ? "" : c.getString(1);
-                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2)) && ChatFolder.kind(name)) kids.add(new String[] {c.getString(0), name});
-            }
-        } catch (Exception ex) {
-            note.append("Could not read ").append(MediaDir.label(v)).append(": ").append(ex.getMessage());
-        } finally {
-            if (c != null) c.close();
-        }
+        // Include subfolders: their files too, copied side by side as "sub - name" (SogniChat reads one folder).
+        boolean deepChat = argv.contains("--subfolders");
+        List<String[]> found = new ArrayList<String[]>();
+        if (!listKids(ctx, ChatFolder::kind, tree, DocumentsContract.getTreeDocumentId(tree), "", deepChat, found, 0)) note.append("Could not read ").append(MediaDir.label(v));
+        for (String[] k : found) kids.add(new String[] {k[0], k[1].replace("/", " - ")});
         java.util.Collections.sort(kids, (a, b) -> {
             int d = a[1].compareToIgnoreCase(b[1]);
             return d != 0 ? d : a[1].compareTo(b[1]);
@@ -158,28 +149,23 @@ final class MidiFolder {
      * files): its files the program takes (not its subfolders') copied into `dest` (emptied first). How many.
      */
     static int copyFor(Context ctx, String program, Uri tree, File dest) {
+        return copyFor(ctx, program, tree, dest, false);
+    }
+
+    /** As above; `deep` (Include subfolders): its subfolders' files too, into folders of the same names. */
+    static int copyFor(Context ctx, String program, Uri tree, File dest, boolean deep) {
         deleteAll(dest);
         dest.mkdirs();
         int n = 0;
-        Cursor c = null;
         List<String[]> kids = new ArrayList<String[]>();
-        try {
-            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
-                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
-            while (c != null && c.moveToNext()) {
-                String name = c.getString(1) == null ? "" : c.getString(1);
-                if (!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2)) && FolderRuns.kind(program, name)) kids.add(new String[] {c.getString(0), name});
-            }
-        } catch (Exception ex) {
-            return 0;
-        } finally {
-            if (c != null) c.close();
-        }
+        if (!listKids(ctx, program, tree, DocumentsContract.getTreeDocumentId(tree), "", deep, kids, 0)) return 0;
         for (String[] k : kids) {
             try {
                 InputStream in = ctx.getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, k[0]));
                 if (in == null) continue;
-                FileOutputStream o = new FileOutputStream(new File(dest, safe(k[1])));
+                File to = new File(dest, k[1]);
+                if (to.getParentFile() != null) to.getParentFile().mkdirs();
+                FileOutputStream o = new FileOutputStream(to);
                 try {
                     byte[] b = new byte[8192];
                     for (int r; (r = in.read(b)) > 0; ) o.write(b, 0, r);
@@ -193,6 +179,32 @@ final class MidiFolder {
             }
         }
         return n;
+    }
+
+    /** The picked folder's files the program takes ({document id, path under the folder}), its subfolders' too when `deep`. */
+    static boolean listKids(Context ctx, String program, Uri tree, String docId, String under, boolean deep, List<String[]> kids, int depth) {
+        return listKids(ctx, n -> FolderRuns.kind(program, n), tree, docId, under, deep, kids, depth);
+    }
+
+    static boolean listKids(Context ctx, java.util.function.Predicate<String> takes, Uri tree, String docId, String under, boolean deep, List<String[]> kids, int depth) {
+        Cursor c = null;
+        List<String[]> dirs = new ArrayList<String[]>();
+        try {
+            c = ctx.getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId),
+                new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            while (c != null && c.moveToNext()) {
+                String name = c.getString(1) == null ? "" : c.getString(1);
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2))) {
+                    if (deep && depth < 8 && !name.startsWith(".")) dirs.add(new String[] {c.getString(0), name});
+                } else if (takes.test(name)) kids.add(new String[] {c.getString(0), under + safe(name)});
+            }
+        } catch (Exception ex) {
+            return depth > 0;
+        } finally {
+            if (c != null) c.close();
+        }
+        for (String[] d : dirs) listKids(ctx, takes, tree, d[0], under + safe(d[1]) + "/", true, kids, depth + 1);
+        return true;
     }
 
     private static String safe(String name) {

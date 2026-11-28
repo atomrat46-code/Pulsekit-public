@@ -49,15 +49,27 @@ public final class ChatFolder {
 
   /** The folder's files SogniChat reads, by name (not its subfolders'); all of them, the cap left to the caller. */
   public static List<File> files(File dir) {
+    return files(dir, false);
+  }
+
+  /** As above; `deep`: its subfolders' files too (by name). */
+  public static List<File> files(File dir, boolean deep) {
     List<File> out = new ArrayList<File>();
-    File[] all = dir == null ? null : dir.listFiles();
-    if (all == null) return out;
-    for (File f : all) if (f.isFile() && kind(f.getName())) out.add(f);
+    collect(dir, deep, out, 0);
     java.util.Collections.sort(out, (a, b) -> {
       int c = a.getName().compareToIgnoreCase(b.getName());
       return c != 0 ? c : a.getName().compareTo(b.getName());
     });
     return out;
+  }
+
+  static void collect(File dir, boolean deep, List<File> out, int depth) {
+    File[] all = dir == null ? null : dir.listFiles();
+    if (all == null) return;
+    for (File f : all) {
+      if (f.isFile() && kind(f.getName())) out.add(f);
+      else if (deep && f.isDirectory() && !f.getName().startsWith(".") && depth < 8) collect(f, true, out, depth + 1);
+    }
   }
 
   /** Silent auto mode: Document ready skipped (only with Auto render and a Send to program). */
@@ -123,7 +135,8 @@ public final class ChatFolder {
     if (dir == null || argv.contains("--dir_file")) return argv;
     File d = new File(dir);
     if (!d.isDirectory()) return argv;
-    List<File> all = files(d);
+    // Include subfolders: their files too (on the phone a picked folder's are copied side by side already).
+    List<File> all = files(d, argv.contains("--subfolders"));
     // Skip already processed: the files answered in earlier runs on this folder left out (before Max files).
     int skipped = 0;
     if (argv.contains("--skip_done")) {

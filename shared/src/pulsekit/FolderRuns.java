@@ -17,7 +17,7 @@ public final class FolderRuns {
   private FolderRuns() {}
 
   /** The Params rows of a folder run: not given to the program's runs. */
-  public static final String[] OWN = {"--input_dir", "--max_files", "--skip_done", "--section", "--input_as"};
+  public static final String[] OWN = {"--input_dir", "--max_files", "--skip_done", "--section", "--input_as", "--subfolders"};
 
   public static boolean wanted(String program) {
     return pictures(program) || "SogniPadd.java".equals(program) || "SogniTextVideo.java".equals(program);
@@ -49,14 +49,46 @@ public final class FolderRuns {
 
   /** The folder's files the program takes, by name. */
   public static List<File> files(String program, File dir) {
-    List<File> out = new ArrayList<File>();
-    File[] all = dir == null ? null : dir.listFiles();
-    if (all != null) for (File f : all) if (f.isFile() && kind(program, f.getName())) out.add(f);
+    return files(program, dir, false);
+  }
+
+  /** As above; `deep` (Include subfolders): its subfolders' files too, by their path in the folder. */
+  public static List<File> files(String program, File dir, boolean deep) {
+    final List<File> out = new ArrayList<File>();
+    collect(program, dir, deep, out, 0);
+    final File root = dir;
     java.util.Collections.sort(out, (a, b) -> {
-      int c = a.getName().compareToIgnoreCase(b.getName());
-      return c != 0 ? c : a.getName().compareTo(b.getName());
+      String x = rel(root, a), y = rel(root, b);
+      int c = x.compareToIgnoreCase(y);
+      return c != 0 ? c : x.compareTo(y);
     });
     return out;
+  }
+
+  static void collect(String program, File dir, boolean deep, List<File> out, int depth) {
+    File[] all = dir == null ? null : dir.listFiles();
+    if (all == null) return;
+    for (File f : all) {
+      if (f.isFile() && kind(program, f.getName())) out.add(f);
+      else if (deep && f.isDirectory() && !f.getName().startsWith(".") && depth < 8) collect(program, f, true, out, depth + 1);
+    }
+  }
+
+  /** The input folder of `files` (the shortest folder they are in: Include subfolders' files are under it). */
+  static File commonRoot(List<File> files) {
+    File best = null;
+    for (File f : files) {
+      File d = f.getAbsoluteFile().getParentFile();
+      if (best == null || (d != null && d.getAbsolutePath().length() < best.getAbsolutePath().length())) best = d;
+    }
+    return best;
+  }
+
+  /** A file's name in the input folder: its path under it ("sub/a.txt"), or its own name. */
+  public static String rel(File root, File f) {
+    if (root == null || f == null) return f == null ? "" : f.getName();
+    String r = root.getAbsolutePath(), p = f.getAbsolutePath();
+    return p.startsWith(r + File.separator) ? p.substring(r.length() + 1).replace(File.separatorChar, '/') : f.getName();
   }
 
   /** Skip already processed's list: kept for the program and the folder as given (a picked folder's address). */
@@ -119,12 +151,19 @@ public final class FolderRuns {
    */
   public static BatchQueue start(String program, List<ProgramParams.Param> ps, String saved, List<String> argv, List<File> files, String folder,
       PromptVault vault, List<String> notes) throws Exception {
+    return start(program, ps, saved, argv, files, folder, vault, notes, commonRoot(files));
+  }
+
+  /** As above; `root`: the folder the files are in (Include subfolders: each one's name is its path under it). */
+  public static BatchQueue start(String program, List<ProgramParams.Param> ps, String saved, List<String> argv, List<File> files, String folder,
+      PromptVault vault, List<String> notes, File root) throws Exception {
     String key = doneKey(program, folder);
     List<File> todo = new ArrayList<File>(files);
+    // (The files' names in the folder, a subfolder's its path "sub/a.txt": what Skip already processed keeps.)
     if (argv.contains("--skip_done")) {
       java.util.Set<String> done = ChatFolder.done(key);
       List<File> fresh = new ArrayList<File>();
-      for (File f : todo) if (!done.contains(f.getName())) fresh.add(f);
+      for (File f : todo) if (!done.contains(rel(root, f))) fresh.add(f);
       int skipped = todo.size() - fresh.size();
       if (skipped > 0) notes.add(skipped + " file" + (skipped == 1 ? "" : "s") + " done before, left out (Skip already processed)");
       todo = fresh;
@@ -159,8 +198,8 @@ public final class FolderRuns {
         continue;
       }
       params.add(paramsFor(program, ps, base, f, bytes));
-      labels.add(f.getName());
-      names.add(f.getName());
+      labels.add(rel(root, f));
+      names.add(rel(root, f));
     }
     if (empty > 0) notes.add(empty + " file" + (empty == 1 ? "" : "s") + " with no prompt in it, passed over (not counted in Max files)");
     if (more > 0) notes.add((params.size() + more) + " files to run; the first " + max + " by name are run (Max files)");

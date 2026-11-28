@@ -182,6 +182,8 @@ public final class ProgramParams {
         p.hint = "20";
       }
       if (p.flag && !p.takesValue && p.token.equals("--skip_done") && !chat && (pics || texts)) p.label = "Skip already processed: the input folder's files done in earlier runs left out";
+      if (p.flag && !p.takesValue && p.token.equals("--subfolders") && (pics || texts || chat))
+        p.label = "Include subfolders: the input folder's subfolders' files too (Skip already processed remembers them by their path)";
       // Input as: the folder's pictures as reference image 1 or 2 (SogniVideo: its start or end picture).
       if (p.flag && p.takesValue && p.token.equals("--input_as") && pics) {
         p.label = "Input folder's pictures as";

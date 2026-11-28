@@ -2715,7 +2715,7 @@ final class PyJav {
             final java.io.File into = new java.io.File(new java.io.File(app.getCacheDir(), "folder-run"), app0);
             this.pkAddLogLine(app0 + ": reading the folder " + pulsekit.MediaDir.label(folder) + "\u2026");
             new Thread(() -> {
-                int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), into);
+                int n = MidiFolder.copyFor(app, program, android.net.Uri.parse(folder), into, argv.contains("--subfolders"));
                 app.runOnUiThread(() -> {
                     this.pkAddLogLine(app0 + ": " + n + " file" + (n == 1 ? "" : "s") + " from " + pulsekit.MediaDir.label(folder));
                     this.pkFolderRunFrom(program, ps, argv, folder, app0, into);
@@ -2738,8 +2738,8 @@ final class PyJav {
         }
         java.util.List<String> notes = new java.util.ArrayList<String>();
         try {
-            pulsekit.BatchQueue q = pulsekit.FolderRuns.start(program, ps, pulsekit.PyJavParams.load(app, program), argv, pulsekit.FolderRuns.files(program, dir), folder,
-                pulsekit.PromptVault.open(app.getFilesDir()), notes);
+            pulsekit.BatchQueue q = pulsekit.FolderRuns.start(program, ps, pulsekit.PyJavParams.load(app, program), argv,
+                pulsekit.FolderRuns.files(program, dir, argv.contains("--subfolders")), folder, pulsekit.PromptVault.open(app.getFilesDir()), notes, dir);
             for (String n : notes) this.pkAddLogLine(app0 + ": " + n);
             if (q == null) return;
             this.pkAddLogLine("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + app0 + " on " + dir.getName() + ", one after another");

@@ -3008,7 +3008,7 @@ final class PyJav {
         }
         java.util.List<String> notes = new java.util.ArrayList<String>();
         try {
-            BatchQueue q = FolderRuns.start(program, ps, this.loadParams(program), argv, FolderRuns.files(program, dir), folder, PromptDb.vault(), notes);
+            BatchQueue q = FolderRuns.start(program, ps, this.loadParams(program), argv, FolderRuns.files(program, dir, argv.contains("--subfolders")), folder, PromptDb.vault(), notes, dir);
             for (String n : notes) this.testNote(SogniSections.app(program) + ": " + n);
             if (q == null) return;
             this.testNote("Files: " + q.runs.size() + " run" + (q.runs.size() == 1 ? "" : "s") + " of " + SogniSections.app(program) + " on " + dir.getName() + ", one after another");

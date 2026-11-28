@@ -193,7 +193,7 @@ public final class SogniPadd {
       else if (a.equals("--delete_from_sogni")) deleteFromSogni = true;
       // Pulsekit's Input folder rows: its runs (one a file) do not have them; a run on its own leaves them out.
       else if ((a.equals("--input_dir") || a.equals("--max_files") || a.equals("--section")) && i + 1 < args.length) i++;
-      else if (a.equals("--skip_done")) continue;
+      else if (a.equals("--skip_done") || a.equals("--subfolders")) continue;
       else if (a.equals("--unlimited")) unlimited = true;
       else if (a.equals("--confirm_cost")) confirm = true;
       else if (a.equals("--variations") && i + 1 < args.length) {
@@ -374,7 +374,7 @@ public final class SogniPadd {
 
   static void usage() {
     say("Usage: java SogniPadd [output.png] [--prompt text] [--loras id:strength,...] [--aspect 16:9|9:16|4:5|1:1] [--aspect2 16:9|9:16|4:5|1:1] [--width N] [--height N] "
-        + "[--seed N] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--section name]");
+        + "[--seed N] [--saveprompt] [--unlimited] [--key_file credentials.txt] [--confirm_cost] [--max_cost N] [--variations N] [--workflow id] [--delete_from_sogni] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--section name]");
   }
 
   /** "krea2-mystic-x 1, krea2-weight -1". */

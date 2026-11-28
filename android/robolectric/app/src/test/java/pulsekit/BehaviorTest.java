@@ -16702,6 +16702,17 @@ public class BehaviorTest {
     String folderP = FolderRuns.paramsFor("SogniPadd.java", padd, withBatch, pf, java.nio.file.Files.readAllBytes(pf.toPath()));
     out.append("own batches: ").append(autoP.contains("--prompt \"A red kite, slow pan\"")).append(' ').append(folderP.contains("--prompt \"A blue boat, slow pan\"")).append(" | twice no ")
         .append(Chain.withBatch("A red kite, slow pan", "slow pan", null)).append('\n');
+    // Include subfolders: a folder's subfolders' files too, named by their path (Skip already processed keeps that).
+    java.io.File deepDir = new java.io.File(app.getCacheDir(), "deep-in");
+    new java.io.File(deepDir, "sub").mkdirs();
+    java.nio.file.Files.write(new java.io.File(deepDir, "a.txt").toPath(), "A kite".getBytes("UTF-8"));
+    java.nio.file.Files.write(new java.io.File(deepDir, "sub/b.txt").toPath(), "A boat".getBytes("UTF-8"));
+    java.util.List<String> deepArgs = java.util.Arrays.asList("--input_dir", deepDir.getAbsolutePath(), "--subfolders");
+    BatchQueue dq = FolderRuns.start("SogniPadd.java", padd, "--prompt \"x\"", deepArgs, FolderRuns.files("SogniPadd.java", deepDir, true), deepDir.getAbsolutePath(),
+        PromptVault.open(app.getFilesDir()), new java.util.ArrayList<String>(), deepDir);
+    out.append("subfolders: ").append(dq == null ? "none" : dq.labels).append(" | top only ").append(FolderRuns.files("SogniPadd.java", deepDir, false).size())
+        .append(" | chat ").append(ChatFolder.files(deepDir, true).size()).append(' ').append(ChatFolder.files(deepDir, false).size()).append('\n');
+    BatchQueue.stop();
     // Picture ready made by a chain: Back to the program that chained it; a run of its own: no Back.
     android.graphics.Bitmap pbmp = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888);
     java.io.ByteArrayOutputStream ppng = new java.io.ByteArrayOutputStream();
@@ -16755,6 +16766,7 @@ public class BehaviorTest {
         "video: --prompt \"Waves, slow pan\" --image /x/Testi_2.png | pedit: --prompt \"Make it night\" --image /x/Testi_1.png | labels [Testi_1.png, Testi_2.png]",
         "params: chain to hidden true, shown true | batch text true, buttons true true",
         "own batches: true true | twice no A red kite, slow pan",
+        "subfolders: [a.txt, sub/b.txt] | top only 1 | chat 2 1",
         "ready back: Back | to SogniPadd.java | own run: no Back",
         "kept: SogniPadd: 2 of 3 runs left (from b.txt) | resumed runs 2, first true, folder Batches/run1 | offline true false",
         "resume ask: SogniPadd: 2 of 3 runs left (from b.txt)|Kept D. Go on with it now?", "discarded: true",

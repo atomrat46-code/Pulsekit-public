@@ -175,7 +175,7 @@ public final class SogniChat {
       // Pulsekit's too: the answer rendered by the Send to program.
       else if (a.equals("--auto_render") || a.equals("--silent_auto")) continue;
       // An input folder's rows given with no input folder (a one-file run): left out.
-      else if (a.equals("--skip_done") || a.equals("--listed")) continue;
+      else if (a.equals("--skip_done") || a.equals("--subfolders") || a.equals("--listed")) continue;
       else if ((a.equals("--max_files") || a.equals("--done_key")) && i + 1 < args.length) i++;
       else if (a.equals("--model") && i + 1 < args.length) model = args[++i].trim();
       else if (a.equals("--max_tokens") && i + 1 < args.length) maxTokens = number(a, args[++i]);
@@ -517,7 +517,7 @@ public final class SogniChat {
           i += 2;
         }
         items.add(new String[] {f, copy});
-      } else if (a.equals("--listed") || a.equals("--skip_done")) {
+      } else if (a.equals("--listed") || a.equals("--skip_done") || a.equals("--subfolders")) {
         // Pulsekit listed the folder (--dir_file), with Skip already processed leaving out the files answered before.
         if (a.equals("--listed")) listed = true;
       } else if (a.equals("--done_key") && i + 1 < args.length) {
@@ -590,7 +590,7 @@ public final class SogniChat {
 
   static void usage() {
     System.out.println("Usage: java SogniChat [output_name] [--prompt text] [--file notes.txt|song.mid|picture.jpg] [--continue chat.txt] [--system text] [--model id] "
-        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto]");
+        + "[--max_tokens N] [--thinking] [--models] [--tools] [--run_tools] [--unlimited] [--filter_on] [--run run_id] [--max_cost N] [--variations N] [--confirm_cost] [--saveprompt] [--key_file credentials.txt] [--input_dir folder] [--max_files N] [--skip_done] [--subfolders] [--output_dir folder] [--send_program name] [--send_group name] [--auto_render] [--silent_auto]");
   }
 
   /**
