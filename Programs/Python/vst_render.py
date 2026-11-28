@@ -5678,19 +5678,62 @@ def band_wav(path, mid, which):
     return "+".join(kinds)
 
 
-def hit_dump(java, jar, audio, extra, kit, model_file, props=()):
+# The rules-alone runs kept per song (hit_dump), by the DrumMidi build without its hit model: a new built-in
+# model (only DrumMidi_CRT$HitModel.class changed) runs only the model pass again, not the rules' (half the time).
+RULES_CACHE = [None]
+
+
+def jar_rules_sig(jar):
+    """The DrumMidi jar's signature without its hit model class: its rules' runs are the same while it holds."""
+    import hashlib
+    import zipfile
+    h = hashlib.sha1()
+    with zipfile.ZipFile(jar) as z:
+        for n in sorted(z.namelist()):
+            if n.endswith("$HitModel.class") or n.endswith("/"):
+                continue
+            h.update(n.encode("utf-8"))
+            h.update(z.read(n))
+    return h.hexdigest()[:12]
+
+
+def song_key(audio, extra, kit, kind):
+    """A song's key in RULES_CACHE: the render (its path, size and time), DrumMidi's switches, the kit, dry or which band."""
+    try:
+        st = os.stat(audio)
+        stamp = "%d %d" % (st.st_size, int(st.st_mtime))
+    except OSError:
+        stamp = "?"
+    return "\n".join([os.path.abspath(audio), stamp, " ".join(extra or []), os.path.abspath(kit) if kit else "", kind])
+
+
+def hit_dump(java, jar, audio, extra, kit, model_file, props=(), rkey=None):
     """DrumMidi_CRT on a render twice: the rules alone (-Ddm.hitModel=0, writing each onset that could be a
     kick, snare or tom and its inputs: -Ddm.hitFeatures) and with the hit model (its own, or `model_file`).
-    ([(time, inputs)], the rules' notes, the model's notes) or why not."""
+    ([(time, inputs)], the rules' notes, the model's notes) or why not. `rkey`: the song's key in RULES_CACHE
+    (the rules' run read from there when kept)."""
+    import hashlib
     import subprocess
     import tempfile
     import shutil
+    import numpy as np
     where = tempfile.mkdtemp(prefix="pulsekit-hits-", dir=BENCH_TMP[0])
+    kept = None
+    if RULES_CACHE[0] and rkey:
+        kept = os.path.join(RULES_CACHE[0], hashlib.sha1(rkey.encode("utf-8")).hexdigest()[:20] + ".npz")
     try:
         feats = os.path.join(where, "inputs.txt")
         more = list(extra) + (["--kit", os.path.abspath(kit)] if kit else [])
-        runs = (([java] + list(props) + ["-Ddm.hitModel=0", "-Ddm.hitFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "rules.mid"] + more),
-                ([java] + list(props) + ["-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "model.mid"] + more + (["--hit-model", os.path.abspath(model_file)] if model_file else [])))
+        rules_run = [java] + list(props) + ["-Ddm.hitModel=0", "-Ddm.hitFeatures=" + feats, "-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "rules.mid"] + more
+        model_run = [java] + list(props) + ["-cp", os.path.abspath(jar), "DrumMidi_CRT", os.path.abspath(audio), "model.mid"] + more + (["--hit-model", os.path.abspath(model_file)] if model_file else [])
+        cached = None
+        if kept and os.path.isfile(kept):
+            try:
+                d = np.load(kept, allow_pickle=False)
+                cached = ([(float(t), [float(v) for v in x]) for t, x in zip(d["T"], d["X"])], [(float(t), int(n)) for t, n in d["N"]])
+            except Exception:
+                cached = None
+        runs = (model_run,) if cached is not None else (rules_run, model_run)
         for argv in runs:
             try:
                 r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=1800, cwd=where)
@@ -5699,6 +5742,8 @@ def hit_dump(java, jar, audio, extra, kit, model_file, props=()):
             if not os.path.isfile(os.path.join(where, argv[argv.index("DrumMidi_CRT") + 2])):
                 lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
                 return "DrumMidi_CRT failed (%s)" % ((lines[-1:] or ["no MIDI written"])[0])
+        if cached is not None:
+            return cached[0], cached[1], midi_notes(os.path.join(where, "model.mid"))[1]
         if not os.path.isfile(feats):
             return "DrumMidi_CRT wrote no hit inputs (an older DrumMidi_CRT.jar?)"
         rows = []
@@ -5706,7 +5751,18 @@ def hit_dump(java, jar, audio, extra, kit, model_file, props=()):
             p = line.split()
             if p and not p[0].startswith("#"):
                 rows.append((float(p[0]), [float(v) for v in p[1:]]))
-        return rows, midi_notes(os.path.join(where, "rules.mid"))[1], midi_notes(os.path.join(where, "model.mid"))[1]
+        rules = midi_notes(os.path.join(where, "rules.mid"))[1]
+        if kept:
+            try:
+                os.makedirs(os.path.dirname(kept), exist_ok=True)
+                width = len(rows[0][1]) if rows else 0
+                tmp = kept[:-4] + ".part.npz"
+                np.savez_compressed(tmp, T=np.array([t for t, _ in rows], np.float64), X=np.array([x for _, x in rows], np.float32).reshape(len(rows), width),
+                                    N=np.array([(t, n) for t, n in rules], np.float64).reshape(len(rules), 2))
+                os.replace(tmp, kept)
+            except Exception:
+                pass
+        return rows, rules, midi_notes(os.path.join(where, "model.mid"))[1]
     finally:
         shutil.rmtree(where, ignore_errors=True)
 
@@ -5718,7 +5774,7 @@ def hit_band_dump(java, jar, song, k, extra, kit, model_file):
     os.close(fd)
     try:
         band_wav(band, song[1], k)
-        return hit_dump(java, jar, song[0], extra, kit, model_file, ["-Ddm.mixWith=" + band, "-Ddm.mixLevel=1"])
+        return hit_dump(java, jar, song[0], extra, kit, model_file, ["-Ddm.mixWith=" + band, "-Ddm.mixLevel=1"], song_key(song[0], extra, kit, "band%d" % k))
     finally:
         try:
             os.remove(band)
@@ -5739,7 +5795,7 @@ def hit_data(cache, folder, info, java, jar, jobs, model_file, label="", band=Fa
         indexed = [(s, i) for i, s in enumerate(songs)]
         done = bench_map(lambda si: hit_band_dump(java, jar, si[0], si[1], info["extra"], info["kit"], model_file), indexed, jobs, label)
     else:
-        done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file), songs, jobs, label)
+        done = bench_map(lambda s: hit_dump(java, jar, s[0], info["extra"], info["kit"], model_file, (), song_key(s[0], info["extra"], info["kit"], "dry")), songs, jobs, label)
     failed = [r for r in done if isinstance(r, str)]
     if len(failed) == len(done):
         return (failed[0] if failed else "no renders (mp3/ or wav/) in its zips"), len(songs)
@@ -5946,7 +6002,13 @@ def hit_bench(opts, switches):
              "and set Settings' Hit model bench to Run last (the bench then reads the run's zips)" % folder)
     print("Hit model bench: %d tested kits' zips in %s; unzip folder %s; DrumMidi's results kept in %s" % (len(found), folder, unzip, os.path.join(work, "hits")))
     sig = hashlib.sha1(open(jar, "rb").read() + (open(model_file, "rb").read() if model_file else b"")).hexdigest()[:12]
-    jobs = max(1, min(8, os.cpu_count() or 1))
+    # Every core: DrumMidi's runs are the long part.
+    jobs = max(1, os.cpu_count() or 1)
+    try:
+        RULES_CACHE[0] = os.path.join(work, "hits-rules", jar_rules_sig(jar))
+        print("Rules' runs kept per song in %s (a new hit model alone runs only the model pass)" % RULES_CACHE[0], flush=True)
+    except Exception:
+        RULES_CACHE[0] = None
     kits = []
     hits_at = lambda w, s, key, zips: os.path.join(w, "hits", s, "%s-%s-%s.npz" % (key, bench_sig(zips), BENCH_DATA))
     # Earlier hit benches' work folders (another Output folder) are looked in too: a kit's DrumMidi results
