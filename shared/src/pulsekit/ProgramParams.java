@@ -304,6 +304,16 @@ public final class ProgramParams {
       b.hint = DownloadMove.BATCH_PARAM_HINT;
       out.add(b);
     }
+    // SogniChat's Auto-exclude words: its answers without the sentences that spoil a render (Pulsekit's, taken off the run).
+    if (chat && !has(out, TextReady.AUTO_EXCLUDE)) {
+      Param ax = new Param();
+      ax.token = TextReady.AUTO_EXCLUDE;
+      ax.flag = true;
+      ax.takesValue = false;
+      ax.optional = true;
+      ax.label = TextReady.AUTO_LABEL;
+      out.add(ax);
+    }
     // SogniPadd's Chain (and Chain to); the Sogni prompt programs' Batch prompt (and its text).
     String chainName = padd ? "SogniPadd.java" : textVideo ? "SogniTextVideo.java" : video ? "SogniVideo.java" : pic ? "SogniPedit.java" : sogniMusic ? "SogniMusic.java" : null;
     if (chainName != null) for (Param r : Chain.rows(chainName)) if (!has(out, r.token)) out.add(r);

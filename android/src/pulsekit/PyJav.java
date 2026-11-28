@@ -1456,6 +1456,8 @@ final class PyJav {
         pulsekit.DownloadMove.takeValue(argv, pulsekit.SogniUsage.WARN_PARAM);
         // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
         pulsekit.Chain.strip(argv);
+        // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
+        pulsekit.TextReady.takeAutoExclude(app.getFilesDir(), name, argv);
         if (inBatchQ != null && groupPattern.length() > 0) {
             if (inBatchQ.group == null) inBatchQ.group = pulsekit.BatchGroup.resolve(app.getFilesDir(), groupPattern);
             java.util.List<String> groupFilled = pulsekit.BatchGroup.withGroup(pulsekit.ProgramParams.parse(PyJavParams.programTextOf(app, name)), argv, inBatchQ.group);

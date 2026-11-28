@@ -216,6 +216,22 @@ final class TextOffer {
         ep.leftMargin = app.dp(8);
         secRow.addView(secE, ep);
         col.addView(secRow);
+        // Skip sentences with: each sentence holding one of these (";" between them) left out (remembered).
+        LinearLayout skipRow = new LinearLayout(app);
+        skipRow.setOrientation(LinearLayout.HORIZONTAL);
+        skipRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView skipLabel = app.text(TextReady.SKIP_LABEL, 15, false);
+        skipLabel.setTextColor(0xFFEDEDE8);
+        skipRow.addView(skipLabel, new LinearLayout.LayoutParams(-2, -2));
+        final EditText skip = new EditText(app);
+        skip.setTag("text-ready:skip");
+        skip.setSingleLine(true);
+        skip.setHint(TextReady.SKIP_HINT);
+        skip.setText(set.length > TextReady.F_SKIP ? set[TextReady.F_SKIP] : "");
+        LinearLayout.LayoutParams skp = new LinearLayout.LayoutParams(0, -2, 1f);
+        skp.leftMargin = app.dp(8);
+        skipRow.addView(skip, skp);
+        col.addView(skipRow);
         final TextView note = app.text("", 12, false);
         note.setTag("text-ready:note");
         col.addView(note);
@@ -382,7 +398,8 @@ final class TextOffer {
             String d = delim.getText().toString();
             String[] now = {m, d, after.getText().toString(), set[3], addAfter.isChecked() ? TextReady.ON : TextReady.OFF, notes.isChecked() ? TextReady.ON : TextReady.OFF,
                 sogni.isChecked() ? TextReady.ON : TextReady.OFF, section.isChecked() ? TextReady.ON : TextReady.OFF, secB.getText().toString(), secE.getText().toString(),
-                custom.getText().toString(), customAdd.isChecked() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF};
+                custom.getText().toString(), customAdd.isChecked() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF, skip.getText().toString(),
+                set.length > TextReady.F_AUTO ? set[TextReady.F_AUTO] : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             note.setText(TextReady.note(whole, d, m));
             note.setVisibility(TextReady.noteShown(whole, d, m) ? android.view.View.VISIBLE : android.view.View.GONE);
@@ -453,7 +470,7 @@ final class TextOffer {
         notes.setOnCheckedChangeListener((b, on) -> cut.run());
         sogni.setOnCheckedChangeListener((b, on) -> cut.run());
         section.setOnCheckedChangeListener((b, on) -> cut.run());
-        for (EditText f : new EditText[] {secB, secE}) f.addTextChangedListener(new android.text.TextWatcher() {
+        for (EditText f : new EditText[] {secB, secE, skip}) f.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
 
             public void onTextChanged(CharSequence s, int a, int b, int c) {}

@@ -112,6 +112,110 @@ public final class TextReady {
     return bad != null ? bad : "Sent to " + app + "'s " + (SectionCollection.NO_GROUP_PICK.equals(f.group) ? "sections (no group)" : "group " + f.group) + " as a section";
   }
 
+  /** Skip sentences with: the field's words and hint; Auto-exclude words: SogniChat's option. */
+  public static final String SKIP_LABEL = "Skip sentences with", SKIP_HINT = "words; separated; by semicolons", AUTO_EXCLUDE = "--pk-auto-exclude",
+      AUTO_LABEL = "Auto-exclude words in response text: sentences with words that spoil a render (mark, spot, scar, freckle, mole, wrinkle, anomaly, artifact, deformed, tear duct, facial lines...) and the \"AI artifacts\" section left out";
+
+  /** SogniChat's run: its Auto-exclude words switch taken off the arguments and kept with its Document ready setting. */
+  public static void takeAutoExclude(File dir, String program, List<String> argv) {
+    if (argv == null || !"SogniChat.java".equals(program)) return;
+    boolean on = false;
+    while (argv.remove(AUTO_EXCLUDE)) on = true;
+    String[] v = setting(dir, program).clone();
+    if (v.length > F_AUTO && !(on ? ON : OFF).equals(v[F_AUTO])) {
+      v[F_AUTO] = on ? ON : OFF;
+      rememberAll(dir, program, v);
+    }
+  }
+
+  /** Skip sentences with's strings: ";" between them, spaces around each left out, empty ones too. */
+  public static List<String> needles(String field) {
+    List<String> out = new ArrayList<String>();
+    if (field == null) return out;
+    for (String n : field.split(";")) if (!n.trim().isEmpty()) out.add(n.trim());
+    return out;
+  }
+
+  /** The words Auto-exclude leaves out (with their plurals), case aside. */
+  static final java.util.regex.Pattern SPOILERS = java.util.regex.Pattern.compile(
+      "\\b(marks?|specks?|spots?|scars?|liquids?|freckles?|moles?|wrinkles?|anomaly|anomalies|artifacts?|artefacts?|deformed|deformations?|deformity|deformities|tear\\s+ducts?)\\b"
+          + "|anatomical\\s+and\\s+structural\\s+inconsistenc(y|ies)", java.util.regex.Pattern.CASE_INSENSITIVE);
+  static final java.util.regex.Pattern LINES = java.util.regex.Pattern.compile("\\blines?\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+  static final java.util.regex.Pattern FACE = java.util.regex.Pattern.compile("\\b(face|faces|facial)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+  /** A bold heading line ("**Skin:**", "* **Specific Visual Anomalies (AI Artifacts):**"); the artifacts one starts a section left out. */
+  static final java.util.regex.Pattern HEADING = java.util.regex.Pattern.compile("^\\s*(?:[*\\-+]\\s+)?\\*\\*[^*]+:\\s*\\*\\*.*$|^\\s*(?:[*\\-+]\\s+)?\\*\\*[^*]+\\*\\*:.*$");
+  static final java.util.regex.Pattern ARTIFACT_HEADING = java.util.regex.Pattern.compile("anomal|artifact|artefact", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /** A sentence Auto-exclude leaves out. */
+  static boolean spoils(String sentence) {
+    if (SPOILERS.matcher(sentence).find()) return true;
+    return LINES.matcher(sentence).find() && FACE.matcher(sentence).find();
+  }
+
+  /** Auto-exclude words: the "AI artifacts" section (its heading to the next bold heading) and each sentence with a spoiling word left out. */
+  public static String autoExclude(String text) {
+    if (text == null) return "";
+    StringBuilder kept = new StringBuilder();
+    boolean in = false;
+    for (String line : text.replace("\r", "").split("\n", -1)) {
+      boolean heading = HEADING.matcher(line).matches();
+      if (heading) in = ARTIFACT_HEADING.matcher(line).find();
+      if (in) continue;
+      kept.append(line).append('\n');
+    }
+    String t = kept.length() > 0 ? kept.substring(0, kept.length() - 1) : "";
+    return sentencesOut(t, null);
+  }
+
+  /** Skip sentences with: each sentence holding one of `needles` (case aside) left out. */
+  public static String skipSentences(String text, List<String> needles) {
+    if (text == null || needles == null || needles.isEmpty()) return text == null ? "" : text;
+    List<String> low = new ArrayList<String>();
+    for (String n : needles) low.add(n.toLowerCase(java.util.Locale.ROOT));
+    return sentencesOut(text, low);
+  }
+
+  /**
+   * The text without the sentences that match (`needles`, else Auto-exclude's words): line by line, a sentence
+   * ending at . ! ? (or the line's end); a line left with only its bullet or bold label goes too.
+   */
+  static String sentencesOut(String text, List<String> needles) {
+    StringBuilder out = new StringBuilder();
+    java.util.regex.Pattern end = java.util.regex.Pattern.compile("[^.!?]+(?:[.!?]+[\"'\u201d)\\]]*|$)");
+    for (String line : text.split("\n", -1)) {
+      if (line.trim().isEmpty()) {
+        out.append(line).append('\n');
+        continue;
+      }
+      java.util.regex.Matcher m = end.matcher(line);
+      StringBuilder kept = new StringBuilder();
+      boolean dropped = false;
+      while (m.find()) {
+        String sentence = m.group();
+        if (sentence.trim().isEmpty()) {
+          kept.append(sentence);
+          continue;
+        }
+        boolean out1;
+        if (needles == null) out1 = spoils(sentence);
+        else {
+          String sl = sentence.toLowerCase(java.util.Locale.ROOT);
+          out1 = false;
+          for (String n : needles) if (sl.contains(n)) out1 = true;
+        }
+        if (out1) dropped = true;
+        else kept.append(sentence);
+      }
+      String k = kept.toString().replaceAll("\\s+$", "");
+      // Only a bullet or a bold label left ("*   **Skin:**"): the line goes.
+      if (dropped && k.replaceAll("^\\s*[*\\-+]?\\s*(\\*\\*[^*]*\\*\\*)?\\s*:?\\s*$", "").isEmpty()) continue;
+      String indent = line.substring(0, line.length() - line.replaceAll("^\\s+", "").length());
+      out.append(dropped ? indent + k.trim().replaceAll("(\\S)\\s{2,}(?=\\S)", "$1 ") : line).append('\n');
+    }
+    String t = out.length() > 0 ? out.substring(0, out.length() - 1) : "";
+    return t.replaceAll("\n{3,}", "\n\n").trim();
+  }
+
   /** Custom text: the item in the Select list, its field's hint, and its long press menu. */
   public static final String SELECT_MENU = "Select \u25be", CUSTOM_TEXT = "Custom text", CUSTOM_HINT = "Custom text: added after the answer (long press: Save, Add into program's group)",
       CUSTOM_SAVE = "Save", CUSTOM_GROUP = "Add into program's group", CUSTOM_CLEAR = "Clear", CUT = "Cut", COPY_TEXT = "Copy", PASTE = "Paste", FIELDS_HIDE = "\u2212", FIELDS_SHOW = "+", SECTION_NAME = "Section name", CUSTOM_FILE = "custom-text.txt";
@@ -184,14 +288,14 @@ public final class TextReady {
    * else SogniChat's reply line with Cut after (no text after).
    */
   /** A program's settings' fields: cut, delimiter, text after, where it came from, Add, Remove note sections, Sogni cut,
-   *  Remove section, its B and E, Custom text and whether it is added, whether the two text fields are shown (+/-). */
-  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, F_CUSTOM_ADD = 11, F_SHOWN = 12, FIELDS = 13;
+   *  Remove section, its B and E, Custom text and whether it is added, whether the two text fields are shown (+/-), Skip sentences with, Auto-exclude words. */
+  public static final int F_MODE = 0, F_DELIM = 1, F_AFTER = 2, F_FROM = 3, F_ADD = 4, F_NOTES = 5, F_SOGNI = 6, F_SECTION = 7, F_B = 8, F_E = 9, F_CUSTOM = 10, F_CUSTOM_ADD = 11, F_SHOWN = 12, F_SKIP = 13, F_AUTO = 14, FIELDS = 15;
 
   public static String[] setting(File dir, String program) {
     String[] got = load(dir).get(program);
     if (got != null) return got;
-    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON}
-        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON};
+    return "SogniChat.java".equals(program) ? new String[] {CUT_AFTER, SOGNI_REPLY, "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON, "", OFF}
+        : new String[] {NO_CUT, "", "", FROM_FILE, ON, OFF, OFF, OFF, "", "", "", ON, ON, "", OFF};
   }
 
   /** The cut and delimiter remembered; the text after as it was. */
@@ -239,6 +343,8 @@ public final class TextReady {
     v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
     v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
     v[F_SHOWN] = OFF.equals(v[F_SHOWN]) ? OFF : ON;
+    v[F_AUTO] = ON.equals(v[F_AUTO]) ? ON : OFF;
+    v[F_SKIP] = oneLine(v[F_SKIP]);
     v[F_B] = oneLine(v[F_B]);
     v[F_E] = oneLine(v[F_E]);
     Map<String, String[]> all = load(dir);
@@ -297,6 +403,7 @@ public final class TextReady {
         v[F_SECTION] = ON.equals(v[F_SECTION]) ? ON : OFF;
         v[F_CUSTOM_ADD] = OFF.equals(v[F_CUSTOM_ADD]) ? OFF : ON;
         v[F_SHOWN] = OFF.equals(v[F_SHOWN]) ? OFF : ON;
+        v[F_AUTO] = ON.equals(v[F_AUTO]) ? ON : OFF;
         out.put(p[0], v);
       }
     } catch (Exception ignored) {
@@ -380,6 +487,10 @@ public final class TextReady {
     // Remove note sections, and Remove section (B to E): from the whole processed text (the answer and the text after it).
     if (set.length > F_NOTES && ON.equals(set[F_NOTES])) all = withoutNotes(all);
     if (set.length > F_E && ON.equals(set[F_SECTION])) all = withoutSections(all, set[F_B], set[F_E]);
+    // Auto-exclude words (SogniChat's option): the sentences with words that spoil a render, and the "AI artifacts" section.
+    if (set.length > F_AUTO && ON.equals(set[F_AUTO])) all = autoExclude(all);
+    // Skip sentences with: each sentence holding one of the strings (";" between them) left out.
+    if (set.length > F_SKIP && set[F_SKIP] != null && !set[F_SKIP].trim().isEmpty()) all = skipSentences(all, needles(set[F_SKIP]));
     // Custom text: the user's own, after the processed text (not cut), when its checkbox is ticked.
     boolean customOn = set.length <= F_CUSTOM_ADD || !OFF.equals(set[F_CUSTOM_ADD]);
     String custom = customOn && set.length > F_CUSTOM && set[F_CUSTOM] != null ? set[F_CUSTOM].trim() : "";

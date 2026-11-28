@@ -806,6 +806,8 @@ final class PyJav {
         DownloadMove.takeValue(runArgs, SogniUsage.WARN_PARAM);
         // Chain and Batch prompt: Pulsekit's (the chain starts when the run or batch is over).
         Chain.strip(runArgs);
+        // SogniChat's Auto-exclude words: kept with its Document ready setting (its answers processed so).
+        TextReady.takeAutoExclude(PromptDb.dir(), name, runArgs);
         if (inBatchQ != null && groupPattern.length() > 0) {
             if (inBatchQ.group == null) inBatchQ.group = BatchGroup.resolve(PromptDb.dir(), groupPattern);
             java.util.List<String> groupFilled = BatchGroup.withGroup(ProgramParams.parse(this.programText()), runArgs, inBatchQ.group);
@@ -3635,6 +3637,12 @@ final class PyJav {
         checks.add(secB);
         checks.add(new JLabel(TextReady.SECTION_E));
         checks.add(secE);
+        // Skip sentences with: each sentence holding one of these (";" between them) left out (remembered).
+        final javax.swing.JTextField skip = new javax.swing.JTextField(set.length > TextReady.F_SKIP ? set[TextReady.F_SKIP] : "", 16);
+        skip.setName("text-ready:skip");
+        skip.setToolTipText(TextReady.SKIP_HINT);
+        checks.add(new JLabel(TextReady.SKIP_LABEL));
+        checks.add(skip);
         top.add(checks, java.awt.BorderLayout.EAST);
         final JLabel note = new JLabel();
         note.setName("text-ready:note");
@@ -3789,7 +3797,8 @@ final class PyJav {
             String d = delim.getText();
             String[] now = {m, d, after.getText(), set[3], addAfter.isSelected() ? TextReady.ON : TextReady.OFF, notes.isSelected() ? TextReady.ON : TextReady.OFF, sogni.isSelected() ? TextReady.ON : TextReady.OFF,
                 section.isSelected() ? TextReady.ON : TextReady.OFF, secB.getText(), secE.getText(), custom.getText(),
-                customAdd.isSelected() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF};
+                customAdd.isSelected() ? TextReady.ON : TextReady.OFF, fieldsShown[0] ? TextReady.ON : TextReady.OFF, skip.getText(),
+                set.length > TextReady.F_AUTO ? set[TextReady.F_AUTO] : TextReady.OFF};
             body.setText(TextReady.result(whole, now));
             body.setCaretPosition(0);
             note.setText(TextReady.note(whole, d, m));
@@ -3807,7 +3816,7 @@ final class PyJav {
         notes.addActionListener(e -> cut.run());
         sogni.addActionListener(e -> cut.run());
         section.addActionListener(e -> cut.run());
-        for (javax.swing.JTextField f : new javax.swing.JTextField[] {secB, secE}) f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        for (javax.swing.JTextField f : new javax.swing.JTextField[] {secB, secE, skip}) f.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 cut.run();
             }
